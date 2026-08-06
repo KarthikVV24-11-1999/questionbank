@@ -53,10 +53,10 @@ navigationPolicy:
   allowAnswerChange: true
   allowClearResponse: true
 
-# Three rules cover the entire paper. The document writes rule 3 as
-# `NO_MATCH → −1`; expressed as the terminal ALWAYS that F46 requires it is the
-# same function, since after UNATTEMPTED and EXACT_MATCH the only remaining
-# case is a wrong response.
+# The three authored rules from ASSESSMENT-ENGINE §2.4 plus the terminal
+# ALWAYS that F46 requires. The terminal rule awards 0, never a penalty: a
+# response state the authors did not anticipate must not cost a candidate a
+# mark. The JEE Advanced set in §2.4 terminates the same way.
 markingRuleSet:
   schemaVersion: 1
   rules:
@@ -80,10 +80,18 @@ markingRuleSet:
       appliesTo:
         itemTypes: [SINGLE_CORRECT_MCQ, NUMERIC]
       condition:
-        kind: ALWAYS
+        kind: NO_MATCH
       award:
         kind: FIXED
         marks: -1
+    - id: default
+      appliesTo:
+        itemTypes: [SINGLE_CORRECT_MCQ, NUMERIC]
+      condition:
+        kind: ALWAYS
+      award:
+        kind: FIXED
+        marks: 0
 
 # Numeric answers are compared with an absolute tolerance by default (D-001
 # rule 2); an item may override it.

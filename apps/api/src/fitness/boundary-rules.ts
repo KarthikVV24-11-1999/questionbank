@@ -27,15 +27,29 @@ export interface BoundaryCheckOptions {
   readonly domainPattern?: RegExp;
 }
 
-const IMPORT_PATTERN = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+['"]([^'"]+)['"]/gu;
+/**
+ * Every way a module can reach another one. Static `import`/`export … from` is
+ * the common case, but a dynamic `import()`, a `require()`, or a bare
+ * side-effect `import 'x'` reaches just as far — a rule that misses them can be
+ * stepped around, which is worse than no rule at all.
+ */
+const IMPORT_PATTERNS: readonly RegExp[] = [
+  /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+['"]([^'"]+)['"]/gu,
+  /(?:^|\n)\s*import\s+['"]([^'"]+)['"]/gu,
+  /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+  /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+];
+
 const DEFAULT_EXCLUDES = [/\.spec\.ts$/u, /^src\/testing\//u, /^src\/fitness-fixtures\//u, /^src\/fitness\//u];
 
-/** Every module the file imports, as written. */
+/** Every module the file reaches, however it reaches it. */
 export function importsOf(source: string): string[] {
   const found: string[] = [];
-  for (const match of source.matchAll(IMPORT_PATTERN)) {
-    const specifier = match[1];
-    if (specifier !== undefined) found.push(specifier);
+  for (const pattern of IMPORT_PATTERNS) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1];
+      if (specifier !== undefined && !found.includes(specifier)) found.push(specifier);
+    }
   }
   return found;
 }

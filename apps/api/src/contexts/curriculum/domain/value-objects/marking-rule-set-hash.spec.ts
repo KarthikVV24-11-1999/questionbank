@@ -50,6 +50,7 @@ describe('canonical serialization', () => {
 
     expect(canonical.indexOf('"unattempted"')).toBeLessThan(canonical.indexOf('"correct"'));
     expect(canonical.indexOf('"correct"')).toBeLessThan(canonical.indexOf('"incorrect"'));
+    expect(canonical.indexOf('"incorrect"')).toBeLessThan(canonical.indexOf('"default"'));
   });
 });
 
@@ -151,6 +152,32 @@ describe('hash sensitivity', () => {
     });
 
     expect(mutated).not.toBe(baseline);
+  });
+
+  it('changes when a matching-pair count changes', () => {
+    const pairsRuleSet = (count: number): MarkingRuleSetData => ({
+      schemaVersion: 1,
+      rules: [
+        {
+          id: 'pairs',
+          appliesTo: { itemTypes: ['MATCHING'] },
+          condition: { kind: 'MATCHING_PAIRS_CORRECT', count },
+          award: { kind: 'FIXED', marks: 2 },
+        },
+        {
+          id: 'default',
+          appliesTo: { itemTypes: ['MATCHING'] },
+          condition: { kind: 'ALWAYS' },
+          award: { kind: 'FIXED', marks: 0 },
+        },
+      ],
+    });
+
+    expect(hashOf(pairsRuleSet(4))).not.toBe(hashOf(pairsRuleSet(3)));
+    expect(hashOf(pairsRuleSet(4))).toBe(hashOf(pairsRuleSet(4)));
+    expect(canonicalizeMarkingRuleSet(expectValue(MarkingRuleSet.create(pairsRuleSet(4))))).toContain(
+      '"condition":{"count":"4","kind":"MATCHING_PAIRS_CORRECT"}',
+    );
   });
 
   it('changes when noIncorrect flips', () => {
