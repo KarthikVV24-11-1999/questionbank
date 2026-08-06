@@ -50,8 +50,8 @@ navigationPolicy:
   allowAnswerChange: true
   allowClearResponse: true
 
-# The same three-rule set as JEE Main, applied to a different section structure
-# and to single-correct MCQ only.
+# The same marking set as JEE Main, applied to a different section structure
+# and to single-correct MCQ only. Terminal ALWAYS awards 0, never a penalty.
 markingRuleSet:
   schemaVersion: 1
   rules:
@@ -75,10 +75,18 @@ markingRuleSet:
       appliesTo:
         itemTypes: [SINGLE_CORRECT_MCQ]
       condition:
-        kind: ALWAYS
+        kind: NO_MATCH
       award:
         kind: FIXED
         marks: -1
+    - id: default
+      appliesTo:
+        itemTypes: [SINGLE_CORRECT_MCQ]
+      condition:
+        kind: ALWAYS
+      award:
+        kind: FIXED
+        marks: 0
 
 itemTypeAllowances:
   - itemType: SINGLE_CORRECT_MCQ

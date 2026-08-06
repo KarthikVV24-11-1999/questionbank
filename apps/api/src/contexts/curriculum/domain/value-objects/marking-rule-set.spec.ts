@@ -169,12 +169,27 @@ describe('MarkingRule', () => {
 });
 
 describe('MarkingRuleSet structure', () => {
-  it('validates the JEE Main three-rule set', () => {
+  it('validates the JEE Main set: three authored rules plus a terminal ALWAYS', () => {
     const set = expectValue(MarkingRuleSet.create(JEE_MAIN_RULE_SET));
 
-    expect(set.rules).toHaveLength(3);
-    expect(set.ruleIds).toEqual(['unattempted', 'correct', 'incorrect']);
+    expect(set.rules).toHaveLength(4);
+    expect(set.ruleIds).toEqual(['unattempted', 'correct', 'incorrect', 'default']);
+    expect(set.rules.map((rule) => rule.condition.kind)).toEqual([
+      'UNATTEMPTED',
+      'EXACT_MATCH',
+      'NO_MATCH',
+      'ALWAYS',
+    ]);
     expect(set.warnings).toEqual([]);
+  });
+
+  it('terminates in a neutral award, never a penalty', () => {
+    const set = expectValue(MarkingRuleSet.create(JEE_MAIN_RULE_SET));
+    const terminal = set.rules.at(-1);
+
+    // An unanticipated response state must not cost a candidate a mark.
+    expect(terminal?.condition.kind).toBe('ALWAYS');
+    expect(terminal?.award).toEqual({ kind: 'FIXED', marks: 0 });
   });
 
   it('validates the JEE Advanced seven-rule set with zero structural change', () => {
@@ -209,7 +224,7 @@ describe('MarkingRuleSet structure', () => {
   });
 
   it('rejects a set that does not terminate in ALWAYS', () => {
-    const withoutAlways = JEE_MAIN_RULE_SET.rules.slice(0, 2);
+    const withoutAlways = JEE_MAIN_RULE_SET.rules.slice(0, 3);
 
     const error = expectError(MarkingRuleSet.create(ruleSet(withoutAlways)));
 
@@ -217,19 +232,19 @@ describe('MarkingRuleSet structure', () => {
   });
 
   it('rejects an ALWAYS rule that is not last', () => {
-    const alwaysFirst = [JEE_MAIN_RULE_SET.rules[2], JEE_MAIN_RULE_SET.rules[0], JEE_MAIN_RULE_SET.rules[1]];
+    const alwaysFirst = [JEE_MAIN_RULE_SET.rules[3], JEE_MAIN_RULE_SET.rules[0], JEE_MAIN_RULE_SET.rules[1]];
 
     const error = expectError(MarkingRuleSet.create(ruleSet(alwaysFirst as MarkingRuleSetData['rules'])));
 
     expect(error.code).toBe('ALWAYS_RULE_NOT_LAST');
-    expect(error.ruleId).toBe('incorrect');
+    expect(error.ruleId).toBe('default');
   });
 
   it('rejects a duplicate rule id', () => {
     const duplicated = [
       JEE_MAIN_RULE_SET.rules[0],
       { ...JEE_MAIN_RULE_SET.rules[0], condition: { kind: 'EXACT_MATCH' } },
-      JEE_MAIN_RULE_SET.rules[2],
+      JEE_MAIN_RULE_SET.rules[3],
     ];
 
     const error = expectError(MarkingRuleSet.create(ruleSet(duplicated as MarkingRuleSetData['rules'])));
@@ -241,7 +256,7 @@ describe('MarkingRuleSet structure', () => {
   it('reports the offending rule id when a rule is invalid', () => {
     const broken = [
       { ...JEE_MAIN_RULE_SET.rules[0], appliesTo: { itemTypes: [] } },
-      JEE_MAIN_RULE_SET.rules[2],
+      JEE_MAIN_RULE_SET.rules[3],
     ];
 
     const error = expectError(MarkingRuleSet.create(ruleSet(broken as MarkingRuleSetData['rules'])));
@@ -280,6 +295,7 @@ describe('MarkingRuleSet ordering', () => {
       'unattempted',
       'correct',
       'incorrect',
+      'default',
     ]);
     expect(set.rulesForItemType('NUMERIC')).toEqual([]);
   });

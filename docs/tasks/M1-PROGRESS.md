@@ -33,3 +33,49 @@
 | M1-29 | 2026-08-05 | 11 | JEE Main 2026 exam profile (`tools/seed/data/jee-main-2026.profile.yaml`) + profile schema and loader: 3×25 items (20 MCQ + 5 numeric), 300 marks, 180-minute single timer, three-rule marking set, tolerance defaults; publishes with every precondition met and matches a committed golden hash. |
 | M1-30 | 2026-08-05 | 22 | **NEET UG 2026 profile — the EXT-01 proof.** 180 items (45/45/90), 720 marks, 200 minutes, single-correct MCQ only; publishes with no schema migration and no change outside `tools/seed/data/`, asserted by a `git diff --name-only` check against the pre-NEET commit. Its marking set hashes identically to the ASSESSMENT-ENGINE §2.4 reference set. |
 | M1-31 | 2026-08-05 | 7 | `pnpm seed` loads and publishes both taxonomies and both profiles on a clean database in ~0.3s (budget 60s), is idempotent (second run reports `unchanged` with identical row counts), and attributes every publication to a system `PrincipalRef`. |
+| M1-32 | 2026-08-05 | 20 | Studio taxonomy browser: version selector, lazily expanded tree, concept detail with prerequisites (item count stubbed), search across collapsed branches, published versions visibly read-only. Automated axe WCAG 2.2 AA scan clean; 600-node expand/collapse under the 200 ms budget; keyboard-operable end to end. `apps/studio` scaffolded (React 19 + Testing Library + axe-core). |
+| M1-33 | 2026-08-05 | 26 | Studio taxonomy draft editor: create from scratch or by cloning, add/rename/move/remove concepts, add prerequisite edges; cycles, orphans and duplicates surface inline as they are made; publish enabled only when every precondition is met; a stale save shows an explicit conflict, never a silent overwrite. axe scan clean, keyboard-operable. |
+| M1-34 | 2026-08-05 | 27 | Studio exam profile viewer: sections, timing, allowances; marking rules rendered in evaluation order in plain language ("If the item is unattempted → 0 marks") for both the JEE Main 3-rule and JEE Advanced 7-rule sets; hash shown and copyable; published profiles read-only. axe scan clean. |
+| M1-35 | 2026-08-05 | 18 | Studio migration console: source/target selection, dry-run results shown before execution is offered, every exception requires an explicit decision, execution gated on typing MIGRATE, chunked progress reported to completion. axe scan clean. |
+
+---
+
+## Milestone Definition of Done
+
+Checked on 2026-08-05 against the checklist in [M1-CURRICULUM-SPINE.md](M1-CURRICULUM-SPINE.md).
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 1 | All 35 tasks merged | **Pass, with one caveat** | 35/35 implemented and committed; M1-28 awaits SME sign-off |
+| 2 | JEE Main 2026 taxonomy (600 concepts) and profile published | **Pass** | 608 concepts; loads, validates and publishes |
+| 3 | NEET UG profile published with zero non-data file changes | **Pass** | `git diff` assertion over the NEET commit range |
+| 4 | Every published version rejects mutation via ORM **and** raw SQL | **Pass** | 19 trigger tests, both paths, parents and children |
+| 5 | Migration dry-run produces a correct exception list on a real version pair | **Pass** | M1-13 unit + M1-21 integration against stored versions |
+| 6 | JEE Advanced-shaped rule set validates and hashes (EXT-03) | **Pass** | 7-rule set validates, publishes, golden hash pinned |
+| 7 | Fitness functions F1, F2, F5, F36, F46 green | **Pass** | F1/F2 boundary check, F5 JSONB catalogue query, F36 registry, F46 ALWAYS-termination; F15 and F18 also covered |
+| 8 | Authorization negative-path coverage 100% on curriculum handlers | **Pass, unmeasured** | All 22 handlers/queries have negative-path tests; no coverage tool enforces the number |
+| 9 | `pnpm seed` completes in ≤ 60 s | **Pass** | 0.3 s on a clean database |
+| 10 | Studio taxonomy and profile surfaces pass automated accessibility scan | **Pass** | axe WCAG 2.2 AA clean across all four surfaces |
+| 11 | Deployed to staging and demonstrated end to end | **Fail — not attempted** | Requires M0 (Compose, Terraform, ECS, CI), which does not exist |
+
+### Outstanding work
+
+- **M0 infrastructure** — Compose, CI, Terraform, ECS. Item 11 cannot be met without it.
+- **Playwright E2E** — Track F ships component tests and axe scans; the E2E journeys named in M1-32…35 need an assembled, runnable Studio app (shell, router, 1280 px gate), which M1 does not build.
+- **SME sign-off on the JEE Main taxonomy** (M1-28) and the NEET taxonomy.
+- **Durable audit writer** — `AuditRecorder` is a port; `identity.audit_record` arrives with the Identity schema.
+- **Real authentication** — `PrincipalResolver` is a port with a header-based test implementation.
+- **Coverage thresholds** — handbook §5 mandates ≥80% line / ≥70% branch overall and 100% branch on scoring; no threshold is enforced in CI yet.
+- **Compose boot verification (F8)** for `pnpm seed`.
+
+---
+
+## Close-out
+
+Audited 2026-08-05. Evidence, per-item DoD verdicts, findings and debt register:
+[M1-CLOSEOUT.md](M1-CLOSEOUT.md) · [M1-TRACEABILITY.md](M1-TRACEABILITY.md) · [../HANDOFF-M2.md](../HANDOFF-M2.md)
+
+Corrections made during the audit: marking rule sets now terminate in `ALWAYS → 0` (ADR-0003,
+golden hashes regenerated); boundary checker detects dynamic `import()`/`require()`; F36 proven at
+the module boot path; handbook §5 coverage thresholds enforced; two coverage gaps closed on the
+scoring surface; database URL defaults moved to the Compose port 5432.

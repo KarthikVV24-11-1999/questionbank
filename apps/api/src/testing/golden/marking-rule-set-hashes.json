@@ -1,7 +1,7 @@
 {
-  "note": "Golden hashes of the canonical marking rule set serialization. A change here means a scoring-semantics change and must be reviewed as one. `jeeMain`/`jeeAdvanced` are the ASSESSMENT-ENGINE \u00a72.4 reference sets; `jeeMain2026Profile` is the set the shipped JEE Main 2026 profile carries, which also covers NUMERIC items.",
+  "note": "Golden hashes of the canonical marking rule set serialization. A change here means a scoring-semantics change and must be reviewed as one. `jeeMain`/`jeeAdvanced` are the ASSESSMENT-ENGINE §2.4 reference sets, each ALWAYS-terminated per F46 with a neutral terminal award; `jeeMain2026Profile` is the set the shipped JEE Main 2026 profile carries, which also covers NUMERIC items. The NEET UG 2026 profile carries the `jeeMain` set exactly and therefore shares its hash.",
   "algorithm": "sha256",
-  "jeeMain": "11b9ca4d67217f27d5a594058ab68d061ee9bf2dae9ccf2154ca4ab9cc313012",
+  "jeeMain": "048dabf4d75f77a4fd34560617160484559dc67156d9ef49f995a7031c611ae6",
   "jeeAdvanced": "556c3c632d3596d3951f92d173326e3f6c53cce897914f2e88ede53b458cd07a",
-  "jeeMain2026Profile": "30460a04f75fc757aed2da72664d6e6c69b9960a3ac234fe338011c2c2cabcaa"
+  "jeeMain2026Profile": "4fe24605633cf4c978bb84cd8263ee13dc6f085f3a613bb7265e470cd1327a91"
 }

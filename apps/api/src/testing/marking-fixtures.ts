@@ -4,18 +4,22 @@ const MCQ = ['SINGLE_CORRECT_MCQ'] as const;
 const MULTI = ['MULTIPLE_CORRECT_MCQ'] as const;
 
 /**
- * JEE Main / NEET UG (ASSESSMENT-ENGINE §2.4), three rules.
+ * JEE Main / NEET UG (ASSESSMENT-ENGINE §2.4): the three authored rules plus
+ * the terminal `ALWAYS` that F46 requires.
  *
- * The document writes rule 3 as `NO_MATCH → −1`; expressed as the terminal
- * `ALWAYS` that F46 requires, it is the same function: after UNATTEMPTED and
- * EXACT_MATCH, the only remaining case is a wrong response.
+ * The terminal rule awards 0, never a penalty. A response state that is
+ * neither unattempted, nor matched, nor a recognised mismatch is one the
+ * authors did not anticipate — deducting a mark for it would penalise a
+ * candidate for an engine gap. This mirrors the JEE Advanced set in §2.4,
+ * which also terminates in `ALWAYS → 0`.
  */
 export const JEE_MAIN_RULE_SET: MarkingRuleSetData = {
   schemaVersion: 1,
   rules: [
     { id: 'unattempted', appliesTo: { itemTypes: [...MCQ] }, condition: { kind: 'UNATTEMPTED' }, award: { kind: 'FIXED', marks: 0 } },
     { id: 'correct', appliesTo: { itemTypes: [...MCQ] }, condition: { kind: 'EXACT_MATCH' }, award: { kind: 'FIXED', marks: 4 } },
-    { id: 'incorrect', appliesTo: { itemTypes: [...MCQ] }, condition: { kind: 'ALWAYS' }, award: { kind: 'FIXED', marks: -1 } },
+    { id: 'incorrect', appliesTo: { itemTypes: [...MCQ] }, condition: { kind: 'NO_MATCH' }, award: { kind: 'FIXED', marks: -1 } },
+    { id: 'default', appliesTo: { itemTypes: [...MCQ] }, condition: { kind: 'ALWAYS' }, award: { kind: 'FIXED', marks: 0 } },
   ],
 };
 

@@ -19,8 +19,13 @@ const REPO_ROOT = resolve(DATA, '../../..');
 const profileContents = readFileSync(join(DATA, 'neet-ug-2026.profile.yaml'), 'utf8');
 const taxonomyContents = readFileSync(join(DATA, 'neet-ug-2026.taxonomy.yaml'), 'utf8');
 
-/** The commit NEET UG was added on top of. */
+/**
+ * The NEET UG change itself: the commit that added it and the commit it was
+ * added on top of. The assertion is about that change, not about everything
+ * that has landed since.
+ */
 const PRE_NEET_COMMIT = '5739889bf54436aded0d067974a43622605f8294';
+const NEET_COMMIT = '5c03b707c68baaa316001b82d970e70fe3be4df2';
 
 const owner: PrincipalRef = {
   kind: 'human',
@@ -39,8 +44,11 @@ function parsed(): ProfileFile {
   return outcome.file;
 }
 
-function changedFilesSince(commit: string): string[] {
-  return execFileSync('git', ['diff', '--name-only', commit, 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' })
+function filesChangedByTheNeetCommit(): string[] {
+  return execFileSync('git', ['diff', '--name-only', PRE_NEET_COMMIT, NEET_COMMIT], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  })
     .split('\n')
     .filter((line) => line.trim() !== '');
 }
@@ -111,11 +119,22 @@ describe('NEET UG 2026 profile shape', () => {
     expect(file.itemTypeAllowances.map((allowance) => allowance.itemType)).toEqual(['SINGLE_CORRECT_MCQ']);
   });
 
-  it('carries the same three-rule marking set as JEE Main', () => {
+  it('carries the same marking set as JEE Main, ALWAYS-terminated', () => {
     const rules = parsed().markingRuleSet.rules;
 
-    expect(rules.map((rule) => rule.condition.kind)).toEqual(['UNATTEMPTED', 'EXACT_MATCH', 'ALWAYS']);
-    expect(rules.map((rule) => (rule.award.kind === 'FULL_MARKS' ? null : rule.award.marks))).toEqual([0, 4, -1]);
+    expect(rules.map((rule) => rule.condition.kind)).toEqual([
+      'UNATTEMPTED',
+      'EXACT_MATCH',
+      'NO_MATCH',
+      'ALWAYS',
+    ]);
+    expect(rules.map((rule) => (rule.award.kind === 'FULL_MARKS' ? null : rule.award.marks))).toEqual([0, 4, -1, 0]);
+  });
+
+  it('never penalises an unanticipated response state', () => {
+    const terminal = parsed().markingRuleSet.rules.at(-1);
+
+    expect(terminal?.award).toEqual({ kind: 'FIXED', marks: 0 });
   });
 });
 
@@ -148,24 +167,20 @@ describe('EXT-01: a new exam is configuration alone', () => {
   }, 60_000);
 
   it('touches only files under tools/seed/data', () => {
-    const changed = changedFilesSince(PRE_NEET_COMMIT);
+    const changed = filesChangedByTheNeetCommit();
 
     expect(changed.length).toBeGreaterThan(0);
     for (const file of changed) {
-      const isData = file.startsWith('tools/seed/data/');
-      const isProgressLog = file === 'docs/tasks/M1-PROGRESS.md';
-      expect(isData || isProgressLog, file).toBe(true);
+      expect(file.startsWith('tools/seed/data/'), file).toBe(true);
     }
   });
 
   it('requires no schema migration', () => {
-    const changed = changedFilesSince(PRE_NEET_COMMIT);
-
-    expect(changed.filter((file) => file.startsWith('infra/migrations/'))).toEqual([]);
+    expect(filesChangedByTheNeetCommit().filter((file) => file.startsWith('infra/migrations/'))).toEqual([]);
   });
 
   it('changes no application, domain or infrastructure code', () => {
-    const changed = changedFilesSince(PRE_NEET_COMMIT);
+    const changed = filesChangedByTheNeetCommit();
 
     expect(changed.filter((file) => file.startsWith('apps/'))).toEqual([]);
     expect(changed.filter((file) => file.startsWith('packages/'))).toEqual([]);

@@ -39,7 +39,7 @@ describe('ExamProfileVersion composition', () => {
     expect(draft.totalMarks).toBe(300);
     expect(draft.timingPolicy.totalDurationMinutes).toBe(180);
     expect(draft.navigationPolicy.crossSectionNavigation).toBe(true);
-    expect(draft.markingRuleSet.rules).toHaveLength(3);
+    expect(draft.markingRuleSet.rules).toHaveLength(4);
     expect(draft.toleranceDefault?.comparisonMode).toBe('ABSOLUTE_TOLERANCE');
     expect(draft.itemTypeAllowances.map((allowance) => allowance.itemType)).toEqual([MCQ, NUMERIC]);
     expect(draft.taxonomyVersionId).toBe('tv_jee_main_2026');

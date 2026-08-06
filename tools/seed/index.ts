@@ -112,8 +112,9 @@ export async function seed(db: NodePgDatabase): Promise<SeedSummary> {
   };
 }
 
+/** Defaults to the port the Compose stack publishes; override with DATABASE_URL. */
 export const DATABASE_URL =
-  process.env['DATABASE_URL'] ?? 'postgres://postgres@127.0.0.1:5433/questionbank';
+  process.env['DATABASE_URL'] ?? 'postgres://postgres@127.0.0.1:5432/questionbank';
 
 /** `pnpm seed` entry point. */
 export async function main(): Promise<void> {

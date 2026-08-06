@@ -50,6 +50,21 @@ describe('F2 — domain imports nothing', () => {
     ).toEqual([]);
   });
 
+  it('catches a domain module evading the rule by dynamic import or require', () => {
+    const violations = checkBoundaries(API_ROOT, {
+      include: ['src/fitness-fixtures/as-domain'],
+      excludePatterns: [/\.spec\.ts$/u],
+      domainPattern: /^src\/fitness-fixtures\/as-domain\//u,
+    }).filter((violation) => violation.file.includes('planted-evasion'));
+
+    expect([...new Set(violations.map((violation) => violation.importPath))].sort()).toEqual([
+      '../../contexts/curriculum/infrastructure/schema.js',
+      'drizzle-orm',
+    ]);
+    expect(violations.some((violation) => violation.rule === 'DOMAIN_REACHES_OUTWARD')).toBe(true);
+    expect(violations.some((violation) => violation.rule === 'F2_DOMAIN_IMPORTS_NOTHING')).toBe(true);
+  });
+
   it('fires on a planted domain-layer violation', () => {
     const violations = checkBoundaries(API_ROOT, {
       include: ['src/fitness-fixtures/as-domain'],
@@ -57,7 +72,10 @@ describe('F2 — domain imports nothing', () => {
       domainPattern: /^src\/fitness-fixtures\/as-domain\//u,
     });
 
-    const planted = violations.filter((violation) => violation.rule !== 'F1_CONTEXT_BOUNDARY');
+    const planted = violations.filter(
+      (violation) =>
+        violation.rule !== 'F1_CONTEXT_BOUNDARY' && violation.file.includes('planted-domain-violation'),
+    );
     expect(planted.map((violation) => violation.rule)).toEqual([
       'F2_DOMAIN_IMPORTS_NOTHING',
       'DOMAIN_REACHES_OUTWARD',
@@ -73,6 +91,17 @@ describe('import extraction', () => {
     [`import {\n  D,\n} from '@questionbank/domain-types';`, ['@questionbank/domain-types']],
     [`const x = 1;`, []],
   ])('extracts %j', (source, expected) => {
+    expect(importsOf(source)).toEqual(expected);
+  });
+
+  // A rule that can be stepped around is worse than no rule: these are the
+  // routes dependency-cruiser follows, so the in-repo checker must too.
+  it.each([
+    [`const m = await import('../infrastructure/schema.js');`, ['../infrastructure/schema.js']],
+    [`const m = require('drizzle-orm');`, ['drizzle-orm']],
+    [`import 'reflect-metadata';`, ['reflect-metadata']],
+    [`export * from '../infrastructure/schema.js';`, ['../infrastructure/schema.js']],
+  ])('detects the non-static form %j', (source, expected) => {
     expect(importsOf(source)).toEqual(expected);
   });
 

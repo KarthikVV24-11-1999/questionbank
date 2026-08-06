@@ -7,8 +7,12 @@ import { sql } from 'drizzle-orm';
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../infra/migrations');
 
+/**
+ * Defaults to the port the Compose stack publishes. A machine running Postgres
+ * elsewhere sets DATABASE_URL; nothing here depends on a particular port.
+ */
 export const DATABASE_URL =
-  process.env['DATABASE_URL'] ?? 'postgres://postgres@127.0.0.1:5433/questionbank_test';
+  process.env['DATABASE_URL'] ?? 'postgres://postgres@127.0.0.1:5432/questionbank_test';
 
 export interface MigrationFile {
   readonly name: string;

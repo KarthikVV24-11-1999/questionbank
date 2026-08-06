@@ -71,8 +71,9 @@ function serialize(value: Canonical): string {
   if (typeof value === 'string') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(serialize).join(',')}]`;
 
+  // Object keys are unique, so the comparator never needs a tie arm.
   const entries = Object.entries(value as { readonly [key: string]: Canonical }).sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0,
+    a < b ? -1 : 1,
   );
   return `{${entries.map(([key, nested]) => `${JSON.stringify(key)}:${serialize(nested)}`).join(',')}}`;
 }

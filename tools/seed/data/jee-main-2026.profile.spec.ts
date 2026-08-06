@@ -109,12 +109,24 @@ describe('JEE Main 2026 profile shape', () => {
     expect(file.sections.every((section) => section.sectionTimingMinutes === undefined)).toBe(true);
   });
 
-  it('uses the three-rule JEE Main marking set', () => {
+  it('uses the JEE Main marking set, ALWAYS-terminated', () => {
     const rules = parsed().markingRuleSet.rules;
 
-    expect(rules).toHaveLength(3);
-    expect(rules.map((rule) => rule.condition.kind)).toEqual(['UNATTEMPTED', 'EXACT_MATCH', 'ALWAYS']);
-    expect(rules.map((rule) => (rule.award.kind === 'FULL_MARKS' ? null : rule.award.marks))).toEqual([0, 4, -1]);
+    expect(rules).toHaveLength(4);
+    expect(rules.map((rule) => rule.condition.kind)).toEqual([
+      'UNATTEMPTED',
+      'EXACT_MATCH',
+      'NO_MATCH',
+      'ALWAYS',
+    ]);
+    expect(rules.map((rule) => (rule.award.kind === 'FULL_MARKS' ? null : rule.award.marks))).toEqual([0, 4, -1, 0]);
+  });
+
+  it('never penalises an unanticipated response state', () => {
+    const terminal = parsed().markingRuleSet.rules.at(-1);
+
+    expect(terminal?.condition.kind).toBe('ALWAYS');
+    expect(terminal?.award).toEqual({ kind: 'FIXED', marks: 0 });
   });
 
   it('provides tolerance defaults for numeric items', () => {
