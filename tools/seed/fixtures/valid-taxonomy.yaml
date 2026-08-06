@@ -1,0 +1,42 @@
+schemaVersion: 1
+examFamily: JEE
+academicYear: '2026'
+subjects:
+  - subjectDomain: physics
+    root:
+      key: physics
+      displayName: Physics
+      examWeight: 1
+      estimatedTeachingHours: 300
+      children:
+        - key: physics.mechanics
+          displayName: Mechanics
+          examWeight: 0.3
+          estimatedTeachingHours: 90
+          children:
+            - key: physics.mechanics.kinematics
+              displayName: Kinematics
+              examWeight: 0.1
+              estimatedTeachingHours: 30
+        - key: physics.optics
+          displayName: Optics
+          examWeight: 0.2
+          estimatedTeachingHours: 60
+  - subjectDomain: chemistry
+    root:
+      key: chemistry
+      displayName: Chemistry
+      examWeight: 1
+      estimatedTeachingHours: 300
+      children:
+        - key: chemistry.organic
+          displayName: Organic Chemistry
+          examWeight: 0.4
+          estimatedTeachingHours: 120
+prerequisites:
+  - from: physics.mechanics
+    to: physics.mechanics.kinematics
+    strength: 0.9
+  - from: physics.mechanics
+    to: physics.optics
+    strength: 0.3

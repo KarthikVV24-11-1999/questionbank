@@ -1,0 +1,9 @@
+schemaVersion: 1
+examFamily: JEE
+academicYear: '2026'
+subjects:
+  - subjectDomain: physics
+    root:
+      key: physics
+      displayName: Physics
+      weighting: 1

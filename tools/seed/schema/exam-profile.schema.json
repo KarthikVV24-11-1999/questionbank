@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://questionbank.example/schemas/exam-profile.schema.json",
+  "title": "Exam profile import file",
+  "description": "One exam's complete declarative specification for one year. Adding an exam is a file, never a migration (EXT-01).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "exam",
+    "academicYear",
+    "taxonomyFamily",
+    "totalMarks",
+    "sections",
+    "timingPolicy",
+    "navigationPolicy",
+    "markingRuleSet",
+    "itemTypeAllowances"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "exam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "displayName", "jurisdiction", "conductingBody"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,31}$" },
+        "displayName": { "type": "string", "minLength": 1 },
+        "jurisdiction": { "type": "string", "minLength": 1 },
+        "conductingBody": { "type": "string", "minLength": 1 }
+      }
+    },
+    "academicYear": { "type": "string", "pattern": "^\\d{4}(-\\d{2})?$" },
+    "taxonomyFamily": { "type": "string", "minLength": 1 },
+    "totalMarks": { "type": "number", "exclusiveMinimum": 0 },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ordinal", "name", "subject", "itemCount", "itemTypeMix", "maxMarks"],
+        "properties": {
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "subject": { "type": "string", "minLength": 1 },
+          "itemCount": { "type": "integer", "minimum": 1 },
+          "itemTypeMix": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          },
+          "maxMarks": { "type": "number", "exclusiveMinimum": 0 },
+          "sectionTimingMinutes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "timingPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalDurationMinutes", "sectionLocking", "warningThresholdsMinutes", "autoSubmitOnExpiry"],
+      "properties": {
+        "totalDurationMinutes": { "type": "integer", "exclusiveMinimum": 0 },
+        "sectionLocking": { "type": "boolean" },
+        "warningThresholdsMinutes": { "type": "array", "items": { "type": "integer", "exclusiveMinimum": 0 } },
+        "autoSubmitOnExpiry": { "type": "boolean" }
+      }
+    },
+    "navigationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["crossSectionNavigation", "allowMarkForReview", "allowAnswerChange", "allowClearResponse"],
+      "properties": {
+        "crossSectionNavigation": { "type": "boolean" },
+        "allowMarkForReview": { "type": "boolean" },
+        "allowAnswerChange": { "type": "boolean" },
+        "allowClearResponse": { "type": "boolean" }
+      }
+    },
+    "markingRuleSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "rules"],
+      "properties": {
+        "schemaVersion": { "type": "integer", "minimum": 1 },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "appliesTo", "condition", "award"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "appliesTo": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["itemTypes"],
+                "properties": {
+                  "itemTypes": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+                  "sectionOrdinals": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
+                }
+              },
+              "condition": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "UNATTEMPTED",
+                      "EXACT_MATCH",
+                      "NO_MATCH",
+                      "ALL_CORRECT_SELECTED",
+                      "PARTIAL_CORRECT_SELECTED",
+                      "ANY_INCORRECT_SELECTED",
+                      "MATCHING_PAIRS_CORRECT",
+                      "ALWAYS"
+                    ]
+                  },
+                  "minCorrect": { "type": "integer", "minimum": 1 },
+                  "noIncorrect": { "type": "boolean" },
+                  "count": { "type": "integer", "minimum": 1 }
+                }
+              },
+              "award": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": { "enum": ["FIXED", "PER_CORRECT", "FULL_MARKS"] },
+                  "marks": { "type": "number" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "toleranceDefault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expectedValue", "comparisonMode", "acceptedForms"],
+      "properties": {
+        "expectedValue": { "type": "string" },
+        "comparisonMode": {
+          "enum": ["EXACT", "ABSOLUTE_TOLERANCE", "RELATIVE_TOLERANCE", "SIGNIFICANT_FIGURES", "RANGE"]
+        },
+        "toleranceValue": { "type": "string" },
+        "significantFigures": { "type": "integer", "minimum": 1 },
+        "rangeMin": { "type": "string" },
+        "rangeMax": { "type": "string" },
+        "acceptedForms": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["DECIMAL", "FRACTION", "SCIENTIFIC"] }
+        }
+      }
+    },
+    "itemTypeAllowances": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["itemType", "sectionOrdinals"],
+        "properties": {
+          "itemType": { "type": "string", "minLength": 1 },
+          "sectionOrdinals": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+schemaVersion: 1
+examFamily: JEE
+academicYear: '2026'
+subjects:
+  - subjectDomain: physics
+    root:
+      key: physics
+      displayName: Physics
+      examWeight: 4
+      children:
+        - key: physics.mechanics
+          displayName: Mechanics
+          examWeight: 0.3

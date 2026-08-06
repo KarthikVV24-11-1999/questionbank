@@ -1,0 +1,8 @@
+{
+  "name": "@questionbank/domain-types",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

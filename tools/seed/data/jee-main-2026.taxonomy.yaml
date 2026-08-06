@@ -1,0 +1,2658 @@
+# JEE Main 2026 taxonomy — the syllabus as reviewable data.
+#
+# Structure follows the NTA JEE Main syllabus: subject -> chapter -> topic.
+# Chapter `examWeight` values sum to exactly 1.0 within each subject and carry
+# the paper's approximate representation; topics carry no weight of their own.
+#
+# STATUS: awaiting subject-matter review and sign-off (M1-28 acceptance).
+schemaVersion: 1
+examFamily: JEE
+academicYear: '2026'
+subjects:
+  - subjectDomain: physics
+    root:
+      key: physics
+      displayName: 'Physics'
+      examWeight: 1
+      estimatedTeachingHours: 300
+      children:
+        - key: physics.physics-and-measurement
+          displayName: 'Physics and Measurement'
+          examWeight: 0.0381
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.physics-and-measurement.units-of-measurement
+              displayName: 'Units of measurement'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.physics-and-measurement.system-of-units
+              displayName: 'System of units'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.physics-and-measurement.si-units-and-fundamental-quantities
+              displayName: 'SI units and fundamental quantities'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.physics-and-measurement.dimensions-of-physical-quantities
+              displayName: 'Dimensions of physical quantities'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.physics-and-measurement.dimensional-analysis-and-its-applications
+              displayName: 'Dimensional analysis and its applications'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.physics-and-measurement.least-count-and-significant-figures
+              displayName: 'Least count and significant figures'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.physics-and-measurement.errors-in-measurement
+              displayName: 'Errors in measurement'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.physics-and-measurement.combination-of-errors
+              displayName: 'Combination of errors'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+        - key: physics.kinematics
+          displayName: 'Kinematics'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.kinematics.frame-of-reference
+              displayName: 'Frame of reference'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.motion-in-a-straight-line
+              displayName: 'Motion in a straight line'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.position-time-graph
+              displayName: 'Position-time graph'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.speed-and-velocity
+              displayName: 'Speed and velocity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.uniform-and-non-uniform-motion
+              displayName: 'Uniform and non-uniform motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.average-speed-and-instantaneous-velocity
+              displayName: 'Average speed and instantaneous velocity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.uniformly-accelerated-motion
+              displayName: 'Uniformly accelerated motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.velocity-time-and-position-time-graphs
+              displayName: 'Velocity-time and position-time graphs'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinematics.relative-velocity
+              displayName: 'Relative velocity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.laws-of-motion
+          displayName: 'Laws of Motion'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.laws-of-motion.force-and-inertia
+              displayName: 'Force and inertia'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.newton-s-first-law-of-motion
+              displayName: 'Newton''s first law of motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.newton-s-second-law-of-motion
+              displayName: 'Newton''s second law of motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.impulse
+              displayName: 'Impulse'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.newton-s-third-law-of-motion
+              displayName: 'Newton''s third law of motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.law-of-conservation-of-linear-momentum
+              displayName: 'Law of conservation of linear momentum'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.equilibrium-of-concurrent-forces
+              displayName: 'Equilibrium of concurrent forces'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.static-and-kinetic-friction
+              displayName: 'Static and kinetic friction'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.laws-of-motion.laws-of-friction
+              displayName: 'Laws of friction'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.work-energy-and-power
+          displayName: 'Work, Energy and Power'
+          examWeight: 0.04762
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.work-energy-and-power.work-done-by-a-constant-force
+              displayName: 'Work done by a constant force'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.work-done-by-a-variable-force
+              displayName: 'Work done by a variable force'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.kinetic-energy
+              displayName: 'Kinetic energy'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.work-energy-theorem
+              displayName: 'Work-energy theorem'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.power
+              displayName: 'Power'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.potential-energy
+              displayName: 'Potential energy'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.potential-energy-of-a-spring
+              displayName: 'Potential energy of a spring'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.conservation-of-mechanical-energy
+              displayName: 'Conservation of mechanical energy'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.work-energy-and-power.conservative-and-non-conservative-forces
+              displayName: 'Conservative and non-conservative forces'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.rotational-motion
+          displayName: 'Rotational Motion'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.rotational-motion.centre-of-mass-of-a-two-particle-system
+              displayName: 'Centre of mass of a two-particle system'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.centre-of-mass-of-a-rigid-body
+              displayName: 'Centre of mass of a rigid body'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.basic-concepts-of-rotational-motion
+              displayName: 'Basic concepts of rotational motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.moment-of-a-force-and-torque
+              displayName: 'Moment of a force and torque'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.angular-momentum
+              displayName: 'Angular momentum'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.conservation-of-angular-momentum
+              displayName: 'Conservation of angular momentum'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.moment-of-inertia
+              displayName: 'Moment of inertia'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.radius-of-gyration
+              displayName: 'Radius of gyration'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.rotational-motion.parallel-and-perpendicular-axes-theorems
+              displayName: 'Parallel and perpendicular axes theorems'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.gravitation
+          displayName: 'Gravitation'
+          examWeight: 0.04762
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.gravitation.universal-law-of-gravitation
+              displayName: 'Universal law of gravitation'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.acceleration-due-to-gravity
+              displayName: 'Acceleration due to gravity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.variation-of-g-with-altitude-and-depth
+              displayName: 'Variation of g with altitude and depth'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.kepler-s-laws-of-planetary-motion
+              displayName: 'Kepler''s laws of planetary motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.gravitational-potential-energy
+              displayName: 'Gravitational potential energy'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.gravitational-potential
+              displayName: 'Gravitational potential'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.escape-velocity
+              displayName: 'Escape velocity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.orbital-velocity-of-a-satellite
+              displayName: 'Orbital velocity of a satellite'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.gravitation.motion-of-a-satellite
+              displayName: 'Motion of a satellite'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.properties-of-solids-and-liquids
+          displayName: 'Properties of Solids and Liquids'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.properties-of-solids-and-liquids.elastic-behaviour
+              displayName: 'Elastic behaviour'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.stress-strain-relationship
+              displayName: 'Stress-strain relationship'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.hooke-s-law
+              displayName: 'Hooke''s law'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.young-s-modulus
+              displayName: 'Young''s modulus'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.bulk-modulus
+              displayName: 'Bulk modulus'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.modulus-of-rigidity
+              displayName: 'Modulus of rigidity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.pressure-due-to-a-fluid-column
+              displayName: 'Pressure due to a fluid column'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.pascal-s-law-and-its-applications
+              displayName: 'Pascal''s law and its applications'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.properties-of-solids-and-liquids.viscosity
+              displayName: 'Viscosity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.thermodynamics
+          displayName: 'Thermodynamics'
+          examWeight: 0.04762
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.thermodynamics.thermal-equilibrium
+              displayName: 'Thermal equilibrium'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.thermodynamics.zeroth-law-of-thermodynamics
+              displayName: 'Zeroth law of thermodynamics'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.thermodynamics.concept-of-temperature
+              displayName: 'Concept of temperature'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.thermodynamics.heat-work-and-internal-energy
+              displayName: 'Heat, work and internal energy'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.thermodynamics.first-law-of-thermodynamics
+              displayName: 'First law of thermodynamics'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.thermodynamics.isothermal-and-adiabatic-processes
+              displayName: 'Isothermal and adiabatic processes'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.thermodynamics.second-law-of-thermodynamics
+              displayName: 'Second law of thermodynamics'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.thermodynamics.reversible-and-irreversible-processes
+              displayName: 'Reversible and irreversible processes'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+        - key: physics.kinetic-theory-of-gases
+          displayName: 'Kinetic Theory of Gases'
+          examWeight: 0.0381
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.kinetic-theory-of-gases.equation-of-state-of-a-perfect-gas
+              displayName: 'Equation of state of a perfect gas'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.work-done-on-compressing-a-gas
+              displayName: 'Work done on compressing a gas'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.assumptions-of-kinetic-theory
+              displayName: 'Assumptions of kinetic theory'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.concept-of-pressure
+              displayName: 'Concept of pressure'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.kinetic-interpretation-of-temperature
+              displayName: 'Kinetic interpretation of temperature'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.rms-speed-of-gas-molecules
+              displayName: 'RMS speed of gas molecules'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.degrees-of-freedom
+              displayName: 'Degrees of freedom'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.law-of-equipartition-of-energy
+              displayName: 'Law of equipartition of energy'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.kinetic-theory-of-gases.applications-to-specific-heats-of-gases
+              displayName: 'Applications to specific heats of gases'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.oscillations-and-waves
+          displayName: 'Oscillations and Waves'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.oscillations-and-waves.periodic-motion-and-period
+              displayName: 'Periodic motion and period'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.simple-harmonic-motion-and-its-equation
+              displayName: 'Simple harmonic motion and its equation'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.phase-in-shm
+              displayName: 'Phase in SHM'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.oscillations-of-a-spring
+              displayName: 'Oscillations of a spring'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.restoring-force-and-force-constant
+              displayName: 'Restoring force and force constant'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.energy-in-shm
+              displayName: 'Energy in SHM'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.simple-pendulum-and-its-time-period
+              displayName: 'Simple pendulum and its time period'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.wave-motion
+              displayName: 'Wave motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.oscillations-and-waves.longitudinal-and-transverse-waves
+              displayName: 'Longitudinal and transverse waves'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.electrostatics
+          displayName: 'Electrostatics'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.electrostatics.electric-charges-and-conservation-of-charge
+              displayName: 'Electric charges and conservation of charge'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.coulomb-s-law
+              displayName: 'Coulomb''s law'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.forces-between-multiple-charges
+              displayName: 'Forces between multiple charges'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.superposition-principle
+              displayName: 'Superposition principle'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.continuous-charge-distribution
+              displayName: 'Continuous charge distribution'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.electric-field-and-field-lines
+              displayName: 'Electric field and field lines'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.electric-dipole
+              displayName: 'Electric dipole'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.electric-field-due-to-a-dipole
+              displayName: 'Electric field due to a dipole'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electrostatics.torque-on-a-dipole-in-a-uniform-field
+              displayName: 'Torque on a dipole in a uniform field'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.current-electricity
+          displayName: 'Current Electricity'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.current-electricity.electric-current
+              displayName: 'Electric current'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.drift-velocity-and-mobility
+              displayName: 'Drift velocity and mobility'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.ohm-s-law
+              displayName: 'Ohm''s law'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.electrical-resistance-and-v-i-characteristics
+              displayName: 'Electrical resistance and V-I characteristics'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.electrical-energy-and-power
+              displayName: 'Electrical energy and power'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.electrical-resistivity-and-conductivity
+              displayName: 'Electrical resistivity and conductivity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.series-and-parallel-combinations-of-resistors
+              displayName: 'Series and parallel combinations of resistors'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.temperature-dependence-of-resistance
+              displayName: 'Temperature dependence of resistance'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.current-electricity.internal-resistance-of-a-cell
+              displayName: 'Internal resistance of a cell'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.magnetic-effects-of-current-and-magnetism
+          displayName: 'Magnetic Effects of Current and Magnetism'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.magnetic-effects-of-current-and-magnetism.biot-savart-law
+              displayName: 'Biot-Savart law'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.magnetic-field-on-the-axis-of-a-circular-loop
+              displayName: 'Magnetic field on the axis of a circular loop'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.ampere-s-circuital-law
+              displayName: 'Ampere''s circuital law'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.field-due-to-an-infinitely-long-straight-wire
+              displayName: 'Field due to an infinitely long straight wire'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.field-inside-a-straight-solenoid
+              displayName: 'Field inside a straight solenoid'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.field-inside-a-toroid
+              displayName: 'Field inside a toroid'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.force-on-a-moving-charge-in-a-magnetic-field
+              displayName: 'Force on a moving charge in a magnetic field'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.force-on-a-current-carrying-conductor
+              displayName: 'Force on a current-carrying conductor'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.magnetic-effects-of-current-and-magnetism.force-between-two-parallel-currents
+              displayName: 'Force between two parallel currents'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.electromagnetic-induction-and-alternating-currents
+          displayName: 'Electromagnetic Induction and Alternating Currents'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.electromagnetic-induction-and-alternating-currents.faraday-s-law-of-induction
+              displayName: 'Faraday''s law of induction'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.lenz-s-law
+              displayName: 'Lenz''s law'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.motional-emf
+              displayName: 'Motional emf'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.eddy-currents
+              displayName: 'Eddy currents'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.self-inductance
+              displayName: 'Self inductance'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.mutual-inductance
+              displayName: 'Mutual inductance'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.alternating-currents-and-voltages
+              displayName: 'Alternating currents and voltages'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.peak-and-rms-values
+              displayName: 'Peak and RMS values'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electromagnetic-induction-and-alternating-currents.reactance-and-impedance
+              displayName: 'Reactance and impedance'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.electromagnetic-waves
+          displayName: 'Electromagnetic Waves'
+          examWeight: 0.02857
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.electromagnetic-waves.displacement-current
+              displayName: 'Displacement current'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.electromagnetic-waves.characteristics-of-electromagnetic-waves
+              displayName: 'Characteristics of electromagnetic waves'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.electromagnetic-waves.transverse-nature-of-electromagnetic-waves
+              displayName: 'Transverse nature of electromagnetic waves'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.electromagnetic-waves.electromagnetic-spectrum
+              displayName: 'Electromagnetic spectrum'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.electromagnetic-waves.radio-and-microwaves
+              displayName: 'Radio and microwaves'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.electromagnetic-waves.infrared-and-visible-light
+              displayName: 'Infrared and visible light'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.electromagnetic-waves.ultraviolet-x-rays-and-gamma-rays
+              displayName: 'Ultraviolet, X-rays and gamma rays'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.electromagnetic-waves.applications-of-electromagnetic-waves
+              displayName: 'Applications of electromagnetic waves'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+        - key: physics.optics
+          displayName: 'Optics'
+          examWeight: 0.05714
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.optics.reflection-of-light-at-plane-surfaces
+              displayName: 'Reflection of light at plane surfaces'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.reflection-at-spherical-mirrors
+              displayName: 'Reflection at spherical mirrors'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.mirror-formula
+              displayName: 'Mirror formula'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.refraction-of-light-at-plane-surfaces
+              displayName: 'Refraction of light at plane surfaces'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.total-internal-reflection-and-its-applications
+              displayName: 'Total internal reflection and its applications'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.refraction-at-spherical-surfaces
+              displayName: 'Refraction at spherical surfaces'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.thin-lens-formula
+              displayName: 'Thin lens formula'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.lens-maker-s-formula
+              displayName: 'Lens maker''s formula'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.optics.magnification-and-power-of-a-lens
+              displayName: 'Magnification and power of a lens'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.dual-nature-of-matter-and-radiation
+          displayName: 'Dual Nature of Matter and Radiation'
+          examWeight: 0.0381
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.dual-nature-of-matter-and-radiation.photoelectric-effect
+              displayName: 'Photoelectric effect'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.dual-nature-of-matter-and-radiation.hertz-and-lenard-s-observations
+              displayName: 'Hertz and Lenard''s observations'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.dual-nature-of-matter-and-radiation.einstein-s-photoelectric-equation
+              displayName: 'Einstein''s photoelectric equation'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.dual-nature-of-matter-and-radiation.particle-nature-of-light
+              displayName: 'Particle nature of light'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.dual-nature-of-matter-and-radiation.work-function-and-threshold-frequency
+              displayName: 'Work function and threshold frequency'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.dual-nature-of-matter-and-radiation.matter-waves
+              displayName: 'Matter waves'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.dual-nature-of-matter-and-radiation.de-broglie-relation
+              displayName: 'de Broglie relation'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+            - key: physics.dual-nature-of-matter-and-radiation.davisson-germer-experiment
+              displayName: 'Davisson-Germer experiment'
+              examWeight: 0
+              estimatedTeachingHours: 1.88
+        - key: physics.atoms-and-nuclei
+          displayName: 'Atoms and Nuclei'
+          examWeight: 0.04762
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.atoms-and-nuclei.alpha-particle-scattering-experiment
+              displayName: 'Alpha-particle scattering experiment'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.rutherford-s-model-of-the-atom
+              displayName: 'Rutherford''s model of the atom'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.bohr-model-and-energy-levels
+              displayName: 'Bohr model and energy levels'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.hydrogen-spectrum
+              displayName: 'Hydrogen spectrum'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.composition-and-size-of-the-nucleus
+              displayName: 'Composition and size of the nucleus'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.atomic-masses-and-isotopes
+              displayName: 'Atomic masses and isotopes'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.radioactivity-and-alpha-decay
+              displayName: 'Radioactivity and alpha decay'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.beta-and-gamma-decay
+              displayName: 'Beta and gamma decay'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.atoms-and-nuclei.law-of-radioactive-decay
+              displayName: 'Law of radioactive decay'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.electronic-devices
+          displayName: 'Electronic Devices'
+          examWeight: 0.04762
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.electronic-devices.semiconductors-and-energy-bands
+              displayName: 'Semiconductors and energy bands'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.intrinsic-and-extrinsic-semiconductors
+              displayName: 'Intrinsic and extrinsic semiconductors'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.p-n-junction-and-its-formation
+              displayName: 'p-n junction and its formation'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.semiconductor-diode-and-i-v-characteristics
+              displayName: 'Semiconductor diode and I-V characteristics'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.diode-as-a-rectifier
+              displayName: 'Diode as a rectifier'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.half-wave-and-full-wave-rectification
+              displayName: 'Half-wave and full-wave rectification'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.zener-diode-and-voltage-regulation
+              displayName: 'Zener diode and voltage regulation'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.led-photodiode-and-solar-cell
+              displayName: 'LED, photodiode and solar cell'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.electronic-devices.junction-transistor-and-its-action
+              displayName: 'Junction transistor and its action'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+        - key: physics.experimental-skills
+          displayName: 'Experimental Skills'
+          examWeight: 0.04763
+          estimatedTeachingHours: 15
+          children:
+            - key: physics.experimental-skills.vernier-callipers
+              displayName: 'Vernier callipers'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.screw-gauge
+              displayName: 'Screw gauge'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.simple-pendulum-experiment
+              displayName: 'Simple pendulum experiment'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.metre-scale-mass-measurement
+              displayName: 'Metre scale mass measurement'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.young-s-modulus-of-a-wire
+              displayName: 'Young''s modulus of a wire'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.surface-tension-by-capillary-rise
+              displayName: 'Surface tension by capillary rise'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.coefficient-of-viscosity
+              displayName: 'Coefficient of viscosity'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.speed-of-sound-using-a-resonance-tube
+              displayName: 'Speed of sound using a resonance tube'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+            - key: physics.experimental-skills.specific-heat-capacity-of-a-solid
+              displayName: 'Specific heat capacity of a solid'
+              examWeight: 0
+              estimatedTeachingHours: 1.67
+  - subjectDomain: chemistry
+    root:
+      key: chemistry
+      displayName: 'Chemistry'
+      examWeight: 1
+      estimatedTeachingHours: 308
+      children:
+        - key: chemistry.some-basic-concepts-in-chemistry
+          displayName: 'Some Basic Concepts in Chemistry'
+          examWeight: 0.04673
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.some-basic-concepts-in-chemistry.matter-and-its-nature
+              displayName: 'Matter and its nature'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.dalton-s-atomic-theory
+              displayName: 'Dalton''s atomic theory'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.concept-of-atom-molecule-element-and-compound
+              displayName: 'Concept of atom, molecule, element and compound'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.laws-of-chemical-combination
+              displayName: 'Laws of chemical combination'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.atomic-and-molecular-masses
+              displayName: 'Atomic and molecular masses'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.mole-concept-and-molar-mass
+              displayName: 'Mole concept and molar mass'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.percentage-composition
+              displayName: 'Percentage composition'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.empirical-and-molecular-formulae
+              displayName: 'Empirical and molecular formulae'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.some-basic-concepts-in-chemistry.chemical-equations-and-stoichiometry
+              displayName: 'Chemical equations and stoichiometry'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.atomic-structure
+          displayName: 'Atomic Structure'
+          examWeight: 0.04673
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.atomic-structure.thomson-and-rutherford-atomic-models
+              displayName: 'Thomson and Rutherford atomic models'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.nature-of-electromagnetic-radiation
+              displayName: 'Nature of electromagnetic radiation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.photoelectric-effect-and-spectrum-of-hydrogen
+              displayName: 'Photoelectric effect and spectrum of hydrogen'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.bohr-model-of-a-hydrogen-atom
+              displayName: 'Bohr model of a hydrogen atom'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.limitations-of-the-bohr-model
+              displayName: 'Limitations of the Bohr model'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.dual-nature-of-matter-and-de-broglie-relation
+              displayName: 'Dual nature of matter and de Broglie relation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.heisenberg-uncertainty-principle
+              displayName: 'Heisenberg uncertainty principle'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.quantum-mechanical-model-of-the-atom
+              displayName: 'Quantum mechanical model of the atom'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.atomic-structure.quantum-numbers
+              displayName: 'Quantum numbers'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.chemical-bonding-and-molecular-structure
+          displayName: 'Chemical Bonding and Molecular Structure'
+          examWeight: 0.05607
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.chemical-bonding-and-molecular-structure.kossel-lewis-approach-to-bonding
+              displayName: 'Kossel-Lewis approach to bonding'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.ionic-bond-and-lattice-enthalpy
+              displayName: 'Ionic bond and lattice enthalpy'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.covalent-bond-and-lewis-structures
+              displayName: 'Covalent bond and Lewis structures'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.formal-charge
+              displayName: 'Formal charge'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.valence-shell-electron-pair-repulsion-theory
+              displayName: 'Valence shell electron pair repulsion theory'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.shapes-of-simple-molecules
+              displayName: 'Shapes of simple molecules'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.valence-bond-theory
+              displayName: 'Valence bond theory'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.hybridisation-involving-s-p-and-d-orbitals
+              displayName: 'Hybridisation involving s, p and d orbitals'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-bonding-and-molecular-structure.resonance
+              displayName: 'Resonance'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.chemical-thermodynamics
+          displayName: 'Chemical Thermodynamics'
+          examWeight: 0.04673
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.chemical-thermodynamics.system-and-surroundings
+              displayName: 'System and surroundings'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.extensive-and-intensive-properties
+              displayName: 'Extensive and intensive properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.state-functions
+              displayName: 'State functions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.first-law-of-thermodynamics
+              displayName: 'First law of thermodynamics'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.internal-energy-and-enthalpy
+              displayName: 'Internal energy and enthalpy'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.heat-capacity-and-specific-heat
+              displayName: 'Heat capacity and specific heat'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.hess-s-law-of-constant-heat-summation
+              displayName: 'Hess''s law of constant heat summation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.enthalpies-of-formation-combustion-and-neutralisation
+              displayName: 'Enthalpies of formation, combustion and neutralisation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-thermodynamics.second-law-of-thermodynamics
+              displayName: 'Second law of thermodynamics'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.solutions
+          displayName: 'Solutions'
+          examWeight: 0.03738
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.solutions.types-of-solutions
+              displayName: 'Types of solutions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.expression-of-concentration
+              displayName: 'Expression of concentration'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.solubility-of-gases-and-solids
+              displayName: 'Solubility of gases and solids'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.raoult-s-law
+              displayName: 'Raoult''s law'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.ideal-and-non-ideal-solutions
+              displayName: 'Ideal and non-ideal solutions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.colligative-properties
+              displayName: 'Colligative properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.relative-lowering-of-vapour-pressure
+              displayName: 'Relative lowering of vapour pressure'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.elevation-of-boiling-point
+              displayName: 'Elevation of boiling point'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.solutions.depression-of-freezing-point
+              displayName: 'Depression of freezing point'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.equilibrium
+          displayName: 'Equilibrium'
+          examWeight: 0.05607
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.equilibrium.equilibrium-in-physical-processes
+              displayName: 'Equilibrium in physical processes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.equilibrium-in-chemical-processes
+              displayName: 'Equilibrium in chemical processes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.law-of-chemical-equilibrium
+              displayName: 'Law of chemical equilibrium'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.equilibrium-constants-kp-and-kc
+              displayName: 'Equilibrium constants Kp and Kc'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.le-chatelier-s-principle
+              displayName: 'Le Chatelier''s principle'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.factors-affecting-equilibrium
+              displayName: 'Factors affecting equilibrium'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.ionic-equilibrium-in-solution
+              displayName: 'Ionic equilibrium in solution'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.acids-bases-and-salts
+              displayName: 'Acids, bases and salts'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.equilibrium.ionisation-of-acids-and-bases
+              displayName: 'Ionisation of acids and bases'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.redox-reactions-and-electrochemistry
+          displayName: 'Redox Reactions and Electrochemistry'
+          examWeight: 0.04673
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.redox-reactions-and-electrochemistry.electronic-concept-of-oxidation-and-reduction
+              displayName: 'Electronic concept of oxidation and reduction'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.oxidation-number
+              displayName: 'Oxidation number'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.balancing-redox-reactions
+              displayName: 'Balancing redox reactions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.electrolytic-and-metallic-conduction
+              displayName: 'Electrolytic and metallic conduction'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.conductance-in-electrolytic-solutions
+              displayName: 'Conductance in electrolytic solutions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.molar-conductivity-and-its-variation
+              displayName: 'Molar conductivity and its variation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.kohlrausch-s-law
+              displayName: 'Kohlrausch''s law'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.electrolysis-and-faraday-s-laws
+              displayName: 'Electrolysis and Faraday''s laws'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.redox-reactions-and-electrochemistry.galvanic-cells
+              displayName: 'Galvanic cells'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.chemical-kinetics
+          displayName: 'Chemical Kinetics'
+          examWeight: 0.03738
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.chemical-kinetics.rate-of-a-chemical-reaction
+              displayName: 'Rate of a chemical reaction'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.factors-affecting-rate
+              displayName: 'Factors affecting rate'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.order-and-molecularity-of-a-reaction
+              displayName: 'Order and molecularity of a reaction'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.rate-law-and-rate-constant
+              displayName: 'Rate law and rate constant'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.differential-and-integrated-rate-equations
+              displayName: 'Differential and integrated rate equations'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.zero-and-first-order-reactions
+              displayName: 'Zero and first order reactions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.half-life-of-a-reaction
+              displayName: 'Half-life of a reaction'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.temperature-dependence-of-rate
+              displayName: 'Temperature dependence of rate'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.chemical-kinetics.arrhenius-equation-and-activation-energy
+              displayName: 'Arrhenius equation and activation energy'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.classification-of-elements-and-periodicity
+          displayName: 'Classification of Elements and Periodicity'
+          examWeight: 0.02804
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.classification-of-elements-and-periodicity.modern-periodic-law
+              displayName: 'Modern periodic law'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.present-form-of-the-periodic-table
+              displayName: 'Present form of the periodic table'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.s-p-d-and-f-block-elements
+              displayName: 's, p, d and f block elements'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.periodic-trends-in-atomic-radii
+              displayName: 'Periodic trends in atomic radii'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.ionisation-enthalpy
+              displayName: 'Ionisation enthalpy'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.electron-gain-enthalpy
+              displayName: 'Electron gain enthalpy'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.electronegativity
+              displayName: 'Electronegativity'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.valence-and-oxidation-states
+              displayName: 'Valence and oxidation states'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.classification-of-elements-and-periodicity.chemical-reactivity-trends
+              displayName: 'Chemical reactivity trends'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.p-block-elements
+          displayName: 'p-Block Elements'
+          examWeight: 0.04673
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.p-block-elements.general-trends-in-group-13
+              displayName: 'General trends in group 13'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.boron-and-its-compounds
+              displayName: 'Boron and its compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.group-14-and-carbon-allotropes
+              displayName: 'Group 14 and carbon allotropes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.silicones-and-silicates
+              displayName: 'Silicones and silicates'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.group-15-elements-and-dinitrogen
+              displayName: 'Group 15 elements and dinitrogen'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.ammonia-and-nitric-acid
+              displayName: 'Ammonia and nitric acid'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.phosphorus-allotropes-and-oxoacids
+              displayName: 'Phosphorus allotropes and oxoacids'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.group-16-elements-and-dioxygen
+              displayName: 'Group 16 elements and dioxygen'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.p-block-elements.sulphuric-acid-and-its-manufacture
+              displayName: 'Sulphuric acid and its manufacture'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.d-and-f-block-elements
+          displayName: 'd- and f-Block Elements'
+          examWeight: 0.03738
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.d-and-f-block-elements.general-characteristics-of-transition-elements
+              displayName: 'General characteristics of transition elements'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.variable-oxidation-states
+              displayName: 'Variable oxidation states'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.ionisation-enthalpy-and-atomic-radii-trends
+              displayName: 'Ionisation enthalpy and atomic radii trends'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.catalytic-properties
+              displayName: 'Catalytic properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.magnetic-properties-and-colour
+              displayName: 'Magnetic properties and colour'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.interstitial-compounds-and-alloy-formation
+              displayName: 'Interstitial compounds and alloy formation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.preparation-and-properties-of-potassium-dichromate
+              displayName: 'Preparation and properties of potassium dichromate'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.preparation-and-properties-of-potassium-permanganate
+              displayName: 'Preparation and properties of potassium permanganate'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.d-and-f-block-elements.lanthanoids-and-lanthanoid-contraction
+              displayName: 'Lanthanoids and lanthanoid contraction'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.coordination-compounds
+          displayName: 'Coordination Compounds'
+          examWeight: 0.03738
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.coordination-compounds.werner-s-theory-of-coordination-compounds
+              displayName: 'Werner''s theory of coordination compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.ligands-and-coordination-number
+              displayName: 'Ligands and coordination number'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.colour-magnetic-properties-and-shapes
+              displayName: 'Colour, magnetic properties and shapes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.iupac-nomenclature-of-mononuclear-complexes
+              displayName: 'IUPAC nomenclature of mononuclear complexes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.isomerism-in-coordination-compounds
+              displayName: 'Isomerism in coordination compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.valence-bond-theory-of-complexes
+              displayName: 'Valence bond theory of complexes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.crystal-field-theory-of-complexes
+              displayName: 'Crystal field theory of complexes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.colour-and-magnetic-behaviour-explanation
+              displayName: 'Colour and magnetic behaviour explanation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.coordination-compounds.importance-in-qualitative-analysis
+              displayName: 'Importance in qualitative analysis'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.purification-and-characterisation-of-organic-compounds
+          displayName: 'Purification and Characterisation of Organic Compounds'
+          examWeight: 0.02804
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.crystallisation-and-sublimation
+              displayName: 'Crystallisation and sublimation'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.distillation-and-fractional-distillation
+              displayName: 'Distillation and fractional distillation'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.chromatography
+              displayName: 'Chromatography'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.qualitative-detection-of-nitrogen-and-sulphur
+              displayName: 'Qualitative detection of nitrogen and sulphur'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.detection-of-halogens
+              displayName: 'Detection of halogens'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.quantitative-estimation-of-carbon-and-hydrogen
+              displayName: 'Quantitative estimation of carbon and hydrogen'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.estimation-of-nitrogen
+              displayName: 'Estimation of nitrogen'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.purification-and-characterisation-of-organic-compounds.calculation-of-empirical-and-molecular-formulae
+              displayName: 'Calculation of empirical and molecular formulae'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+        - key: chemistry.basic-principles-of-organic-chemistry
+          displayName: 'Basic Principles of Organic Chemistry'
+          examWeight: 0.04673
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.basic-principles-of-organic-chemistry.tetravalency-of-carbon
+              displayName: 'Tetravalency of carbon'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.classification-of-organic-compounds
+              displayName: 'Classification of organic compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.iupac-nomenclature
+              displayName: 'IUPAC nomenclature'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.isomerism-structural-and-stereoisomerism
+              displayName: 'Isomerism: structural and stereoisomerism'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.homolytic-and-heterolytic-bond-fission
+              displayName: 'Homolytic and heterolytic bond fission'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.free-radicals-carbocations-and-carbanions
+              displayName: 'Free radicals, carbocations and carbanions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.electrophiles-and-nucleophiles
+              displayName: 'Electrophiles and nucleophiles'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.inductive-effect
+              displayName: 'Inductive effect'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.basic-principles-of-organic-chemistry.electromeric-effect
+              displayName: 'Electromeric effect'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.hydrocarbons
+          displayName: 'Hydrocarbons'
+          examWeight: 0.04673
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.hydrocarbons.alkanes-preparation-and-properties
+              displayName: 'Alkanes: preparation and properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.conformations-of-ethane
+              displayName: 'Conformations of ethane'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.alkenes-preparation-and-properties
+              displayName: 'Alkenes: preparation and properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.markownikoff-s-rule-and-peroxide-effect
+              displayName: 'Markownikoff''s rule and peroxide effect'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.alkynes-preparation-and-properties
+              displayName: 'Alkynes: preparation and properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.acidic-character-of-terminal-alkynes
+              displayName: 'Acidic character of terminal alkynes'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.aromatic-hydrocarbons-and-benzene
+              displayName: 'Aromatic hydrocarbons and benzene'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.resonance-and-aromaticity
+              displayName: 'Resonance and aromaticity'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.hydrocarbons.electrophilic-substitution-in-benzene
+              displayName: 'Electrophilic substitution in benzene'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.organic-compounds-containing-halogens
+          displayName: 'Organic Compounds Containing Halogens'
+          examWeight: 0.02804
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.organic-compounds-containing-halogens.nature-of-the-c-x-bond
+              displayName: 'Nature of the C-X bond'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-halogens.preparation-of-haloalkanes
+              displayName: 'Preparation of haloalkanes'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-halogens.substitution-reactions-of-haloalkanes
+              displayName: 'Substitution reactions of haloalkanes'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-halogens.elimination-reactions
+              displayName: 'Elimination reactions'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-halogens.haloarenes-and-their-reactivity
+              displayName: 'Haloarenes and their reactivity'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-halogens.uses-and-environmental-effects-of-haloalkanes
+              displayName: 'Uses and environmental effects of haloalkanes'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+        - key: chemistry.organic-compounds-containing-oxygen
+          displayName: 'Organic Compounds Containing Oxygen'
+          examWeight: 0.05607
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.organic-compounds-containing-oxygen.alcohols-preparation-and-properties
+              displayName: 'Alcohols: preparation and properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.dehydration-and-oxidation-of-alcohols
+              displayName: 'Dehydration and oxidation of alcohols'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.phenols-acidity-and-reactions
+              displayName: 'Phenols: acidity and reactions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.electrophilic-substitution-in-phenol
+              displayName: 'Electrophilic substitution in phenol'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.ethers-preparation-and-properties
+              displayName: 'Ethers: preparation and properties'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.aldehydes-and-ketones-preparation
+              displayName: 'Aldehydes and ketones: preparation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.nucleophilic-addition-reactions
+              displayName: 'Nucleophilic addition reactions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.aldol-and-cannizzaro-reactions
+              displayName: 'Aldol and cannizzaro reactions'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.organic-compounds-containing-oxygen.oxidation-and-reduction-of-carbonyls
+              displayName: 'Oxidation and reduction of carbonyls'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.organic-compounds-containing-nitrogen
+          displayName: 'Organic Compounds Containing Nitrogen'
+          examWeight: 0.02804
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.organic-compounds-containing-nitrogen.amines-nomenclature-and-classification
+              displayName: 'Amines: nomenclature and classification'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-nitrogen.preparation-of-amines
+              displayName: 'Preparation of amines'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-nitrogen.basic-character-of-amines
+              displayName: 'Basic character of amines'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-nitrogen.reactions-of-primary-amines
+              displayName: 'Reactions of primary amines'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-nitrogen.diazonium-salts-and-their-preparation
+              displayName: 'Diazonium salts and their preparation'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+            - key: chemistry.organic-compounds-containing-nitrogen.importance-of-diazonium-salts-in-synthesis
+              displayName: 'Importance of diazonium salts in synthesis'
+              examWeight: 0
+              estimatedTeachingHours: 1.83
+        - key: chemistry.biomolecules
+          displayName: 'Biomolecules'
+          examWeight: 0.02804
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.biomolecules.carbohydrates-classification
+              displayName: 'Carbohydrates: classification'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.monosaccharides-and-their-structures
+              displayName: 'Monosaccharides and their structures'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.disaccharides-and-polysaccharides
+              displayName: 'Disaccharides and polysaccharides'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.proteins-and-amino-acids
+              displayName: 'Proteins and amino acids'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.peptide-linkage-and-protein-structure
+              displayName: 'Peptide linkage and protein structure'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.denaturation-of-proteins
+              displayName: 'Denaturation of proteins'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.enzymes-and-their-function
+              displayName: 'Enzymes and their function'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.vitamins-and-their-classification
+              displayName: 'Vitamins and their classification'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.biomolecules.nucleic-acids-dna-and-rna
+              displayName: 'Nucleic acids: DNA and RNA'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.principles-related-to-practical-chemistry
+          displayName: 'Principles Related to Practical Chemistry'
+          examWeight: 0.02804
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.principles-related-to-practical-chemistry.detection-of-extra-elements
+              displayName: 'Detection of extra elements'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.detection-of-functional-groups
+              displayName: 'Detection of functional groups'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.chemistry-of-cationic-group-analysis
+              displayName: 'Chemistry of cationic group analysis'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.chemistry-of-anionic-group-analysis
+              displayName: 'Chemistry of anionic group analysis'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.preparation-of-inorganic-compounds
+              displayName: 'Preparation of inorganic compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.preparation-of-organic-compounds
+              displayName: 'Preparation of organic compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.titrimetric-exercises-oxalic-acid
+              displayName: 'Titrimetric exercises: oxalic acid'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.titrimetric-exercises-potassium-permanganate
+              displayName: 'Titrimetric exercises: potassium permanganate'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.principles-related-to-practical-chemistry.qualitative-salt-analysis
+              displayName: 'Qualitative salt analysis'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.states-of-matter
+          displayName: 'States of Matter'
+          examWeight: 0.03738
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.states-of-matter.intermolecular-forces
+              displayName: 'Intermolecular forces'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.gas-laws-boyle-and-charles
+              displayName: 'Gas laws: Boyle and Charles'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.ideal-gas-equation
+              displayName: 'Ideal gas equation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.dalton-s-law-of-partial-pressures
+              displayName: 'Dalton''s law of partial pressures'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.kinetic-molecular-theory-of-gases
+              displayName: 'Kinetic molecular theory of gases'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.deviation-from-ideal-behaviour
+              displayName: 'Deviation from ideal behaviour'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.van-der-waals-equation
+              displayName: 'van der Waals equation'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.liquefaction-of-gases-and-critical-constants
+              displayName: 'Liquefaction of gases and critical constants'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+            - key: chemistry.states-of-matter.properties-of-liquids-vapour-pressure
+              displayName: 'Properties of liquids: vapour pressure'
+              examWeight: 0
+              estimatedTeachingHours: 1.22
+        - key: chemistry.environmental-chemistry
+          displayName: 'Environmental Chemistry'
+          examWeight: 0.01869
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.environmental-chemistry.environmental-pollution
+              displayName: 'Environmental pollution'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.environmental-chemistry.atmospheric-pollution-and-acid-rain
+              displayName: 'Atmospheric pollution and acid rain'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.environmental-chemistry.greenhouse-effect-and-global-warming
+              displayName: 'Greenhouse effect and global warming'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.environmental-chemistry.ozone-layer-depletion
+              displayName: 'Ozone layer depletion'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.environmental-chemistry.water-pollution-and-its-control
+              displayName: 'Water pollution and its control'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.environmental-chemistry.soil-pollution-and-pesticides
+              displayName: 'Soil pollution and pesticides'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.environmental-chemistry.green-chemistry-and-strategies
+              displayName: 'Green chemistry and strategies'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+        - key: chemistry.chemistry-in-everyday-life
+          displayName: 'Chemistry in Everyday Life'
+          examWeight: 0.02804
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.chemistry-in-everyday-life.drugs-and-their-classification
+              displayName: 'Drugs and their classification'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.chemistry-in-everyday-life.drug-target-interaction
+              displayName: 'Drug-target interaction'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.chemistry-in-everyday-life.analgesics-and-antipyretics
+              displayName: 'Analgesics and antipyretics'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.chemistry-in-everyday-life.antibiotics-and-antiseptics
+              displayName: 'Antibiotics and antiseptics'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.chemistry-in-everyday-life.antacids-and-antihistamines
+              displayName: 'Antacids and antihistamines'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.chemistry-in-everyday-life.chemicals-in-food-preservatives
+              displayName: 'Chemicals in food: preservatives'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.chemistry-in-everyday-life.artificial-sweetening-agents
+              displayName: 'Artificial sweetening agents'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.chemistry-in-everyday-life.soaps-and-detergents
+              displayName: 'Soaps and detergents'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+        - key: chemistry.polymers
+          displayName: 'Polymers'
+          examWeight: 0.01869
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.polymers.classification-of-polymers
+              displayName: 'Classification of polymers'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.polymers.addition-polymerisation
+              displayName: 'Addition polymerisation'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.polymers.condensation-polymerisation
+              displayName: 'Condensation polymerisation'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.polymers.copolymerisation
+              displayName: 'Copolymerisation'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.polymers.natural-and-synthetic-rubber
+              displayName: 'Natural and synthetic rubber'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.polymers.biodegradable-polymers
+              displayName: 'Biodegradable polymers'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+            - key: chemistry.polymers.commercially-important-polymers
+              displayName: 'Commercially important polymers'
+              examWeight: 0
+              estimatedTeachingHours: 1.57
+        - key: chemistry.surface-chemistry
+          displayName: 'Surface Chemistry'
+          examWeight: 0.01869
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.surface-chemistry.adsorption-and-its-types
+              displayName: 'Adsorption and its types'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.surface-chemistry.freundlich-adsorption-isotherm
+              displayName: 'Freundlich adsorption isotherm'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.surface-chemistry.catalysis-homogeneous-and-heterogeneous
+              displayName: 'Catalysis: homogeneous and heterogeneous'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.surface-chemistry.enzyme-catalysis
+              displayName: 'Enzyme catalysis'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.surface-chemistry.colloids-and-their-classification
+              displayName: 'Colloids and their classification'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.surface-chemistry.preparation-and-purification-of-colloids
+              displayName: 'Preparation and purification of colloids'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.surface-chemistry.tyndall-effect-and-brownian-motion
+              displayName: 'Tyndall effect and Brownian motion'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.surface-chemistry.coagulation-and-emulsions
+              displayName: 'Coagulation and emulsions'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+        - key: chemistry.general-principles-of-isolation-of-metals
+          displayName: 'General Principles of Isolation of Metals'
+          examWeight: 0.01869
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.general-principles-of-isolation-of-metals.occurrence-of-metals-and-ores
+              displayName: 'Occurrence of metals and ores'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.general-principles-of-isolation-of-metals.concentration-of-ores
+              displayName: 'Concentration of ores'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.general-principles-of-isolation-of-metals.extraction-roasting-and-calcination
+              displayName: 'Extraction: roasting and calcination'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.general-principles-of-isolation-of-metals.reduction-methods
+              displayName: 'Reduction methods'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.general-principles-of-isolation-of-metals.thermodynamic-principles-of-metallurgy
+              displayName: 'Thermodynamic principles of metallurgy'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.general-principles-of-isolation-of-metals.ellingham-diagram
+              displayName: 'Ellingham diagram'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.general-principles-of-isolation-of-metals.refining-of-metals
+              displayName: 'Refining of metals'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.general-principles-of-isolation-of-metals.extraction-of-aluminium-copper-zinc-and-iron
+              displayName: 'Extraction of aluminium, copper, zinc and iron'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+        - key: chemistry.hydrogen
+          displayName: 'Hydrogen'
+          examWeight: 0.01869
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.hydrogen.position-of-hydrogen-in-the-periodic-table
+              displayName: 'Position of hydrogen in the periodic table'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.hydrogen.isotopes-of-hydrogen
+              displayName: 'Isotopes of hydrogen'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.hydrogen.preparation-and-properties-of-dihydrogen
+              displayName: 'Preparation and properties of dihydrogen'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.hydrogen.hydrides-ionic-covalent-and-interstitial
+              displayName: 'Hydrides: ionic, covalent and interstitial'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.hydrogen.physical-and-chemical-properties-of-water
+              displayName: 'Physical and chemical properties of water'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.hydrogen.heavy-water-and-its-uses
+              displayName: 'Heavy water and its uses'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.hydrogen.hydrogen-peroxide-preparation-and-structure
+              displayName: 'Hydrogen peroxide: preparation and structure'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.hydrogen.hydrogen-as-a-fuel
+              displayName: 'Hydrogen as a fuel'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+        - key: chemistry.s-block-elements
+          displayName: 's-Block Elements'
+          examWeight: 0.02805
+          estimatedTeachingHours: 11
+          children:
+            - key: chemistry.s-block-elements.general-characteristics-of-alkali-metals
+              displayName: 'General characteristics of alkali metals'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.s-block-elements.anomalous-behaviour-of-lithium
+              displayName: 'Anomalous behaviour of lithium'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.s-block-elements.preparation-and-uses-of-sodium-compounds
+              displayName: 'Preparation and uses of sodium compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.s-block-elements.general-characteristics-of-alkaline-earth-metals
+              displayName: 'General characteristics of alkaline earth metals'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.s-block-elements.anomalous-behaviour-of-beryllium
+              displayName: 'Anomalous behaviour of beryllium'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.s-block-elements.preparation-and-uses-of-calcium-compounds
+              displayName: 'Preparation and uses of calcium compounds'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.s-block-elements.biological-importance-of-sodium-and-potassium
+              displayName: 'Biological importance of sodium and potassium'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+            - key: chemistry.s-block-elements.biological-importance-of-magnesium-and-calcium
+              displayName: 'Biological importance of magnesium and calcium'
+              examWeight: 0
+              estimatedTeachingHours: 1.38
+  - subjectDomain: mathematics
+    root:
+      key: mathematics
+      displayName: 'Mathematics'
+      examWeight: 1
+      estimatedTeachingHours: 304
+      children:
+        - key: mathematics.sets-relations-and-functions
+          displayName: 'Sets, Relations and Functions'
+          examWeight: 0.05682
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.sets-relations-and-functions.sets-and-their-representation
+              displayName: 'Sets and their representation'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.union-intersection-and-complement
+              displayName: 'Union, intersection and complement'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.algebraic-properties-of-sets
+              displayName: 'Algebraic properties of sets'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.power-set
+              displayName: 'Power set'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.cartesian-product-of-sets
+              displayName: 'Cartesian product of sets'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.relations-and-their-types
+              displayName: 'Relations and their types'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.equivalence-relations
+              displayName: 'Equivalence relations'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.functions-one-one-into-and-onto
+              displayName: 'Functions: one-one, into and onto'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sets-relations-and-functions.composition-of-functions
+              displayName: 'Composition of functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.complex-numbers-and-quadratic-equations
+          displayName: 'Complex Numbers and Quadratic Equations'
+          examWeight: 0.06818
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.complex-numbers-and-quadratic-equations.complex-numbers-as-ordered-pairs
+              displayName: 'Complex numbers as ordered pairs'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.argand-diagram
+              displayName: 'Argand diagram'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.algebra-of-complex-numbers
+              displayName: 'Algebra of complex numbers'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.modulus-and-argument
+              displayName: 'Modulus and argument'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.polar-form-of-a-complex-number
+              displayName: 'Polar form of a complex number'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.square-root-of-a-complex-number
+              displayName: 'Square root of a complex number'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.triangle-inequality
+              displayName: 'Triangle inequality'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.quadratic-equations-in-the-real-system
+              displayName: 'Quadratic equations in the real system'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.complex-numbers-and-quadratic-equations.quadratic-equations-in-the-complex-system
+              displayName: 'Quadratic equations in the complex system'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.matrices-and-determinants
+          displayName: 'Matrices and Determinants'
+          examWeight: 0.06818
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.matrices-and-determinants.matrices-and-their-algebra
+              displayName: 'Matrices and their algebra'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.types-of-matrices
+              displayName: 'Types of matrices'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.determinants-of-order-two-and-three
+              displayName: 'Determinants of order two and three'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.properties-of-determinants
+              displayName: 'Properties of determinants'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.evaluation-of-determinants
+              displayName: 'Evaluation of determinants'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.area-of-a-triangle-using-determinants
+              displayName: 'Area of a triangle using determinants'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.adjoint-of-a-matrix
+              displayName: 'Adjoint of a matrix'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.inverse-of-a-square-matrix
+              displayName: 'Inverse of a square matrix'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.matrices-and-determinants.elementary-row-transformations
+              displayName: 'Elementary row transformations'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.permutations-and-combinations
+          displayName: 'Permutations and Combinations'
+          examWeight: 0.04545
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.permutations-and-combinations.fundamental-principle-of-counting
+              displayName: 'Fundamental principle of counting'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.permutations-and-combinations.permutation-as-an-arrangement
+              displayName: 'Permutation as an arrangement'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.permutations-and-combinations.combination-as-a-selection
+              displayName: 'Combination as a selection'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.permutations-and-combinations.permutations-of-distinct-objects
+              displayName: 'Permutations of distinct objects'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.permutations-and-combinations.permutations-with-repetition
+              displayName: 'Permutations with repetition'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.permutations-and-combinations.circular-permutations
+              displayName: 'Circular permutations'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.permutations-and-combinations.simple-applications-of-combinations
+              displayName: 'Simple applications of combinations'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.permutations-and-combinations.meaning-of-pn-r-and-cn-r
+              displayName: 'Meaning of P(n,r) and C(n,r)'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+        - key: mathematics.binomial-theorem
+          displayName: 'Binomial Theorem'
+          examWeight: 0.04545
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.binomial-theorem.binomial-theorem-for-a-positive-integral-index
+              displayName: 'Binomial theorem for a positive integral index'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.binomial-theorem.general-term-in-a-binomial-expansion
+              displayName: 'General term in a binomial expansion'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.binomial-theorem.middle-term
+              displayName: 'Middle term'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.binomial-theorem.properties-of-binomial-coefficients
+              displayName: 'Properties of binomial coefficients'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.binomial-theorem.simple-applications-of-the-binomial-theorem
+              displayName: 'Simple applications of the binomial theorem'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.binomial-theorem.binomial-theorem-for-any-index
+              displayName: 'Binomial theorem for any index'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+        - key: mathematics.sequences-and-series
+          displayName: 'Sequences and Series'
+          examWeight: 0.05682
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.sequences-and-series.arithmetic-progression
+              displayName: 'Arithmetic progression'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.arithmetic-mean
+              displayName: 'Arithmetic mean'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.geometric-progression
+              displayName: 'Geometric progression'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.geometric-mean
+              displayName: 'Geometric mean'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.sum-of-n-terms-of-a-gp
+              displayName: 'Sum of n terms of a GP'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.infinite-gp-and-its-sum
+              displayName: 'Infinite GP and its sum'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.relation-between-am-and-gm
+              displayName: 'Relation between AM and GM'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.harmonic-progression
+              displayName: 'Harmonic progression'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.sequences-and-series.sum-of-squares-and-cubes-of-the-first-n-natural-numbers
+              displayName: 'Sum of squares and cubes of the first n natural numbers'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.limit-continuity-and-differentiability
+          displayName: 'Limit, Continuity and Differentiability'
+          examWeight: 0.09091
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.limit-continuity-and-differentiability.real-valued-functions-and-their-graphs
+              displayName: 'Real valued functions and their graphs'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.algebra-of-limits
+              displayName: 'Algebra of limits'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.limits-of-polynomial-and-rational-functions
+              displayName: 'Limits of polynomial and rational functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.trigonometric-limits
+              displayName: 'Trigonometric limits'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.exponential-and-logarithmic-limits
+              displayName: 'Exponential and logarithmic limits'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.continuity-of-a-function-at-a-point
+              displayName: 'Continuity of a function at a point'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.algebra-of-continuous-functions
+              displayName: 'Algebra of continuous functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.differentiability-of-a-function
+              displayName: 'Differentiability of a function'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.limit-continuity-and-differentiability.derivative-of-a-sum-difference-product-and-quotient
+              displayName: 'Derivative of a sum, difference, product and quotient'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.integral-calculus
+          displayName: 'Integral Calculus'
+          examWeight: 0.09091
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.integral-calculus.integral-as-an-antiderivative
+              displayName: 'Integral as an antiderivative'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.fundamental-integrals-of-algebraic-functions
+              displayName: 'Fundamental integrals of algebraic functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.integrals-of-trigonometric-functions
+              displayName: 'Integrals of trigonometric functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.integrals-of-exponential-and-logarithmic-functions
+              displayName: 'Integrals of exponential and logarithmic functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.integration-by-substitution
+              displayName: 'Integration by substitution'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.integration-by-parts
+              displayName: 'Integration by parts'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.integration-by-partial-fractions
+              displayName: 'Integration by partial fractions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.integration-using-trigonometric-identities
+              displayName: 'Integration using trigonometric identities'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.integral-calculus.integral-as-a-limit-of-a-sum
+              displayName: 'Integral as a limit of a sum'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.differential-equations
+          displayName: 'Differential Equations'
+          examWeight: 0.04545
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.differential-equations.ordinary-differential-equations
+              displayName: 'Ordinary differential equations'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.differential-equations.order-and-degree-of-a-differential-equation
+              displayName: 'Order and degree of a differential equation'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.differential-equations.formation-of-a-differential-equation
+              displayName: 'Formation of a differential equation'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.differential-equations.solution-by-separation-of-variables
+              displayName: 'Solution by separation of variables'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.differential-equations.homogeneous-differential-equations
+              displayName: 'Homogeneous differential equations'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.differential-equations.linear-differential-equations-of-first-order
+              displayName: 'Linear differential equations of first order'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.differential-equations.integrating-factor
+              displayName: 'Integrating factor'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+            - key: mathematics.differential-equations.applications-of-differential-equations
+              displayName: 'Applications of differential equations'
+              examWeight: 0
+              estimatedTeachingHours: 2.38
+        - key: mathematics.coordinate-geometry
+          displayName: 'Coordinate Geometry'
+          examWeight: 0.10227
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.coordinate-geometry.cartesian-system-of-rectangular-coordinates
+              displayName: 'Cartesian system of rectangular coordinates'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.distance-formula-and-section-formula
+              displayName: 'Distance formula and section formula'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.locus-and-its-equation
+              displayName: 'Locus and its equation'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.slope-of-a-line
+              displayName: 'Slope of a line'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.various-forms-of-the-equation-of-a-line
+              displayName: 'Various forms of the equation of a line'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.intersection-of-lines
+              displayName: 'Intersection of lines'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.angle-between-two-lines
+              displayName: 'Angle between two lines'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.distance-of-a-point-from-a-line
+              displayName: 'Distance of a point from a line'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.coordinate-geometry.equations-of-internal-and-external-bisectors
+              displayName: 'Equations of internal and external bisectors'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.three-dimensional-geometry
+          displayName: 'Three Dimensional Geometry'
+          examWeight: 0.05682
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.three-dimensional-geometry.coordinates-of-a-point-in-space
+              displayName: 'Coordinates of a point in space'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.distance-between-two-points
+              displayName: 'Distance between two points'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.section-formula-in-three-dimensions
+              displayName: 'Section formula in three dimensions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.direction-ratios-and-direction-cosines
+              displayName: 'Direction ratios and direction cosines'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.angle-between-two-intersecting-lines
+              displayName: 'Angle between two intersecting lines'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.skew-lines-and-the-shortest-distance
+              displayName: 'Skew lines and the shortest distance'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.equation-of-a-line-in-space
+              displayName: 'Equation of a line in space'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.equation-of-a-plane
+              displayName: 'Equation of a plane'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.three-dimensional-geometry.angle-between-a-line-and-a-plane
+              displayName: 'Angle between a line and a plane'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.vector-algebra
+          displayName: 'Vector Algebra'
+          examWeight: 0.04545
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.vector-algebra.vectors-and-scalars
+              displayName: 'Vectors and scalars'
+              examWeight: 0
+              estimatedTeachingHours: 2.71
+            - key: mathematics.vector-algebra.addition-of-vectors
+              displayName: 'Addition of vectors'
+              examWeight: 0
+              estimatedTeachingHours: 2.71
+            - key: mathematics.vector-algebra.components-of-a-vector-in-two-dimensions
+              displayName: 'Components of a vector in two dimensions'
+              examWeight: 0
+              estimatedTeachingHours: 2.71
+            - key: mathematics.vector-algebra.components-of-a-vector-in-three-dimensions
+              displayName: 'Components of a vector in three dimensions'
+              examWeight: 0
+              estimatedTeachingHours: 2.71
+            - key: mathematics.vector-algebra.scalar-and-vector-products
+              displayName: 'Scalar and vector products'
+              examWeight: 0
+              estimatedTeachingHours: 2.71
+            - key: mathematics.vector-algebra.scalar-and-vector-triple-products
+              displayName: 'Scalar and vector triple products'
+              examWeight: 0
+              estimatedTeachingHours: 2.71
+            - key: mathematics.vector-algebra.applications-of-vectors-to-geometry
+              displayName: 'Applications of vectors to geometry'
+              examWeight: 0
+              estimatedTeachingHours: 2.71
+        - key: mathematics.statistics-and-probability
+          displayName: 'Statistics and Probability'
+          examWeight: 0.06818
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.statistics-and-probability.measures-of-dispersion
+              displayName: 'Measures of dispersion'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.mean-median-and-mode-of-grouped-data
+              displayName: 'Mean, median and mode of grouped data'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.standard-deviation-and-variance
+              displayName: 'Standard deviation and variance'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.mean-deviation
+              displayName: 'Mean deviation'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.probability-of-an-event
+              displayName: 'Probability of an event'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.addition-theorem-of-probability
+              displayName: 'Addition theorem of probability'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.multiplication-theorem-of-probability
+              displayName: 'Multiplication theorem of probability'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.conditional-probability
+              displayName: 'Conditional probability'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.statistics-and-probability.bayes-theorem
+              displayName: 'Bayes'' theorem'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.trigonometry
+          displayName: 'Trigonometry'
+          examWeight: 0.09091
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.trigonometry.trigonometric-identities
+              displayName: 'Trigonometric identities'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.trigonometric-equations
+              displayName: 'Trigonometric equations'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.trigonometric-functions-and-their-graphs
+              displayName: 'Trigonometric functions and their graphs'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.inverse-trigonometric-functions
+              displayName: 'Inverse trigonometric functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.properties-of-inverse-trigonometric-functions
+              displayName: 'Properties of inverse trigonometric functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.principal-values-of-inverse-functions
+              displayName: 'Principal values of inverse functions'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.heights-and-distances
+              displayName: 'Heights and distances'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.sine-and-cosine-rules
+              displayName: 'Sine and cosine rules'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+            - key: mathematics.trigonometry.solution-of-triangles
+              displayName: 'Solution of triangles'
+              examWeight: 0
+              estimatedTeachingHours: 2.11
+        - key: mathematics.mathematical-reasoning
+          displayName: 'Mathematical Reasoning'
+          examWeight: 0.03409
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.mathematical-reasoning.statements-and-logical-operations
+              displayName: 'Statements and logical operations'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.mathematical-reasoning.conjunction-and-disjunction
+              displayName: 'Conjunction and disjunction'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.mathematical-reasoning.implication-and-its-converse
+              displayName: 'Implication and its converse'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.mathematical-reasoning.contrapositive-of-a-statement
+              displayName: 'Contrapositive of a statement'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.mathematical-reasoning.tautology-and-contradiction
+              displayName: 'Tautology and contradiction'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+            - key: mathematics.mathematical-reasoning.validating-statements
+              displayName: 'Validating statements'
+              examWeight: 0
+              estimatedTeachingHours: 3.17
+        - key: mathematics.mathematical-induction
+          displayName: 'Mathematical Induction'
+          examWeight: 0.03411
+          estimatedTeachingHours: 19
+          children:
+            - key: mathematics.mathematical-induction.principle-of-mathematical-induction
+              displayName: 'Principle of mathematical induction'
+              examWeight: 0
+              estimatedTeachingHours: 4.75
+            - key: mathematics.mathematical-induction.simple-applications-of-induction
+              displayName: 'Simple applications of induction'
+              examWeight: 0
+              estimatedTeachingHours: 4.75
+            - key: mathematics.mathematical-induction.divisibility-problems
+              displayName: 'Divisibility problems'
+              examWeight: 0
+              estimatedTeachingHours: 4.75
+            - key: mathematics.mathematical-induction.inequality-problems
+              displayName: 'Inequality problems'
+              examWeight: 0
+              estimatedTeachingHours: 4.75
+prerequisites:
+  - from: mathematics.trigonometry
+    to: physics.kinematics
+    strength: 0.6
+  - from: mathematics.vector-algebra
+    to: physics.kinematics
+    strength: 0.8
+  - from: physics.kinematics
+    to: physics.laws-of-motion
+    strength: 0.9
+  - from: physics.laws-of-motion
+    to: physics.work-energy-and-power
+    strength: 0.8
+  - from: physics.laws-of-motion
+    to: physics.rotational-motion
+    strength: 0.8
+  - from: physics.work-energy-and-power
+    to: physics.gravitation
+    strength: 0.5
+  - from: physics.kinetic-theory-of-gases
+    to: physics.thermodynamics
+    strength: 0.6
+  - from: physics.oscillations-and-waves
+    to: physics.electromagnetic-induction-and-alternating-currents
+    strength: 0.4
+  - from: physics.electrostatics
+    to: physics.current-electricity
+    strength: 0.7
+  - from: physics.current-electricity
+    to: physics.magnetic-effects-of-current-and-magnetism
+    strength: 0.7
+  - from: physics.magnetic-effects-of-current-and-magnetism
+    to: physics.electromagnetic-induction-and-alternating-currents
+    strength: 0.9
+  - from: physics.electromagnetic-induction-and-alternating-currents
+    to: physics.electromagnetic-waves
+    strength: 0.7
+  - from: physics.optics
+    to: physics.dual-nature-of-matter-and-radiation
+    strength: 0.5
+  - from: physics.dual-nature-of-matter-and-radiation
+    to: physics.atoms-and-nuclei
+    strength: 0.6
+  - from: physics.atoms-and-nuclei
+    to: physics.electronic-devices
+    strength: 0.3
+  - from: chemistry.some-basic-concepts-in-chemistry
+    to: chemistry.states-of-matter
+    strength: 0.5
+  - from: chemistry.some-basic-concepts-in-chemistry
+    to: chemistry.redox-reactions-and-electrochemistry
+    strength: 0.6
+  - from: chemistry.atomic-structure
+    to: chemistry.chemical-bonding-and-molecular-structure
+    strength: 0.9
+  - from: chemistry.atomic-structure
+    to: chemistry.classification-of-elements-and-periodicity
+    strength: 0.8
+  - from: chemistry.classification-of-elements-and-periodicity
+    to: chemistry.p-block-elements
+    strength: 0.8
+  - from: chemistry.classification-of-elements-and-periodicity
+    to: chemistry.s-block-elements
+    strength: 0.8
+  - from: chemistry.classification-of-elements-and-periodicity
+    to: chemistry.d-and-f-block-elements
+    strength: 0.8
+  - from: chemistry.d-and-f-block-elements
+    to: chemistry.coordination-compounds
+    strength: 0.8
+  - from: chemistry.chemical-thermodynamics
+    to: chemistry.equilibrium
+    strength: 0.7
+  - from: chemistry.equilibrium
+    to: chemistry.redox-reactions-and-electrochemistry
+    strength: 0.6
+  - from: chemistry.states-of-matter
+    to: chemistry.solutions
+    strength: 0.6
+  - from: chemistry.chemical-bonding-and-molecular-structure
+    to: chemistry.basic-principles-of-organic-chemistry
+    strength: 0.8
+  - from: chemistry.basic-principles-of-organic-chemistry
+    to: chemistry.hydrocarbons
+    strength: 0.9
+  - from: chemistry.hydrocarbons
+    to: chemistry.organic-compounds-containing-halogens
+    strength: 0.8
+  - from: chemistry.organic-compounds-containing-halogens
+    to: chemistry.organic-compounds-containing-oxygen
+    strength: 0.7
+  - from: chemistry.organic-compounds-containing-oxygen
+    to: chemistry.organic-compounds-containing-nitrogen
+    strength: 0.6
+  - from: chemistry.organic-compounds-containing-oxygen
+    to: chemistry.biomolecules
+    strength: 0.5
+  - from: chemistry.organic-compounds-containing-oxygen
+    to: chemistry.polymers
+    strength: 0.5
+  - from: chemistry.chemical-kinetics
+    to: chemistry.surface-chemistry
+    strength: 0.4
+  - from: chemistry.general-principles-of-isolation-of-metals
+    to: chemistry.d-and-f-block-elements
+    strength: 0.3
+  - from: mathematics.sets-relations-and-functions
+    to: mathematics.limit-continuity-and-differentiability
+    strength: 0.8
+  - from: mathematics.trigonometry
+    to: mathematics.complex-numbers-and-quadratic-equations
+    strength: 0.5
+  - from: mathematics.complex-numbers-and-quadratic-equations
+    to: mathematics.matrices-and-determinants
+    strength: 0.3
+  - from: mathematics.permutations-and-combinations
+    to: mathematics.binomial-theorem
+    strength: 0.8
+  - from: mathematics.permutations-and-combinations
+    to: mathematics.statistics-and-probability
+    strength: 0.7
+  - from: mathematics.sequences-and-series
+    to: mathematics.binomial-theorem
+    strength: 0.4
+  - from: mathematics.limit-continuity-and-differentiability
+    to: mathematics.integral-calculus
+    strength: 0.9
+  - from: mathematics.integral-calculus
+    to: mathematics.differential-equations
+    strength: 0.8
+  - from: mathematics.coordinate-geometry
+    to: mathematics.three-dimensional-geometry
+    strength: 0.8
+  - from: mathematics.vector-algebra
+    to: mathematics.three-dimensional-geometry
+    strength: 0.8
+  - from: mathematics.mathematical-induction
+    to: mathematics.sequences-and-series
+    strength: 0.4
+  - from: mathematics.mathematical-reasoning
+    to: mathematics.statistics-and-probability
+    strength: 0.2

@@ -1,0 +1,11 @@
+schemaVersion: 1
+examFamily: JEE
+academicYear: '2026'
+subjects:
+  - subjectDomain: physics
+    root:
+      key: physics
+      displayName: Physics
+prerequisites:
+  - from: physics
+    to: physics.absent

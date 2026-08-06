@@ -1,0 +1,1151 @@
+openapi: 3.1.0
+info:
+  title: Question Bank — Curriculum API
+  version: 1.0.0
+  description: |
+    The curriculum context's HTTP contract and the source of truth for client
+    types (BACKEND-ARCHITECTURE §3). Every operation names the command or query
+    handler it delegates to in `x-handler`, which is what the F15 fitness check
+    reconciles against the handler registry.
+
+    JSON is camelCase throughout; the database's snake_case never reaches here.
+servers:
+  - url: https://api.questionbank.example/v1
+    description: Production
+tags:
+  - name: taxonomy
+  - name: exam-profiles
+  - name: migrations
+
+paths:
+  /v1/taxonomy-versions:
+    post:
+      operationId: createTaxonomyDraft
+      x-handler: CreateTaxonomyDraft
+      summary: Create a taxonomy draft
+      tags: [taxonomy]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaxonomyDraftRequest' }
+      responses:
+        '201':
+          description: The draft was created.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyWriteResult' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+    get:
+      operationId: listTaxonomyVersions
+      x-handler: ListTaxonomyVersions
+      summary: List taxonomy versions of an exam family
+      tags: [taxonomy]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/TaxonomyVersionSort'
+        - $ref: '#/components/parameters/TaxonomyVersionFilterState'
+        - name: examFamily
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: A page of taxonomy versions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyVersionPage' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+
+  /v1/taxonomy-versions/{taxonomyVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/TaxonomyVersionId'
+    get:
+      operationId: getTaxonomyVersion
+      x-handler: GetTaxonomyVersion
+      summary: Read one taxonomy version
+      tags: [taxonomy]
+      responses:
+        '200':
+          description: The taxonomy version.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyVersionDetail' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/taxonomy-versions/{taxonomyVersionId}/concept-nodes:
+    parameters:
+      - $ref: '#/components/parameters/TaxonomyVersionId'
+    post:
+      operationId: addConceptNode
+      x-handler: AddConceptNode
+      summary: Add a concept node to a draft
+      tags: [taxonomy]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddConceptNodeRequest' }
+      responses:
+        '201':
+          description: The node was added.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyWriteResult' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/taxonomy-versions/{taxonomyVersionId}/concept-nodes/{conceptNodeId}:
+    parameters:
+      - $ref: '#/components/parameters/TaxonomyVersionId'
+      - $ref: '#/components/parameters/ConceptNodeId'
+    patch:
+      operationId: moveConceptNode
+      x-handler: MoveConceptNode
+      summary: Move a concept node under a new parent
+      tags: [taxonomy]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MoveConceptNodeRequest' }
+      responses:
+        '200':
+          description: The node was moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyWriteResult' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+    delete:
+      operationId: removeConceptNode
+      x-handler: RemoveConceptNode
+      summary: Remove a concept node from a draft
+      tags: [taxonomy]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The node was removed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyWriteResult' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/taxonomy-versions/{taxonomyVersionId}/prerequisite-edges:
+    parameters:
+      - $ref: '#/components/parameters/TaxonomyVersionId'
+    post:
+      operationId: addPrerequisiteEdge
+      x-handler: AddPrerequisiteEdge
+      summary: Add a prerequisite edge to a draft
+      tags: [taxonomy]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddPrerequisiteEdgeRequest' }
+      responses:
+        '201':
+          description: The edge was added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyWriteResult' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/taxonomy-versions/{taxonomyVersionId}/publication:
+    parameters:
+      - $ref: '#/components/parameters/TaxonomyVersionId'
+    post:
+      operationId: publishTaxonomyVersion
+      x-handler: PublishTaxonomyVersion
+      summary: Publish a taxonomy version
+      tags: [taxonomy]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The version was published.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaxonomyWriteResult' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/taxonomy-versions/{taxonomyVersionId}/concept-subtree:
+    parameters:
+      - $ref: '#/components/parameters/TaxonomyVersionId'
+    get:
+      operationId: getConceptSubtree
+      x-handler: GetConceptSubtree
+      summary: Read a concept subtree, optionally depth-limited
+      tags: [taxonomy]
+      parameters:
+        - name: rootNodeId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: depthLimit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 20 }
+      responses:
+        '200':
+          description: The subtree.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConceptSubtree' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/taxonomy-versions/{taxonomyVersionId}/concepts/{conceptIdentityId}/prerequisites:
+    parameters:
+      - $ref: '#/components/parameters/TaxonomyVersionId'
+      - name: conceptIdentityId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getConceptPrerequisites
+      x-handler: GetConceptPrerequisites
+      summary: Read what a concept requires and what requires it
+      tags: [taxonomy]
+      responses:
+        '200':
+          description: The prerequisite relations.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConceptPrerequisites' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/exams:
+    post:
+      operationId: createExam
+      x-handler: CreateExam
+      summary: Create an exam
+      tags: [exam-profiles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateExamRequest' }
+      responses:
+        '201':
+          description: The exam was created.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [examId]
+                properties:
+                  examId: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+    get:
+      operationId: listExams
+      x-handler: ListExams
+      summary: List exams
+      tags: [exam-profiles]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/ExamSort'
+        - $ref: '#/components/parameters/ExamFilterJurisdiction'
+      responses:
+        '200':
+          description: A page of exams.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExamPage' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+
+  /v1/exam-profile-versions:
+    post:
+      operationId: createProfileDraft
+      x-handler: CreateProfileDraft
+      summary: Create an exam profile draft
+      tags: [exam-profiles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProfileDraftRequest' }
+      responses:
+        '201':
+          description: The draft was created.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileWriteResult' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/exam-profile-versions/{profileVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/ProfileVersionId'
+    get:
+      operationId: getExamProfileVersion
+      x-handler: GetExamProfileVersion
+      summary: Read one exam profile version
+      tags: [exam-profiles]
+      responses:
+        '200':
+          description: The profile version.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExamProfileVersionDetail' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+    put:
+      operationId: updateProfileDraft
+      x-handler: UpdateProfileDraft
+      summary: Replace the content of a profile draft
+      tags: [exam-profiles]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileDraftContent' }
+      responses:
+        '200':
+          description: The draft was updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileWriteResult' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/exam-profile-versions/{profileVersionId}/publication:
+    parameters:
+      - $ref: '#/components/parameters/ProfileVersionId'
+    post:
+      operationId: publishProfileVersion
+      x-handler: PublishProfileVersion
+      summary: Publish an exam profile version
+      tags: [exam-profiles]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                activate: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The profile version was published.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileWriteResult' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/exam-profile-versions/{profileVersionId}/supersession:
+    parameters:
+      - $ref: '#/components/parameters/ProfileVersionId'
+    post:
+      operationId: supersedeProfileVersion
+      x-handler: SupersedeProfileVersion
+      summary: Supersede a published profile version
+      tags: [exam-profiles]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The profile version was superseded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileWriteResult' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/taxonomy-migrations:
+    post:
+      operationId: createMigration
+      x-handler: CreateMigration
+      summary: Create a taxonomy migration
+      tags: [migrations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMigrationRequest' }
+      responses:
+        '201':
+          description: The migration was created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MigrationWriteResult' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/taxonomy-migrations/{migrationId}/mappings:
+    parameters:
+      - $ref: '#/components/parameters/MigrationId'
+    post:
+      operationId: addMapping
+      x-handler: AddMapping
+      summary: Add a mapping to a migration
+      tags: [migrations]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddMappingRequest' }
+      responses:
+        '201':
+          description: The mapping was added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MigrationWriteResult' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+  /v1/taxonomy-migrations/{migrationId}/dry-run:
+    parameters:
+      - $ref: '#/components/parameters/MigrationId'
+    post:
+      operationId: runDryRun
+      x-handler: RunDryRun
+      summary: Run a migration dry run
+      tags: [migrations]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The dry-run preview.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MigrationDryRun' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+    get:
+      operationId: getMigrationDryRun
+      x-handler: GetMigrationDryRun
+      summary: Read the stored dry-run preview
+      tags: [migrations]
+      responses:
+        '200':
+          description: The stored dry run, or null if none has been run.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/MigrationDryRun' }
+                  - { type: 'null' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/taxonomy-migrations/{migrationId}/execution:
+    parameters:
+      - $ref: '#/components/parameters/MigrationId'
+    post:
+      operationId: executeMigration
+      x-handler: ExecuteMigration
+      summary: Execute a dispositioned migration
+      tags: [migrations]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                chunkSize: { type: integer, minimum: 1, maximum: 1000 }
+      responses:
+        '200':
+          description: Execution finished.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExecutionResult' }
+        '403': { $ref: '#/components/responses/AuthorizationProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409': { $ref: '#/components/responses/ConflictProblem' }
+        '422': { $ref: '#/components/responses/RuleViolationProblem' }
+
+components:
+  headers:
+    ETag:
+      description: The aggregate version, quoted. Send it back as If-Match.
+      schema: { type: string }
+    CorrelationId:
+      description: The correlation id, echoed on every response including errors.
+      schema: { type: string }
+
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string, maxLength: 64 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: The aggregate version the caller believes it is changing.
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Required on publication and execution, which must not repeat.
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque forward cursor. There is no offset parameter by design.
+      schema: { type: string, maxLength: 512 }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    TaxonomyVersionId:
+      name: taxonomyVersionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ConceptNodeId:
+      name: conceptNodeId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProfileVersionId:
+      name: profileVersionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MigrationId:
+      name: migrationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TaxonomyVersionSort:
+      name: sort
+      in: query
+      required: false
+      description: Allowlisted sort fields. Anything else is rejected.
+      schema:
+        type: string
+        enum: [academicYear, -academicYear, publishedAt, -publishedAt]
+    TaxonomyVersionFilterState:
+      name: state
+      in: query
+      required: false
+      description: Allowlisted filter field.
+      schema:
+        type: string
+        enum: [draft, published, superseded]
+    ExamSort:
+      name: sort
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [code, -code, displayName, -displayName]
+    ExamFilterJurisdiction:
+      name: jurisdiction
+      in: query
+      required: false
+      schema: { type: string, minLength: 2, maxLength: 8 }
+
+  responses:
+    ValidationProblem:
+      description: The request was malformed.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    AuthorizationProblem:
+      description: The principal may not perform this operation.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    NotFoundProblem:
+      description: No such resource.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    ConflictProblem:
+      description: The resource changed under the caller, or a uniqueness rule was broken.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    RuleViolationProblem:
+      description: A domain rule refused the change.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  schemas:
+    ProblemDetails:
+      description: RFC 9457 Problem Details with a stable machine-readable code.
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, retryable, correlationId]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string }
+        instance: { type: string }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        retryable: { type: boolean }
+        correlationId: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    ErrorCode:
+      description: The closed error taxonomy (ENGINEERING-HANDBOOK §8).
+      type: string
+      enum:
+        - Validation
+        - Authentication
+        - Authorization
+        - Entitlement
+        - NotFound
+        - Conflict
+        - PreconditionFailed
+        - RuleViolation
+        - RateLimited
+        - Unavailable
+
+    PageInfo:
+      type: object
+      additionalProperties: false
+      required: [hasNextPage]
+      properties:
+        hasNextPage: { type: boolean }
+        nextCursor: { type: [string, 'null'] }
+
+    TaxonomyWriteResult:
+      type: object
+      additionalProperties: false
+      required: [taxonomyVersionId, aggregateVersion]
+      properties:
+        taxonomyVersionId: { type: string, format: uuid }
+        aggregateVersion: { type: integer, minimum: 1 }
+
+    ProfileWriteResult:
+      type: object
+      additionalProperties: false
+      required: [profileVersionId, aggregateVersion]
+      properties:
+        profileVersionId: { type: string, format: uuid }
+        aggregateVersion: { type: integer, minimum: 1 }
+
+    MigrationWriteResult:
+      type: object
+      additionalProperties: false
+      required: [migrationId, aggregateVersion]
+      properties:
+        migrationId: { type: string, format: uuid }
+        aggregateVersion: { type: integer, minimum: 1 }
+
+    ExecutionResult:
+      type: object
+      additionalProperties: false
+      required: [migrationId, aggregateVersion, migratedConceptCount, chunkCount]
+      properties:
+        migrationId: { type: string, format: uuid }
+        aggregateVersion: { type: integer, minimum: 1 }
+        migratedConceptCount: { type: integer, minimum: 0 }
+        chunkCount: { type: integer, minimum: 0 }
+
+    TaxonomyVersionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        [taxonomyVersionId, examFamily, academicYear, state, publishedAt, nodeCount, prerequisiteCount, aggregateVersion]
+      properties:
+        taxonomyVersionId: { type: string, format: uuid }
+        examFamily: { type: string }
+        academicYear: { type: string, pattern: '^\d{4}(-\d{2})?$' }
+        state: { $ref: '#/components/schemas/LifecycleState' }
+        publishedAt: { type: [string, 'null'], format: date-time }
+        nodeCount: { type: integer, minimum: 0 }
+        prerequisiteCount: { type: integer, minimum: 0 }
+        aggregateVersion: { type: integer, minimum: 1 }
+
+    TaxonomyVersionDetail:
+      allOf:
+        - $ref: '#/components/schemas/TaxonomyVersionSummary'
+        - type: object
+          required: [nodes]
+          properties:
+            nodes:
+              type: array
+              items: { $ref: '#/components/schemas/ConceptNode' }
+
+    TaxonomyVersionPage:
+      type: object
+      additionalProperties: false
+      required: [items, pageInfo]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TaxonomyVersionSummary' }
+        pageInfo: { $ref: '#/components/schemas/PageInfo' }
+
+    LifecycleState:
+      type: string
+      enum: [draft, published, superseded]
+
+    ConceptNode:
+      type: object
+      additionalProperties: false
+      required:
+        [conceptNodeId, conceptIdentityId, parentNodeId, displayName, examWeight, depth, estimatedTeachingHours]
+      properties:
+        conceptNodeId: { type: string, format: uuid }
+        conceptIdentityId: { type: string, format: uuid }
+        parentNodeId: { type: [string, 'null'], format: uuid }
+        displayName: { type: string, minLength: 1 }
+        examWeight: { type: number, minimum: 0, maximum: 1 }
+        depth: { type: integer, minimum: 0 }
+        estimatedTeachingHours: { type: number, minimum: 0 }
+
+    ConceptSubtree:
+      type: object
+      additionalProperties: false
+      required: [rootNodeId, depthLimit, nodes]
+      properties:
+        rootNodeId: { type: string, format: uuid }
+        depthLimit: { type: [integer, 'null'], minimum: 0 }
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/ConceptNode' }
+
+    ConceptPrerequisites:
+      type: object
+      additionalProperties: false
+      required: [conceptIdentityId, requires, requiredBy]
+      properties:
+        conceptIdentityId: { type: string, format: uuid }
+        requires:
+          type: array
+          items: { $ref: '#/components/schemas/PrerequisiteRelation' }
+        requiredBy:
+          type: array
+          items: { $ref: '#/components/schemas/PrerequisiteRelation' }
+
+    PrerequisiteRelation:
+      type: object
+      additionalProperties: false
+      required: [conceptIdentityId, strength]
+      properties:
+        conceptIdentityId: { type: string, format: uuid }
+        strength: { type: number, minimum: 0, maximum: 1 }
+
+    Exam:
+      type: object
+      additionalProperties: false
+      required: [examId, code, displayName, jurisdiction, conductingBody, activeProfileVersions]
+      properties:
+        examId: { type: string, format: uuid }
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]{2,31}$' }
+        displayName: { type: string }
+        jurisdiction: { type: string }
+        conductingBody: { type: string }
+        activeProfileVersions:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [academicYear, profileVersionId]
+            properties:
+              academicYear: { type: string }
+              profileVersionId: { type: string, format: uuid }
+
+    ExamPage:
+      type: object
+      additionalProperties: false
+      required: [items, pageInfo]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Exam' }
+        pageInfo: { $ref: '#/components/schemas/PageInfo' }
+
+    SectionSpec:
+      type: object
+      additionalProperties: false
+      required: [ordinal, name, subject, itemCount, itemTypeMix, maxMarks, sectionTimingMinutes]
+      properties:
+        ordinal: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1 }
+        subject: { type: string, minLength: 1 }
+        itemCount: { type: integer, minimum: 1 }
+        itemTypeMix:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        maxMarks: { type: number, exclusiveMinimum: 0 }
+        sectionTimingMinutes: { type: [integer, 'null'], minimum: 1 }
+
+    ItemTypeAllowance:
+      type: object
+      additionalProperties: false
+      required: [itemType, sectionOrdinals]
+      properties:
+        itemType: { type: string, minLength: 1 }
+        sectionOrdinals:
+          type: array
+          items: { type: integer, minimum: 1 }
+
+    TimingPolicy:
+      type: object
+      additionalProperties: false
+      required: [totalDurationMinutes, sectionLocking, warningThresholdsMinutes, autoSubmitOnExpiry]
+      properties:
+        totalDurationMinutes: { type: integer, exclusiveMinimum: 0 }
+        sectionLocking: { type: boolean }
+        warningThresholdsMinutes:
+          type: array
+          items: { type: integer, exclusiveMinimum: 0 }
+        autoSubmitOnExpiry: { type: boolean }
+
+    NavigationPolicy:
+      type: object
+      additionalProperties: false
+      required: [crossSectionNavigation, allowMarkForReview, allowAnswerChange, allowClearResponse]
+      properties:
+        crossSectionNavigation: { type: boolean }
+        allowMarkForReview: { type: boolean }
+        allowAnswerChange: { type: boolean }
+        allowClearResponse: { type: boolean }
+
+    Condition:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum:
+            - UNATTEMPTED
+            - EXACT_MATCH
+            - NO_MATCH
+            - ALL_CORRECT_SELECTED
+            - PARTIAL_CORRECT_SELECTED
+            - ANY_INCORRECT_SELECTED
+            - MATCHING_PAIRS_CORRECT
+            - ALWAYS
+        minCorrect: { type: integer, minimum: 1 }
+        noIncorrect: { type: boolean }
+        count: { type: integer, minimum: 1 }
+
+    Award:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [FIXED, PER_CORRECT, FULL_MARKS]
+        marks: { type: number }
+
+    MarkingRule:
+      type: object
+      additionalProperties: false
+      required: [id, appliesTo, condition, award]
+      properties:
+        id: { type: string, minLength: 1 }
+        appliesTo:
+          type: object
+          additionalProperties: false
+          required: [itemTypes]
+          properties:
+            itemTypes:
+              type: array
+              minItems: 1
+              items: { type: string, minLength: 1 }
+            sectionOrdinals:
+              type: array
+              items: { type: integer, minimum: 1 }
+        condition: { $ref: '#/components/schemas/Condition' }
+        award: { $ref: '#/components/schemas/Award' }
+
+    MarkingRuleSet:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, rules]
+      properties:
+        schemaVersion: { type: integer, minimum: 1 }
+        rules:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/MarkingRule' }
+
+    NumericAnswerSpec:
+      type: object
+      additionalProperties: false
+      required: [expectedValue, comparisonMode, acceptedForms]
+      properties:
+        expectedValue: { type: string }
+        comparisonMode:
+          type: string
+          enum: [EXACT, ABSOLUTE_TOLERANCE, RELATIVE_TOLERANCE, SIGNIFICANT_FIGURES, RANGE]
+        toleranceValue: { type: string }
+        significantFigures: { type: integer, minimum: 1 }
+        rangeMin: { type: string }
+        rangeMax: { type: string }
+        unit:
+          type: object
+          additionalProperties: false
+          required: [canonical, acceptedEquivalents, required]
+          properties:
+            canonical: { type: string, minLength: 1 }
+            acceptedEquivalents:
+              type: array
+              items: { type: string }
+            required: { type: boolean }
+        acceptedForms:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [DECIMAL, FRACTION, SCIENTIFIC]
+        normalization:
+          type: object
+          additionalProperties: false
+          required: [trimWhitespace, stripThousandsSeparator, unicodeMinusToAscii, caseInsensitiveUnit]
+          properties:
+            trimWhitespace: { type: boolean }
+            stripThousandsSeparator: { type: boolean }
+            unicodeMinusToAscii: { type: boolean }
+            caseInsensitiveUnit: { type: boolean }
+
+    ExamProfileVersionDetail:
+      type: object
+      additionalProperties: false
+      required:
+        [profileVersionId, examId, academicYear, state, taxonomyVersionId, totalMarks, markingRuleSetHash,
+         markingRuleSet, sections, itemTypeAllowances, aggregateVersion]
+      properties:
+        profileVersionId: { type: string, format: uuid }
+        examId: { type: string, format: uuid }
+        academicYear: { type: string }
+        state: { $ref: '#/components/schemas/LifecycleState' }
+        taxonomyVersionId: { type: string, format: uuid }
+        totalMarks: { type: number, exclusiveMinimum: 0 }
+        markingRuleSetHash: { type: [string, 'null'], pattern: '^[0-9a-f]{64}$' }
+        markingRuleSet: { $ref: '#/components/schemas/MarkingRuleSet' }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/SectionSpec' }
+        itemTypeAllowances:
+          type: array
+          items: { $ref: '#/components/schemas/ItemTypeAllowance' }
+        aggregateVersion: { type: integer, minimum: 1 }
+
+    MigrationException:
+      type: object
+      additionalProperties: false
+      required: [kind, concepts, disposition, reason]
+      properties:
+        kind: { type: string, enum: [AMBIGUOUS_MAPPING, UNMAPPED] }
+        mappingKind: { $ref: '#/components/schemas/MappingKind' }
+        concepts:
+          type: array
+          items: { type: string, format: uuid }
+        disposition: { type: string, enum: [pending, accepted, rejected] }
+        reason: { type: string }
+
+    MappingKind:
+      type: string
+      enum: [IDENTITY, RENAME, MOVE, SPLIT, MERGE, REMOVAL]
+
+    MigrationDryRun:
+      type: object
+      additionalProperties: false
+      required:
+        [schemaVersion, migrationId, fromVersionId, toVersionId, autoMigratableCount, exceptions, invalidMappings]
+      properties:
+        schemaVersion: { type: integer, minimum: 1 }
+        migrationId: { type: string, format: uuid }
+        fromVersionId: { type: string, format: uuid }
+        toVersionId: { type: string, format: uuid }
+        autoMigratableCount: { type: integer, minimum: 0 }
+        exceptions:
+          type: array
+          items: { $ref: '#/components/schemas/MigrationException' }
+        invalidMappings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [mappingIndex, mappingKind, concepts, reason]
+            properties:
+              mappingIndex: { type: integer, minimum: 0 }
+              mappingKind: { $ref: '#/components/schemas/MappingKind' }
+              concepts:
+                type: array
+                items: { type: string, format: uuid }
+              reason: { type: string }
+
+    CreateTaxonomyDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [examFamily, academicYear]
+      properties:
+        examFamily: { type: string, minLength: 1 }
+        academicYear: { type: string, pattern: '^\d{4}(-\d{2})?$' }
+
+    AddConceptNodeRequest:
+      type: object
+      additionalProperties: false
+      required: [conceptIdentityId, displayName, examWeight, estimatedTeachingHours]
+      properties:
+        conceptIdentityId: { type: string, format: uuid }
+        parentNodeId: { type: string, format: uuid }
+        displayName: { type: string, minLength: 1 }
+        examWeight: { type: number, minimum: 0, maximum: 1 }
+        estimatedTeachingHours: { type: number, minimum: 0 }
+
+    MoveConceptNodeRequest:
+      type: object
+      additionalProperties: false
+      required: [newParentNodeId]
+      properties:
+        newParentNodeId: { type: string, format: uuid }
+
+    AddPrerequisiteEdgeRequest:
+      type: object
+      additionalProperties: false
+      required: [fromConceptIdentityId, toConceptIdentityId, strength]
+      properties:
+        fromConceptIdentityId: { type: string, format: uuid }
+        toConceptIdentityId: { type: string, format: uuid }
+        strength: { type: number, minimum: 0, maximum: 1 }
+
+    CreateExamRequest:
+      type: object
+      additionalProperties: false
+      required: [code, displayName, jurisdiction, conductingBody]
+      properties:
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]{2,31}$' }
+        displayName: { type: string, minLength: 1 }
+        jurisdiction: { type: string, minLength: 1 }
+        conductingBody: { type: string, minLength: 1 }
+
+    ProfileDraftContent:
+      type: object
+      additionalProperties: false
+      required: [sections, totalMarks, timingPolicy, navigationPolicy, markingRuleSet, itemTypeAllowances]
+      properties:
+        sections:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/SectionSpec' }
+        totalMarks: { type: number, exclusiveMinimum: 0 }
+        timingPolicy: { $ref: '#/components/schemas/TimingPolicy' }
+        navigationPolicy: { $ref: '#/components/schemas/NavigationPolicy' }
+        markingRuleSet: { $ref: '#/components/schemas/MarkingRuleSet' }
+        toleranceDefault: { $ref: '#/components/schemas/NumericAnswerSpec' }
+        itemTypeAllowances:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ItemTypeAllowance' }
+
+    CreateProfileDraftRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProfileDraftContent'
+        - type: object
+          required: [examId, academicYear, taxonomyVersionId]
+          properties:
+            examId: { type: string, format: uuid }
+            academicYear: { type: string, pattern: '^\d{4}(-\d{2})?$' }
+            taxonomyVersionId: { type: string, format: uuid }
+
+    CreateMigrationRequest:
+      type: object
+      additionalProperties: false
+      required: [fromVersionId, toVersionId]
+      properties:
+        fromVersionId: { type: string, format: uuid }
+        toVersionId: { type: string, format: uuid }
+
+    AddMappingRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, from, to]
+      properties:
+        kind: { $ref: '#/components/schemas/MappingKind' }
+        from:
+          type: array
+          items: { type: string, format: uuid }
+        to:
+          type: array
+          items: { type: string, format: uuid }
+        disposition: { type: string, enum: [pending, accepted, rejected] }
