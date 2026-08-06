@@ -1,0 +1,85 @@
+# NEET UG 2026 exam profile — the EXT-01 proof.
+#
+# A differently shaped exam (180 items, 720 marks, 200 minutes, Biology double
+# weighted, single-correct MCQ only) added as configuration alone. No schema
+# migration, no code change: only this file and its taxonomy.
+schemaVersion: 1
+
+exam:
+  code: NEET_UG
+  displayName: 'NEET UG'
+  jurisdiction: IN
+  conductingBody: 'National Testing Agency'
+
+academicYear: '2026'
+taxonomyFamily: NEET
+totalMarks: 720
+
+sections:
+  - ordinal: 1
+    name: Physics
+    subject: physics
+    itemCount: 45
+    itemTypeMix:
+      SINGLE_CORRECT_MCQ: 45
+    maxMarks: 180
+  - ordinal: 2
+    name: Chemistry
+    subject: chemistry
+    itemCount: 45
+    itemTypeMix:
+      SINGLE_CORRECT_MCQ: 45
+    maxMarks: 180
+  - ordinal: 3
+    name: Biology
+    subject: biology
+    itemCount: 90
+    itemTypeMix:
+      SINGLE_CORRECT_MCQ: 90
+    maxMarks: 360
+
+timingPolicy:
+  totalDurationMinutes: 200
+  sectionLocking: false
+  warningThresholdsMinutes: [30, 10, 5]
+  autoSubmitOnExpiry: true
+
+navigationPolicy:
+  crossSectionNavigation: true
+  allowMarkForReview: true
+  allowAnswerChange: true
+  allowClearResponse: true
+
+# The same three-rule set as JEE Main, applied to a different section structure
+# and to single-correct MCQ only.
+markingRuleSet:
+  schemaVersion: 1
+  rules:
+    - id: unattempted
+      appliesTo:
+        itemTypes: [SINGLE_CORRECT_MCQ]
+      condition:
+        kind: UNATTEMPTED
+      award:
+        kind: FIXED
+        marks: 0
+    - id: correct
+      appliesTo:
+        itemTypes: [SINGLE_CORRECT_MCQ]
+      condition:
+        kind: EXACT_MATCH
+      award:
+        kind: FIXED
+        marks: 4
+    - id: incorrect
+      appliesTo:
+        itemTypes: [SINGLE_CORRECT_MCQ]
+      condition:
+        kind: ALWAYS
+      award:
+        kind: FIXED
+        marks: -1
+
+itemTypeAllowances:
+  - itemType: SINGLE_CORRECT_MCQ
+    sectionOrdinals: [1, 2, 3]

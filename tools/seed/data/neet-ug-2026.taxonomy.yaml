@@ -1,0 +1,287 @@
+# NEET UG 2026 taxonomy — the syllabus subjects NEET examines.
+#
+# Physics and Chemistry mirror the JEE chapter structure; Biology is NEET's own.
+# Present because a profile must reference a published taxonomy version of its
+# own family; the concepts themselves are the NCERT syllabus headings.
+#
+# STATUS: awaiting subject-matter review and sign-off.
+schemaVersion: 1
+examFamily: NEET
+academicYear: '2026'
+subjects:
+  - subjectDomain: physics
+    root:
+      key: neet.physics
+      displayName: 'Physics'
+      examWeight: 1
+      estimatedTeachingHours: 180
+      children:
+        - key: neet.physics.mechanics
+          displayName: 'Mechanics'
+          examWeight: 0.3
+          estimatedTeachingHours: 60
+          children:
+            - key: neet.physics.mechanics.kinematics
+              displayName: 'Kinematics'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.physics.mechanics.laws-of-motion
+              displayName: 'Laws of Motion'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.physics.mechanics.work-energy-power
+              displayName: 'Work, Energy and Power'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.physics.mechanics.gravitation
+              displayName: 'Gravitation'
+              examWeight: 0
+              estimatedTeachingHours: 15
+        - key: neet.physics.thermodynamics
+          displayName: 'Thermodynamics and Kinetic Theory'
+          examWeight: 0.15
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.physics.thermodynamics.laws
+              displayName: 'Laws of Thermodynamics'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.physics.thermodynamics.kinetic-theory
+              displayName: 'Kinetic Theory of Gases'
+              examWeight: 0
+              estimatedTeachingHours: 15
+        - key: neet.physics.electrodynamics
+          displayName: 'Electrodynamics'
+          examWeight: 0.35
+          estimatedTeachingHours: 60
+          children:
+            - key: neet.physics.electrodynamics.electrostatics
+              displayName: 'Electrostatics'
+              examWeight: 0
+              estimatedTeachingHours: 20
+            - key: neet.physics.electrodynamics.current-electricity
+              displayName: 'Current Electricity'
+              examWeight: 0
+              estimatedTeachingHours: 20
+            - key: neet.physics.electrodynamics.magnetism
+              displayName: 'Magnetic Effects of Current'
+              examWeight: 0
+              estimatedTeachingHours: 20
+        - key: neet.physics.modern
+          displayName: 'Modern Physics and Optics'
+          examWeight: 0.2
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.physics.modern.optics
+              displayName: 'Ray and Wave Optics'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.physics.modern.atoms-nuclei
+              displayName: 'Atoms and Nuclei'
+              examWeight: 0
+              estimatedTeachingHours: 15
+  - subjectDomain: chemistry
+    root:
+      key: neet.chemistry
+      displayName: 'Chemistry'
+      examWeight: 1
+      estimatedTeachingHours: 180
+      children:
+        - key: neet.chemistry.physical
+          displayName: 'Physical Chemistry'
+          examWeight: 0.35
+          estimatedTeachingHours: 60
+          children:
+            - key: neet.chemistry.physical.basic-concepts
+              displayName: 'Some Basic Concepts of Chemistry'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.chemistry.physical.thermodynamics
+              displayName: 'Thermodynamics'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.chemistry.physical.equilibrium
+              displayName: 'Equilibrium'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.chemistry.physical.electrochemistry
+              displayName: 'Electrochemistry'
+              examWeight: 0
+              estimatedTeachingHours: 15
+        - key: neet.chemistry.inorganic
+          displayName: 'Inorganic Chemistry'
+          examWeight: 0.3
+          estimatedTeachingHours: 60
+          children:
+            - key: neet.chemistry.inorganic.periodicity
+              displayName: 'Classification of Elements and Periodicity'
+              examWeight: 0
+              estimatedTeachingHours: 20
+            - key: neet.chemistry.inorganic.p-block
+              displayName: 'p-Block Elements'
+              examWeight: 0
+              estimatedTeachingHours: 20
+            - key: neet.chemistry.inorganic.coordination
+              displayName: 'Coordination Compounds'
+              examWeight: 0
+              estimatedTeachingHours: 20
+        - key: neet.chemistry.organic
+          displayName: 'Organic Chemistry'
+          examWeight: 0.35
+          estimatedTeachingHours: 60
+          children:
+            - key: neet.chemistry.organic.basic-principles
+              displayName: 'Basic Principles of Organic Chemistry'
+              examWeight: 0
+              estimatedTeachingHours: 20
+            - key: neet.chemistry.organic.hydrocarbons
+              displayName: 'Hydrocarbons'
+              examWeight: 0
+              estimatedTeachingHours: 20
+            - key: neet.chemistry.organic.biomolecules
+              displayName: 'Biomolecules'
+              examWeight: 0
+              estimatedTeachingHours: 20
+  - subjectDomain: biology
+    root:
+      key: neet.biology
+      displayName: 'Biology'
+      examWeight: 1
+      estimatedTeachingHours: 240
+      children:
+        - key: neet.biology.diversity
+          displayName: 'Diversity in the Living World'
+          examWeight: 0.14
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.biology.diversity.living-world
+              displayName: 'The Living World'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.diversity.biological-classification
+              displayName: 'Biological Classification'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.diversity.plant-animal-kingdom
+              displayName: 'Plant and Animal Kingdom'
+              examWeight: 0
+              estimatedTeachingHours: 10
+        - key: neet.biology.structural-organisation
+          displayName: 'Structural Organisation in Plants and Animals'
+          examWeight: 0.12
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.biology.structural-organisation.morphology
+              displayName: 'Morphology of Flowering Plants'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.biology.structural-organisation.animal-tissues
+              displayName: 'Structural Organisation in Animals'
+              examWeight: 0
+              estimatedTeachingHours: 15
+        - key: neet.biology.cell
+          displayName: 'Cell Structure and Function'
+          examWeight: 0.15
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.biology.cell.cell-unit-of-life
+              displayName: 'Cell: The Unit of Life'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.cell.biomolecules
+              displayName: 'Biomolecules'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.cell.cell-cycle
+              displayName: 'Cell Cycle and Cell Division'
+              examWeight: 0
+              estimatedTeachingHours: 10
+        - key: neet.biology.plant-physiology
+          displayName: 'Plant Physiology'
+          examWeight: 0.13
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.biology.plant-physiology.photosynthesis
+              displayName: 'Photosynthesis in Higher Plants'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.biology.plant-physiology.respiration
+              displayName: 'Respiration in Plants'
+              examWeight: 0
+              estimatedTeachingHours: 15
+        - key: neet.biology.human-physiology
+          displayName: 'Human Physiology'
+          examWeight: 0.16
+          estimatedTeachingHours: 40
+          children:
+            - key: neet.biology.human-physiology.digestion
+              displayName: 'Digestion and Absorption'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.human-physiology.breathing
+              displayName: 'Breathing and Exchange of Gases'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.human-physiology.circulation
+              displayName: 'Body Fluids and Circulation'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.human-physiology.neural-control
+              displayName: 'Neural Control and Coordination'
+              examWeight: 0
+              estimatedTeachingHours: 10
+        - key: neet.biology.reproduction
+          displayName: 'Reproduction'
+          examWeight: 0.12
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.biology.reproduction.flowering-plants
+              displayName: 'Sexual Reproduction in Flowering Plants'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.biology.reproduction.human-reproduction
+              displayName: 'Human Reproduction'
+              examWeight: 0
+              estimatedTeachingHours: 15
+        - key: neet.biology.genetics
+          displayName: 'Genetics and Evolution'
+          examWeight: 0.11
+          estimatedTeachingHours: 30
+          children:
+            - key: neet.biology.genetics.inheritance
+              displayName: 'Principles of Inheritance and Variation'
+              examWeight: 0
+              estimatedTeachingHours: 15
+            - key: neet.biology.genetics.molecular-basis
+              displayName: 'Molecular Basis of Inheritance'
+              examWeight: 0
+              estimatedTeachingHours: 15
+        - key: neet.biology.ecology
+          displayName: 'Ecology and Environment'
+          examWeight: 0.07
+          estimatedTeachingHours: 20
+          children:
+            - key: neet.biology.ecology.organisms-populations
+              displayName: 'Organisms and Populations'
+              examWeight: 0
+              estimatedTeachingHours: 10
+            - key: neet.biology.ecology.ecosystem
+              displayName: 'Ecosystem'
+              examWeight: 0
+              estimatedTeachingHours: 10
+prerequisites:
+  - from: neet.physics.mechanics.kinematics
+    to: neet.physics.mechanics.laws-of-motion
+    strength: 0.9
+  - from: neet.chemistry.physical.basic-concepts
+    to: neet.chemistry.physical.equilibrium
+    strength: 0.6
+  - from: neet.chemistry.organic.basic-principles
+    to: neet.chemistry.organic.hydrocarbons
+    strength: 0.9
+  - from: neet.biology.cell.cell-unit-of-life
+    to: neet.biology.cell.cell-cycle
+    strength: 0.8
+  - from: neet.biology.genetics.inheritance
+    to: neet.biology.genetics.molecular-basis
+    strength: 0.8

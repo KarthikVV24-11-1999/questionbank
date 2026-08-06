@@ -1,0 +1,36 @@
+{
+  "name": "@questionbank/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "fitness": "vitest run --project unit src/fitness"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/core": "^11.1.28",
+    "@nestjs/platform-express": "^11.1.28",
+    "@questionbank/contracts": "workspace:^",
+    "@questionbank/domain-types": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.22.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.1.28",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22",
+    "@types/pg": "^8.20.4",
+    "@types/supertest": "^7.2.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "supertest": "^7.2.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5",
+    "yaml": "^2.9.0"
+  }
+}

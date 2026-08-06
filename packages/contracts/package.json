@@ -1,0 +1,15 @@
+{
+  "name": "@questionbank/contracts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./openapi/curriculum.yaml": "./openapi/curriculum.yaml"
+  },
+  "scripts": {
+    "generate": "openapi-typescript openapi/curriculum.yaml --output src/curriculum.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.4"
+  }
+}

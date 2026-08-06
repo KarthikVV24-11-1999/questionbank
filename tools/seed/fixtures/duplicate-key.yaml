@@ -1,0 +1,13 @@
+schemaVersion: 1
+examFamily: JEE
+academicYear: '2026'
+subjects:
+  - subjectDomain: physics
+    root:
+      key: physics
+      displayName: Physics
+      children:
+        - key: physics.mechanics
+          displayName: Mechanics
+        - key: physics.mechanics
+          displayName: Mechanics again
