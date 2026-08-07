@@ -5,6 +5,7 @@ import type { TaxonomyVersionId } from './taxonomy-version.js';
 import { checkBlueprintConsistency, type SectionSpec } from './section-spec.js';
 import { isLegalTransition, isMutable, type TaxonomyState } from './taxonomy-lifecycle.js';
 import type { MarkingRuleSet } from './value-objects/marking-rule-set.js';
+import { DEFAULT_AGGREGATION, type AggregationSpecData } from './value-objects/aggregation-spec.js';
 import { hashMarkingRuleSet } from './value-objects/marking-rule-set-hash.js';
 import type { NumericAnswerSpec } from './value-objects/numeric-answer-spec.js';
 import type { TimingPolicy } from './value-objects/timing-policy.js';
@@ -36,6 +37,7 @@ export interface CreateExamProfileVersionProps {
   readonly timingPolicy: TimingPolicy;
   readonly navigationPolicy: NavigationPolicy;
   readonly markingRuleSet: MarkingRuleSet;
+  readonly aggregation?: AggregationSpecData;
   readonly toleranceDefault?: NumericAnswerSpec;
   readonly itemTypeAllowances: readonly ItemTypeAllowance[];
   readonly goldenSetValidation?: GoldenSetValidation;
@@ -141,6 +143,8 @@ export class ExamProfileVersion {
   readonly timingPolicy: TimingPolicy;
   readonly navigationPolicy: NavigationPolicy;
   readonly markingRuleSet: MarkingRuleSet;
+  /** How outcomes become totals (ADR-0006). Defaulted, never absent. */
+  readonly aggregation: AggregationSpecData;
   readonly toleranceDefault?: NumericAnswerSpec;
   readonly itemTypeAllowances: readonly ItemTypeAllowance[];
   readonly goldenSetValidation: GoldenSetValidation;
@@ -161,6 +165,7 @@ export class ExamProfileVersion {
     this.timingPolicy = snapshot.timingPolicy;
     this.navigationPolicy = snapshot.navigationPolicy;
     this.markingRuleSet = snapshot.markingRuleSet;
+    this.aggregation = snapshot.aggregation ?? DEFAULT_AGGREGATION;
     if (snapshot.toleranceDefault !== undefined) this.toleranceDefault = snapshot.toleranceDefault;
     this.itemTypeAllowances = Object.freeze([...snapshot.itemTypeAllowances]);
     this.goldenSetValidation = Object.freeze({ ...snapshot.goldenSetValidation });
@@ -385,6 +390,7 @@ export class ExamProfileVersion {
       timingPolicy: this.timingPolicy,
       navigationPolicy: this.navigationPolicy,
       markingRuleSet: this.markingRuleSet,
+      aggregation: this.aggregation,
       ...(this.toleranceDefault !== undefined ? { toleranceDefault: this.toleranceDefault } : {}),
       itemTypeAllowances: this.itemTypeAllowances,
       goldenSetValidation: this.goldenSetValidation,

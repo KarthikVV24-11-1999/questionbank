@@ -1,0 +1,244 @@
+{
+  "paperId": "synthetic-neet-shape-c-bestof",
+  "provenance": "synthetic",
+  "description": "Synthetic NEET-shaped paper: section 2 presents five items and scores the best three, proving bestOf.",
+  "ruleSet": {
+    "schemaVersion": 1,
+    "rules": [
+      {
+        "id": "unattempted",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "UNATTEMPTED"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      },
+      {
+        "id": "correct",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "EXACT_MATCH"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 4
+        }
+      },
+      {
+        "id": "incorrect",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "NO_MATCH"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": -1
+        }
+      },
+      {
+        "id": "default",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "ALWAYS"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      }
+    ]
+  },
+  "aggregation": {
+    "sectionAggregation": "SUM",
+    "totalAggregation": "SUM_OF_SECTIONS",
+    "bestOf": [
+      {
+        "sectionOrdinal": 2,
+        "countScored": 3
+      }
+    ],
+    "rounding": {
+      "mode": "NONE",
+      "decimalPlaces": 0
+    },
+    "floorAtZero": false
+  },
+  "sections": [
+    {
+      "ordinal": 1,
+      "slots": [
+        {
+          "slotId": "s1",
+          "ordinal": 1,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "A"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A"
+            ]
+          }
+        },
+        {
+          "slotId": "s2",
+          "ordinal": 2,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "B"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "B"
+            ]
+          }
+        },
+        {
+          "slotId": "s3",
+          "ordinal": 3,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "C"
+          },
+          "expectedMarks": "-1",
+          "expectedCorrectness": "incorrect",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "X"
+            ]
+          }
+        }
+      ],
+      "expectedRaw": "7"
+    },
+    {
+      "ordinal": 2,
+      "slots": [
+        {
+          "slotId": "bs1",
+          "ordinal": 1,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "A"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A"
+            ]
+          }
+        },
+        {
+          "slotId": "bs2",
+          "ordinal": 2,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "B"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "B"
+            ]
+          }
+        },
+        {
+          "slotId": "bs3",
+          "ordinal": 3,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "C"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "C"
+            ]
+          }
+        },
+        {
+          "slotId": "bs4",
+          "ordinal": 4,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "D"
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "discarded",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "X"
+            ]
+          }
+        },
+        {
+          "slotId": "bs5",
+          "ordinal": 5,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "A"
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "discarded",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "Z"
+            ]
+          }
+        }
+      ],
+      "expectedRaw": "12"
+    }
+  ],
+  "expectedTotal": "19"
+}

@@ -1,0 +1,419 @@
+openapi: 3.1.0
+info:
+  title: Question Bank — Scoring API
+  version: 1.0.0
+  description: |
+    The scoring context's HTTP contract (BACKEND-ARCHITECTURE §3). Every
+    operation names its handler in `x-handler`, which F15 reconciles against
+    the registry.
+
+    **No schema here carries an answer key, a correct option, an expected value
+    or a response payload** (§9 rule 10). A score is explained by naming the
+    rule that produced it, never by showing what the answer was.
+
+    Marks are strings, not numbers. They are exact decimals end to end, and a
+    JSON number is a double the moment a client parses it.
+servers:
+  - url: https://api.questionbank.example/v1
+    description: Production
+tags:
+  - name: score-records
+  - name: rescoring
+
+paths:
+  /v1/score-records:
+    post:
+      operationId: scoreAttempt
+      x-handler: ScoreAttempt
+      summary: Score a submitted attempt
+      tags: [score-records]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScoreAttemptRequest' }
+      responses:
+        '201':
+          description: The attempt was scored. Repeating the request returns the same record.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScoreRecord' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/attempts/{attemptId}/score-records/current:
+    get:
+      operationId: getScoreRecord
+      x-handler: GetScoreRecord
+      summary: The current score record for an attempt
+      tags: [score-records]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The current score record.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScoreRecord' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/attempts/{attemptId}/score-records:
+    get:
+      operationId: listScoreRecordGenerations
+      x-handler: ListScoreRecordGenerations
+      summary: Every generation of an attempt's score, oldest first
+      tags: [score-records]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: All generations. Superseded records are retained permanently (INV-11).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ScoreRecord' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/rescoring-operations:
+    post:
+      operationId: draftRescoring
+      x-handler: DraftRescoring
+      summary: Draft a re-scoring operation
+      tags: [rescoring]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DraftRescoringRequest' }
+      responses:
+        '201':
+          description: The operation was drafted. It cannot be executed until previewed and approved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RescoringOperation' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/rescoring-operations/{operationId}/dry-run:
+    post:
+      operationId: runRescoringDryRun
+      x-handler: RunRescoringDryRun
+      summary: Preview the impact of a re-score
+      tags: [rescoring]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The preview. Executing produces exactly this.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DryRunResult' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    get:
+      operationId: getRescoringDryRun
+      x-handler: GetRescoringDryRun
+      summary: The stored preview for a re-score
+      tags: [rescoring]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The stored preview.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DryRunResult' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/rescoring-operations/{operationId}/approval:
+    post:
+      operationId: approveRescoring
+      x-handler: ApproveRescoring
+      summary: Approve a previewed re-score
+      description: Requires step-up authorization. Unreachable without a dry run.
+      tags: [rescoring]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The operation was approved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RescoringOperation' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/rescoring-operations/{operationId}/execution:
+    post:
+      operationId: executeRescoring
+      x-handler: ExecuteRescoring
+      summary: Execute an approved re-score
+      description: Requires step-up authorization. Prior generations are retained.
+      tags: [rescoring]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The re-score completed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RescoringOperation' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+components:
+  parameters:
+    AttemptId:
+      name: attemptId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    OperationId:
+      name: operationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string }
+
+  headers:
+    CorrelationId:
+      description: Echoed on every response, error or not (§8).
+      schema: { type: string }
+
+  responses:
+    Problem:
+      description: RFC 9457 Problem Details.
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  schemas:
+    ErrorCode:
+      type: string
+      enum:
+        [
+          Validation,
+          Authentication,
+          Authorization,
+          Entitlement,
+          NotFound,
+          Conflict,
+          PreconditionFailed,
+          RuleViolation,
+          RateLimited,
+          Unavailable,
+        ]
+
+    ProblemDetails:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, retryable, correlationId]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        retryable:
+          type: boolean
+          description: Explicit on every error. Clients must not infer it (§8).
+        correlationId: { type: string }
+
+    Marks:
+      type: string
+      description: |
+        An exact decimal. A JSON number becomes a double the moment a client
+        parses it, and a mark decided by a rounding error is not defensible.
+      pattern: '^-?\d+(\.\d+)?$'
+
+    Correctness:
+      type: string
+      enum: [correct, incorrect, unattempted, dropped, bonus, indeterminate]
+      description: |
+        `indeterminate` means the engine could not read the response — an
+        unparseable numeric entry, or a required unit omitted. It awards 0 and
+        is never treated as a wrong answer (ADR-0003).
+
+    ItemOutcome:
+      type: object
+      additionalProperties: false
+      required:
+        [slotId, sectionOrdinal, slotOrdinal, correctness, marksAwarded, marksAvailable, ruleAppliedId, explanation]
+      properties:
+        slotId: { type: string }
+        sectionOrdinal: { type: integer }
+        slotOrdinal: { type: integer }
+        correctness: { $ref: '#/components/schemas/Correctness' }
+        marksAwarded: { $ref: '#/components/schemas/Marks' }
+        marksAvailable: { $ref: '#/components/schemas/Marks' }
+        ruleAppliedId:
+          type: string
+          description: The rule that produced this outcome. Never absent (F47).
+        explanation:
+          type: string
+          description: Plain language, derived from the condition and award.
+
+    SectionScore:
+      type: object
+      additionalProperties: false
+      required:
+        [sectionOrdinal, raw, maxAvailable, attemptedCount, correctCount, incorrectCount, negativeMarksIncurred]
+      properties:
+        sectionOrdinal: { type: integer }
+        raw: { $ref: '#/components/schemas/Marks' }
+        maxAvailable: { $ref: '#/components/schemas/Marks' }
+        attemptedCount: { type: integer }
+        correctCount: { type: integer }
+        incorrectCount: { type: integer }
+        negativeMarksIncurred: { $ref: '#/components/schemas/Marks' }
+
+    ScoreRecord:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          scoreRecordId,
+          attemptId,
+          generation,
+          isCurrent,
+          markingRuleSetHash,
+          ruleSchemaVersion,
+          totalRaw,
+          totalMaxAvailable,
+          computedAt,
+          sectionScores,
+          itemOutcomes,
+        ]
+      properties:
+        scoreRecordId: { type: string, format: uuid }
+        attemptId: { type: string, format: uuid }
+        generation: { type: integer, minimum: 1 }
+        isCurrent: { type: boolean }
+        markingRuleSetHash:
+          type: string
+          description: What this score is pinned to (R2). A different hash is a different score.
+        ruleSchemaVersion: { type: integer, minimum: 1 }
+        totalRaw: { $ref: '#/components/schemas/Marks' }
+        totalMaxAvailable: { $ref: '#/components/schemas/Marks' }
+        computedAt: { type: string, format: date-time }
+        reasonForRescore: { type: string }
+        sectionScores:
+          type: array
+          items: { $ref: '#/components/schemas/SectionScore' }
+        itemOutcomes:
+          type: array
+          items: { $ref: '#/components/schemas/ItemOutcome' }
+
+    ScoreAttemptRequest:
+      type: object
+      additionalProperties: false
+      required: [attemptId, examProfileVersionId, idempotencyKey]
+      properties:
+        attemptId: { type: string, format: uuid }
+        examProfileVersionId: { type: string, format: uuid }
+        idempotencyKey:
+          type: string
+          description: A repeat returns the existing record rather than a second generation (REL-02).
+
+    DraftRescoringRequest:
+      type: object
+      additionalProperties: false
+      required: [trigger, scope, scopeRef, reason]
+      properties:
+        trigger:
+          type: string
+          enum: [CHALLENGE_UPHELD, KEY_DEFECT_CONFIRMED, RULE_CORRECTION]
+        scope:
+          type: string
+          enum: [ITEM_VERSION, RULE_CHANGE, FORM]
+        scopeRef: { type: string, minLength: 1 }
+        reason:
+          type: string
+          minLength: 1
+          description: Mandatory. A change to published results must be accountable.
+
+    RescoringOperation:
+      type: object
+      additionalProperties: false
+      required: [operationId, trigger, scope, scopeRef, reason, state]
+      properties:
+        operationId: { type: string, format: uuid }
+        trigger: { type: string }
+        scope: { type: string }
+        scopeRef: { type: string }
+        reason: { type: string }
+        state:
+          type: string
+          enum: [drafted, previewed, approved, executing, completed]
+        authorizedBy: { type: string }
+        executedAt: { type: string, format: date-time }
+
+    ScoreDelta:
+      type: object
+      additionalProperties: false
+      required: [attemptId, before, after, delta]
+      properties:
+        attemptId: { type: string, format: uuid }
+        before: { $ref: '#/components/schemas/Marks' }
+        after: { $ref: '#/components/schemas/Marks' }
+        delta: { $ref: '#/components/schemas/Marks' }
+
+    DryRunResult:
+      type: object
+      additionalProperties: false
+      required: [affectedAttemptCount, scoreDeltaDistribution, rankMovement, deltas]
+      properties:
+        affectedAttemptCount: { type: integer }
+        scoreDeltaDistribution:
+          type: object
+          additionalProperties: false
+          required: [improved, worsened, unchanged, largestGain, largestLoss]
+          properties:
+            improved: { type: integer }
+            worsened: { type: integer }
+            unchanged: { type: integer }
+            largestGain: { $ref: '#/components/schemas/Marks' }
+            largestLoss: { $ref: '#/components/schemas/Marks' }
+        rankMovement:
+          type: object
+          additionalProperties: false
+          required: [movedUp, movedDown, unchanged]
+          properties:
+            movedUp: { type: integer }
+            movedDown: { type: integer }
+            unchanged: { type: integer }
+        deltas:
+          type: array
+          items: { $ref: '#/components/schemas/ScoreDelta' }

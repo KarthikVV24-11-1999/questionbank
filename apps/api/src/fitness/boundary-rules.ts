@@ -71,6 +71,11 @@ function isNodeBuiltin(importPath: string): boolean {
   return importPath.startsWith('node:');
 }
 
+/** The bounded context a path belongs to, or null for anything outside contexts/. */
+function contextOf(path: string): string | null {
+  return /^src\/contexts\/([^/]+)\//u.exec(path)?.[1] ?? null;
+}
+
 /** Resolves a relative import to a repo-relative path, without extensions. */
 function resolveImport(fromFile: string, importPath: string, root: string): string | null {
   if (!importPath.startsWith('.')) return null;
@@ -81,7 +86,7 @@ function resolveImport(fromFile: string, importPath: string, root: string): stri
 export function checkBoundaries(root: string, options: BoundaryCheckOptions = {}): BoundaryViolation[] {
   const includes = options.include ?? ['src'];
   const excludes = options.excludePatterns ?? DEFAULT_EXCLUDES;
-  const domainPattern = options.domainPattern ?? /^src\/contexts\/curriculum\/domain\//u;
+  const domainPattern = options.domainPattern ?? /^src\/contexts\/[^/]+\/domain\//u;
   const violations: BoundaryViolation[] = [];
 
   const files = includes
@@ -91,26 +96,29 @@ export function checkBoundaries(root: string, options: BoundaryCheckOptions = {}
 
   for (const file of files) {
     const source = readFileSync(join(root, file), 'utf8');
-    const insideCurriculum = file.startsWith('src/contexts/curriculum/');
+    const owningContext = contextOf(file);
     const insideDomain = domainPattern.test(file);
 
     for (const importPath of importsOf(source)) {
       const resolved = resolveImport(file, importPath, root);
+      const targetContext = resolved === null ? null : contextOf(resolved);
 
-      if (!insideCurriculum && resolved?.startsWith('src/contexts/curriculum/') === true) {
-        const throughBarrel = resolved.startsWith('src/contexts/curriculum/public/');
+      // F1: reaching into another context is permitted only through its barrel.
+      if (targetContext !== null && targetContext !== owningContext) {
+        const throughBarrel = resolved?.startsWith(`src/contexts/${targetContext}/public/`) === true;
         if (!throughBarrel) {
           violations.push({
             rule: 'F1_CONTEXT_BOUNDARY',
             file,
             importPath,
-            message: `${file} imports ${importPath} directly; use the curriculum public/ barrel`,
+            message: `${file} imports ${importPath} directly; use the ${targetContext} public/ barrel`,
           });
         }
       }
 
       if (insideDomain) {
-        const staysInDomain = resolved?.startsWith('src/contexts/curriculum/domain/') === true;
+        const staysInDomain =
+          owningContext !== null && resolved?.startsWith(`src/contexts/${owningContext}/domain/`) === true;
         if (!staysInDomain && !isSharedKernel(importPath) && !isNodeBuiltin(importPath)) {
           violations.push({
             rule: 'F2_DOMAIN_IMPORTS_NOTHING',
@@ -120,11 +128,9 @@ export function checkBoundaries(root: string, options: BoundaryCheckOptions = {}
           });
         }
 
-        if (
-          resolved?.startsWith('src/contexts/curriculum/infrastructure/') === true ||
-          resolved?.startsWith('src/contexts/curriculum/application/') === true ||
-          resolved?.startsWith('src/contexts/curriculum/api/') === true
-        ) {
+        // Any outward layer, in any context: a domain module reaching into
+        // someone else's infrastructure is no better than reaching into its own.
+        if (resolved !== null && /^src\/contexts\/[^/]+\/(infrastructure|application|api)\//u.test(resolved)) {
           violations.push({
             rule: 'DOMAIN_REACHES_OUTWARD',
             file,

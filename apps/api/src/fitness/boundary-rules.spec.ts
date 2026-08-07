@@ -166,3 +166,30 @@ describe('public barrel surface', () => {
 function readBarrel(): string {
   return readFileSync(resolve(API_ROOT, 'src/contexts/curriculum/public/index.ts'), 'utf8');
 }
+
+describe('the rules hold for every context, not just curriculum', () => {
+  it('finds no violation anywhere in the tree', () => {
+    expect(checkBoundaries(API_ROOT)).toEqual([]);
+  });
+
+  it('catches a scoring module reaching into curriculum past its barrel', () => {
+    const violations = checkBoundaries(API_ROOT, {
+      include: ['src/fitness-fixtures/as-domain'],
+      excludePatterns: [/\.spec\.ts$/u],
+      domainPattern: /^nothing-is-domain$/u,
+    }).filter((violation) => violation.rule === 'F1_CONTEXT_BOUNDARY');
+
+    // The planted fixture imports curriculum/infrastructure directly. With no
+    // file treated as domain, F1 is what must still catch it.
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.every((violation) => violation.message.includes('public/ barrel'))).toBe(true);
+  });
+
+  it('permits scoring to consume curriculum through the barrel', () => {
+    const throughBarrel = checkBoundaries(API_ROOT).filter(
+      (violation) =>
+        violation.file.startsWith('src/contexts/scoring/') && violation.importPath.includes('curriculum'),
+    );
+    expect(throughBarrel).toEqual([]);
+  });
+});
