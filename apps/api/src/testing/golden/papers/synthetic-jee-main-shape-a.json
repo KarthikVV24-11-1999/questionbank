@@ -1,0 +1,247 @@
+{
+  "paperId": "synthetic-jee-main-shape-a",
+  "provenance": "synthetic",
+  "description": "Synthetic JEE Main-shaped MCQ paper: ten single-correct items, mixed correct, wrong and unattempted.",
+  "ruleSet": {
+    "schemaVersion": 1,
+    "rules": [
+      {
+        "id": "unattempted",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "UNATTEMPTED"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      },
+      {
+        "id": "correct",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "EXACT_MATCH"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 4
+        }
+      },
+      {
+        "id": "incorrect",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "NO_MATCH"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": -1
+        }
+      },
+      {
+        "id": "default",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "ALWAYS"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      }
+    ]
+  },
+  "sections": [
+    {
+      "ordinal": 1,
+      "slots": [
+        {
+          "slotId": "s1",
+          "ordinal": 1,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "A"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A"
+            ]
+          }
+        },
+        {
+          "slotId": "s2",
+          "ordinal": 2,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "B"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "B"
+            ]
+          }
+        },
+        {
+          "slotId": "s3",
+          "ordinal": 3,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "C"
+          },
+          "expectedMarks": "-1",
+          "expectedCorrectness": "incorrect",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "X"
+            ]
+          }
+        },
+        {
+          "slotId": "s4",
+          "ordinal": 4,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "D"
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "unattempted"
+        },
+        {
+          "slotId": "s5",
+          "ordinal": 5,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "B"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "B"
+            ]
+          }
+        },
+        {
+          "slotId": "s6",
+          "ordinal": 6,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "A"
+          },
+          "expectedMarks": "-1",
+          "expectedCorrectness": "incorrect",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "C"
+            ]
+          }
+        },
+        {
+          "slotId": "s7",
+          "ordinal": 7,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "C"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "C"
+            ]
+          }
+        },
+        {
+          "slotId": "s8",
+          "ordinal": 8,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "D"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "D"
+            ]
+          }
+        },
+        {
+          "slotId": "s9",
+          "ordinal": 9,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "A"
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "unattempted"
+        },
+        {
+          "slotId": "s10",
+          "ordinal": 10,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "B"
+          },
+          "expectedMarks": "-1",
+          "expectedCorrectness": "incorrect",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A"
+            ]
+          }
+        }
+      ],
+      "expectedRaw": "17"
+    }
+  ],
+  "expectedTotal": "17"
+}

@@ -1,0 +1,271 @@
+{
+  "paperId": "synthetic-jee-main-shape-b-numeric",
+  "provenance": "synthetic",
+  "description": "Synthetic JEE Main-shaped paper mixing MCQ and numeric-entry items, including an entry the engine cannot read.",
+  "ruleSet": {
+    "schemaVersion": 1,
+    "rules": [
+      {
+        "id": "unattempted",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ",
+            "NUMERIC"
+          ]
+        },
+        "condition": {
+          "kind": "UNATTEMPTED"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      },
+      {
+        "id": "correct",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ",
+            "NUMERIC"
+          ]
+        },
+        "condition": {
+          "kind": "EXACT_MATCH"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 4
+        }
+      },
+      {
+        "id": "incorrect",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ",
+            "NUMERIC"
+          ]
+        },
+        "condition": {
+          "kind": "NO_MATCH"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": -1
+        }
+      },
+      {
+        "id": "default",
+        "appliesTo": {
+          "itemTypes": [
+            "SINGLE_CORRECT_MCQ",
+            "NUMERIC"
+          ]
+        },
+        "condition": {
+          "kind": "ALWAYS"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      }
+    ]
+  },
+  "sections": [
+    {
+      "ordinal": 1,
+      "slots": [
+        {
+          "slotId": "s1",
+          "ordinal": 1,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "A"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A"
+            ]
+          }
+        },
+        {
+          "slotId": "s2",
+          "ordinal": 2,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "B"
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "B"
+            ]
+          }
+        },
+        {
+          "slotId": "s3",
+          "ordinal": 3,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "C"
+          },
+          "expectedMarks": "-1",
+          "expectedCorrectness": "incorrect",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "X"
+            ]
+          }
+        },
+        {
+          "slotId": "s4",
+          "ordinal": 4,
+          "itemType": "SINGLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "SINGLE_CORRECT",
+            "optionId": "D"
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "unattempted"
+        }
+      ],
+      "expectedRaw": "7"
+    },
+    {
+      "ordinal": 2,
+      "slots": [
+        {
+          "slotId": "n1",
+          "ordinal": 1,
+          "itemType": "NUMERIC",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "NUMERIC",
+            "spec": {
+              "expectedValue": "9.81",
+              "comparisonMode": "ABSOLUTE_TOLERANCE",
+              "toleranceValue": "0.01",
+              "acceptedForms": [
+                "DECIMAL",
+                "SCIENTIFIC"
+              ]
+            }
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "NUMERIC_ENTRY",
+            "raw": "9.815"
+          }
+        },
+        {
+          "slotId": "n2",
+          "ordinal": 2,
+          "itemType": "NUMERIC",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "NUMERIC",
+            "spec": {
+              "expectedValue": "9.81",
+              "comparisonMode": "ABSOLUTE_TOLERANCE",
+              "toleranceValue": "0.01",
+              "acceptedForms": [
+                "DECIMAL",
+                "SCIENTIFIC"
+              ]
+            }
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "NUMERIC_ENTRY",
+            "raw": "9.82"
+          }
+        },
+        {
+          "slotId": "n3",
+          "ordinal": 3,
+          "itemType": "NUMERIC",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "NUMERIC",
+            "spec": {
+              "expectedValue": "9.81",
+              "comparisonMode": "ABSOLUTE_TOLERANCE",
+              "toleranceValue": "0.01",
+              "acceptedForms": [
+                "DECIMAL",
+                "SCIENTIFIC"
+              ]
+            }
+          },
+          "expectedMarks": "-1",
+          "expectedCorrectness": "incorrect",
+          "response": {
+            "kind": "NUMERIC_ENTRY",
+            "raw": "9.9"
+          }
+        },
+        {
+          "slotId": "n4",
+          "ordinal": 4,
+          "itemType": "NUMERIC",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "NUMERIC",
+            "spec": {
+              "expectedValue": "9.81",
+              "comparisonMode": "ABSOLUTE_TOLERANCE",
+              "toleranceValue": "0.01",
+              "acceptedForms": [
+                "DECIMAL",
+                "SCIENTIFIC"
+              ]
+            }
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "indeterminate",
+          "response": {
+            "kind": "NUMERIC_ENTRY",
+            "raw": "about ten"
+          }
+        },
+        {
+          "slotId": "n5",
+          "ordinal": 5,
+          "itemType": "NUMERIC",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "NUMERIC",
+            "spec": {
+              "expectedValue": "9.81",
+              "comparisonMode": "ABSOLUTE_TOLERANCE",
+              "toleranceValue": "0.01",
+              "acceptedForms": [
+                "DECIMAL",
+                "SCIENTIFIC"
+              ]
+            }
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "unattempted"
+        }
+      ],
+      "expectedRaw": "7"
+    }
+  ],
+  "expectedTotal": "14"
+}

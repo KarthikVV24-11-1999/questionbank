@@ -1,0 +1,269 @@
+{
+  "paperId": "synthetic-jee-advanced-partial-credit",
+  "provenance": "synthetic",
+  "description": "Synthetic JEE Advanced-shaped multi-correct paper exercising every graded partial-credit band from ASSESSMENT-ENGINE 2.4. Proves EXT-03: the seven-rule set scores with no code change.",
+  "ruleSet": {
+    "schemaVersion": 1,
+    "rules": [
+      {
+        "id": "unattempted",
+        "appliesTo": {
+          "itemTypes": [
+            "MULTIPLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "UNATTEMPTED"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      },
+      {
+        "id": "any-incorrect",
+        "appliesTo": {
+          "itemTypes": [
+            "MULTIPLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "ANY_INCORRECT_SELECTED"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": -2
+        }
+      },
+      {
+        "id": "all-correct",
+        "appliesTo": {
+          "itemTypes": [
+            "MULTIPLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "ALL_CORRECT_SELECTED"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 4
+        }
+      },
+      {
+        "id": "three-correct",
+        "appliesTo": {
+          "itemTypes": [
+            "MULTIPLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "PARTIAL_CORRECT_SELECTED",
+          "minCorrect": 3,
+          "noIncorrect": true
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 3
+        }
+      },
+      {
+        "id": "two-correct",
+        "appliesTo": {
+          "itemTypes": [
+            "MULTIPLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "PARTIAL_CORRECT_SELECTED",
+          "minCorrect": 2,
+          "noIncorrect": true
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 2
+        }
+      },
+      {
+        "id": "one-correct",
+        "appliesTo": {
+          "itemTypes": [
+            "MULTIPLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "PARTIAL_CORRECT_SELECTED",
+          "minCorrect": 1,
+          "noIncorrect": true
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 1
+        }
+      },
+      {
+        "id": "default",
+        "appliesTo": {
+          "itemTypes": [
+            "MULTIPLE_CORRECT_MCQ"
+          ]
+        },
+        "condition": {
+          "kind": "ALWAYS"
+        },
+        "award": {
+          "kind": "FIXED",
+          "marks": 0
+        }
+      }
+    ]
+  },
+  "sections": [
+    {
+      "ordinal": 1,
+      "slots": [
+        {
+          "slotId": "m1",
+          "ordinal": 1,
+          "itemType": "MULTIPLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "MULTI_CORRECT",
+            "correctOptionIds": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "expectedMarks": "4",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          }
+        },
+        {
+          "slotId": "m2",
+          "ordinal": 2,
+          "itemType": "MULTIPLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "MULTI_CORRECT",
+            "correctOptionIds": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "expectedMarks": "3",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A",
+              "B",
+              "C"
+            ]
+          }
+        },
+        {
+          "slotId": "m3",
+          "ordinal": 3,
+          "itemType": "MULTIPLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "MULTI_CORRECT",
+            "correctOptionIds": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "expectedMarks": "2",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A",
+              "B"
+            ]
+          }
+        },
+        {
+          "slotId": "m4",
+          "ordinal": 4,
+          "itemType": "MULTIPLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "MULTI_CORRECT",
+            "correctOptionIds": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "expectedMarks": "1",
+          "expectedCorrectness": "correct",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A"
+            ]
+          }
+        },
+        {
+          "slotId": "m5",
+          "ordinal": 5,
+          "itemType": "MULTIPLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "MULTI_CORRECT",
+            "correctOptionIds": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "expectedMarks": "-2",
+          "expectedCorrectness": "incorrect",
+          "response": {
+            "kind": "OPTION_SELECTION",
+            "optionIds": [
+              "A",
+              "Z"
+            ]
+          }
+        },
+        {
+          "slotId": "m6",
+          "ordinal": 6,
+          "itemType": "MULTIPLE_CORRECT_MCQ",
+          "marksAvailable": 4,
+          "answerKey": {
+            "kind": "MULTI_CORRECT",
+            "correctOptionIds": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "expectedMarks": "0",
+          "expectedCorrectness": "unattempted"
+        }
+      ],
+      "expectedRaw": "8"
+    }
+  ],
+  "expectedTotal": "8"
+}

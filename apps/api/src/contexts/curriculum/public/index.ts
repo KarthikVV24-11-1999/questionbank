@@ -72,6 +72,16 @@ export type { MarkingRuleSetData, MarkingRuleData } from '../domain/value-object
 export type { Condition, ConditionKind } from '../domain/value-objects/condition.js';
 export type { Award, AwardKind } from '../domain/value-objects/award.js';
 
+/** How outcomes become sectional and total scores (ADR-0006). Owned here, executed by Scoring. */
+export type {
+  AggregationSpecData,
+  BestOfSpec,
+  RoundingSpec,
+  RoundingMode,
+  SectionAggregation,
+  TotalAggregation,
+} from '../domain/value-objects/aggregation-spec.js';
+
 /** The answer specification as data (D-001). */
 export type {
   AnswerForm,
