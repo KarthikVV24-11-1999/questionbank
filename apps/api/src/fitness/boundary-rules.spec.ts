@@ -114,6 +114,58 @@ describe('import extraction', () => {
 
     expect(importsOf(source)).toEqual(['./a.js', './b.js', './c.js']);
   });
+
+  // The regression that motivated stripping comments: F2 reported a violation
+  // against `contexts/content/domain/content-error.ts` for a doc comment
+  // reading `separates a usable error from "invalid item"`. A gate that fails
+  // on a sentence is a gate people learn to ignore.
+  it.each([
+    [`/** an error separates a usable message from "invalid item" */\nconst x = 1;`, []],
+    [`// see the note on importing from './nowhere.js'\nconst x = 1;`, []],
+    [`/* export type { A } from './commented-out.js'; */\nconst x = 1;`, []],
+  ])('reads code rather than prose in %j', (source, expected) => {
+    expect(importsOf(source)).toEqual(expected);
+  });
+
+  it('still finds a real import that follows a comment mentioning one', () => {
+    const source = [
+      `/** derived from "somewhere else", conceptually */`,
+      `import { a } from './a.js';`,
+    ].join('\n');
+
+    expect(importsOf(source)).toEqual(['./a.js']);
+  });
+
+  it('keeps an import-shaped string that is real code, not a comment', () => {
+    expect(importsOf(`const m = require('drizzle-orm'); // required by the mapper`)).toEqual(['drizzle-orm']);
+  });
+
+  // The second layer of the same defect. `[\s\S]*?` ran from a line-starting
+  // `export` through arbitrary code to the word `from` beside a quote, so the
+  // message string below reported an import of ", " and failed F2.
+  it.each([
+    [`export function f() {\n  return err('a published item records where it came from', 'loc');\n}`, []],
+    [`export const message = 'derived from "somewhere"';`, []],
+    [`export function g() {\n  const a = 1;\n  return 'from';\n}\nconst b = 'x';`, []],
+  ])('does not read a string literal as an import in %j', (source, expected) => {
+    expect(importsOf(source)).toEqual(expected);
+  });
+
+  it('still finds a real import in a file that also contains the word from in a string', () => {
+    const source = [
+      `import { err } from './result.js';`,
+      `export function f() {`,
+      `  return err('records where it came from', 'loc');`,
+      `}`,
+    ].join('\n');
+
+    expect(importsOf(source)).toEqual(['./result.js']);
+  });
+
+  it('still finds a multi-line import, which has no semicolon before its from', () => {
+    const source = `import {\n  a,\n  b,\n} from './wide.js';`;
+    expect(importsOf(source)).toEqual(['./wide.js']);
+  });
 });
 
 describe('public barrel surface', () => {
