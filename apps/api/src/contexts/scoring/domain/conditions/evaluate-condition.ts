@@ -34,8 +34,15 @@ function selectedOptions(response: ResponseSnapshot): readonly string[] | undefi
  * Whether the response is exactly right. Shared by `EXACT_MATCH` and
  * `NO_MATCH` so the two can never drift into disagreeing about what "right"
  * means — `NO_MATCH` is the inversion of this, never a second opinion.
+ *
+ * Exported through `scoring/public/` because Content asks the same question
+ * when it checks that a solution's stated final answer is what the item's key
+ * calls correct (M3-14). That check has to mean what it will mean at scoring
+ * time, and the only way to guarantee that is to run the same function — a
+ * comparison written in Content that resembles this one would disagree the
+ * first time a tolerance, a unit rule or an accepted form was involved.
  */
-function evaluateExactness(response: ResponseSnapshot, key: AnswerKey): ConditionOutcome {
+export function evaluateExactness(response: ResponseSnapshot, key: AnswerKey): ConditionOutcome {
   switch (key.kind) {
     case 'SINGLE_CORRECT': {
       const selected = selectedOptions(response);

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { importsOf } from './source-scan.js';
 
 /**
  * Architecture rules enforced as a fitness function (ENGINEERING-HANDBOOK §9).
@@ -27,32 +28,19 @@ export interface BoundaryCheckOptions {
   readonly domainPattern?: RegExp;
 }
 
-/**
- * Every way a module can reach another one. Static `import`/`export … from` is
- * the common case, but a dynamic `import()`, a `require()`, or a bare
- * side-effect `import 'x'` reaches just as far — a rule that misses them can be
- * stepped around, which is worse than no rule at all.
- */
-const IMPORT_PATTERNS: readonly RegExp[] = [
-  /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+['"]([^'"]+)['"]/gu,
-  /(?:^|\n)\s*import\s+['"]([^'"]+)['"]/gu,
-  /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
-  /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
-];
-
 const DEFAULT_EXCLUDES = [/\.spec\.ts$/u, /^src\/testing\//u, /^src\/fitness-fixtures\//u, /^src\/fitness\//u];
 
-/** Every module the file reaches, however it reaches it. */
-export function importsOf(source: string): string[] {
-  const found: string[] = [];
-  for (const pattern of IMPORT_PATTERNS) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1];
-      if (specifier !== undefined && !found.includes(specifier)) found.push(specifier);
-    }
-  }
-  return found;
-}
+/**
+ * Every module the file reaches, however it reaches it — re-exported from
+ * `source-scan.ts`, which owns the one implementation.
+ *
+ * It used to be a second copy of the same patterns here. That is exactly how
+ * the string-literal defect survived its own fix: `source-scan.ts` was
+ * tightened and this file, which is what F1 and F2 actually run, kept matching
+ * the loose pattern. Two implementations of one rule means the gate and the
+ * test of the gate can disagree, which is the worst possible arrangement.
+ */
+export { importsOf } from './source-scan.js';
 
 function walk(directory: string): string[] {
   const entries = readdirSync(directory);
