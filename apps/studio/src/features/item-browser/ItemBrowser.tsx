@@ -36,6 +36,20 @@ export interface ItemBrowserProps {
   readonly myPrincipalId: string;
 }
 
+/**
+ * Never the raw `Error#message` — that is exactly the shape D28 names as
+ * still open (a repository constraint violation can reach a caller carrying
+ * a raw Postgres message). A transport error's own typed shape (M0-17's
+ * `ApiProblemError.problem.title`) is read structurally rather than by
+ * importing the client's types here, so this component stays a port
+ * consumer and nothing about *how* a request failed leaks past this line.
+ */
+function safeErrorMessage(error: unknown): string {
+  const problem = (error as { problem?: { title?: unknown } } | null)?.problem;
+  if (typeof problem?.title === 'string' && problem.title.length > 0) return problem.title;
+  return 'Something went wrong loading items. Try again.';
+}
+
 export function ItemBrowser(props: ItemBrowserProps): JSX.Element {
   const { api, searchParams, myPrincipalId } = props;
 
@@ -43,12 +57,19 @@ export function ItemBrowser(props: ItemBrowserProps): JSX.Element {
   const [rows, setRows] = useState<readonly ItemRow[] | null>(null);
   const [selected, setSelected] = useState<ItemRow | null>(null);
   const [report, setReport] = useState<ValidationReport | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
-    void api.list(effectiveFilters(filters, myPrincipalId)).then((listed) => {
-      if (current) setRows(listed);
-    });
+    setListError(null);
+    api.list(effectiveFilters(filters, myPrincipalId)).then(
+      (listed) => {
+        if (current) setRows(listed);
+      },
+      (error: unknown) => {
+        if (current) setListError(safeErrorMessage(error));
+      },
+    );
     return () => {
       current = false;
     };
@@ -167,7 +188,9 @@ export function ItemBrowser(props: ItemBrowserProps): JSX.Element {
       <section aria-labelledby="results-heading">
         <h2 id="results-heading">Results</h2>
 
-        {rows === null ? (
+        {listError !== null ? (
+          <p role="alert">{listError}</p>
+        ) : rows === null ? (
           <p role="status">Loading items…</p>
         ) : rows.length === 0 ? (
           // Designed, not defaulted (UX §12): an empty state offers an action

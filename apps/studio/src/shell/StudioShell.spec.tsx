@@ -238,15 +238,14 @@ describe('the route table is data, not a router (DEC-5)', () => {
     }
   });
 
-  // DEC-5, asserted rather than remembered: no router dependency, no entry
-  // point. Adding either is M0's work, and doing it here would be the second
-  // time a milestone paid for M0.
+  // DEC-5, asserted rather than remembered: no router dependency in the
+  // shell itself, even though M0-15 gave the app an entry point.
   // Read from the working directory, not from `import.meta.url`: Vite rewrites
   // a module URL to the path it *serves*, so `readFileSync` would be handed
   // `/src/shell/StudioShell.tsx` and the scan would fail for the wrong reason.
   // Studio's vitest runs with cwd = `apps/studio`.
-  it('imports no router and declares no application entry point', async () => {
-    const { readFileSync, existsSync } = await import('node:fs');
+  it('imports no router', async () => {
+    const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
 
     const scanned: string[] = [];
@@ -256,10 +255,18 @@ describe('the route table is data, not a router (DEC-5)', () => {
       scanned.push(file);
     }
     expect(scanned).toHaveLength(3);
+  });
 
-    // DEC-5 asserted rather than remembered: no entry point, no dev server.
+  // Was asserted absent under DEC-5 ("adding an entry point is M0's work").
+  // M0-15 is that work — D3 is closed, and the application now has one.
+  // Rewritten to assert presence rather than left asserting a falsehood
+  // (M0's own DEC-M0-14 rule 3).
+  it('has an application entry point (M0-15, closes D3)', async () => {
+    const { existsSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+
     for (const entryPoint of ['src/main.tsx', 'index.html', 'vite.config.ts']) {
-      expect(existsSync(resolve(entryPoint)), entryPoint).toBe(false);
+      expect(existsSync(resolve(entryPoint)), entryPoint).toBe(true);
     }
   });
 });

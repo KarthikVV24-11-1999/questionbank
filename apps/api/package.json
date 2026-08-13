@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.28",
+    "@questionbank/studio": "workspace:*",
     "@types/express": "^5.0.6",
     "@types/node": "^22",
     "@types/pg": "^8.20.4",

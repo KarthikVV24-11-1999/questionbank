@@ -536,7 +536,7 @@ describe('authoring queries carry the key, and only for authoring roles', () => 
     const list = expectValue(
       await new ListMyDraftsHandler(authoringQueries()).handle({ authorId: AUTHOR_ID }, as(author)),
     );
-    expect(list.map((entry) => entry.itemId)).toContain(item.itemId);
+    expect(list.items.map((entry) => entry.itemId)).toContain(item.itemId);
   });
 
   it('refuses a learner with Authorization rather than an empty result', async () => {
