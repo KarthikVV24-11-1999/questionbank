@@ -3,6 +3,9 @@ import type { ContentError } from '../../domain/content-error.js';
 import type { ItemRepository } from '../../domain/repository-ports.js';
 import { createItem, type Item } from '../../domain/item.js';
 import { createItemVersion } from '../../domain/item-version.js';
+import { createContentBody, type ContentBody } from '../../domain/content-body.js';
+import { validationError } from '../../domain/content-error.js';
+import { checkSpecificationIsScorable } from '../answer-key-projection.js';
 import {
   applicationError,
   authorize,
@@ -57,6 +60,45 @@ export interface ImportDependencies {
 
 function fromContent(error: ContentError): ApplicationError {
   return applicationError(error.kind, error.code, error.message, error.location);
+}
+
+function bodyFrom(value: unknown, location: string): Result<ContentBody, ContentError> {
+  const blocks = (value as { readonly blocks?: unknown } | undefined)?.blocks;
+  if (!Array.isArray(blocks)) {
+    return err(
+      validationError('CONTENT_BODY_INVALID', 'a body is a document with a blocks array', location),
+    );
+  }
+  return createContentBody(blocks as Parameters<typeof createContentBody>[0]);
+}
+
+/**
+ * The stem and every option body, reconstructed through the domain
+ * constructor rather than trusted as parsed.
+ */
+function revalidateBodies(
+  record: ImportItemRecord,
+): Result<
+  { readonly stem: ContentBody; readonly responseSpec: ImportItemRecord['responseSpec'] },
+  ContentError
+> {
+  const stem = bodyFrom(record.stem, 'version.stem');
+  if (!stem.ok) return err(stem.error);
+
+  const spec = record.responseSpec as { readonly options?: readonly { readonly body: unknown }[] };
+  if (!Array.isArray(spec.options)) return ok({ stem: stem.value, responseSpec: record.responseSpec });
+
+  const options: unknown[] = [];
+  for (const [index, option] of spec.options.entries()) {
+    const body = bodyFrom(option.body, `version.responseSpec.options[${index}].body`);
+    if (!body.ok) return err(body.error);
+    options.push({ ...option, body: body.value });
+  }
+
+  return ok({
+    stem: stem.value,
+    responseSpec: { ...record.responseSpec, options } as ImportItemRecord['responseSpec'],
+  });
 }
 
 export class ImportItemBatchHandler implements Handler<ImportItemBatch, ImportReport> {
@@ -139,13 +181,23 @@ export class ImportItemBatchHandler implements Handler<ImportItemBatch, ImportRe
   ): Promise<Result<Item, ApplicationError>> {
     const at = this.deps.clock.now();
 
+    // **Every authored body goes back through `createContentBody`.** The
+    // parser turns bytes into records and asserts nothing about their shape,
+    // so without this a JSON document could carry an equation with a blank
+    // `textAlternative` — which the editor refuses and ACC-02 forbids — and
+    // import would create a draft the interactive path considers invalid,
+    // which is the one thing DEC-7 says the import path must not do. Found by
+    // M3-45's corpus.
+    const bodies = revalidateBodies(record);
+    if (!bodies.ok) return err(fromContent(bodies.error));
+
     const version = createItemVersion(
       {
         versionId: this.deps.identifiers.next(),
         versionNo: 1,
         itemType: record.itemType,
-        stem: record.stem,
-        responseSpec: record.responseSpec,
+        stem: bodies.value.stem,
+        responseSpec: bodies.value.responseSpec,
         taxonomyTags: record.taxonomyTags,
         difficultyEstimate: record.difficultyEstimate,
         // FR-TCH-11 rule 3: every imported record carries provenance naming
@@ -169,6 +221,9 @@ export class ImportItemBatchHandler implements Handler<ImportItemBatch, ImportRe
       { latestPlausibleYear: at.getUTCFullYear() },
     );
     if (!version.ok) return err(fromContent(version.error));
+
+    const scorable = checkSpecificationIsScorable(version.value.responseSpec);
+    if (!scorable.ok) return err(fromContent(scorable.error));
 
     const item = createItem({
       itemId: this.deps.identifiers.next(),

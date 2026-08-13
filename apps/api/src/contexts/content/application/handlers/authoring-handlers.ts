@@ -10,6 +10,7 @@ import {
   type Item,
 } from '../../domain/item.js';
 import { createItemVersion, deriveDraft, type ItemVersion } from '../../domain/item-version.js';
+import { checkSpecificationIsScorable } from '../answer-key-projection.js';
 import type { ProvenanceContext } from '../../domain/provenance.js';
 import {
   applicationError,
@@ -107,6 +108,9 @@ export class CreateItemDraftHandler implements Handler<CreateItemDraft, Item> {
     );
     if (!version.ok) return err(fromContent(version.error));
 
+    const scorable = checkSpecificationIsScorable(version.value.responseSpec);
+    if (!scorable.ok) return err(fromContent(scorable.error));
+
     const item = createItem({
       itemId: this.deps.identifiers.next(),
       itemType: command.itemType,
@@ -171,6 +175,9 @@ export class UpdateItemDraftHandler implements Handler<UpdateItemDraft, Item> {
       provenanceContextAt(at),
     );
     if (!version.ok) return err(fromContent(version.error));
+
+    const scorable = checkSpecificationIsScorable(version.value.responseSpec);
+    if (!scorable.ok) return err(fromContent(scorable.error));
 
     const updated = replaceDraftVersion(item, version.value);
     if (!updated.ok) return err(fromContent(updated.error));

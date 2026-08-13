@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
 import {
+  NUMERIC_SPEC,
   itemOption,
   numericSpec,
   originalProvenance,
@@ -201,6 +202,60 @@ describe('CreateItemDraft', () => {
       as(author),
     );
     expect(expectError(failed).code).toBe('ITEM_TYPE_MISMATCH');
+  });
+});
+
+/**
+ * DEC-3's guarantee on the write path: a specification whose projection the
+ * executor refuses cannot be saved. Before M3-45's corpus found this, the
+ * refusal came from a database CHECK constraint — so the author was told a
+ * constraint name instead of that their numeric item has no tolerance.
+ */
+describe('a specification the executor refuses cannot be saved (DEC-3)', () => {
+  function numericWithoutTolerance(): AuthoredItemContent {
+    const { toleranceValue: _dropped, ...spec } = NUMERIC_SPEC;
+    return content({
+      responseSpec: { itemType: 'NUMERIC', spec } as AuthoredItemContent['responseSpec'],
+    });
+  }
+
+  it('refuses to create a numeric draft with no tolerance, naming the field', async () => {
+    const refused: Refusal = await new CreateItemDraftHandler(bench()).handle(
+      { itemType: 'NUMERIC', content: numericWithoutTolerance() },
+      as(author),
+    );
+    const error = expectError(refused);
+    expect(error.code).toBe('ANSWER_KEY_REJECTED_BY_EXECUTOR');
+    expect(error.location).toBe('version.responseSpec');
+    expect(error.message).not.toMatch(/violates check constraint/u);
+  });
+
+  // The draft has to be numeric to begin with, or the item-type cross-check
+  // refuses first and this would be testing that instead.
+  it('refuses the same edit to an existing numeric draft', async () => {
+    const deps = bench();
+    const created = expectValue(
+      await new CreateItemDraftHandler(deps).handle(
+        { itemType: 'NUMERIC', content: content({ responseSpec: numericSpec() }) },
+        as(author),
+      ),
+    );
+
+    const refused: Refusal = await new UpdateItemDraftHandler(deps).handle(
+      { itemId: created.itemId, content: numericWithoutTolerance(), idempotencyKey: 'save-bad' },
+      as(author),
+    );
+    expect(expectError(refused).code).toBe('ANSWER_KEY_REJECTED_BY_EXECUTOR');
+  });
+
+  it('accepts the same item once the tolerance is there', async () => {
+    const created = expectValue(
+      await new CreateItemDraftHandler(bench()).handle(
+        { itemType: 'NUMERIC', content: content({ responseSpec: numericSpec() }) },
+        as(author),
+      ),
+    );
+    expect(created.lifecycleState).toBe('draft');
   });
 });
 

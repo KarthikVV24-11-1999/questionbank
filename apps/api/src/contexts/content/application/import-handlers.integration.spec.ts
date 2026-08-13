@@ -430,6 +430,93 @@ describe('a record the database refuses is reported, not lost silently', () => {
   });
 });
 
+/**
+ * DEC-7's own rule: **import cannot create a draft the editor would refuse.**
+ * The parser turns bytes into records and asserts nothing about their shape,
+ * so every authored body goes back through `createContentBody` — without which
+ * a JSON document could carry an equation with a blank `textAlternative`,
+ * which the editor refuses and ACC-02 forbids. Found by M3-45's corpus, where
+ * exactly that record imported cleanly.
+ */
+describe('every authored body is reconstructed through the domain constructor', () => {
+  async function importOne(record: unknown) {
+    return expectValue(
+      await new ImportItemBatchHandler(bench()).handle(
+        { contents: batch([record]) },
+        as(contentOps),
+      ),
+    );
+  }
+
+  it('refuses notation with no authored alternative', async () => {
+    const report = await importOne({
+      ...itemRecord({ recordId: 'blank-alternative' }),
+      stem: { schemaVersion: 1, blocks: [{ kind: 'MATH_BLOCK', latex: 'F = ma', textAlternative: '' }] },
+    });
+
+    expect(report.imported).toHaveLength(0);
+    expect(report.rejected[0]?.code).toBe('TEXT_ALTERNATIVE_REQUIRED');
+  });
+
+  it('refuses a stem that is not a document at all', async () => {
+    const report = await importOne({ ...itemRecord({ recordId: 'stem-not-a-body' }), stem: 5 });
+
+    expect(report.rejected[0]?.code).toBe('CONTENT_BODY_INVALID');
+    expect(report.rejected[0]?.location).toBe('version.stem');
+  });
+
+  // An option body is a `ContentBody` too — an option routinely *is* an
+  // equation (M3-07), so the same reconstruction has to reach inside the spec.
+  it('refuses an option body that is not a document', async () => {
+    const report = await importOne({
+      ...itemRecord({ recordId: 'option-not-a-body' }),
+      responseSpec: {
+        itemType: 'SINGLE_CORRECT_MCQ',
+        options: [
+          itemOption('a', 1),
+          { optionId: 'b', ordinal: 2, body: 'just a string' },
+        ],
+        correctOptionId: 'a',
+      },
+    });
+
+    expect(report.rejected[0]?.code).toBe('CONTENT_BODY_INVALID');
+    expect(report.rejected[0]?.location).toBe('version.responseSpec.options[1].body');
+  });
+
+  it('refuses an option body carrying rendered markup, exactly as the editor would', async () => {
+    const report = await importOne({
+      ...itemRecord({ recordId: 'markup-in-an-option' }),
+      responseSpec: {
+        itemType: 'SINGLE_CORRECT_MCQ',
+        options: [
+          itemOption('a', 1),
+          {
+            optionId: 'b',
+            ordinal: 2,
+            body: {
+              schemaVersion: 1,
+              blocks: [
+                { kind: 'PARAGRAPH', inlines: [{ kind: 'TEXT', value: 'x<sup>2</sup>', marks: [] }] },
+              ],
+            },
+          },
+        ],
+        correctOptionId: 'a',
+      },
+    });
+
+    expect(report.imported).toHaveLength(0);
+    expect(report.rejected).toHaveLength(1);
+  });
+
+  it('accepts a well-formed body, so the reconstruction is not refusing everything', async () => {
+    const report = await importOne(itemRecord({ recordId: 'well-formed' }));
+    expect(report.imported).toHaveLength(1);
+    expect(report.rejected).toEqual([]);
+  });
+});
+
 describe('the shapes a record may or may not carry', () => {
   // The path exists to migrate previous-year corpora, so a record that does
   // not name its year is rejected rather than imported with the year missing —

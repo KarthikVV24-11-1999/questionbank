@@ -175,18 +175,40 @@ describe('empty and error states', () => {
 });
 
 describe('performance budget', () => {
-  it('renders a 600-node version and expands a branch well inside 200 ms', async () => {
-    const client = new FakeCurriculumClient({ nodes: aLargeTree(600) });
-    renderBrowser(client);
-    await screen.findByRole('button', { name: 'Physics' });
+  async function timeAnExpandCycle(nodeCount: number): Promise<number> {
+    const view = render(
+      <TaxonomyBrowser client={new FakeCurriculumClient({ nodes: aLargeTree(nodeCount) })} examFamily="JEE" />,
+    );
+    const scope = within(view.container);
+    await view.findByRole('button', { name: 'Physics' });
 
     const startedAt = performance.now();
-    await userEvent.click(screen.getByRole('button', { name: 'Collapse Physics' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Expand Physics' }));
+    await userEvent.click(scope.getByRole('button', { name: 'Collapse Physics' }));
+    await userEvent.click(scope.getByRole('button', { name: 'Expand Physics' }));
     const elapsed = performance.now() - startedAt;
 
-    expect(screen.getByRole('button', { name: 'Concept 42' })).toBeInTheDocument();
-    expect(elapsed).toBeLessThan(200);
+    expect(scope.getByRole('button', { name: 'Concept 42' })).toBeInTheDocument();
+    view.unmount();
+    return elapsed;
+  }
+
+  /**
+   * **A ratio, not a wall clock.** This runs in a jsdom worker sharing cores
+   * with every other spec file, so an absolute millisecond threshold measures
+   * how busy the machine is — it failed the day the suite grew, having tested
+   * nothing about this component. Comparing four times the nodes against the
+   * baseline survives contention, because contention inflates both, and it is
+   * the property actually worth holding: expansion is linear in the branch,
+   * not quadratic. Quadratic would be sixteen times.
+   *
+   * The real budget — PER-01's 200 ms on a real device — is measured in a
+   * browser, which is debt **D10** and remains deferred.
+   */
+  it('expands a branch in time linear in its size, not quadratic', async () => {
+    const baseline = await timeAnExpandCycle(150);
+    const large = await timeAnExpandCycle(600);
+
+    expect(large).toBeLessThan(Math.max(baseline, 1) * 8);
   }, 30_000);
 });
 
