@@ -1,0 +1,11 @@
+# M0 — Progress Log
+
+One sentence per task, appended as it lands.
+
+- **M0-01** — Workspace glob coverage and required-script gates added (`workspace-rules.ts`), the offline install verified stable before and after, `packages/contracts` and `packages/domain-types` given real `test`/`typecheck` infrastructure they were missing, and ADR-0011 records the Turborepo deferral.
+- **M0-02** — `loadConfig`/`loadConfigFromProcessEnv` added as the one typed, total config module with no unsafe defaults, and F16's enumerated-allowlist gate proven against a planted `process.env` reader, both at 100% coverage.
+- **M0-03** — The allowlist serializer and structured JSON logger land, recursive dropping proven against a nested-PII fixture and level filtering including production's debug-off rule, both at 100% coverage.
+- **M0-04** — The `Telemetry` port lands with `createJsonTelemetry` and the `RecordingTelemetry` double, parent linkage tracked via `AsyncLocalStorage` across awaits, spans filtered through M0-03's same allowlist, and a spec asserting no `@opentelemetry` import exists anywhere — all at 100% coverage.
+- **M0-05** — The auth stub (`issue`/`verify`) lands over `node:crypto` HMAC-SHA256 with no alg-confusion shortcut and length-checked constant-time comparison; `verify` returns exactly a `PrincipalRef`, `ai_agent` verifies like `human` (D10), and ADR-0014 records what the stub deliberately is not — no user store, password, refresh, revocation or role assignment, all M8's. 100% coverage.
+- **M0-06** — `createPrincipalResolver` lands as the one adapter shared by all three contexts' `PrincipalResolver` declarations, every refusal returning `null` and logging an identically-shaped record whose `errorCode` alone carries the distinguishable reason, with the raw token proven absent from every log entry. 100% coverage.
+- **M0-07** — `SystemClock`, `UuidIdentifierFactory`, `createPool`/`closePool` and `PostgresAuditRecorder` land; the new `platform.audit_record` table (migration `20260813120000`) serves all three contexts' independently-declared audit ports from one physical table, append-only by trigger, proven against real Postgres including a rejected UPDATE and DELETE. 100% coverage on the correctness-bearing pieces; integration specs green against the local cluster.

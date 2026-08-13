@@ -483,6 +483,73 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M0-02. This decides what a secret is and what boots — a gap here
+        // is a signing key with no default reaching production, or a
+        // malformed value reaching the application silently coerced.
+        'src/platform/config/config.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M0-03. This decides what leaks — a gap here is PII reaching a log
+        // line because a key nobody reviewed was let through the allowlist.
+        'src/platform/observability/serializer.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/platform/observability/logger.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M0-04. The span tree that stands in for a trace until an OTel
+        // exporter exists (D31) — a gap here is a parent link that silently
+        // breaks, or PII surviving into a span the way it would a log line.
+        'src/platform/observability/telemetry.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/platform/observability/recording-telemetry.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M0-05. This decides who is who — a gap here is a forged token
+        // accepted, an unknown principal kind coerced, or an expired token
+        // treated as live.
+        'src/platform/auth/token.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M0-06. The one PrincipalResolver every context's controller
+        // depends on — a gap here is a refusal that leaks the token, or one
+        // context quietly seeing a different notion of "authenticated" than
+        // another.
+        'src/platform/auth/principal-resolver.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M0-07. The one adapter serving three contexts' audit ports — a gap
+        // here is a compliance record silently wrong or silently missing.
+        // Exercised by the integration project (real Postgres); the threshold
+        // holds over the combined run, not the unit-only one.
+        'src/platform/persistence/audit-recorder.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
       },
     },
     projects: [

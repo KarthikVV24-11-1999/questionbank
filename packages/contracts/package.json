@@ -10,10 +10,15 @@
   },
   "scripts": {
     "generate": "openapi-typescript openapi/curriculum.yaml --output src/curriculum.ts",
-    "generate:content": "node scripts/generate-zod.mjs openapi/content.yaml src/content-schemas.ts"
+    "generate:content": "node scripts/generate-zod.mjs openapi/content.yaml src/content-schemas.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
+    "@types/node": "^22",
     "openapi-typescript": "^7.4.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5",
     "yaml": "^2.9.0"
   },
   "dependencies": {
