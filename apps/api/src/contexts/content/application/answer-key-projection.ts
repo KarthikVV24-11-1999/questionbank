@@ -109,6 +109,24 @@ export function projectValidatedAnswerKey(
   return projected.ok ? ok(projected.value.key) : err(projected.error);
 }
 
+/**
+ * DEC-3's guarantee, as a guard on the write path: **a specification whose
+ * projection the executor refuses cannot be saved.**
+ *
+ * Without this the refusal happens at the database, as a CHECK constraint
+ * violation — which reaches the author as a Postgres message naming a
+ * constraint, and reaches an import report as `PERSISTENCE_REJECTED`. Neither
+ * says "this numeric item has no tolerance", which is the one thing the author
+ * needs to know. Found by M3-45's corpus.
+ */
+export function checkSpecificationIsScorable(
+  spec: ResponseSpecification,
+  location = 'version.responseSpec',
+): Result<true, ProjectionError> {
+  const projected = project(spec, location);
+  return projected.ok ? ok(true) : err(projected.error);
+}
+
 function project(
   spec: ResponseSpecification,
   location: string,
