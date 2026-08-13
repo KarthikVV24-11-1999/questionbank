@@ -1,0 +1,1605 @@
+openapi: 3.1.0
+info:
+  title: Question Bank — Content API
+  version: 1.0.0
+  description: |
+    The content context's HTTP contract (BACKEND-ARCHITECTURE §3). Every
+    operation names its handler in `x-handler`, which F15 reconciles against
+    the registry.
+
+    **Two schema families, and the split is the point** (ADR-0009, DEC-4).
+
+    `Authoring*` schemas carry the answer key — that is what an authoring
+    surface is for — and appear only under `/v1/authoring/**`. `Delivery*`
+    schemas carry no key, no correct-option marker, no numeric expected value
+    and no `is_correct` flag, on any code path and for any role (§9 rule 10).
+
+    The authoring route list is enumerated in `x-authoring-routes` below, and
+    the contract spec asserts it against the document **in both directions** —
+    a new authoring path that is not on the list fails, and a listed path that
+    stops existing fails too. Adding to the list is a reviewed change to a
+    named constant, never an inference from a path prefix at runtime.
+
+servers:
+  - url: https://api.questionbank.example
+    description: Production
+
+# The enumerated, closed authoring route list (ADR-0009 condition 1).
+x-authoring-routes:
+  - /v1/authoring/items
+  - /v1/authoring/items/{itemId}
+  - /v1/authoring/items/{itemId}/versions
+  - /v1/authoring/items/{itemId}/versions/{itemVersionId}
+  - /v1/authoring/items/{itemId}/validation-findings
+  - /v1/authoring/items/{itemId}/stimulus
+  - /v1/authoring/items/{itemId}/review-submission
+  - /v1/authoring/items/{itemId}/review-decisions
+  - /v1/authoring/items/{itemId}/publication
+  - /v1/authoring/items/{itemId}/suspension
+  - /v1/authoring/items/{itemId}/retirement
+  - /v1/authoring/drafts
+  - /v1/authoring/stimuli
+  - /v1/authoring/stimuli/{stimulusId}
+  - /v1/authoring/stimuli/{stimulusId}/review-submission
+  - /v1/authoring/stimuli/{stimulusId}/review-decisions
+  - /v1/authoring/stimuli/{stimulusId}/publication
+  - /v1/authoring/stimuli/{stimulusId}/retirement
+  - /v1/authoring/solutions
+  - /v1/authoring/solutions/{solutionId}
+  - /v1/authoring/solutions/{solutionId}/review-submission
+  - /v1/authoring/solutions/{solutionId}/review-decisions
+  - /v1/authoring/solutions/{solutionId}/publication
+  - /v1/authoring/media-assets
+  - /v1/authoring/media-assets/{assetId}/versions
+  - /v1/authoring/media-assets/{assetId}/review-submission
+  - /v1/authoring/media-assets/{assetId}/review-decisions
+  - /v1/authoring/media-assets/{assetId}/publication
+  - /v1/authoring/media-assets/{assetId}/retirement
+  - /v1/authoring/import-batches
+
+tags:
+  - name: authoring
+  - name: lifecycle
+  - name: delivery
+
+paths:
+  /v1/authoring/items:
+    post:
+      operationId: createItemDraft
+      x-handler: CreateItemDraft
+      summary: Create an item draft
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringCreateItemRequest' }
+      responses:
+        '201':
+          description: The draft was created.
+          headers: { X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}:
+    parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+    get:
+      operationId: getItemDraft
+      x-handler: GetItemDraft
+      summary: An item and every version, as authored
+      tags: [authoring]
+      responses:
+        '200':
+          description: The item, key included.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      operationId: updateItemDraft
+      x-handler: UpdateItemDraft
+      summary: Autosave the current draft version
+      description: Idempotent on `idempotencyKey`; a repeat returns the current version unchanged.
+      tags: [authoring]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringUpdateItemRequest' }
+      responses:
+        '200':
+          description: The draft as it now stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      operationId: deleteItemDraft
+      x-handler: DeleteItemDraft
+      summary: Discard a draft, permanently and audibly
+      tags: [authoring]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringDeleteDraftRequest' }
+      responses:
+        '204':
+          description: The draft is gone.
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/versions:
+    post:
+      operationId: deriveDraftFromVersion
+      x-handler: DeriveDraftFromVersion
+      summary: Derive a successor version from an existing one
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringDeriveVersionRequest' }
+      responses:
+        '201':
+          description: The successor version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/versions/{itemVersionId}:
+    get:
+      operationId: getItemVersionForAuthoring
+      x-handler: GetItemVersionForAuthoring
+      summary: One authored version, key included
+      tags: [authoring]
+      parameters:
+        - { $ref: '#/components/parameters/ItemId' }
+        - { $ref: '#/components/parameters/ItemVersionId' }
+        - { $ref: '#/components/parameters/CorrelationId' }
+      responses:
+        '200':
+          description: The authored version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItemVersion' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/validation-findings:
+    get:
+      operationId: getValidationFindings
+      x-handler: GetValidationFindings
+      summary: Pre-submission findings, blocking and warning
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: The findings, each with a location.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringValidationReport' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/stimulus:
+    post:
+      operationId: attachStimulusToItem
+      x-handler: AttachStimulusToItem
+      summary: Pin the stimulus version current at attachment time
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringAttachStimulusRequest' }
+      responses:
+        '200':
+          description: The item, now pinning a stimulus version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/review-submission:
+    parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+    post:
+      operationId: submitItemForReview
+      x-handler: SubmitItemForReview
+      summary: Submit a draft for review, locking it against author edits
+      tags: [lifecycle]
+      responses:
+        '200':
+          description: The item is in review.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      operationId: withdrawItemFromReview
+      x-handler: WithdrawItemFromReview
+      summary: Withdraw before review begins
+      tags: [lifecycle]
+      responses:
+        '200':
+          description: The item is a draft again.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/review-decisions:
+    post:
+      operationId: recordItemReviewDecision
+      x-handler: RecordItemReviewDecision
+      summary: Record a review decision against a version
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringReviewDecisionRequest' }
+      responses:
+        '200':
+          description: The decision was recorded and the item moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/publication:
+    post:
+      operationId: publishItemVersion
+      x-handler: PublishItemVersion
+      summary: Publish a version
+      description: Requires step-up. Refused with every unmet precondition at once (INV-07).
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringPublishVersionRequest' }
+      responses:
+        '200':
+          description: The version is published.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/suspension:
+    post:
+      operationId: suspendItem
+      x-handler: SuspendItem
+      summary: Remove a published item from student visibility
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringJustificationRequest' }
+      responses:
+        '200':
+          description: The item is suspended; its history is retained.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/items/{itemId}/retirement:
+    post:
+      operationId: retireItem
+      x-handler: RetireItem
+      summary: Retire an item, with a categorized reason
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringRetireItemRequest' }
+      responses:
+        '200':
+          description: The item is retired. `retired` is terminal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/drafts:
+    get:
+      operationId: listMyDrafts
+      x-handler: ListMyDrafts
+      summary: The author's own drafts (FR-TCH-06 rule 1)
+      tags: [authoring]
+      parameters:
+        - { $ref: '#/components/parameters/AuthorId' }
+        - { $ref: '#/components/parameters/CorrelationId' }
+      responses:
+        '200':
+          description: The drafts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItemPage' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/stimuli:
+    post:
+      operationId: createStimulusDraft
+      x-handler: CreateStimulusDraft
+      summary: Create a stimulus draft
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringCreateStimulusRequest' }
+      responses:
+        '201':
+          description: The stimulus draft.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringStimulus' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/stimuli/{stimulusId}:
+    patch:
+      operationId: updateStimulusDraft
+      x-handler: UpdateStimulusDraft
+      summary: Autosave a stimulus draft
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/StimulusId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringUpdateStimulusRequest' }
+      responses:
+        '200':
+          description: The stimulus as it now stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringStimulus' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/stimuli/{stimulusId}/review-submission:
+    post:
+      operationId: submitStimulusForReview
+      x-handler: SubmitStimulusForReview
+      summary: Submit a stimulus for review
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/StimulusId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: The stimulus is in review.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringStimulus' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/stimuli/{stimulusId}/review-decisions:
+    post:
+      operationId: recordStimulusReviewDecision
+      x-handler: RecordStimulusReviewDecision
+      summary: Record a review decision against a stimulus version
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/StimulusId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringStimulusReviewDecisionRequest' }
+      responses:
+        '200':
+          description: The decision was recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringStimulus' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/stimuli/{stimulusId}/publication:
+    post:
+      operationId: publishStimulusVersion
+      x-handler: PublishStimulusVersion
+      summary: Publish a stimulus version
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/StimulusId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringPublishStimulusRequest' }
+      responses:
+        '200':
+          description: The stimulus version is published.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringStimulus' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/stimuli/{stimulusId}/retirement:
+    post:
+      operationId: retireStimulus
+      x-handler: RetireStimulus
+      summary: Retire a stimulus no published item references
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/StimulusId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringRetirementRequest' }
+      responses:
+        '200':
+          description: The stimulus is retired.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringStimulus' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/solutions:
+    post:
+      operationId: createSolutionDraft
+      x-handler: CreateSolutionDraft
+      summary: Create a solution draft against an item version
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringCreateSolutionRequest' }
+      responses:
+        '201':
+          description: The solution draft.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringSolution' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/solutions/{solutionId}:
+    patch:
+      operationId: updateSolutionDraft
+      x-handler: UpdateSolutionDraft
+      summary: Autosave a solution draft
+      description: Final-answer agreement is re-checked on every save (D5).
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/SolutionId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringUpdateSolutionRequest' }
+      responses:
+        '200':
+          description: The solution as it now stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringSolution' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/solutions/{solutionId}/review-submission:
+    post:
+      operationId: submitSolutionForReview
+      x-handler: SubmitSolutionForReview
+      summary: Submit a solution for review
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/SolutionId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: The solution is in review.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringSolution' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/solutions/{solutionId}/review-decisions:
+    post:
+      operationId: recordSolutionReviewDecision
+      x-handler: RecordSolutionReviewDecision
+      summary: Record a review decision against a solution version
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/SolutionId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringSolutionReviewDecisionRequest' }
+      responses:
+        '200':
+          description: The decision was recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringSolution' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/solutions/{solutionId}/publication:
+    post:
+      operationId: publishSolutionVersion
+      x-handler: PublishSolutionVersion
+      summary: Publish a solution version
+      description: Agreement with the item's key is re-checked here (D5).
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/SolutionId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringPublishSolutionRequest' }
+      responses:
+        '200':
+          description: The solution version is published.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringSolution' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/media-assets:
+    get:
+      operationId: listMediaAssets
+      x-handler: ListMediaAssets
+      summary: The media library
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: Every asset, with the alt text that made it registrable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringMediaAssetPage' }
+        '403': { $ref: '#/components/responses/Problem' }
+    post:
+      operationId: registerMediaAsset
+      x-handler: RegisterMediaAsset
+      summary: Register an object the store already holds
+      description: The checksum is read from the store, never from the caller.
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringRegisterMediaRequest' }
+      responses:
+        '201':
+          description: The asset was registered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringMediaAsset' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/media-assets/{assetId}/versions:
+    post:
+      operationId: addMediaAssetVersion
+      x-handler: AddMediaAssetVersion
+      summary: Add a version to an asset
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/AssetId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringAddMediaVersionRequest' }
+      responses:
+        '201':
+          description: The new version.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringMediaAsset' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/media-assets/{assetId}/review-submission:
+    post:
+      operationId: submitMediaAssetForReview
+      x-handler: SubmitMediaAssetForReview
+      summary: Submit an asset for review
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/AssetId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: The asset is in review.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringMediaAsset' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/media-assets/{assetId}/review-decisions:
+    post:
+      operationId: recordMediaAssetReviewDecision
+      x-handler: RecordMediaAssetReviewDecision
+      summary: Record a review decision against an asset version
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/AssetId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringMediaReviewDecisionRequest' }
+      responses:
+        '200':
+          description: The decision was recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringMediaAsset' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/media-assets/{assetId}/publication:
+    post:
+      operationId: publishMediaAssetVersion
+      x-handler: PublishMediaAssetVersion
+      summary: Publish an asset version
+      description: The stored object's checksum is re-verified, so a swapped object is refused.
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/AssetId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringPublishMediaRequest' }
+      responses:
+        '200':
+          description: The asset version is published.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringMediaAsset' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/media-assets/{assetId}/retirement:
+    post:
+      operationId: retireMediaAsset
+      x-handler: RetireMediaAsset
+      summary: Retire an asset nothing published references
+      tags: [lifecycle]
+      parameters: [{ $ref: '#/components/parameters/AssetId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringRetirementRequest' }
+      responses:
+        '200':
+          description: The asset is retired.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringMediaAsset' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/import-batches:
+    post:
+      operationId: importItemBatch
+      x-handler: ImportItemBatch
+      summary: Import a JSON Lines batch
+      description: Every record enters as a draft; one bad record never fails the batch.
+      tags: [authoring]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthoringImportBatchRequest' }
+      responses:
+        '200':
+          description: The import report, including every rejection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringImportReport' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/items/{itemId}:
+    get:
+      operationId: getPublishedItem
+      x-handler: GetPublishedItem
+      summary: The published version of an item
+      description: Carries no key, no correct-option marker and no expected value.
+      tags: [delivery]
+      parameters: [{ $ref: '#/components/parameters/ItemId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: The item as a student sees it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliveryItem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/stimuli/{stimulusId}:
+    get:
+      operationId: getPublishedStimulus
+      x-handler: GetPublishedStimulus
+      summary: The published version of a stimulus
+      tags: [delivery]
+      parameters: [{ $ref: '#/components/parameters/StimulusId' }, { $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: The shared context.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliveryStimulus' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/solutions/{itemVersionId}:
+    get:
+      operationId: getPublishedSolution
+      x-handler: GetPublishedSolution
+      summary: The published solution for an item version
+      description: |
+        `basic` is the correct answer and the derivation, granted
+        unconditionally (INV-08). `full` adds distractor analysis and alternate
+        approaches and is entitlement-gated — a distinct condition from
+        authorization (§8).
+      tags: [delivery]
+      parameters:
+        - { $ref: '#/components/parameters/ItemVersionId' }
+        - { $ref: '#/components/parameters/SolutionDepth' }
+        - { $ref: '#/components/parameters/CorrelationId' }
+      responses:
+        '200':
+          description: The explanation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliverySolution' }
+        '402': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+components:
+  parameters:
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ItemVersionId:
+      name: itemVersionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StimulusId:
+      name: stimulusId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SolutionId:
+      name: solutionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AuthorId:
+      name: authorId
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+    SolutionDepth:
+      name: depth
+      in: query
+      required: true
+      schema: { type: string, enum: [basic, full] }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string }
+
+  headers:
+    CorrelationId:
+      description: Echoed on every response, error or not (§8).
+      schema: { type: string }
+
+  responses:
+    Problem:
+      description: RFC 9457 Problem Details with a stable code and an explicit retryable flag.
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  schemas:
+    ProblemDetails:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, retryable, correlationId]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        retryable: { type: boolean }
+        correlationId: { type: string }
+        location: { type: string }
+
+    ErrorCode:
+      type: string
+      description: The closed taxonomy of ENGINEERING-HANDBOOK §8.
+      enum:
+        [
+          Validation,
+          Authentication,
+          Authorization,
+          Entitlement,
+          NotFound,
+          Conflict,
+          PreconditionFailed,
+          RuleViolation,
+          RateLimited,
+          Unavailable,
+        ]
+
+    ItemType:
+      type: string
+      enum: [SINGLE_CORRECT_MCQ, MULTIPLE_CORRECT_MCQ, MATCHING, NUMERIC]
+
+    LifecycleState:
+      type: string
+      enum: [draft, in_review, changes_requested, approved, rejected, published, suspended, retired]
+
+    DifficultyBand:
+      type: string
+      enum: [foundational, moderate, challenging, advanced]
+
+    StimulusType:
+      type: string
+      enum: [passage, diagram, dataset, reaction_scheme]
+
+    AssetType:
+      type: string
+      enum: [photograph, diagram, chart, graph, reaction_scheme]
+
+    ReviewOutcome:
+      type: string
+      enum: [approve, approve_with_edits, request_changes, reject]
+
+    LicensingStatusValue:
+      type: string
+      enum: [owned, licensed, public_domain, unresolved]
+
+    ContentBody:
+      type: object
+      description: |
+        The closed node vocabulary of DEC-2. Structured markup, never rendered
+        markup and never an image of text (INV-14). The node shapes are
+        validated by the domain constructor, which is the one place they are
+        decided; the contract carries the document.
+      additionalProperties: false
+      required: [schemaVersion, blocks]
+      properties:
+        schemaVersion: { type: integer }
+        blocks:
+          type: array
+          items: { type: object }
+
+    LicensingStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/LicensingStatusValue' }
+        licenseRef: { type: string }
+        attribution: { type: string }
+        expiresAt: { type: string }
+
+    TaxonomyTag:
+      type: object
+      additionalProperties: false
+      required: [conceptIdentityId, taxonomyVersionId, weight, isPrimary]
+      properties:
+        conceptIdentityId: { type: string, format: uuid }
+        taxonomyVersionId: { type: string, format: uuid }
+        weight: { type: number }
+        isPrimary: { type: boolean }
+
+    Provenance:
+      type: object
+      additionalProperties: false
+      required: [sourceType]
+      properties:
+        sourceType:
+          type: string
+          enum: [original, previous_year, licensed, ai_generated, ai_assisted]
+        sourceExam: { type: string }
+        sourceYear: { type: integer }
+        sourceSession: { type: string }
+        authorRef: { type: string }
+        modelVersionId: { type: string }
+        promptVersionId: { type: string }
+        generationRunId: { type: string }
+        confidence: { type: number }
+        importBatchId: { type: string }
+
+    NumericAnswerSpec:
+      type: object
+      description: |
+        **Key material.** Decimal literals are strings end to end (ADR-0007) —
+        a JSON number is a double the moment a client parses it, and `0.10` and
+        `0.1` stop being distinguishable.
+      additionalProperties: false
+      required: [expectedValue, comparisonMode, acceptedForms]
+      properties:
+        expectedValue: { type: string }
+        comparisonMode:
+          type: string
+          enum: [EXACT, ABSOLUTE_TOLERANCE, RELATIVE_TOLERANCE, SIGNIFICANT_FIGURES, RANGE]
+        toleranceValue: { type: string }
+        significantFigures: { type: integer }
+        rangeMin: { type: string }
+        rangeMax: { type: string }
+        unit: { $ref: '#/components/schemas/UnitSpec' }
+        acceptedForms:
+          type: array
+          items: { type: string, enum: [DECIMAL, SCIENTIFIC, FRACTION, INTEGER] }
+
+    UnitSpec:
+      type: object
+      additionalProperties: false
+      required: [canonical, acceptedEquivalents, required]
+      properties:
+        canonical: { type: string }
+        acceptedEquivalents: { type: array, items: { type: string } }
+        required: { type: boolean }
+
+    AuthoringOption:
+      type: object
+      additionalProperties: false
+      required: [optionId, ordinal, body]
+      properties:
+        optionId: { type: string }
+        ordinal: { type: integer }
+        body: { $ref: '#/components/schemas/ContentBody' }
+
+    AuthoringMatchingMember:
+      type: object
+      additionalProperties: false
+      required: [memberId, ordinal, body]
+      properties:
+        memberId: { type: string }
+        ordinal: { type: integer }
+        body: { $ref: '#/components/schemas/ContentBody' }
+
+    AuthoringResponseSpec:
+      type: object
+      description: |
+        **The answer key.** Presentation and key together, because they are
+        authored together and separating them invites the two to disagree
+        (DEC-3). Reachable only from the enumerated authoring routes.
+      additionalProperties: false
+      required: [itemType]
+      properties:
+        itemType: { $ref: '#/components/schemas/ItemType' }
+        options: { type: array, items: { $ref: '#/components/schemas/AuthoringOption' } }
+        correctOptionId: { type: string }
+        correctOptionIds: { type: array, items: { type: string } }
+        left: { type: array, items: { $ref: '#/components/schemas/AuthoringMatchingMember' } }
+        right: { type: array, items: { $ref: '#/components/schemas/AuthoringMatchingMember' } }
+        pairs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [left, right]
+            properties:
+              left: { type: string }
+              right: { type: string }
+        spec: { $ref: '#/components/schemas/NumericAnswerSpec' }
+
+    AuthoringItemContent:
+      type: object
+      additionalProperties: false
+      required: [stem, responseSpec, taxonomyTags, difficultyEstimate, provenance]
+      properties:
+        stem: { $ref: '#/components/schemas/ContentBody' }
+        responseSpec: { $ref: '#/components/schemas/AuthoringResponseSpec' }
+        taxonomyTags: { type: array, items: { $ref: '#/components/schemas/TaxonomyTag' } }
+        difficultyEstimate: { $ref: '#/components/schemas/DifficultyBand' }
+        provenance: { $ref: '#/components/schemas/Provenance' }
+        licensing: { $ref: '#/components/schemas/LicensingStatus' }
+        stimulusVersionRef: { type: string, format: uuid }
+
+    AuthoringItemVersion:
+      type: object
+      additionalProperties: false
+      required: [versionId, versionNo, itemType, stem, responseSpec, taxonomyTags, difficultyEstimate, provenance, licensing, authoredById, createdAt]
+      properties:
+        versionId: { type: string, format: uuid }
+        versionNo: { type: integer }
+        itemType: { $ref: '#/components/schemas/ItemType' }
+        stem: { $ref: '#/components/schemas/ContentBody' }
+        responseSpec: { $ref: '#/components/schemas/AuthoringResponseSpec' }
+        taxonomyTags: { type: array, items: { $ref: '#/components/schemas/TaxonomyTag' } }
+        difficultyEstimate: { $ref: '#/components/schemas/DifficultyBand' }
+        provenance: { $ref: '#/components/schemas/Provenance' }
+        licensing: { $ref: '#/components/schemas/LicensingStatus' }
+        stimulusVersionRef: { type: string, format: uuid }
+        authoredById: { type: string, format: uuid }
+        createdAt: { type: string }
+
+    AuthoringItem:
+      type: object
+      additionalProperties: false
+      required: [itemId, itemType, lifecycleState, versions]
+      properties:
+        itemId: { type: string, format: uuid }
+        itemType: { $ref: '#/components/schemas/ItemType' }
+        lifecycleState: { $ref: '#/components/schemas/LifecycleState' }
+        currentPublishedVersionId: { type: string, format: uuid }
+        versions: { type: array, items: { $ref: '#/components/schemas/AuthoringItemVersion' } }
+
+    AuthoringItemPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AuthoringItem' } }
+
+    AuthoringCreateItemRequest:
+      type: object
+      additionalProperties: false
+      required: [itemType, content]
+      properties:
+        itemType: { $ref: '#/components/schemas/ItemType' }
+        content: { $ref: '#/components/schemas/AuthoringItemContent' }
+
+    AuthoringUpdateItemRequest:
+      type: object
+      additionalProperties: false
+      required: [content, idempotencyKey]
+      properties:
+        content: { $ref: '#/components/schemas/AuthoringItemContent' }
+        idempotencyKey: { type: string }
+
+    AuthoringDeriveVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [fromVersionId]
+      properties:
+        fromVersionId: { type: string, format: uuid }
+
+    AuthoringDeleteDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [justification]
+      properties:
+        justification: { type: string }
+
+    AuthoringAttachStimulusRequest:
+      type: object
+      additionalProperties: false
+      required: [stimulusId]
+      properties:
+        stimulusId: { type: string, format: uuid }
+
+    AuthoringReviewDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [itemVersionId, outcome]
+      properties:
+        itemVersionId: { type: string, format: uuid }
+        outcome: { $ref: '#/components/schemas/ReviewOutcome' }
+        justification: { type: string }
+
+    AuthoringStimulusReviewDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [stimulusVersionId, outcome]
+      properties:
+        stimulusVersionId: { type: string, format: uuid }
+        outcome: { $ref: '#/components/schemas/ReviewOutcome' }
+        justification: { type: string }
+
+    AuthoringSolutionReviewDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [solutionVersionId, outcome]
+      properties:
+        solutionVersionId: { type: string, format: uuid }
+        outcome: { $ref: '#/components/schemas/ReviewOutcome' }
+        justification: { type: string }
+
+    AuthoringMediaReviewDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [assetVersionId, outcome]
+      properties:
+        assetVersionId: { type: string, format: uuid }
+        outcome: { $ref: '#/components/schemas/ReviewOutcome' }
+        justification: { type: string }
+
+    AuthoringPublishVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [itemVersionId]
+      properties:
+        itemVersionId: { type: string, format: uuid }
+
+    AuthoringPublishStimulusRequest:
+      type: object
+      additionalProperties: false
+      required: [stimulusVersionId]
+      properties:
+        stimulusVersionId: { type: string, format: uuid }
+
+    AuthoringPublishSolutionRequest:
+      type: object
+      additionalProperties: false
+      required: [solutionVersionId]
+      properties:
+        solutionVersionId: { type: string, format: uuid }
+
+    AuthoringPublishMediaRequest:
+      type: object
+      additionalProperties: false
+      required: [assetVersionId]
+      properties:
+        assetVersionId: { type: string, format: uuid }
+
+    AuthoringJustificationRequest:
+      type: object
+      additionalProperties: false
+      required: [justification]
+      properties:
+        justification: { type: string }
+
+    AuthoringRetireItemRequest:
+      type: object
+      additionalProperties: false
+      required: [retirementReason]
+      properties:
+        retirementReason: { type: string }
+        replacedByItemId: { type: string, format: uuid }
+
+    AuthoringRetirementRequest:
+      type: object
+      additionalProperties: false
+      required: [retirementReason]
+      properties:
+        retirementReason: { type: string }
+
+    AuthoringStimulusVersion:
+      type: object
+      additionalProperties: false
+      required: [versionId, versionNo, body, licensing, authoredById, createdAt]
+      properties:
+        versionId: { type: string, format: uuid }
+        versionNo: { type: integer }
+        body: { $ref: '#/components/schemas/ContentBody' }
+        licensing: { $ref: '#/components/schemas/LicensingStatus' }
+        authoredById: { type: string, format: uuid }
+        createdAt: { type: string }
+
+    AuthoringStimulus:
+      type: object
+      additionalProperties: false
+      required: [stimulusId, stimulusType, lifecycleState, versions]
+      properties:
+        stimulusId: { type: string, format: uuid }
+        stimulusType: { $ref: '#/components/schemas/StimulusType' }
+        lifecycleState: { $ref: '#/components/schemas/LifecycleState' }
+        currentPublishedVersionId: { type: string, format: uuid }
+        versions: { type: array, items: { $ref: '#/components/schemas/AuthoringStimulusVersion' } }
+
+    AuthoringCreateStimulusRequest:
+      type: object
+      additionalProperties: false
+      required: [stimulusType, subject, body]
+      properties:
+        stimulusType: { $ref: '#/components/schemas/StimulusType' }
+        subject: { type: string }
+        body: { $ref: '#/components/schemas/ContentBody' }
+        licensing: { $ref: '#/components/schemas/LicensingStatus' }
+
+    AuthoringUpdateStimulusRequest:
+      type: object
+      additionalProperties: false
+      required: [subject, body, idempotencyKey]
+      properties:
+        subject: { type: string }
+        body: { $ref: '#/components/schemas/ContentBody' }
+        licensing: { $ref: '#/components/schemas/LicensingStatus' }
+        idempotencyKey: { type: string }
+
+    AuthoringSolutionStep:
+      type: object
+      additionalProperties: false
+      required: [ordinal, body, conceptRefs]
+      properties:
+        ordinal: { type: integer }
+        body: { $ref: '#/components/schemas/ContentBody' }
+        conceptRefs: { type: array, items: { type: string } }
+
+    AuthoringFinalAnswer:
+      type: object
+      description: '**Key material**: what the solution claims the answer is.'
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [OPTION, OPTION_SET, PAIRS, NUMERIC] }
+        optionId: { type: string }
+        optionIds: { type: array, items: { type: string } }
+        pairs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [left, right]
+            properties:
+              left: { type: string }
+              right: { type: string }
+        value: { type: string }
+        unit: { type: string }
+
+    AuthoringSolutionContent:
+      type: object
+      additionalProperties: false
+      required: [finalAnswerAssertion, steps]
+      properties:
+        finalAnswerAssertion: { $ref: '#/components/schemas/AuthoringFinalAnswer' }
+        steps: { type: array, items: { $ref: '#/components/schemas/AuthoringSolutionStep' } }
+        distractorAnalyses:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [optionId, misconception]
+            properties:
+              optionId: { type: string }
+              misconception: { $ref: '#/components/schemas/ContentBody' }
+        alternateApproaches:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [label, steps]
+            properties:
+              label: { type: string }
+              steps: { type: array, items: { $ref: '#/components/schemas/AuthoringSolutionStep' } }
+              applicabilityNote: { type: string }
+
+    AuthoringSolutionVersion:
+      type: object
+      additionalProperties: false
+      required: [versionId, versionNo, finalAnswerAssertion, steps, authoredById, createdAt]
+      properties:
+        versionId: { type: string, format: uuid }
+        versionNo: { type: integer }
+        finalAnswerAssertion: { $ref: '#/components/schemas/AuthoringFinalAnswer' }
+        steps: { type: array, items: { $ref: '#/components/schemas/AuthoringSolutionStep' } }
+        authoredById: { type: string, format: uuid }
+        createdAt: { type: string }
+
+    AuthoringSolution:
+      type: object
+      additionalProperties: false
+      required: [solutionId, itemId, targetItemVersionId, lifecycleState, versions]
+      properties:
+        solutionId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        targetItemVersionId: { type: string, format: uuid }
+        lifecycleState: { $ref: '#/components/schemas/LifecycleState' }
+        currentPublishedVersionId: { type: string, format: uuid }
+        versions: { type: array, items: { $ref: '#/components/schemas/AuthoringSolutionVersion' } }
+
+    AuthoringCreateSolutionRequest:
+      type: object
+      additionalProperties: false
+      required: [itemId, targetItemVersionId, subject, content]
+      properties:
+        itemId: { type: string, format: uuid }
+        targetItemVersionId: { type: string, format: uuid }
+        subject: { type: string }
+        content: { $ref: '#/components/schemas/AuthoringSolutionContent' }
+
+    AuthoringUpdateSolutionRequest:
+      type: object
+      additionalProperties: false
+      required: [subject, content, idempotencyKey]
+      properties:
+        subject: { type: string }
+        content: { $ref: '#/components/schemas/AuthoringSolutionContent' }
+        idempotencyKey: { type: string }
+
+    AuthoringMediaVersionInput:
+      type: object
+      description: Names a `storageKey`; bytes never cross this contract (DEC-6).
+      additionalProperties: false
+      required: [storageKey, mimeType, width, height, altText]
+      properties:
+        storageKey: { type: string }
+        mimeType: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        altText: { type: string }
+        longDescription: { type: string }
+        licensing: { $ref: '#/components/schemas/LicensingStatus' }
+
+    AuthoringRegisterMediaRequest:
+      type: object
+      additionalProperties: false
+      required: [assetType, subject, version]
+      properties:
+        assetType: { $ref: '#/components/schemas/AssetType' }
+        subject: { type: string }
+        version: { $ref: '#/components/schemas/AuthoringMediaVersionInput' }
+
+    AuthoringAddMediaVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [subject, version]
+      properties:
+        subject: { type: string }
+        version: { $ref: '#/components/schemas/AuthoringMediaVersionInput' }
+
+    AuthoringMediaAsset:
+      type: object
+      additionalProperties: false
+      required: [assetId, assetType, lifecycleState, latestVersionId, storageKey, mimeType, width, height, altText]
+      properties:
+        assetId: { type: string, format: uuid }
+        assetType: { $ref: '#/components/schemas/AssetType' }
+        lifecycleState: { $ref: '#/components/schemas/LifecycleState' }
+        latestVersionId: { type: string, format: uuid }
+        storageKey: { type: string }
+        mimeType: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+        altText: { type: string }
+        longDescription: { type: string }
+
+    AuthoringMediaAssetPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AuthoringMediaAsset' } }
+
+    AuthoringFinding:
+      type: object
+      additionalProperties: false
+      required: [code, severity, message, location]
+      properties:
+        code: { type: string }
+        severity: { type: string, enum: [blocking, warning] }
+        message: { type: string }
+        location: { type: string }
+
+    AuthoringValidationReport:
+      type: object
+      additionalProperties: false
+      required: [findings, blocking, warnings, maySubmit, duplicateCheckState]
+      properties:
+        findings: { type: array, items: { $ref: '#/components/schemas/AuthoringFinding' } }
+        blocking: { type: array, items: { $ref: '#/components/schemas/AuthoringFinding' } }
+        warnings: { type: array, items: { $ref: '#/components/schemas/AuthoringFinding' } }
+        maySubmit: { type: boolean }
+        duplicateCheckState: { type: string, enum: [not_evaluated, none_found, candidates_found] }
+
+    AuthoringImportBatchRequest:
+      type: object
+      additionalProperties: false
+      required: [contents]
+      properties:
+        contents: { type: string, description: The JSON Lines document, header first. }
+
+    AuthoringImportReport:
+      type: object
+      additionalProperties: false
+      required: [batchId, source, totalRecords, imported, rejected, duplicateCheckState]
+      properties:
+        batchId: { type: string }
+        source: { type: string }
+        totalRecords: { type: integer }
+        imported:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [lineNumber, recordId, itemId]
+            properties:
+              lineNumber: { type: integer }
+              recordId: { type: string }
+              itemId: { type: string, format: uuid }
+        rejected:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [lineNumber, recordId, code, message]
+            properties:
+              lineNumber: { type: integer }
+              recordId: { type: string }
+              code: { type: string }
+              message: { type: string }
+              location: { type: string }
+        duplicateCheckState: { type: string, enum: [deferred] }
+
+    DeliveryOption:
+      type: object
+      description: The option a student reads. No marker of which one is correct.
+      additionalProperties: false
+      required: [optionId, ordinal, body]
+      properties:
+        optionId: { type: string }
+        ordinal: { type: integer }
+        body: { $ref: '#/components/schemas/ContentBody' }
+
+    DeliveryMatchingMember:
+      type: object
+      additionalProperties: false
+      required: [memberId, ordinal, body]
+      properties:
+        memberId: { type: string }
+        ordinal: { type: integer }
+        body: { $ref: '#/components/schemas/ContentBody' }
+
+    DeliveryNumericInput:
+      type: object
+      description: What an input box needs to label itself, and nothing the marker needs.
+      additionalProperties: false
+      required: [unitRequired, acceptedForms]
+      properties:
+        unitCanonical: { type: string }
+        unitRequired: { type: boolean }
+        acceptedForms:
+          type: array
+          items: { type: string, enum: [DECIMAL, SCIENTIFIC, FRACTION, INTEGER] }
+
+    DeliveryItem:
+      type: object
+      description: |
+        The item as a student sees it. The matching **pairing is absent** for
+        the same reason the correct-option marker is: a pairing is the key.
+      additionalProperties: false
+      required: [itemId, itemVersionId, versionNo, itemType, stem]
+      properties:
+        itemId: { type: string, format: uuid }
+        itemVersionId: { type: string, format: uuid }
+        versionNo: { type: integer }
+        itemType: { $ref: '#/components/schemas/ItemType' }
+        stem: { $ref: '#/components/schemas/ContentBody' }
+        stimulusVersionId: { type: string, format: uuid }
+        options: { type: array, items: { $ref: '#/components/schemas/DeliveryOption' } }
+        matchingLeft: { type: array, items: { $ref: '#/components/schemas/DeliveryMatchingMember' } }
+        matchingRight: { type: array, items: { $ref: '#/components/schemas/DeliveryMatchingMember' } }
+        numericInput: { $ref: '#/components/schemas/DeliveryNumericInput' }
+
+    DeliveryStimulus:
+      type: object
+      additionalProperties: false
+      required: [stimulusId, stimulusVersionId, versionNo, stimulusType, body]
+      properties:
+        stimulusId: { type: string, format: uuid }
+        stimulusVersionId: { type: string, format: uuid }
+        versionNo: { type: integer }
+        stimulusType: { $ref: '#/components/schemas/StimulusType' }
+        body: { $ref: '#/components/schemas/ContentBody' }
+
+    DeliverySolutionStep:
+      type: object
+      additionalProperties: false
+      required: [ordinal, body, conceptRefs]
+      properties:
+        ordinal: { type: integer }
+        body: { $ref: '#/components/schemas/ContentBody' }
+        conceptRefs: { type: array, items: { type: string } }
+
+    DeliverySolution:
+      type: object
+      description: |
+        The derivation. **The final-answer assertion is deliberately absent**:
+        as a structured field it is a correct-option marker or an expected
+        value, which is the key by another name. The steps state the answer in
+        prose, which is what INV-08 grants.
+      additionalProperties: false
+      required: [solutionVersionId, targetItemVersionId, steps]
+      properties:
+        solutionVersionId: { type: string, format: uuid }
+        targetItemVersionId: { type: string, format: uuid }
+        steps: { type: array, items: { $ref: '#/components/schemas/DeliverySolutionStep' } }
+        distractorAnalyses:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [optionId, misconception]
+            properties:
+              optionId: { type: string }
+              misconception: { $ref: '#/components/schemas/ContentBody' }
+        alternateApproaches:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [label, steps]
+            properties:
+              label: { type: string }
+              steps: { type: array, items: { $ref: '#/components/schemas/DeliverySolutionStep' } }
+              applicabilityNote: { type: string }

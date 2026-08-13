@@ -50,6 +50,8 @@ export const stimulusVersion = content.table(
     authoredByKind: text('authored_by_kind').notNull(),
     authoredById: uuid('authored_by_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Moves on every autosave, and stops moving once the version publishes. */
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     /** Set once, at publication. What the immutability trigger keys on (INV-03). */
     publishedAt: timestamp('published_at', { withTimezone: true }),
   },
@@ -94,6 +96,8 @@ export const itemVersion = content.table(
     authoredByKind: text('authored_by_kind').notNull(),
     authoredById: uuid('authored_by_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Moves on every autosave, and stops moving once the version publishes. */
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     /** Set once, at publication. What the immutability trigger keys on (INV-03). */
     publishedAt: timestamp('published_at', { withTimezone: true }),
   },
@@ -244,6 +248,8 @@ export const solutionVersion = content.table(
     authoredByKind: text('authored_by_kind').notNull(),
     authoredById: uuid('authored_by_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Moves on every autosave, and stops moving once the version publishes. */
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     /** Set once, at publication. What the immutability trigger keys on (INV-03). */
     publishedAt: timestamp('published_at', { withTimezone: true }),
   },
@@ -373,6 +379,24 @@ export const itemVersionLocale = content.table(
   (table) => [primaryKey({ columns: [table.itemVersionId, table.locale] })],
 );
 
+/** The review record (FR-QM-03). Polymorphic owner, so no foreign key. */
+export const reviewDecision = content.table(
+  'review_decision',
+  {
+    reviewDecisionId: uuid('review_decision_id').primaryKey().default(uuidV7),
+    tenantId: uuid('tenant_id').notNull().default(PLATFORM_TENANT),
+    ownerType: text('owner_type').notNull(),
+    ownerVersionId: uuid('owner_version_id').notNull(),
+    reviewerKind: text('reviewer_kind').notNull(),
+    reviewerId: uuid('reviewer_id').notNull(),
+    outcome: text('outcome').notNull(),
+    justification: text('justification'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('review_decision_owner_idx').on(table.ownerType, table.ownerVersionId)],
+);
+
 export const contentSchema = {
   stimulus,
   stimulusVersion,
@@ -393,4 +417,5 @@ export const contentSchema = {
   mediaAssetVersion,
   contentMediaRef,
   itemVersionLocale,
+  reviewDecision,
 };

@@ -48,6 +48,10 @@ const CONTENT_TABLES = [
   'item_version_locale',
   'media_asset',
   'media_asset_version',
+  // The review record (M3-28). DATA-ARCHITECTURE §4 does not name it because
+  // ROADMAP put review in M4; ADR-0010 records why the lifecycle — and so the
+  // evidence its preconditions consume — lands here instead.
+  'review_decision',
   'solution',
   'solution_step',
   'solution_version',

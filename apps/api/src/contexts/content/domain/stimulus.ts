@@ -305,6 +305,74 @@ export function addStimulusVersion(
   );
 }
 
+/**
+ * States in which an author may still edit a version's content in place. A
+ * version under review or approved is locked, because an edit would change
+ * what the reviewer is looking at; a **published** stimulus is not locked,
+ * because it may hold a later draft that is exactly what somebody is working
+ * on (FR-TCH-03 rule 2).
+ */
+export function isStimulusVersionEditable(state: LifecycleState): boolean {
+  return state !== 'in_review' && state !== 'approved' && state !== 'retired';
+}
+
+/**
+ * Replaces a draft version's content in place — autosave, not a new version.
+ * The published version is excluded by identity, so a stimulus that is
+ * published and also holds a later draft edits only the draft.
+ */
+export function replaceDraftStimulusVersion(
+  stimulus: Stimulus,
+  version: StimulusVersion,
+): Result<Stimulus, StimulusError> {
+  if (!isStimulusVersionEditable(stimulus.lifecycleState)) {
+    return err(
+      ruleViolationError(
+        'VERSION_NOT_EDITABLE',
+        `a stimulus that is ${stimulus.lifecycleState} is locked against author edits`,
+        'lifecycleState',
+      ),
+    );
+  }
+  if (version.versionId === stimulus.currentPublishedVersionId) {
+    return err(
+      ruleViolationError(
+        'VERSION_NOT_EDITABLE',
+        `version ${version.versionId} is published and never changes (INV-03)`,
+        'versions',
+      ),
+    );
+  }
+
+  const existing = stimulus.versions.find((candidate) => candidate.versionId === version.versionId);
+  if (existing === undefined) {
+    return err(
+      invalid('VERSION_NOT_FOUND', `version ${version.versionId} is not among this stimulus's versions`, 'versions'),
+    );
+  }
+  if (version.versionNo !== existing.versionNo) {
+    return err(
+      invalid(
+        'VERSION_NUMBERS_NOT_CONTIGUOUS',
+        `version ${version.versionId} is number ${existing.versionNo}, the replacement claims ${version.versionNo}`,
+        'versions',
+      ),
+    );
+  }
+
+  return ok(
+    Object.freeze({
+      ...stimulus,
+      versions: Object.freeze(
+        stimulus.versions.map((candidate) =>
+          candidate.versionId === version.versionId ? version : candidate,
+        ),
+      ),
+      aggregateVersion: stimulus.aggregateVersion + 1,
+    }),
+  );
+}
+
 export interface StimulusTransitionProps {
   readonly transition: LifecycleTransition;
   readonly versionId?: string;

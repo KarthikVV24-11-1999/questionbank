@@ -19,6 +19,7 @@ import {
   createItemVersion,
   deriveDraft,
   DIFFICULTY_BANDS,
+  pinStimulusVersion,
   stimulusVersionOf,
   type ItemVersion,
 } from './item-version.js';
@@ -309,5 +310,32 @@ describe('localeVariants is modeled at M3-16, not half-shipped here', () => {
 
   it('still carries a stem that a translation could target', () => {
     expect(build({ stem: textBody('a translatable stem') }).stem.blocks).toHaveLength(1);
+  });
+});
+
+describe('pinning a stimulus version (FR-TCH-03 rule 2)', () => {
+  it('records the version the association was made against', () => {
+    const pinned = expectValue(pinStimulusVersion(build(), 'stimulus-version-1'));
+    expect(pinned.stimulusVersionRef).toBe('stimulus-version-1');
+  });
+
+  it('returns a new object and leaves the original unpinned', () => {
+    const original = build();
+    const pinned = expectValue(pinStimulusVersion(original, 'stimulus-version-1'));
+    expect(original.stimulusVersionRef).toBeUndefined();
+    expect(pinned).not.toBe(original);
+  });
+
+  it('re-points an existing association only when asked', () => {
+    const first = expectValue(pinStimulusVersion(build(), 'stimulus-version-1'));
+    expect(expectValue(pinStimulusVersion(first, 'stimulus-version-2')).stimulusVersionRef).toBe(
+      'stimulus-version-2',
+    );
+  });
+
+  it('refuses a blank reference rather than storing an association to nothing', () => {
+    const failure = expectError(pinStimulusVersion(build(), '   '));
+    expect(failure.code).toBe('STIMULUS_VERSION_REF_BLANK');
+    expect(failure.location).toBe('version.stimulusVersionRef');
   });
 });

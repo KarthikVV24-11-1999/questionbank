@@ -366,6 +366,26 @@ function clientFacingFiles(): string[] {
   return [...dtoFiles, ...filesUnder(OPENAPI_DIR, ['.yaml', '.yml'])];
 }
 
+/**
+ * **Amended by [ADR-0009](../../../../../docs/adr/ADR-0009-authoring-dtos-carry-the-answer-key.md).**
+ *
+ * M3's authoring surface is where an answer key is written, so the key must
+ * reach the author's browser. The blanket rule cannot survive that, and the
+ * dangerous way to handle it is to narrow the check until it passes. Instead
+ * the exception is a single **enumerated** document, and the content contract
+ * spec asserts the split in both directions over that document's own routes —
+ * keys absent from every delivery schema and *present* on the authoring ones.
+ *
+ * Anything not on this list is still checked exactly as before.
+ */
+const AUTHORING_SURFACE_ADR_0009 = ['packages/contracts/openapi/content.yaml'];
+
+function nonAuthoringClientFacingFiles(): string[] {
+  return clientFacingFiles().filter(
+    (file) => !AUTHORING_SURFACE_ADR_0009.some((allowed) => file.endsWith(allowed)),
+  );
+}
+
 describe('answer keys never reach a client (§9 rule 10)', () => {
   /** Naming any of these in a client payload leaks the key outright. */
   const NEVER_CLIENT_FACING = ['answerKey', 'answer_key', 'correctOptionId', 'correctOptionIds'];
@@ -392,7 +412,7 @@ describe('answer keys never reach a client (§9 rule 10)', () => {
   });
 
   it('names no answer-key field in any DTO, controller or contract document', () => {
-    const offenders = clientFacingFiles().filter((file) => {
+    const offenders = nonAuthoringClientFacingFiles().filter((file) => {
       const source = readFileSync(file, 'utf8');
       return NEVER_CLIENT_FACING.some((field) => source.includes(field));
     });
@@ -400,10 +420,28 @@ describe('answer keys never reach a client (§9 rule 10)', () => {
   });
 
   it('exposes expectedValue only as the exam profile tolerance default', () => {
-    const offenders = clientFacingFiles()
+    const offenders = nonAuthoringClientFacingFiles()
       .filter((file) => readFileSync(file, 'utf8').includes('expectedValue'))
       .filter((file) => !EXPECTED_VALUE_ALLOWED.some((allowed) => file.endsWith(allowed)))
       .map((file) => file.replace(/^.*\/(apps|packages)\//u, '$1/'));
     expect(offenders).toEqual([]);
+  });
+
+  // The exemption is one file, and it is the one ADR-0009 names. A second
+  // entry would mean the amendment had become "keys allowed where needed",
+  // which the ADR rejects explicitly.
+  it('exempts exactly one document, the one ADR-0009 enumerates', () => {
+    expect(AUTHORING_SURFACE_ADR_0009).toEqual(['packages/contracts/openapi/content.yaml']);
+    expect(clientFacingFiles().length - nonAuthoringClientFacingFiles().length).toBe(1);
+  });
+
+  // And the exemption is not a hole: the exempted document does carry the key,
+  // so the content contract spec's both-direction check has something to check.
+  it('exempts a document that genuinely carries the key', () => {
+    const exempted = clientFacingFiles().filter((file) =>
+      AUTHORING_SURFACE_ADR_0009.some((allowed) => file.endsWith(allowed)),
+    );
+    expect(exempted).toHaveLength(1);
+    expect(readFileSync(exempted[0]!, 'utf8')).toContain('correctOptionId');
   });
 });

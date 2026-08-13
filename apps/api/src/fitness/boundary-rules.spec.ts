@@ -245,3 +245,69 @@ describe('the rules hold for every context, not just curriculum', () => {
     expect(throughBarrel).toEqual([]);
   });
 });
+
+describe('the content barrel (M3-31)', () => {
+  const contentBarrel = (): string =>
+    readFileSync(resolve(API_ROOT, 'src/contexts/content/public/index.ts'), 'utf8');
+
+  it('re-exports nothing from infrastructure', () => {
+    const text = contentBarrel();
+    expect(text).not.toContain("from '../infrastructure/");
+    expect(text).not.toContain('.repository.js');
+    expect(text).not.toContain('schema.js');
+  });
+
+  it('exports no handler class, which would let a consumer wire its own dependencies', () => {
+    expect(contentBarrel()).not.toMatch(/^export \{[^}]*Handler\b/mu);
+  });
+
+  // The one deliberate exception (DEC-4), and it says so where it lives.
+  it('documents the answer-key export as server-side only', () => {
+    const text = contentBarrel();
+    expect(text).toContain('AnswerKeyData');
+    expect(text).toMatch(/server-side only/u);
+  });
+
+  it('catches a content module reaching past another context’s barrel (F1)', () => {
+    const violations = checkBoundaries(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-boundary'],
+      excludePatterns: [/\.spec\.ts$/u],
+      domainPattern: /^nothing-is-domain$/u,
+    }).filter((violation) => violation.rule === 'F1_CONTEXT_BOUNDARY');
+
+    // Three reaches: another context's domain, its infrastructure, and its
+    // application layer.
+    expect(violations).toHaveLength(3);
+    expect(violations.every((violation) => violation.message.includes('public/ barrel'))).toBe(true);
+  });
+
+  it('catches a content domain module importing anything at all (F2)', () => {
+    const violations = checkBoundaries(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-domain'],
+      excludePatterns: [/\.spec\.ts$/u],
+      domainPattern: /^src\/fitness-fixtures\/as-content-domain\//u,
+    }).filter((violation) => violation.file.includes('planted-outward-import'));
+
+    // Even through a barrel: `domain/` imports nothing, and "nothing" has no
+    // exception for a well-behaved import. This is the rule that keeps the
+    // answer-key projection in `application/` rather than beside the response
+    // specification, where it would be more convenient and wrong.
+    expect(violations.map((violation) => violation.rule)).toEqual(['F2_DOMAIN_IMPORTS_NOTHING']);
+  });
+
+  it('permits content to consume scoring and curriculum through their barrels', () => {
+    const throughBarrel = checkBoundaries(API_ROOT).filter(
+      (violation) =>
+        violation.file.startsWith('src/contexts/content/') &&
+        (violation.importPath.includes('scoring') || violation.importPath.includes('curriculum')),
+    );
+    expect(throughBarrel).toEqual([]);
+  });
+
+  it('keeps the content domain importing nothing outward in the shipped tree', () => {
+    const violations = checkBoundaries(API_ROOT).filter((violation) =>
+      violation.file.startsWith('src/contexts/content/domain/'),
+    );
+    expect(violations).toEqual([]);
+  });
+});

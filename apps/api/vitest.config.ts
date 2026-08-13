@@ -253,6 +253,104 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // Track C. An authoring handler decides who may touch a draft and
+        // whether an edit lands at all; a gap here is either somebody else's
+        // answer key edited, or an author's work silently lost.
+        'src/contexts/content/application/authorization.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/handler-registry.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/handlers/authoring-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/handlers/stimulus-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/handlers/solution-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/handlers/media-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/ports.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // The handler that decides which version students see. ADR-0008's
+        // "correctness-bearing" reads here as: a defect publishes the wrong
+        // thing, or publishes something that should not have been.
+        'src/contexts/content/application/handlers/lifecycle-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/infrastructure/outbox-emitter.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // Import decides what enters the corpus and under whose licence.
+        'src/contexts/content/application/import/import-batch.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/handlers/import-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // The boundary that keeps a key off a learner's screen (DEC-4).
+        'src/contexts/content/application/queries/delivery-queries.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/queries/authoring-queries.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/domain/review-decision.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/infrastructure/review-decision.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/content/application/final-answer-agreement.ts': {
           branches: 100,
           lines: 100,

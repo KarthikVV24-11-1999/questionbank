@@ -3,6 +3,8 @@ import type { ContentError } from './content-error.js';
 import type { Item } from './item.js';
 import type { ItemVersion } from './item-version.js';
 import type { MediaAsset, MediaAssetVersion } from './media-asset.js';
+import type { ContentEvent } from './events/content-events.js';
+import type { ReviewDecision, ReviewedOwnerType } from './review-decision.js';
 import type { Solution, SolutionVersion } from './solution.js';
 import type { Stimulus, StimulusVersion } from './stimulus.js';
 
@@ -10,6 +12,12 @@ import type { Stimulus, StimulusVersion } from './stimulus.js';
  * What the application layer needs from persistence, declared by the domain so
  * the dependency points inward. Infrastructure implements these; nothing here
  * knows that Postgres exists.
+ *
+ * **Every `save` takes the events the change produces**, and writes them in the
+ * same transaction as the aggregate (§9 rule 4, P4). Write-then-publish loses
+ * the event whenever the process dies between the two, and the two orderings
+ * are indistinguishable in a code review — so the transaction is not something
+ * a caller can forget to join.
  */
 
 export type RepositoryError = ContentError<'CONFLICT' | 'NOT_FOUND' | 'PERSISTENCE_REJECTED'>;
@@ -20,9 +28,17 @@ export interface ItemRepository {
    * version's options, matching members and pairs, numeric specification,
    * tags, provenance and licensing.
    */
-  save(item: Item): Promise<Result<Item, RepositoryError>>;
+  save(item: Item, events?: readonly ContentEvent[]): Promise<Result<Item, RepositoryError>>;
 
   findById(itemId: string): Promise<Result<Item, RepositoryError>>;
+
+  /**
+   * Discards a draft (FR-TCH-06 rule 3). Permanent from every read path — the
+   * row is retained only so the audit record has something to name, and the
+   * database refuses the call for anything that is not an unpublished draft
+   * (`item_only_drafts_are_deleted`).
+   */
+  deleteDraft(itemId: string): Promise<Result<true, RepositoryError>>;
 
   /** FR-TCH-06 rule 1 — drafts are visible only to their author and Content Ops. */
   findDraftsByAuthor(authorId: string): Promise<Result<readonly Item[], RepositoryError>>;
@@ -43,13 +59,43 @@ export interface ItemRepository {
   ): Promise<Result<number, RepositoryError>>;
 }
 
+export interface ReviewDecisionRepository {
+  /**
+   * Append-only. A reviewer who changes their mind records a second decision,
+   * because the history is what FR-TCH-09 rule 1 needs when comments have to
+   * persist against the version they addressed.
+   */
+  record(decision: ReviewDecision): Promise<Result<ReviewDecision, RepositoryError>>;
+
+  /**
+   * The most recent **approving** decision for a version — the signature
+   * M3-11's precondition consumes, or nothing.
+   *
+   * Keyed on the version rather than the item: an approval of version 1 says
+   * nothing about version 2, whose key may differ (INV-07).
+   */
+  findApprovalFor(
+    ownerType: ReviewedOwnerType,
+    ownerVersionId: string,
+  ): Promise<Result<ReviewDecision, RepositoryError>>;
+
+  /** Every decision for a version, most recent first. */
+  findAllFor(
+    ownerType: ReviewedOwnerType,
+    ownerVersionId: string,
+  ): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
+}
+
 export interface MediaAssetRepository {
   /** One aggregate, one transaction: the asset, its versions and their licensing. */
-  save(asset: MediaAsset): Promise<Result<MediaAsset, RepositoryError>>;
+  save(asset: MediaAsset, events?: readonly ContentEvent[]): Promise<Result<MediaAsset, RepositoryError>>;
 
   findById(assetId: string): Promise<Result<MediaAsset, RepositoryError>>;
 
   findPublishedVersion(assetId: string): Promise<Result<MediaAssetVersion, RepositoryError>>;
+
+  /** The media library (FR-QM-06), oldest first so the list is stable. */
+  list(): Promise<Result<readonly MediaAsset[], RepositoryError>>;
 
   /**
    * How much **published** content references this asset version — the fact
@@ -66,7 +112,7 @@ export interface MediaAssetRepository {
 
 export interface SolutionRepository {
   /** One aggregate, one transaction: the solution, its versions, steps, analyses and approaches. */
-  save(solution: Solution): Promise<Result<Solution, RepositoryError>>;
+  save(solution: Solution, events?: readonly ContentEvent[]): Promise<Result<Solution, RepositoryError>>;
 
   findById(solutionId: string): Promise<Result<Solution, RepositoryError>>;
 
@@ -84,7 +130,7 @@ export interface SolutionRepository {
 
 export interface StimulusRepository {
   /** One aggregate, one transaction: the stimulus, its versions and their licensing. */
-  save(stimulus: Stimulus): Promise<Result<Stimulus, RepositoryError>>;
+  save(stimulus: Stimulus, events?: readonly ContentEvent[]): Promise<Result<Stimulus, RepositoryError>>;
 
   findById(stimulusId: string): Promise<Result<Stimulus, RepositoryError>>;
 

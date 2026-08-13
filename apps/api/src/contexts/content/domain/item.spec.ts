@@ -17,6 +17,7 @@ import {
   publishedVersionOf,
   publishVersion,
   reconstituteItem,
+  replaceDraftVersion,
   transitionItem,
   type Item,
 } from './item.js';
@@ -485,6 +486,81 @@ describe('deletion', () => {
       }),
     );
     expect(expectError(checkDeletable(republishable)).code).toBe('ITEM_NOT_DELETABLE');
+  });
+});
+
+describe('replacing a draft version in place', () => {
+  const edited = version({ difficultyEstimate: 'advanced' });
+
+  it('replaces the content without adding a version', () => {
+    const updated = expectValue(replaceDraftVersion(draft(), edited));
+    expect(updated.versions).toHaveLength(1);
+    expect(updated.versions[0]!.difficultyEstimate).toBe('advanced');
+    expect(updated.aggregateVersion).toBe(2);
+  });
+
+  it('leaves the original aggregate untouched', () => {
+    const original = draft();
+    expectValue(replaceDraftVersion(original, edited));
+    expect(original.versions[0]!.difficultyEstimate).toBe('moderate');
+    expect(original.aggregateVersion).toBe(1);
+  });
+
+  it('replaces only the named version', () => {
+    const twoVersions = expectValue(addVersion(draft(), V2));
+    const replacement = expectValue(
+      createItemVersion(
+        itemVersionProps({ versionId: 'version-2', versionNo: 2, difficultyEstimate: 'advanced' }),
+        PROVENANCE_CONTEXT,
+      ),
+    );
+    const updated = expectValue(replaceDraftVersion(twoVersions, replacement));
+    expect(updated.versions[0]!.difficultyEstimate).toBe('moderate');
+    expect(updated.versions[1]!.difficultyEstimate).toBe('advanced');
+  });
+
+  it.each(['in_review', 'approved', 'published', 'suspended', 'retired'] as const)(
+    'refuses an edit while the item is %s',
+    (state) => {
+      const failure = expectError(replaceDraftVersion(inState(state), edited));
+      expect(failure.kind).toBe('RuleViolation');
+      expect(failure.code).toBe('VERSION_NOT_EDITABLE');
+    },
+  );
+
+  it('refuses to edit the published version even on an item that is editable again', () => {
+    const republishable = expectValue(
+      reconstituteItem({
+        itemId: 'item-1',
+        itemType: 'SINGLE_CORRECT_MCQ',
+        lifecycleState: 'changes_requested',
+        versions: [V1],
+        currentPublishedVersionId: V1.versionId,
+        aggregateVersion: 3,
+      }),
+    );
+    expect(expectError(replaceDraftVersion(republishable, edited)).code).toBe('VERSION_NOT_EDITABLE');
+  });
+
+  it('refuses a version the item does not hold', () => {
+    const failure = expectError(replaceDraftVersion(draft(), V2));
+    expect(failure.kind).toBe('Validation');
+    expect(failure.code).toBe('VERSION_NOT_FOUND');
+  });
+
+  it('refuses a replacement of a different item type', () => {
+    const numeric = version({ itemType: 'NUMERIC', responseSpec: numericSpec() });
+    // Same identity, different type — the case that would score a key under
+    // one type while presenting it under another.
+    const disguised = { ...numeric, versionId: V1.versionId } as ItemVersion;
+    expect(expectError(replaceDraftVersion(draft(), disguised)).code).toBe('VERSION_TYPE_MISMATCH');
+  });
+
+  it('refuses a replacement claiming a different version number', () => {
+    const renumbered = { ...edited, versionNo: 7 } as ItemVersion;
+    expect(expectError(replaceDraftVersion(draft(), renumbered)).code).toBe(
+      'VERSION_NUMBERS_NOT_CONTIGUOUS',
+    );
   });
 });
 

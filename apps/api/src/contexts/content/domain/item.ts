@@ -262,6 +262,80 @@ export function addVersion(item: Item, version: ItemVersion): Result<Item, ItemE
   );
 }
 
+/**
+ * Replaces a draft version's content in place — what autosave does
+ * (FR-TCH-02 rule 6).
+ *
+ * **This is not `addVersion`.** An autosave every few seconds that appended a
+ * version would make the history unreadable and leave a reviewer nothing to
+ * diff against; a *revision* after review returns the item is the case that
+ * earns a new version (FR-TCH-09 rule 1), and that is `deriveDraft` plus
+ * `addVersion`.
+ *
+ * The published version is excluded explicitly rather than relying on the
+ * state check: an item can be `published` and hold a later draft, and INV-03
+ * says the published snapshot never changes whatever else is true of the item.
+ */
+export function replaceDraftVersion(item: Item, version: ItemVersion): Result<Item, ItemError> {
+  if (!isEditable(item.lifecycleState)) {
+    return err(
+      ruleViolationError(
+        'VERSION_NOT_EDITABLE',
+        `an item that is ${item.lifecycleState} is locked against author edits (FR-TCH-08 rule 1)`,
+        'lifecycleState',
+      ),
+    );
+  }
+  if (version.versionId === item.currentPublishedVersionId) {
+    return err(
+      ruleViolationError(
+        'VERSION_NOT_EDITABLE',
+        `version ${version.versionId} is published and never changes (INV-03)`,
+        'versions',
+      ),
+    );
+  }
+
+  const existing = item.versions.find((candidate) => candidate.versionId === version.versionId);
+  if (existing === undefined) {
+    return err(
+      validationError(
+        'VERSION_NOT_FOUND',
+        `version ${version.versionId} is not among this item's versions`,
+        'versions',
+      ),
+    );
+  }
+  if (version.itemType !== item.itemType) {
+    return err(
+      validationError(
+        'VERSION_TYPE_MISMATCH',
+        `the item is typed ${item.itemType} but the replacement is ${version.itemType}`,
+        'versions',
+      ),
+    );
+  }
+  if (version.versionNo !== existing.versionNo) {
+    return err(
+      validationError(
+        'VERSION_NUMBERS_NOT_CONTIGUOUS',
+        `version ${version.versionId} is number ${existing.versionNo}, the replacement claims ${version.versionNo}`,
+        'versions',
+      ),
+    );
+  }
+
+  return ok(
+    Object.freeze({
+      ...item,
+      versions: Object.freeze(
+        item.versions.map((candidate) => (candidate.versionId === version.versionId ? version : candidate)),
+      ),
+      aggregateVersion: item.aggregateVersion + 1,
+    }),
+  );
+}
+
 /** States in which an author may still change the content. */
 export function isEditable(state: LifecycleState): boolean {
   return state === 'draft' || state === 'changes_requested' || state === 'rejected';

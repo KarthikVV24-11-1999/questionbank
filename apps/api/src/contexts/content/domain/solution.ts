@@ -423,6 +423,68 @@ export function addSolutionVersion(
   );
 }
 
+/**
+ * States in which a version's content may still be edited in place. A
+ * published solution is not locked as an aggregate — correcting an explanation
+ * is the case D5 exists to make cheap — but the published *version* is, below.
+ */
+export function isSolutionVersionEditable(state: LifecycleState): boolean {
+  return state !== 'in_review' && state !== 'approved' && state !== 'retired';
+}
+
+/** Replaces a draft version's content in place — autosave, not a new version. */
+export function replaceDraftSolutionVersion(
+  solution: Solution,
+  version: SolutionVersion,
+): Result<Solution, SolutionError> {
+  if (!isSolutionVersionEditable(solution.lifecycleState)) {
+    return err(
+      ruleViolationError(
+        'VERSION_NOT_EDITABLE',
+        `a solution that is ${solution.lifecycleState} is locked against author edits`,
+        'lifecycleState',
+      ),
+    );
+  }
+  if (version.versionId === solution.currentPublishedVersionId) {
+    return err(
+      ruleViolationError(
+        'VERSION_NOT_EDITABLE',
+        `version ${version.versionId} is published and never changes (INV-03)`,
+        'versions',
+      ),
+    );
+  }
+
+  const existing = solution.versions.find((candidate) => candidate.versionId === version.versionId);
+  if (existing === undefined) {
+    return err(
+      invalid('VERSION_NOT_FOUND', `version ${version.versionId} is not among this solution's versions`, 'versions'),
+    );
+  }
+  if (version.versionNo !== existing.versionNo) {
+    return err(
+      invalid(
+        'VERSION_NUMBERS_NOT_CONTIGUOUS',
+        `version ${version.versionId} is number ${existing.versionNo}, the replacement claims ${version.versionNo}`,
+        'versions',
+      ),
+    );
+  }
+
+  return ok(
+    Object.freeze({
+      ...solution,
+      versions: Object.freeze(
+        solution.versions.map((candidate) =>
+          candidate.versionId === version.versionId ? version : candidate,
+        ),
+      ),
+      aggregateVersion: solution.aggregateVersion + 1,
+    }),
+  );
+}
+
 export interface SolutionTransitionProps {
   readonly transition: LifecycleTransition;
   readonly versionId?: string;

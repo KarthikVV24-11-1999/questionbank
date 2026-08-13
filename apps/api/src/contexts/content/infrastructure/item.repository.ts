@@ -1,5 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { err, ok, type Result } from '../domain/result.js';
+import type { ContentEvent } from '../domain/events/content-events.js';
+import { ContentOutboxEmitter } from './outbox-emitter.js';
 import { conflictError, notFoundError, validationError } from '../domain/content-error.js';
 import type { ItemRepository, RepositoryError } from '../domain/repository-ports.js';
 import { reconstituteItem, type Item } from '../domain/item.js';
@@ -151,12 +153,16 @@ function omitNulls<T extends Record<string, unknown>>(source: T): WithoutNulls<T
 
 export class PostgresItemRepository implements ItemRepository {
   readonly #pool: Pool;
+  readonly #outbox = new ContentOutboxEmitter();
 
   constructor(pool: Pool) {
     this.#pool = pool;
   }
 
-  async save(item: Item): Promise<Result<Item, RepositoryError>> {
+  async save(
+    item: Item,
+    events: readonly ContentEvent[] = [],
+  ): Promise<Result<Item, RepositoryError>> {
     const client = await this.#pool.connect();
     let outcome: Result<Item, RepositoryError>;
 
@@ -167,6 +173,11 @@ export class PostgresItemRepository implements ItemRepository {
     try {
       await client.query('BEGIN');
       outcome = await this.#saveWithin(client, item);
+      // §9 rule 4 / P4: the events go in with the aggregate, so a rolled-back
+      // change leaves nothing behind claiming it happened.
+      if (outcome.ok) {
+        for (const event of events) await this.#outbox.emit(client, event);
+      }
       await client.query(outcome.ok ? 'COMMIT' : 'ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -256,14 +267,23 @@ export class PostgresItemRepository implements ItemRepository {
   }
 
   async #saveVersion(client: PoolClient, itemId: string, version: ItemVersion): Promise<void> {
-    const known = await client.query(
-      `SELECT 1 FROM content.item_version WHERE item_version_id = $1`,
+    const known = await client.query<{ published_at: Date | null }>(
+      `SELECT published_at FROM content.item_version WHERE item_version_id = $1`,
       [version.versionId],
     );
+
     // A published version is immutable (INV-03) and the database enforces it,
-    // so an existing version is left exactly as it is rather than rewritten
-    // with identical values — which would fail the trigger once published.
-    if (known.rowCount !== 0) return;
+    // so it is left exactly as it is rather than rewritten with identical
+    // values — which would fail the trigger.
+    //
+    // **A draft version is rewritten**, because that is what the draft state is
+    // for and what autosave does (FR-TCH-02 rule 6). Skipping it instead would
+    // make the repository refuse an edit the database explicitly permits, and
+    // the author's work would vanish silently on save.
+    if (known.rowCount !== 0) {
+      if (known.rows[0]!.published_at !== null) return;
+      await this.#discardVersionParts(client, version.versionId);
+    }
 
     const projections = projectContentBody(version.stem);
 
@@ -271,7 +291,18 @@ export class PostgresItemRepository implements ItemRepository {
       `INSERT INTO content.item_version
          (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text, notation_terms,
           difficulty_estimate, stimulus_version_id, authored_by_kind, authored_by_id, created_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)`,
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (item_version_id) DO UPDATE SET
+         version_no = EXCLUDED.version_no,
+         item_type = EXCLUDED.item_type,
+         stem_body = EXCLUDED.stem_body,
+         stem_plain_text = EXCLUDED.stem_plain_text,
+         notation_terms = EXCLUDED.notation_terms,
+         difficulty_estimate = EXCLUDED.difficulty_estimate,
+         stimulus_version_id = EXCLUDED.stimulus_version_id,
+         -- now() in infrastructure, where clocks belong. The domain models no
+         -- "last edited" instant, so there is nothing for it to supply.
+         updated_at = now()`,
       [
         version.versionId,
         itemId,
@@ -305,6 +336,39 @@ export class PostgresItemRepository implements ItemRepository {
     await this.#saveTags(client, version.versionId, version.taxonomyTags);
     await this.#saveProvenance(client, version.versionId, version.provenance);
     await this.#saveMediaRefs(client, version.versionId, projections.referencedMediaIds);
+  }
+
+  /**
+   * Clears everything that belongs to a draft version before it is rewritten,
+   * so the edge set, the option set and the tag set are **reconciled** rather
+   * than accumulated: an option the author deleted has to disappear, and a
+   * media reference they removed has to leave the usage graph or an unused
+   * asset stays unretirable forever (FR-QM-06 rule 3).
+   *
+   * Every one of these tables carries the `*_frozen_with_its_version` trigger,
+   * so this is refused outright once the owning version publishes — the caller
+   * above never reaches here in that case, and the trigger is the backstop.
+   */
+  async #discardVersionParts(client: PoolClient, versionId: string): Promise<void> {
+    // Pairs before members: the pair's composite foreign key names the member.
+    for (const table of [
+      'item_matching_pair',
+      'item_matching_member',
+      'item_option',
+      'item_numeric_spec',
+      'item_taxonomy_tag',
+      'item_provenance',
+    ]) {
+      await client.query(`DELETE FROM content.${table} WHERE item_version_id = $1`, [versionId]);
+    }
+    await client.query(
+      `DELETE FROM content.content_licensing WHERE owner_type = 'item_version' AND owner_version_id = $1`,
+      [versionId],
+    );
+    await client.query(
+      `DELETE FROM content.content_media_ref WHERE owner_type = 'item_version' AND owner_version_id = $1`,
+      [versionId],
+    );
   }
 
   async #saveResponseSpec(
@@ -453,6 +517,27 @@ export class PostgresItemRepository implements ItemRepository {
       return err(notFoundError('NOT_FOUND', `no item ${itemId}`, 'itemId'));
     }
     return this.#hydrate(items.rows[0]!);
+  }
+
+  /**
+   * FR-TCH-06 rule 3. `item_only_drafts_are_deleted` refuses anything that is
+   * not an unpublished draft, so the guarantee does not depend on the handler
+   * having checked first — but the handler does check, because the domain owns
+   * the rule and a CHECK cannot produce a message an author can act on.
+   */
+  async deleteDraft(itemId: string): Promise<Result<true, RepositoryError>> {
+    try {
+      const deleted = await this.#pool.query(
+        `UPDATE content.item SET deleted_at = now()
+          WHERE item_id = $1 AND deleted_at IS NULL`,
+        [itemId],
+      );
+      return deleted.rowCount === 0
+        ? err(notFoundError('NOT_FOUND', `no item ${itemId} to delete`, 'itemId'))
+        : ok(true);
+    } catch (error) {
+      return err(persistenceRejected((error as Error).message));
+    }
   }
 
   async findDraftsByAuthor(authorId: string): Promise<Result<readonly Item[], RepositoryError>> {
