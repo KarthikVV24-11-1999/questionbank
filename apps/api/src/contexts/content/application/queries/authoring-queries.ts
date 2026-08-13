@@ -177,7 +177,20 @@ export class GetItemDraftHandler implements Handler<GetItemDraft, AuthoringItemV
   }
 }
 
-export class ListMyDraftsHandler implements Handler<ListMyDrafts, readonly AuthoringItemView[]> {
+export interface AuthoringItemPage {
+  readonly items: readonly AuthoringItemView[];
+}
+
+/**
+ * Wraps its result in `{ items }` — matching `AuthoringItemPage` in
+ * `content.yaml` exactly — rather than returning a bare array. Found as a
+ * real divergence while wiring M0-19 (Studio's Item Browser): the wire
+ * response was a raw array, undetected because no client had ever validated
+ * it against the generated schema until now. Fixed here rather than in the
+ * document, per D18 — the document is the artifact Zod is generated from and
+ * compared byte for byte against.
+ */
+export class ListMyDraftsHandler implements Handler<ListMyDrafts, AuthoringItemPage> {
   readonly name = 'ListMyDrafts';
   readonly policy = LIST_MY_DRAFTS_POLICY;
 
@@ -186,7 +199,7 @@ export class ListMyDraftsHandler implements Handler<ListMyDrafts, readonly Autho
   async handle(
     query: ListMyDrafts,
     context: ApplicationContext,
-  ): Promise<Result<readonly AuthoringItemView[], ApplicationError>> {
+  ): Promise<Result<AuthoringItemPage, ApplicationError>> {
     const permitted = authorize(this.policy, context);
     if (!permitted.ok) return err(permitted.error);
 
@@ -199,7 +212,7 @@ export class ListMyDraftsHandler implements Handler<ListMyDrafts, readonly Autho
     const found = await this.deps.items.findDraftsByAuthor(query.authorId);
     if (!found.ok) return err(fromContent(found.error));
 
-    return ok(Object.freeze(found.value.map(toAuthoringItemView)));
+    return ok({ items: Object.freeze(found.value.map(toAuthoringItemView)) });
   }
 }
 

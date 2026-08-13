@@ -1,3 +1,9 @@
+/// <reference lib="dom" />
+// The one DOM-touching export in this file (`browserSearchParams`) is
+// reached transitively by `apps/api`'s M0-19 live-wiring integration spec,
+// whose own tsconfig carries no "DOM" lib — this per-file reference keeps
+// that cross-package import type-checkable without widening apps/api's
+// project-wide lib list for a decision that belongs to this file alone.
 import {
   LifecycleStateSchema,
   type LifecycleState,
