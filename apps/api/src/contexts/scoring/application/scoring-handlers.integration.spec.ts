@@ -119,10 +119,7 @@ interface Harness {
 }
 
 function harness(): Harness {
-  const records = new PostgresScoreRecordRepository(database.pool, {
-    examProfileVersionId: PROFILE_ID,
-    taxonomyVersionId: TAXONOMY_ID,
-  });
+  const records = new PostgresScoreRecordRepository(database.pool);
   const operations = new PostgresRescoringOperationRepository(database.pool);
   const audit = new InMemoryAuditRecorder();
   const publisher = new RecordingPublisher();

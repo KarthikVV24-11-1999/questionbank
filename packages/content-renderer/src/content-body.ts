@@ -48,7 +48,8 @@ export type Block =
   | {
       readonly kind: 'MEDIA_BLOCK';
       readonly assetVersionId: string;
-      readonly caption?: string;
+      /** Authored content, not a string — a caption can carry notation, on the same argument M3-07 makes for option bodies (INV-14). */
+      readonly caption?: readonly Inline[];
       readonly sizeHint: MediaSizeHint;
     }
   | { readonly kind: 'LIST'; readonly ordered: boolean; readonly items: readonly (readonly Block[])[] }

@@ -20,6 +20,14 @@ import type { SectionScore, TotalScore } from './aggregate-scores.js';
 export interface ScoreRecord {
   readonly scoreRecordId: string;
   readonly attemptId: string;
+  /**
+   * The pin (ADR-0017). A score without it is a number with no defensible
+   * provenance — supersede depends on knowing what the predecessor was
+   * scored under, and neither field is derivable from anything else on the
+   * record.
+   */
+  readonly examProfileVersionId: string;
+  readonly taxonomyVersionId: string;
   /** Pinned from the attempt, not from whatever rule set happens to be current (R2). */
   readonly markingRuleSetHash: string;
   readonly ruleSchemaVersion: number;
@@ -36,6 +44,8 @@ export interface ScoreRecord {
 export type ScoreRecordErrorCode =
   | 'SCORE_RECORD_ID_REQUIRED'
   | 'ATTEMPT_ID_REQUIRED'
+  | 'EXAM_PROFILE_VERSION_ID_REQUIRED'
+  | 'TAXONOMY_VERSION_ID_REQUIRED'
   | 'MARKING_RULE_SET_HASH_REQUIRED'
   | 'RULE_SCHEMA_VERSION_INVALID'
   | 'GENERATION_INVALID'
@@ -57,6 +67,8 @@ function isBlank(value: string): boolean {
 export interface CreateScoreRecordProps {
   readonly scoreRecordId: string;
   readonly attemptId: string;
+  readonly examProfileVersionId: string;
+  readonly taxonomyVersionId: string;
   readonly markingRuleSetHash: string;
   readonly ruleSchemaVersion: number;
   readonly generation: number;
@@ -71,6 +83,12 @@ export interface CreateScoreRecordProps {
 export function createScoreRecord(props: CreateScoreRecordProps): Result<ScoreRecord, ScoreRecordError> {
   if (isBlank(props.scoreRecordId)) return err(invalid('SCORE_RECORD_ID_REQUIRED', 'scoreRecordId is required'));
   if (isBlank(props.attemptId)) return err(invalid('ATTEMPT_ID_REQUIRED', 'attemptId is required'));
+  if (isBlank(props.examProfileVersionId)) {
+    return err(invalid('EXAM_PROFILE_VERSION_ID_REQUIRED', 'examProfileVersionId is required — a score must be pinned'));
+  }
+  if (isBlank(props.taxonomyVersionId)) {
+    return err(invalid('TAXONOMY_VERSION_ID_REQUIRED', 'taxonomyVersionId is required — a score must be pinned'));
+  }
   if (isBlank(props.markingRuleSetHash)) {
     return err(invalid('MARKING_RULE_SET_HASH_REQUIRED', 'markingRuleSetHash is required — a score must be pinned'));
   }
@@ -102,6 +120,8 @@ export function createScoreRecord(props: CreateScoreRecordProps): Result<ScoreRe
     Object.freeze({
       scoreRecordId: props.scoreRecordId,
       attemptId: props.attemptId,
+      examProfileVersionId: props.examProfileVersionId,
+      taxonomyVersionId: props.taxonomyVersionId,
       markingRuleSetHash: props.markingRuleSetHash,
       ruleSchemaVersion: props.ruleSchemaVersion,
       generation: props.generation,

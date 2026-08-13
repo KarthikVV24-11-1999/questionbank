@@ -306,3 +306,13 @@ blocking gate, not debt.**
 | **D18** | **Zod request schemas are hand-written, not generated** from `scoring.yaml`. The contract spec catches drift, but M2-27's criterion says generated | Backend | Next API task |
 
 **18 debt items and 1 blocking gate.** Nothing from M1 regressed.
+
+**Post-close-out correction (2026-08-13, found by M0-11).** `ScoreRecord` did not carry
+`examProfileVersionId`/`taxonomyVersionId` — `PostgresScoreRecordRepository` took them at construction
+instead, correct for exactly one exam profile per instance. M0-11's composition seam, which must build one
+shared instance serving every profile, made that unworkable and surfaced it. The "Save → load deep-equal"
+row this document reports ✅ for M2-20 was real but blind to both fields, which neither side of the
+comparison carried. Fixed in `fix(scoring): a score record carries the pin that produced it`; see
+[M2-TRACEABILITY.md](M2-TRACEABILITY.md)'s finding F-7 and
+[ADR-0017](../adr/ADR-0017-a-score-record-carries-its-own-pin.md). Not a new debt item — it is closed, and
+recorded here because this document's own verdict is what it corrects.

@@ -61,7 +61,7 @@ const CORPUS: Readonly<Record<string, ContentBody>> = Object.freeze({
   'a figure with a caption': body({
     kind: 'MEDIA_BLOCK',
     assetVersionId: 'asset-1',
-    caption: 'Figure 1',
+    caption: [{ kind: 'TEXT', value: 'Figure 1', marks: [] }],
     sizeHint: 'FULL_WIDTH',
   }),
   'an inline media reference': body({

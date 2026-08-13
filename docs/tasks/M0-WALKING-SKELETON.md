@@ -492,14 +492,31 @@ A rule that belongs to a context and is written here is written in the wrong pla
 
 ### M0-09 · `RenderValidator` production adapter — closes D27
 **Objective** **D27**, named at `application/ports.ts:105` as "a composition gap rather than a design one". This is that gap, closed.
-**Files** `contexts/content/infrastructure/render-validator.adapter.ts`, `render-validator.adapter.spec.ts`, `apps/api/package.json`
+**Files** `contexts/content/infrastructure/render-validator.adapter.ts`, `render-validator.adapter.spec.ts`, `render-validator.adapter.integration.spec.ts`, `apps/api/package.json`, `apps/api/tsconfig.json`, `apps/api/src/fitness/platform-rules.ts`
+
+**Correction, recorded rather than silently fixed.** This entry originally claimed *"`renderFor` uses
+`renderToStaticMarkup`, so no JSX transform is needed in the API build."* That is false, and the falseness
+was concrete: `apps/api`'s own `tsc --noEmit` refused the moment the adapter imported `render-validation.ts`,
+because `renderFor` calls `ContentRenderer(...)`, defined in `content-renderer.tsx` — resolved to **source**,
+not a pre-built `.d.ts`, since this repository has no build step for internal packages. D27's own comment
+already said the true reason ("running a React render inside the Node service"); this entry mis-stated what
+that implied. **ADR-0016** records the actual decision — `apps/api/tsconfig.json` gets `"jsx": "react-jsx"`,
+narrowed by a fitness function (`checkNoTsxFiles`) asserting zero `.tsx` files exist under `apps/api/src/`,
+so the concession stays "type-check one imported package" and never becomes "the API authors views." A
+second, independent defect surfaced in the same typecheck run — `MediaBlock.caption` typed `string` on the
+renderer and `readonly Inline[]` on the domain, undetected for a milestone because `renderer-seam.spec.ts`
+only ever compared kind *names*, never a variant's *shape*. Both are fixed and closed (see
+`fix(content): render a media caption as authored inlines` and
+`test(content): assert the renderer seam field by field`) as prerequisites to this task, not as part of it.
+
 **Acceptance**
-- Implements `RenderValidator` by calling `validateRender` from `@questionbank/content-renderer/render-validation`. `renderFor` uses `renderToStaticMarkup`, so **no JSX transform is needed in the API build** — the adapter is plain TypeScript
-- `react` and `react-dom` added to `apps/api` dependencies. Both are present in `node_modules/.pnpm` (19.2.8), so `corepack pnpm install --offline` resolves from the store. **If that install fails, this task is blocked and says so** — the adapter does not move to a worker to route around it
+- Implements `RenderValidator` by calling `validateRender` from `@questionbank/content-renderer/render-validation`. It is plain TypeScript and contains no JSX itself — the JSX capability lives in `apps/api/tsconfig.json` (ADR-0016), needed because `validateRender`'s own import chain reaches `content-renderer.tsx`, not because this file writes any
+- `react`, `react-dom` and `@types/react` added to `apps/api` dependencies, all present in `node_modules/.pnpm`, resolving offline. **If that install fails, this task is blocked and says so** — the adapter does not move to a worker to route around it
 - **The adapter contains no rendering logic** — it maps `ItemVersion` to `ContentBody`, calls, and maps the verdict back. F20 (exactly one `ContentRenderer`) is re-run and still green
 - Lives in `infrastructure/`, so `domain/` still imports nothing (F2) and the boundary scan is unchanged
 - A render failure on **any** surface produces a blocking verdict, matching what `render-validation.ts` already documents — the adapter must not soften it to a warning
 - The port's D27 comment block is rewritten to describe what exists, not what is missing
+- **`checkNoTsxFiles`** (`fitness/platform-rules.ts`) asserts zero `.tsx` files under `apps/api/src/`, proven red on a planted fixture — the boundary that keeps the JSX concession from widening
 **Tests** Unit: a valid body validates on all four surfaces · a body that fails one surface produces a blocking verdict naming it · the adapter is shown to delegate — a spec asserts it declares no JSX and no element construction · **the publication precondition, previously fed by a test-supplied fact, now runs against the real adapter** in an integration spec
 
 ### M0-10 · `MediaStore` filesystem adapter & the production refusal

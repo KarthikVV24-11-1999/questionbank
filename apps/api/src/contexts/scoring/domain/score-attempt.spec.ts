@@ -432,6 +432,8 @@ describe('the score record', () => {
     const result = createScoreRecord({
       scoreRecordId: 'sr-1',
       attemptId: 'a',
+      examProfileVersionId: 'epv-1',
+      taxonomyVersionId: 'tax-1',
       markingRuleSetHash: HASH,
       ruleSchemaVersion: 1,
       generation: 1,
@@ -448,6 +450,8 @@ describe('the score record', () => {
     const result = createScoreRecord({
       scoreRecordId: 'sr-2',
       attemptId: 'a',
+      examProfileVersionId: 'epv-1',
+      taxonomyVersionId: 'tax-1',
       markingRuleSetHash: HASH,
       ruleSchemaVersion: 1,
       generation: 2,
@@ -463,6 +467,8 @@ describe('the score record', () => {
   const requiredFields: readonly [string, Partial<Parameters<typeof createScoreRecord>[0]>, string][] = [
     ['scoreRecordId', { scoreRecordId: ' ' }, 'SCORE_RECORD_ID_REQUIRED'],
     ['attemptId', { attemptId: ' ' }, 'ATTEMPT_ID_REQUIRED'],
+    ['examProfileVersionId', { examProfileVersionId: ' ' }, 'EXAM_PROFILE_VERSION_ID_REQUIRED'],
+    ['taxonomyVersionId', { taxonomyVersionId: ' ' }, 'TAXONOMY_VERSION_ID_REQUIRED'],
     ['markingRuleSetHash', { markingRuleSetHash: ' ' }, 'MARKING_RULE_SET_HASH_REQUIRED'],
     ['ruleSchemaVersion', { ruleSchemaVersion: 0 }, 'RULE_SCHEMA_VERSION_INVALID'],
     ['generation', { generation: 0 }, 'GENERATION_INVALID'],
@@ -474,6 +480,8 @@ describe('the score record', () => {
       const result = createScoreRecord({
         scoreRecordId: 'sr-1',
         attemptId: 'a',
+        examProfileVersionId: 'epv-1',
+        taxonomyVersionId: 'tax-1',
         markingRuleSetHash: HASH,
         ruleSchemaVersion: 1,
         generation: 1,
@@ -486,6 +494,12 @@ describe('the score record', () => {
       expect(expectError(result).code).toBe(code);
     });
   }
+
+  it('carries the pin through from the attempt (ADR-0017)', () => {
+    const record = expectValue(score(input));
+    expect(record.examProfileVersionId).toBe('epv-1');
+    expect(record.taxonomyVersionId).toBe('tax-1');
+  });
 });
 
 describe('PER_CORRECT awards scale with the correct selections', () => {

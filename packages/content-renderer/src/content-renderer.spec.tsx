@@ -38,7 +38,12 @@ const EVERY_NODE: ContentBody = body(
   },
   { kind: 'MATH_BLOCK', latex: 'a = g\\sin\\theta', textAlternative: 'a equals g sine theta' },
   { kind: 'CHEM_BLOCK', notation: '2H2 + O2 -> 2H2O', textAlternative: 'hydrogen burns in oxygen' },
-  { kind: 'MEDIA_BLOCK', assetVersionId: 'asset-1', caption: 'Figure 1', sizeHint: 'FULL_WIDTH' },
+  {
+    kind: 'MEDIA_BLOCK',
+    assetVersionId: 'asset-1',
+    caption: [{ kind: 'TEXT', value: 'Figure 1', marks: [] }],
+    sizeHint: 'FULL_WIDTH',
+  },
   {
     kind: 'LIST',
     ordered: true,
@@ -133,7 +138,7 @@ describe('semantic HTML, not a pile of divs', () => {
         body={body({
           kind: 'MEDIA_BLOCK',
           assetVersionId: 'asset-1',
-          caption: 'Figure 1',
+          caption: [{ kind: 'TEXT', value: 'Figure 1', marks: [] }],
           sizeHint: 'HALF_WIDTH',
         })}
         surface="web"
@@ -254,7 +259,12 @@ describe('an unknown node degrades visibly and reports itself', () => {
     const issues: RenderIssue[] = [];
     render(
       <ContentRenderer
-        body={body({ kind: 'MEDIA_BLOCK', assetVersionId: 'missing', caption: 'Figure 4', sizeHint: 'FULL_WIDTH' })}
+        body={body({
+          kind: 'MEDIA_BLOCK',
+          assetVersionId: 'missing',
+          caption: [{ kind: 'TEXT', value: 'Figure 4', marks: [] }],
+          sizeHint: 'FULL_WIDTH',
+        })}
         surface="web"
         onIssue={(issue) => issues.push(issue)}
       />,

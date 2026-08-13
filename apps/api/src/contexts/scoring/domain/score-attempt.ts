@@ -113,6 +113,8 @@ export function scoreAttempt(props: ScoreAttemptProps): Result<ScoreRecord, Scor
   return createScoreRecord({
     scoreRecordId: props.scoreRecordId,
     attemptId: input.attemptId,
+    examProfileVersionId: input.pin.examProfileVersionId,
+    taxonomyVersionId: input.pin.taxonomyVersionId,
     markingRuleSetHash: ruleSetHash,
     ruleSchemaVersion: input.pin.ruleSchemaVersion,
     generation: props.generation ?? 1,

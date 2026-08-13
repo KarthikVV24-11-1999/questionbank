@@ -374,8 +374,10 @@ Findings are collected at the foot of this document.
 | **F-4** | Low | M2-27's criterion says Zod schemas are *generated*; they are hand-written and kept in step by the contract spec. The spec catches drift, but the criterion as written is not met |
 | **F-5** | Low | "Expected marks recorded independently of the executor" (M2-29) is enforced by authoring convention and review, not by a test. A future contributor could generate a fixture from the code it is meant to check |
 | **F-6** | Low | Two criteria are asserted by inspection rather than by test: that ADR-0006 exists (M2-12), and that snake_case↔camelCase mapping happens only in the repository (M2-20) |
+| **F-7** | **Medium — FIXED, found by M0-11** | **M2-20's "save → load deep-equal" row (above) was blind to `examProfileVersionId`/`taxonomyVersionId`.** Neither field existed on the domain `ScoreRecord` — the repository took them at construction instead and wrote them to real columns, but `toScoreRecord` never read the columns back, so the loaded object and the in-memory `record` the test compared it to were both missing the fields, identically. The deep-equality assertion was real and passing; the criterion it claimed to prove was not fully checked. Composing scoring's handlers into one shared instance (M0-11) surfaced this: a single repository instance fixed at construction can only ever be correct for one exam profile. Fixed in `fix(scoring): a score record carries the pin that produced it` — `ScoreRecord` now carries both fields, the repository reads and writes them like any other column, and the round-trip test asserts them by name in addition to the blanket `toEqual`. [ADR-0017](../adr/ADR-0017-a-score-record-carries-its-own-pin.md) records the reversal |
 
-F-2 was a real untested guarantee rather than a documentation gap, so it was
-fixed during this audit rather than carried. The remaining ⚠️ items are
-documentation or environment gaps; none of them hides a behaviour nobody has
-checked. F-1 is the blocking gate.
+F-2 and F-7 were real untested guarantees rather than documentation gaps, so
+both were fixed rather than carried — F-2 during the M2 close-out audit, F-7
+during M0-11 when composing scoring's handlers surfaced it. The remaining
+⚠️ items are documentation or environment gaps; none of them hides a
+behaviour nobody has checked. F-1 is the blocking gate.

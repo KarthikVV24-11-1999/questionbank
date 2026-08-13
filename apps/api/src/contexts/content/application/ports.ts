@@ -102,13 +102,18 @@ export interface MediaStore {
  * the renderer must refuse, not assume — an item that has never been checked
  * on the minimum device profile is exactly the one that breaks there.
  *
- * **No production adapter exists yet, and that is a composition gap rather
- * than a design one.** `validateRender` produces exactly this verdict, but
- * calling it from the API means running a React render inside the Node
- * service, which needs a composition root — and there is no running
- * application in this repository (M0). Recorded as debt D27 so the gap is
- * visible: today the precondition is enforced against a fact only a test
- * supplies.
+ * **D27 is closed.** The production adapter is
+ * `infrastructure/render-validator.adapter.ts`'s `RenderValidatorAdapter` —
+ * plain TypeScript, no JSX of its own, that maps `ItemVersion` to the
+ * `ContentBody` `validateRender` expects and maps the verdict back. What
+ * D27's original note undersold: calling `validateRender` from the API
+ * means the API's own compiler must type-check `content-renderer.tsx` (the
+ * component `validateRender` calls), which is a JSX-authoring capability
+ * `apps/api/tsconfig.json` did not have — not a running-application
+ * composition root, which this milestone builds separately (M0-12 through
+ * M0-14). `ADR-0016` records that decision and the fitness function
+ * (`checkNoTsxFiles`) that keeps the concession to "type-check one imported
+ * package" rather than "the API authors views."
  */
 export interface RenderValidator {
   validate(version: ItemVersion): Promise<RenderVerdict>;
