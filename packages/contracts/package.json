@@ -4,12 +4,19 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./openapi/curriculum.yaml": "./openapi/curriculum.yaml"
+    "./openapi/curriculum.yaml": "./openapi/curriculum.yaml",
+    "./openapi/content.yaml": "./openapi/content.yaml",
+    "./content-schemas": "./src/content-schemas.ts"
   },
   "scripts": {
-    "generate": "openapi-typescript openapi/curriculum.yaml --output src/curriculum.ts"
+    "generate": "openapi-typescript openapi/curriculum.yaml --output src/curriculum.ts",
+    "generate:content": "node scripts/generate-zod.mjs openapi/content.yaml src/content-schemas.ts"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.4.4"
+    "openapi-typescript": "^7.4.4",
+    "yaml": "^2.9.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }

@@ -1,5 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { err, ok, type Result } from '../domain/result.js';
+import type { ContentEvent } from '../domain/events/content-events.js';
+import { ContentOutboxEmitter } from './outbox-emitter.js';
 import { conflictError, notFoundError, validationError } from '../domain/content-error.js';
 import type { MediaAssetRepository, RepositoryError } from '../domain/repository-ports.js';
 import {
@@ -78,12 +80,16 @@ function persistenceRejected(message: string): RepositoryError {
 
 export class PostgresMediaAssetRepository implements MediaAssetRepository {
   readonly #pool: Pool;
+  readonly #outbox = new ContentOutboxEmitter();
 
   constructor(pool: Pool) {
     this.#pool = pool;
   }
 
-  async save(asset: MediaAsset): Promise<Result<MediaAsset, RepositoryError>> {
+  async save(
+    asset: MediaAsset,
+    events: readonly ContentEvent[] = [],
+  ): Promise<Result<MediaAsset, RepositoryError>> {
     const client = await this.#pool.connect();
     let outcome: Result<MediaAsset, RepositoryError>;
 
@@ -91,6 +97,11 @@ export class PostgresMediaAssetRepository implements MediaAssetRepository {
     try {
       await client.query('BEGIN');
       outcome = await this.#saveWithin(client, asset);
+      // §9 rule 4 / P4: the events go in with the aggregate, so a rolled-back
+      // change leaves nothing behind claiming it happened.
+      if (outcome.ok) {
+        for (const event of events) await this.#outbox.emit(client, event);
+      }
       await client.query(outcome.ok ? 'COMMIT' : 'ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -198,6 +209,25 @@ export class PostgresMediaAssetRepository implements MediaAssetRepository {
         version.licensing.expiresAt ?? null,
       ],
     );
+  }
+
+  /**
+   * The library the Studio surface lists (FR-QM-06). Ordered by identifier
+   * rather than by insertion, so a paged list cannot show the same asset twice
+   * — UUIDv7 makes that ordering time-ordered anyway (P6).
+   */
+  async list(): Promise<Result<readonly MediaAsset[], RepositoryError>> {
+    const rows = await this.#pool.query<{ asset_id: string }>(
+      `SELECT asset_id FROM content.media_asset ORDER BY asset_id`,
+    );
+
+    const assets: MediaAsset[] = [];
+    for (const row of rows.rows) {
+      const asset = await this.findById(row.asset_id);
+      if (!asset.ok) return err(asset.error);
+      assets.push(asset.value);
+    }
+    return ok(assets);
   }
 
   async findById(assetId: string): Promise<Result<MediaAsset, RepositoryError>> {

@@ -1,5 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { err, ok, type Result } from '../domain/result.js';
+import type { ContentEvent } from '../domain/events/content-events.js';
+import { ContentOutboxEmitter } from './outbox-emitter.js';
 import { conflictError, notFoundError, validationError } from '../domain/content-error.js';
 import type { RepositoryError, StimulusRepository } from '../domain/repository-ports.js';
 import { reconstituteStimulus, type Stimulus, type StimulusVersion, type StimulusType } from '../domain/stimulus.js';
@@ -63,12 +65,16 @@ function persistenceRejected(message: string): RepositoryError {
 
 export class PostgresStimulusRepository implements StimulusRepository {
   readonly #pool: Pool;
+  readonly #outbox = new ContentOutboxEmitter();
 
   constructor(pool: Pool) {
     this.#pool = pool;
   }
 
-  async save(stimulus: Stimulus): Promise<Result<Stimulus, RepositoryError>> {
+  async save(
+    stimulus: Stimulus,
+    events: readonly ContentEvent[] = [],
+  ): Promise<Result<Stimulus, RepositoryError>> {
     const client = await this.#pool.connect();
     let outcome: Result<Stimulus, RepositoryError>;
 
@@ -76,6 +82,11 @@ export class PostgresStimulusRepository implements StimulusRepository {
     try {
       await client.query('BEGIN');
       outcome = await this.#saveWithin(client, stimulus);
+      // §9 rule 4 / P4: the events go in with the aggregate, so a rolled-back
+      // change leaves nothing behind claiming it happened.
+      if (outcome.ok) {
+        for (const event of events) await this.#outbox.emit(client, event);
+      }
       await client.query(outcome.ok ? 'COMMIT' : 'ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -145,13 +156,26 @@ export class PostgresStimulusRepository implements StimulusRepository {
   }
 
   async #saveVersion(client: PoolClient, stimulusId: string, version: StimulusVersion): Promise<void> {
-    const known = await client.query(
-      `SELECT 1 FROM content.stimulus_version WHERE stimulus_version_id = $1`,
+    const known = await client.query<{ published_at: Date | null }>(
+      `SELECT published_at FROM content.stimulus_version WHERE stimulus_version_id = $1`,
       [version.versionId],
     );
-    // Published versions are immutable, so an existing one is left alone
-    // rather than rewritten with identical values.
-    if (known.rowCount !== 0) return;
+    // A published version is immutable and is left alone. A draft is rewritten
+    // — editing a passage before it publishes is the ordinary case, and the
+    // trigger from `*_content_immutability.sql` permits exactly that.
+    if (known.rowCount !== 0) {
+      if (known.rows[0]!.published_at !== null) return;
+      await client.query(
+        `DELETE FROM content.content_licensing WHERE owner_type = 'stimulus_version' AND owner_version_id = $1`,
+        [version.versionId],
+      );
+      // Reconciled, not accumulated: a media reference the author removed has
+      // to leave the usage graph, or the asset stays unretirable (FR-QM-06).
+      await client.query(
+        `DELETE FROM content.content_media_ref WHERE owner_type = 'stimulus_version' AND owner_version_id = $1`,
+        [version.versionId],
+      );
+    }
 
     const projections = projectContentBody(version.body);
 
@@ -159,7 +183,13 @@ export class PostgresStimulusRepository implements StimulusRepository {
       `INSERT INTO content.stimulus_version
          (stimulus_version_id, stimulus_id, version_no, body, body_plain_text, notation_terms,
           authored_by_kind, authored_by_id, created_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
+       ON CONFLICT (stimulus_version_id) DO UPDATE SET
+         version_no = EXCLUDED.version_no,
+         body = EXCLUDED.body,
+         body_plain_text = EXCLUDED.body_plain_text,
+         notation_terms = EXCLUDED.notation_terms,
+         updated_at = now()`,
       [
         version.versionId,
         stimulusId,

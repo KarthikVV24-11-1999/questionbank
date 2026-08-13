@@ -7,9 +7,11 @@ import {
   createSolution,
   createSolutionVersion,
   isComplete,
+  isSolutionVersionEditable,
   latestSolutionVersionOf,
   publishedSolutionVersionOf,
   reconstituteSolution,
+  replaceDraftSolutionVersion,
   transitionSolution,
   unanalysedDistractors,
   type CreateSolutionVersionProps,
@@ -522,5 +524,65 @@ describe('immutability', () => {
     expectValue(transitionSolution(original, { transition: 'submit_for_review' }));
     expect(original.versions).toHaveLength(1);
     expect(original.lifecycleState).toBe('draft');
+  });
+});
+
+describe('replacing a draft version in place', () => {
+  const edited = version({ steps: [step(1, 'a clearer first step')] });
+
+  it('replaces the content without adding a version', () => {
+    const updated = expectValue(replaceDraftSolutionVersion(draft(), edited));
+    expect(updated.versions).toHaveLength(1);
+    expect(updated.versions[0]!.steps).toHaveLength(1);
+    expect(updated.aggregateVersion).toBe(2);
+  });
+
+  it('leaves the original untouched', () => {
+    const original = draft();
+    expectValue(replaceDraftSolutionVersion(original, edited));
+    expect(original.versions[0]!.steps).toHaveLength(2);
+  });
+
+  it('edits a later draft on a published solution', () => {
+    const published = inState('published', [V1, V2]);
+    const laterDraft = version({ versionId: 'solution-version-2', versionNo: 2, steps: [step(1, 'reworked')] });
+    const updated = expectValue(replaceDraftSolutionVersion(published, laterDraft));
+    expect(updated.versions[1]!.steps).toHaveLength(1);
+  });
+
+  it('refuses to edit the published version itself', () => {
+    expect(expectError(replaceDraftSolutionVersion(inState('published', [V1, V2]), edited)).code).toBe(
+      'VERSION_NOT_EDITABLE',
+    );
+  });
+
+  it.each(['in_review', 'approved', 'retired'] as const)('refuses an edit while %s', (state) => {
+    const failure = expectError(replaceDraftSolutionVersion(inState(state), edited));
+    expect(failure.kind).toBe('RuleViolation');
+    expect(failure.code).toBe('VERSION_NOT_EDITABLE');
+  });
+
+  it('refuses a version the solution does not hold', () => {
+    expect(expectError(replaceDraftSolutionVersion(draft(), V2)).code).toBe('VERSION_NOT_FOUND');
+  });
+
+  it('refuses a replacement claiming a different version number', () => {
+    const renumbered = { ...edited, versionNo: 9 } as SolutionVersion;
+    expect(expectError(replaceDraftSolutionVersion(draft(), renumbered)).code).toBe(
+      'VERSION_NUMBERS_NOT_CONTIGUOUS',
+    );
+  });
+
+  it.each([
+    ['draft', true],
+    ['changes_requested', true],
+    ['rejected', true],
+    ['published', true],
+    ['suspended', true],
+    ['in_review', false],
+    ['approved', false],
+    ['retired', false],
+  ] as const)('reports %s as version-editable=%s', (state, expected) => {
+    expect(isSolutionVersionEditable(state)).toBe(expected);
   });
 });

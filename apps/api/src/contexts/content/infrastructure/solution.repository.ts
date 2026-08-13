@@ -1,5 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { err, ok, type Result } from '../domain/result.js';
+import type { ContentEvent } from '../domain/events/content-events.js';
+import { ContentOutboxEmitter } from './outbox-emitter.js';
 import { conflictError, notFoundError, validationError } from '../domain/content-error.js';
 import type { RepositoryError, SolutionRepository } from '../domain/repository-ports.js';
 import {
@@ -80,12 +82,16 @@ function persistenceRejected(message: string): RepositoryError {
 
 export class PostgresSolutionRepository implements SolutionRepository {
   readonly #pool: Pool;
+  readonly #outbox = new ContentOutboxEmitter();
 
   constructor(pool: Pool) {
     this.#pool = pool;
   }
 
-  async save(solution: Solution): Promise<Result<Solution, RepositoryError>> {
+  async save(
+    solution: Solution,
+    events: readonly ContentEvent[] = [],
+  ): Promise<Result<Solution, RepositoryError>> {
     const client = await this.#pool.connect();
     let outcome: Result<Solution, RepositoryError>;
 
@@ -93,6 +99,11 @@ export class PostgresSolutionRepository implements SolutionRepository {
     try {
       await client.query('BEGIN');
       outcome = await this.#saveWithin(client, solution);
+      // §9 rule 4 / P4: the events go in with the aggregate, so a rolled-back
+      // change leaves nothing behind claiming it happened.
+      if (outcome.ok) {
+        for (const event of events) await this.#outbox.emit(client, event);
+      }
       await client.query(outcome.ok ? 'COMMIT' : 'ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -159,17 +170,36 @@ export class PostgresSolutionRepository implements SolutionRepository {
   }
 
   async #saveVersion(client: PoolClient, solutionId: string, version: SolutionVersion): Promise<void> {
-    const known = await client.query(
-      `SELECT 1 FROM content.solution_version WHERE solution_version_id = $1`,
+    const known = await client.query<{ published_at: Date | null }>(
+      `SELECT published_at FROM content.solution_version WHERE solution_version_id = $1`,
       [version.versionId],
     );
-    if (known.rowCount !== 0) return;
+    // Published: immutable, left alone. Draft: rewritten, with every part it
+    // owns cleared first so steps, analyses, approaches and media edges are
+    // reconciled rather than accumulated.
+    if (known.rowCount !== 0) {
+      if (known.rows[0]!.published_at !== null) return;
+      for (const table of ['solution_step', 'distractor_analysis', 'alternate_approach']) {
+        await client.query(`DELETE FROM content.${table} WHERE solution_version_id = $1`, [
+          version.versionId,
+        ]);
+      }
+      await client.query(
+        `DELETE FROM content.content_media_ref WHERE owner_type = 'solution_version' AND owner_version_id = $1`,
+        [version.versionId],
+      );
+    }
 
     await client.query(
       `INSERT INTO content.solution_version
          (solution_version_id, solution_id, version_no, final_answer_kind, final_answer,
           authored_by_kind, authored_by_id, created_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+       ON CONFLICT (solution_version_id) DO UPDATE SET
+         version_no = EXCLUDED.version_no,
+         final_answer_kind = EXCLUDED.final_answer_kind,
+         final_answer = EXCLUDED.final_answer,
+         updated_at = now()`,
       [
         version.versionId,
         solutionId,

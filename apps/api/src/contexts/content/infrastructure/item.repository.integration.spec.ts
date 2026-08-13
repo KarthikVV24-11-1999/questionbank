@@ -527,6 +527,43 @@ describe('drafts are scoped to their author (FR-TCH-06 rule 1)', () => {
   });
 });
 
+describe('discarding a draft (FR-TCH-06 rule 3)', () => {
+  it('removes it from every read path', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+
+    expectValue(await repository.deleteDraft(item.itemId));
+
+    expect(expectError(await repository.findById(item.itemId)).kind).toBe('NotFound');
+    const drafts = expectValue(await repository.findDraftsByAuthor(AUTHOR_ID));
+    expect(drafts.map((entry) => entry.itemId)).not.toContain(item.itemId);
+  });
+
+  it('reports an item that is not there rather than claiming a deletion', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    expectValue(await repository.deleteDraft(item.itemId));
+
+    // Deleting twice is not a silent success: the second call had nothing to
+    // delete, and a caller told otherwise would audit a deletion that never
+    // happened.
+    expect(expectError(await repository.deleteDraft(item.itemId)).kind).toBe('NotFound');
+  });
+
+  // The handler asks the domain first, so this path is the database refusing
+  // an application that got it wrong — the backstop, not the control.
+  it('is refused by the database for anything past draft', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    expectValue(await repository.save(expectValue(transitionItem(item, { transition: 'submit_for_review' }))));
+
+    const refused = expectError(await repository.deleteDraft(item.itemId));
+    expect(refused.code).toBe('PERSISTENCE_REJECTED');
+    expect(refused.message).toContain('item_only_drafts_are_deleted');
+    expectValue(await repository.findById(item.itemId));
+  });
+});
+
 describe('the stimulus reference count FR-TCH-03 rule 3 depends on', () => {
   async function seedStimulusVersion(): Promise<string> {
     const stimulusId = freshUuid();

@@ -279,6 +279,32 @@ export function deriveDraft(
   );
 }
 
+/**
+ * Pins a stimulus **version** onto a draft version (FR-TCH-03 rule 2).
+ *
+ * The version being pinned is resolved by the handler at attachment time and
+ * never re-resolved: an item that asked about a passage keeps asking about the
+ * passage as it read then, whatever the author of that passage does afterwards.
+ * Re-pointing is a deliberate act, which is why this takes an identifier rather
+ * than a stimulus.
+ */
+export function pinStimulusVersion(
+  version: ItemVersion,
+  stimulusVersionId: string,
+  location = 'version',
+): Result<ItemVersion, ItemVersionError> {
+  if (isBlank(stimulusVersionId)) {
+    return err(
+      invalid(
+        'STIMULUS_VERSION_REF_BLANK',
+        'an attachment names a stimulus version',
+        `${location}.stimulusVersionRef`,
+      ),
+    );
+  }
+  return ok(Object.freeze({ ...version, stimulusVersionRef: stimulusVersionId }));
+}
+
 /** Whether this version pins a stimulus, and which version of it. */
 export function stimulusVersionOf(version: ItemVersion): string | undefined {
   return version.stimulusVersionRef;

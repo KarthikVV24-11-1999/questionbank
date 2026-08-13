@@ -7,8 +7,10 @@ import {
   createStimulus,
   createStimulusVersion,
   latestStimulusVersionOf,
+  isStimulusVersionEditable,
   publishedStimulusVersionOf,
   reconstituteStimulus,
+  replaceDraftStimulusVersion,
   STIMULUS_TYPES,
   transitionStimulus,
   type CreateStimulusVersionProps,
@@ -475,5 +477,67 @@ describe('immutability', () => {
     const original = draft();
     expectValue(transitionStimulus(original, { transition: 'submit_for_review' }));
     expect(original.lifecycleState).toBe('draft');
+  });
+});
+
+describe('replacing a draft version in place', () => {
+  const edited = version({ body: textBody('A corrected sentence.') });
+
+  it('replaces the content without adding a version', () => {
+    const updated = expectValue(replaceDraftStimulusVersion(draft(), edited));
+    expect(updated.versions).toHaveLength(1);
+    expect(updated.versions[0]!.body).toEqual(textBody('A corrected sentence.'));
+    expect(updated.aggregateVersion).toBe(2);
+  });
+
+  it('leaves the original untouched', () => {
+    const original = draft();
+    expectValue(replaceDraftStimulusVersion(original, edited));
+    expect(original.versions[0]!.body).toEqual(V1.body);
+  });
+
+  // A published stimulus routinely holds a later draft — that is what
+  // FR-TCH-03 rule 2 produces — so the aggregate state cannot be the guard.
+  it('edits a later draft on a published stimulus', () => {
+    const published = inState('published', [V1, V2]);
+    const laterDraft = version({ versionId: 'stimulus-version-2', versionNo: 2, body: textBody('still being written') });
+    const updated = expectValue(replaceDraftStimulusVersion(published, laterDraft));
+    expect(updated.versions[1]!.body).toEqual(textBody('still being written'));
+  });
+
+  it('refuses to edit the published version itself', () => {
+    expect(expectError(replaceDraftStimulusVersion(inState('published', [V1, V2]), edited)).code).toBe(
+      'VERSION_NOT_EDITABLE',
+    );
+  });
+
+  it.each(['in_review', 'approved', 'retired'] as const)('refuses an edit while %s', (state) => {
+    const failure = expectError(replaceDraftStimulusVersion(inState(state), edited));
+    expect(failure.kind).toBe('RuleViolation');
+    expect(failure.code).toBe('VERSION_NOT_EDITABLE');
+  });
+
+  it('refuses a version the stimulus does not hold', () => {
+    expect(expectError(replaceDraftStimulusVersion(draft(), V2)).code).toBe('VERSION_NOT_FOUND');
+  });
+
+  it('refuses a replacement claiming a different version number', () => {
+    const renumbered = { ...edited, versionNo: 9 } as StimulusVersion;
+    expect(expectError(replaceDraftStimulusVersion(draft(), renumbered)).code).toBe(
+      'VERSION_NUMBERS_NOT_CONTIGUOUS',
+    );
+  });
+
+  it.each([
+    ['draft', true],
+    ['changes_requested', true],
+    ['rejected', true],
+    ['published', true],
+    ['suspended', true],
+    ['in_review', false],
+    ['approved', false],
+    ['retired', false],
+  ] as const)('reports %s as version-editable=%s', (state, expected) => {
+    expect(isStimulusVersionEditable(state)).toBe(expected);
   });
 });

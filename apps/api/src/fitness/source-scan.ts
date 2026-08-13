@@ -116,7 +116,20 @@ export function readCode(file: string): string {
   return stripComments(readFileSync(file, 'utf8'));
 }
 
-/** Files under `directory` whose executable code matches `pattern`. */
-export function filesMatching(directory: string, pattern: RegExp): string[] {
-  return tsFilesUnder(directory).filter((file) => pattern.test(readCode(file)));
+/**
+ * Files under `directory` whose executable code matches `pattern`.
+ *
+ * `exclude` holds path suffixes a rule deliberately exempts. An exemption is
+ * only defensible when it is named at the call site with its reason — which is
+ * why this takes a list rather than a predicate.
+ */
+export function filesMatching(
+  directory: string,
+  pattern: RegExp,
+  options: { readonly exclude?: readonly string[] } = {},
+): string[] {
+  const exempt = options.exclude ?? [];
+  return tsFilesUnder(directory)
+    .filter((file) => !exempt.some((suffix) => file.endsWith(suffix)))
+    .filter((file) => pattern.test(readCode(file)));
 }

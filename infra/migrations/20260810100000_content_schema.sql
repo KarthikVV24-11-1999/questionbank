@@ -77,6 +77,8 @@ CREATE TABLE content.stimulus_version (
   authored_by_kind          text NOT NULL CHECK (authored_by_kind IN ('human', 'ai_agent', 'system')),
   authored_by_id            uuid NOT NULL,
   created_at                timestamptz NOT NULL DEFAULT now(),
+  -- When the draft was last autosaved; stops moving once the version publishes.
+  updated_at                timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT stimulus_version_no_unique UNIQUE (stimulus_id, version_no)
 );
@@ -141,6 +143,13 @@ CREATE TABLE content.item_version (
   authored_by_kind      text NOT NULL CHECK (authored_by_kind IN ('human', 'ai_agent', 'system')),
   authored_by_id        uuid NOT NULL,
   created_at            timestamptz NOT NULL DEFAULT now(),
+  -- When the draft was last autosaved. Not on the domain type: an ItemVersion
+  -- is an immutable snapshot with one authored instant, and the moment the
+  -- version publishes this column stops moving with it. It exists because "the
+  -- drafts I was working on" is the ordering the item browser needs, and
+  -- because a projection that can only be derived from an audit log is a
+  -- projection no query can use.
+  updated_at            timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT item_version_no_unique UNIQUE (item_id, version_no)
 );
@@ -357,6 +366,8 @@ CREATE TABLE content.solution_version (
   authored_by_kind         text NOT NULL CHECK (authored_by_kind IN ('human', 'ai_agent', 'system')),
   authored_by_id           uuid NOT NULL,
   created_at               timestamptz NOT NULL DEFAULT now(),
+  -- When the draft was last autosaved; stops moving once the version publishes.
+  updated_at               timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT solution_version_no_unique UNIQUE (solution_id, version_no)
 );
@@ -443,6 +454,39 @@ ALTER TABLE content.media_asset
   ADD CONSTRAINT media_asset_published_version_fk
   FOREIGN KEY (current_published_version_id) REFERENCES content.media_asset_version (asset_version_id);
 
+-- The review record (FR-QM-03, INV-07). M4 owns the *workspace* that produces
+-- decisions — assignment, ageing, the reviewer's screen — but the record itself
+-- lands here, because a publication precondition that depends on another
+-- milestone's storage is not a precondition.
+--
+-- Append-only in intent: a reviewer who changes their mind records a second
+-- decision, so the history FR-TCH-09 rule 1 needs survives. The owner is
+-- polymorphic and therefore carries no foreign key, the same trade
+-- `content_licensing` and `content_media_ref` make.
+CREATE TABLE content.review_decision (
+  review_decision_id uuid PRIMARY KEY DEFAULT content.uuid_generate_v7(),
+  tenant_id          uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+  owner_type         text NOT NULL
+                       CHECK (owner_type IN ('item_version', 'stimulus_version',
+                                             'solution_version', 'media_asset_version')),
+  owner_version_id   uuid NOT NULL,
+  reviewer_kind      text NOT NULL CHECK (reviewer_kind IN ('human', 'ai_agent', 'system')),
+  reviewer_id        uuid NOT NULL,
+  outcome            text NOT NULL
+                       CHECK (outcome IN ('approve', 'approve_with_edits', 'request_changes', 'reject')),
+  justification      text,
+  decided_at         timestamptz NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+
+  -- Anything that sends work back states why. "Rejected" alone is not feedback.
+  CONSTRAINT review_decision_returned_work_is_explained
+    CHECK (outcome IN ('approve', 'approve_with_edits')
+           OR length(btrim(coalesce(justification, ''))) > 0)
+);
+
+CREATE INDEX review_decision_owner_idx
+  ON content.review_decision (owner_type, owner_version_id, decided_at DESC);
+
 -- The usage graph. One edge per (owner version, asset version) relationship,
 -- however many times the document mentions it — counting mentions would report
 -- an asset as unused the moment a caption changed.
@@ -485,6 +529,7 @@ CREATE TABLE content.item_version_locale (
 -- +migrate Down
 
 DROP TABLE IF EXISTS content.item_version_locale;
+DROP TABLE IF EXISTS content.review_decision;
 DROP TABLE IF EXISTS content.content_media_ref;
 ALTER TABLE IF EXISTS content.media_asset DROP CONSTRAINT IF EXISTS media_asset_published_version_fk;
 DROP TABLE IF EXISTS content.media_asset_version;
