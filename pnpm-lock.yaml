@@ -34,6 +34,12 @@ importers:
       pg:
         specifier: ^8.22.0
         version: 8.22.0
+      react:
+        specifier: ^19.1.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.1.0
+        version: 19.2.8(react@19.2.8)
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -56,6 +62,9 @@ importers:
       '@types/pg':
         specifier: ^8.20.4
         version: 8.20.4
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.2.18
       '@types/supertest':
         specifier: ^7.2.1
         version: 7.2.1

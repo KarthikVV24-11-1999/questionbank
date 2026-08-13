@@ -483,6 +483,15 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M0-09, closes D27. Decides whether an item can publish — a gap
+        // here is a render failure silently softened to a warning, or a
+        // surface silently dropped from what gets checked.
+        'src/contexts/content/infrastructure/render-validator.adapter.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         // M0-02. This decides what a secret is and what boots — a gap here
         // is a signing key with no default reaching production, or a
         // malformed value reaching the application silently coerced.
@@ -545,6 +554,23 @@ export default defineConfig({
         // Exercised by the integration project (real Postgres); the threshold
         // holds over the combined run, not the unit-only one.
         'src/platform/persistence/audit-recorder.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M0-08. Closes D22 — a gap here is a retried autosave rewriting a
+        // row or writing a second audit record.
+        'src/platform/persistence/idempotency-store.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M0-10. A gap here is a path-traversal key reaching the
+        // filesystem, or the filesystem adapter silently standing in for
+        // S3 in production instead of refusing to boot.
+        'src/platform/persistence/filesystem-media-store.ts': {
           branches: 100,
           lines: 100,
           functions: 100,

@@ -125,6 +125,8 @@ function toScoreRecord(
   return Object.freeze({
     scoreRecordId: row.score_record_id,
     attemptId: row.attempt_id,
+    examProfileVersionId: row.exam_profile_version_id,
+    taxonomyVersionId: row.taxonomy_version_id,
     markingRuleSetHash: row.marking_rule_set_hash,
     ruleSchemaVersion: row.rule_schema_version,
     generation: row.generation,
@@ -140,21 +142,15 @@ function toScoreRecord(
   });
 }
 
-export interface ScoreRecordPersistenceContext {
-  readonly examProfileVersionId: string;
-  readonly taxonomyVersionId: string;
-}
-
 /**
- * The profile and taxonomy identifiers are carried alongside the record rather
- * than on it: they belong to the attempt's pin, and the domain aggregate holds
- * only what a score *is*. The repository is where the two meet.
+ * The profile and taxonomy identifiers ride on the record itself (ADR-0017)
+ * — `examProfileVersionId` and `taxonomyVersionId` are part of what a score
+ * *is*, not context supplied alongside it. A prior version of this class
+ * took them at construction instead, which meant one instance could only
+ * ever be correct for one exam profile; ADR-0017 records why that was wrong.
  */
 export class PostgresScoreRecordRepository implements ScoreRecordRepository {
-  constructor(
-    private readonly pool: Pool,
-    private readonly context: ScoreRecordPersistenceContext,
-  ) {}
+  constructor(private readonly pool: Pool) {}
 
   async save(record: ScoreRecord): Promise<Result<ScoreRecord, RepositoryError>> {
     return this.inTransaction(async (client) => {
@@ -235,10 +231,10 @@ export class PostgresScoreRecordRepository implements ScoreRecordRepository {
       [
         record.scoreRecordId,
         record.attemptId,
-        this.context.examProfileVersionId,
+        record.examProfileVersionId,
         record.markingRuleSetHash,
         record.ruleSchemaVersion,
-        this.context.taxonomyVersionId,
+        record.taxonomyVersionId,
         record.generation,
         record.isCurrent,
         record.supersedesScoreRecordId ?? null,

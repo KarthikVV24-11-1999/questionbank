@@ -460,6 +460,9 @@ describe('ADR-0008 — every correctness-bearing content module carries a 100% t
     'src/contexts/content/domain/repository-ports.ts',
     'src/contexts/content/domain/result.ts',
     'src/contexts/content/public/index.ts',
+    // Wires real handlers to real repositories and adapters; decides
+    // nothing a handler does not already decide itself (ADR-0015).
+    'src/contexts/content/public/composition.ts',
     'src/contexts/content/api/authoring.controller.ts',
     'src/contexts/content/api/content.controller.ts',
     'src/contexts/content/api/content.module.ts',

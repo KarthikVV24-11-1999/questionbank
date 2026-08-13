@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import {
   isBlockKind,
   isInlineKind,
@@ -96,7 +96,7 @@ interface RenderContext {
  */
 function Fallback(props: {
   readonly label: string;
-  readonly detail: string;
+  readonly detail: ReactNode;
   readonly display: 'block' | 'inline';
 }): JSX.Element {
   const Wrapper = props.display === 'block' ? 'div' : 'span';
@@ -239,13 +239,17 @@ function BlockNode(props: {
 
     case 'MEDIA_BLOCK': {
       const resolved = context.resolveMedia(block.assetVersionId);
+      const caption =
+        block.caption === undefined ? undefined : (
+          <Inlines inlines={block.caption} location={`${location}.caption`} context={context} />
+        );
       if (resolved === undefined) {
         context.report({
           code: 'MEDIA_UNRESOLVED',
           location,
           message: `no media resolved for ${block.assetVersionId}`,
         });
-        return <Fallback label="Figure unavailable" detail={block.caption ?? ''} display="block" />;
+        return <Fallback label="Figure unavailable" detail={caption ?? ''} display="block" />;
       }
       // A real `figure`/`figcaption`, so the caption is associated with the
       // image rather than being a paragraph that happens to sit under it.
@@ -263,7 +267,7 @@ function BlockNode(props: {
               {resolved.longDescription}
             </p>
           )}
-          {block.caption === undefined ? null : <figcaption>{block.caption}</figcaption>}
+          {caption === undefined ? null : <figcaption>{caption}</figcaption>}
         </figure>
       );
     }

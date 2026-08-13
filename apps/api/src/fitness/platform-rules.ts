@@ -9,6 +9,7 @@ import { stripComments } from './source-scan.js';
  * home the checks accumulate in, the way `content-rules.ts` did for M3.
  *
  *   F16 — no configuration read outside the typed config module
+ *   API_NO_TSX — the API authors no JSX (ADR-0016)
  */
 export interface EnvReadViolation {
   readonly rule: 'F16_UNTYPED_CONFIG_READ';
@@ -76,4 +77,46 @@ export function checkNoUntypedConfigReads(
     }
   }
   return violations;
+}
+
+export interface TsxViolation {
+  readonly rule: 'API_NO_TSX';
+  readonly file: string;
+}
+
+/** Every file under `directory`, any extension — unlike `walk`, not narrowed to `.ts`. */
+function walkAllFiles(directory: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(directory);
+  } catch {
+    return [];
+  }
+  return entries.flatMap((entry) => {
+    const path = join(directory, entry);
+    return statSync(path).isDirectory() ? walkAllFiles(path) : [path];
+  });
+}
+
+/**
+ * The API type-checks the renderer package (ADR-0016, M0-09) — it does not
+ * author components of its own. `jsx: "react-jsx"` in `apps/api/tsconfig.json`
+ * exists to check an *imported* package, never to compile JSX authored here;
+ * this is the guard that keeps that boundary from drifting quietly. A file
+ * ending `.tsx` under `src/` is the violation, regardless of what it contains.
+ */
+const DEFAULT_TSX_EXCLUDES = [/^src\/fitness-fixtures\//u];
+
+export function checkNoTsxFiles(
+  root: string,
+  options: { readonly include?: readonly string[]; readonly excludePatterns?: readonly RegExp[] } = {},
+): TsxViolation[] {
+  const includes = options.include ?? ['src'];
+  const excludes = options.excludePatterns ?? DEFAULT_TSX_EXCLUDES;
+  const files = includes
+    .flatMap((directory) => walkAllFiles(join(root, directory)))
+    .map((file) => relative(root, file).replaceAll('\\', '/'))
+    .filter((file) => !excludes.some((pattern) => pattern.test(file)));
+
+  return files.filter((file) => file.endsWith('.tsx')).map((file) => ({ rule: 'API_NO_TSX' as const, file }));
 }

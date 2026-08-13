@@ -23,10 +23,7 @@ beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations();
   await database.applyMigrations();
-  repository = new PostgresScoreRecordRepository(database.pool, {
-    examProfileVersionId: PROFILE_ID,
-    taxonomyVersionId: TAXONOMY_ID,
-  });
+  repository = new PostgresScoreRecordRepository(database.pool);
 });
 
 afterAll(async () => {
@@ -86,6 +83,16 @@ describe('save and load round trip', () => {
     expectValue(await repository.save(record));
     const loaded = expectValue(await repository.findById(record.scoreRecordId));
 
+    // The blanket deep-equality below is only a real proof because the pin
+    // (ADR-0017) is a field on both objects being compared — before that
+    // fix, neither the in-memory record nor the loaded one carried it, so
+    // this same assertion passed while being blind to whatever the
+    // constructor's fixed context actually wrote to the columns. These two
+    // named assertions are what makes the coverage of that specifically
+    // impossible to lose back to silently, if this file is ever edited
+    // again without noticing.
+    expect(loaded.examProfileVersionId).toBe(PROFILE_ID);
+    expect(loaded.taxonomyVersionId).toBe(TAXONOMY_ID);
     expect(loaded).toEqual(record);
   });
 
