@@ -7,3 +7,5 @@ coverage/
 .env.local
 .env.*.local
 *.pgpass
+docs/HANDOFF*.md
+docs/tasks/*-PROGRESS.md

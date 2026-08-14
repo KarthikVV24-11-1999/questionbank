@@ -4,26 +4,62 @@ A content platform for JEE/NEET exam preparation: a governed question bank, a ve
 the authoring and review tooling that feeds them. It is being built content-pipeline-first — the storefront
 and the learner-facing product come later, once there is a corpus worth delivering.
 
+## Current state
+
+- **4 of 11 milestones closed** — M0 (walking skeleton), M1 (curriculum spine), M2 (scoring engine), M3
+  (content model & authoring). M4 (governance & review workspace) is broken down and ratified, not started.
+- The application boots and serves an authenticated request against real Postgres:
+  `corepack pnpm --filter @questionbank/api start`, then an authenticated `GET /v1/exams` — see
+  [How to run it](#how-to-run-it) for the full sequence.
+- **4,011 tests** across 5 workspace projects. Coverage floors are enforced in the test run — ≥80%
+  line/≥70% branch overall, **100% on every correctness-bearing module** (scoring, publication
+  preconditions, the answer-key projection).
+- Deliberately not done: no CI has ever run (the workflow is authored, unexecuted); no Compose stack has
+  booted (authored, parsed, unrun); no cloud deploy exists; the golden scoring set is validated against
+  zero real exam papers (blocked on a licensing decision, [B1](docs/tasks/M3-CLOSEOUT.md)); there is no
+  learner-facing application yet.
+
 ---
 
-## How this was built
+## Architecture
 
-This codebase was written with heavy AI assistance, under a defined process: every milestone starts as a
-ratified task breakdown before any code is written, every divergence from an approved document gets an ADR
-recording why, every gate is proven red on a planted violation before it's trusted green, and design
-questions that needed a human judgement call stopped for one rather than getting guessed. That process
-caught real defects along the way, not hypothetical ones — a `ScoreRecord` that never carried the exam
-profile and taxonomy version it was scored against, a media caption that rendered as raw text instead of its
-authored notation, and an import path that let equations with no accessible-text alternative through because
-nothing on that path actually ran the domain constructor. None of that makes the code correct by default; it
-means the failure mode this discipline exists to catch — something wrong that looks fine — got caught before
-it shipped.
+Three bounded contexts today, each under `apps/api/src/contexts/`:
+
+```
+apps/studio ──▶ packages/contracts ──▶ apps/api
+ (Studio UI)     (typed client,          ├─ contexts/curriculum/  taxonomy, exam profiles — no dependencies
+                  generated from         ├─ contexts/scoring/     marking, scoring — mirrors curriculum's
+                  OpenAPI)               │                        vocabulary as its own types; does not import it
+                                         └─ contexts/content/     items, versions, lifecycle, authoring, review
+                                                                   (M4) — imports scoring/public/ for the
+                                                                   answer-key projection only
+```
+
+| Context | Owns | Depends on |
+|---|---|---|
+| `curriculum` | Taxonomy, concepts, exam profiles, marking rule sets | nothing |
+| `scoring` | The marking executor, score records, rescoring | nothing — mirrors curriculum's vocabulary, asserted equal to it by a spec, never imports it |
+| `content` | Items, versions, lifecycle, authoring, review workspace (M4) | `scoring/public/`, for the answer-key projection only |
+
+Cross-context access goes through a context's `public/` barrel and nothing deeper. This is enforced by a
+test — [`apps/api/src/fitness/boundary-rules.spec.ts`](apps/api/src/fitness/boundary-rules.spec.ts) — not by
+convention: a planted import reaching past a barrel is asserted to fail.
+
+`domain/` in every context is pure: no I/O, no framework, no clock, no randomness.
+
+Six workspace projects: `apps/api` (the backend), `apps/studio` (internal authoring/review frontend),
+`packages/content-renderer` (the one renderer authoring and delivery both use), `packages/contracts`
+(generated OpenAPI types, Zod schemas, the typed client), `packages/domain-types` (the shared kernel), and
+`tools/seed` (deterministic fixture-data loader). See [How to test it](#how-to-test-it) for each one's own
+README.
 
 ---
 
 ## How to run it
 
-Tested on a clean machine: macOS or Linux, Node ≥ 22, no Docker required for local development.
+Verified on this project's own development machine: macOS, Node ≥ 22, no Docker required for local
+development. Not yet verified on a clean install elsewhere — if a step below doesn't work on your machine,
+that's real information; please open an issue.
 
 1. **Install Node 22+ and enable Corepack**, then install dependencies from the workspace's own lockfile:
 
@@ -191,23 +227,22 @@ worth knowing it exists separately, because it is what CI would call if a CI pro
 
 ## Where to start reading
 
-In this order — each document answers a specific question, and reading them out of order means arriving at
-the code without the reasoning that shaped it:
+**[`docs/README.md`](docs/README.md) is the full index** — one line per document, grouped by what question
+it answers. In this order, without opening everything:
 
 1. **[`docs/ENGINEERING-HANDBOOK.md`](docs/ENGINEERING-HANDBOOK.md)** — *how is code here supposed to look?*
    The architecture rules (context boundaries, the `public/` barrel convention, the five-directory anatomy),
    the closed error taxonomy, and §11's Day One path, which this README's setup section is an expanded
    version of.
-2. **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — *what are the pieces, and how do they compose?* The
-   bounded contexts (content, curriculum, scoring — governance is next), the composition root, and how a
-   request moves from HTTP through a handler to a repository and back.
-3. **The four close-out documents, in milestone order** — *what actually got built, and what didn't?* Each
+2. **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — *what are the pieces, and how do they compose?* See
+   also the [Architecture](#architecture) section above for the current, as-built shape.
+3. **The close-out documents, in milestone order** — *what actually got built, and what didn't?* Each
    states its milestone's Definition of Done verdict honestly, including what is blocked and why:
    - [`docs/tasks/M0-CLOSEOUT.md`](docs/tasks/M0-CLOSEOUT.md) — the walking skeleton: a real request reaching a real database
    - [`docs/tasks/M1-CLOSEOUT.md`](docs/tasks/M1-CLOSEOUT.md) — the curriculum spine: taxonomy and exam profiles
    - [`docs/tasks/M2-CLOSEOUT.md`](docs/tasks/M2-CLOSEOUT.md) — the scoring engine and its golden-set regression gate
    - [`docs/tasks/M3-CLOSEOUT.md`](docs/tasks/M3-CLOSEOUT.md) — the content model and Studio authoring
-   - [`docs/HANDOFF-M4.md`](docs/HANDOFF-M4.md) and [`docs/tasks/M4-GOVERNANCE-REVIEW.md`](docs/tasks/M4-GOVERNANCE-REVIEW.md) name what comes next and why
+   - [`docs/tasks/M4-GOVERNANCE-REVIEW.md`](docs/tasks/M4-GOVERNANCE-REVIEW.md) — the ratified breakdown for what's next; M4 has no close-out yet, because it hasn't started
 4. **The ADRs, under [`docs/adr/`](docs/adr/)** — *why does this specific divergence from the obvious design
    exist?* Each records one decision, its consequences, and the alternatives that were rejected and why. Not
    meant to be read start to finish — consult one when the code does something that looks like it contradicts
@@ -245,3 +280,7 @@ it (never claiming it *works*, only that it's well-formed), and what is recorded
 missing resource named. Every milestone's Definition of Done carries its blocked lines openly rather than
 narrowing the criterion until it quietly passes — that discipline is the reason this document could describe
 a real, verified boot sequence instead of a plan.
+
+---
+
+Licensed under [MIT](LICENSE).

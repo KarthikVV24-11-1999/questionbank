@@ -142,7 +142,7 @@ It appears here and must appear in every handoff until it closes.
 
 | # | Item | Verdict | Evidence |
 |---|---|---|---|
-| 1 | All 45 tasks merged | **Pass** | 45 rows in [M3-PROGRESS.md](M3-PROGRESS.md); 45 commits |
+| 1 | All 45 tasks merged | **Pass** | 45 commits |
 | 2 | `Item`, `Stimulus`, `Solution`, `MediaAsset` version independently, each with its own lifecycle | **Pass** | four aggregates, four repositories, one shared lifecycle table; `item.spec.ts`, `stimulus.spec.ts`, `solution.spec.ts`, `media-asset.spec.ts` |
 | 3 | Publication blocked without tags, provenance, resolved licensing, a solution, a reviewer signature and a valid answer specification — each proven by a failing publication, every check in the domain | **Pass** | `lifecycle-handlers.integration.spec.ts` › publication is refused for each unmet precondition — 12 tests, one per precondition, end to end |
 | 4 | INV-12 self-review and INV-01 AI-never-publishes are structural, each proven against a planted violation | **Pass** | the offending decision is written straight to `content.review_decision`, so the guarantee does not rest on one code path; `content-rules.spec.ts` › INV-01 (both halves) |

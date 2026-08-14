@@ -66,7 +66,7 @@ resolved through `moduleResolution: "Bundler"` directly against `.ts`/`.tsx` fil
 `src/*.ts(x)`, not a `dist/`). Adding a build step means adding a bundler or `tsc --emitDeclarationOnly`
 pipeline, a `prepare`/`build` script per package, and a new class of "did you rebuild before testing"
 failure — to a repository that runs entirely offline
-(`corepack pnpm install --offline`, [HANDOFF-M4.md](../HANDOFF-M4.md)) and has deliberately stayed free of
+(`corepack pnpm install --offline`) and has deliberately stayed free of
 one through M1, M2 and M3. The cost is a real build system; the benefit is narrowing one compiler option to
 one file's import chain, which `checkNoTsxFiles` already narrows without it.
 
