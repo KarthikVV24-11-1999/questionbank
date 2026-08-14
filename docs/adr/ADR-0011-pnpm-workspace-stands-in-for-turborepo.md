@@ -17,9 +17,9 @@ without Turborepo.
 Two independent facts decide this, and either alone would be sufficient.
 
 **It is not installable today.** `turbo` is not present in `node_modules/.pnpm`, and M0 runs with no
-network (`corepack pnpm install --offline` resolves from the store only — see the M0 environment section
-of [HANDOFF-M4](../HANDOFF-M4.md)). Adoption is not a churn-versus-benefit question; it is not possible at
-any price until a developer with network access adds it.
+network (`corepack pnpm install --offline` resolves from the store only). Adoption is not a
+churn-versus-benefit question; it is not possible at any price until a developer with network access adds
+it.
 
 **Its entire value is realised in CI, and this repository has no CI runner to realise it against.**
 Remote caching skips re-running a task whose inputs haven't changed *between CI runs*. Task-graph
