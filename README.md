@@ -6,6 +6,21 @@ and the learner-facing product come later, once there is a corpus worth deliveri
 
 ---
 
+## How this was built
+
+This codebase was written with heavy AI assistance, under a defined process: every milestone starts as a
+ratified task breakdown before any code is written, every divergence from an approved document gets an ADR
+recording why, every gate is proven red on a planted violation before it's trusted green, and design
+questions that needed a human judgement call stopped for one rather than getting guessed. That process
+caught real defects along the way, not hypothetical ones — a `ScoreRecord` that never carried the exam
+profile and taxonomy version it was scored against, a media caption that rendered as raw text instead of its
+authored notation, and an import path that let equations with no accessible-text alternative through because
+nothing on that path actually ran the domain constructor. None of that makes the code correct by default; it
+means the failure mode this discipline exists to catch — something wrong that looks fine — got caught before
+it shipped.
+
+---
+
 ## How to run it
 
 Tested on a clean machine: macOS or Linux, Node ≥ 22, no Docker required for local development.
