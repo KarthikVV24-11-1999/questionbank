@@ -45,3 +45,16 @@ developer and duplicates what Compose is already specified to provide.
 
 **Defer Track B until M0.** Rejected: it would have stalled six tasks on infrastructure that is not
 M1's to build.
+
+## Amended by M0 (2026-08-14)
+
+Three facts, and nothing else changes:
+
+1. **The Compose file now exists** — `infra/compose/docker-compose.yml` (M0-20), publishing Postgres on
+   5432, per the plan this ADR already named as "when M0 lands."
+2. **Both `DATABASE_URL` defaults are unchanged**, still pointing at 5432 (`apps/api/src/testing/database.ts:15`,
+   `tools/seed/index.ts:117`) — the file is the documented target, not a departure from it.
+3. **F8 remains `Fail — blocked`, and the verification this ADR names is still unrun.** Authoring the
+   Compose file is Tier 2 (ADR-0013); it proves the file parses and declares the right health-check shape,
+   not that anything has booted. ADR-0004 is superseded by the first *green* Compose boot, and by nothing
+   else — when that happens, this section becomes a one-line edit.
