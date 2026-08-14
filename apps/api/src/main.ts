@@ -40,8 +40,14 @@ export async function main(): Promise<void> {
 
 // Guards the entry point so a spec can `import { main } from './main.js'`
 // and call it under a controlled config/signal without also triggering a
-// real boot on import — `node dist/main.js` is the only caller for which
-// this condition is true.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// real boot on import. Not an `import.meta.url` / `process.argv[1]`
+// comparison: this repository's own path contains a space, which a bare
+// `file://` prefix does not encode the way `import.meta.url` does (so the
+// comparison never matched at all), and `vite-node` — the one way this file
+// runs without a build step in an offline store with no `ts-node`/`tsx` —
+// does not rewrite `argv[1]` to the target script either, so the comparison
+// would still fail even path-corrected. `VITEST` is set by every vitest
+// runner unconditionally and by nothing else this file's callers use.
+if (process.env['VITEST'] === undefined) {
   void main();
 }

@@ -3,6 +3,7 @@ import { connectTestDatabase, type TestDatabase } from '../testing/database.js';
 import {
   checkJsonbVersionSiblings,
   checkNoTruncateGrant,
+  checkNoWriteGrantOnAppendOnlyTable,
   type ColumnRow,
   type GrantRow,
 } from './content-rules.js';
@@ -74,20 +75,55 @@ describe('F5 — every content JSONB column has a version sibling', () => {
 
 describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
   /**
-   * The role the deployed application connects as. **It does not exist on a
-   * local instance** — there is no Compose stack here (ADR-0004) — so this is
-   * recorded rather than passed over, exactly as M3-20's grant test does. A
-   * check that treated whatever grantee it happened to find as "the app role"
-   * would call the table owner a violation and teach the wrong lesson twice.
+   * The role the deployed application connects as. **It now exists on a
+   * local instance** (M0-24, closes D9) — the migration creates it — so this
+   * test is rewritten to assert the real thing rather than left recording an
+   * absence that stopped being true. Leaving it asserting a falsehood would
+   * be worse than having no test (DEC-M0-14 rule 3).
    */
   const APP_ROLE = 'questionbank_app';
 
-  it('reports honestly that the deployment role is absent on this instance', async () => {
-    const { rows } = await database.pool.query<{ exists: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists`,
+  it('exists, locally, as the migration creates it', async () => {
+    const { rows } = await database.pool.query<{ exists: boolean; canLogin: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists,
+              (SELECT rolcanlogin FROM pg_roles WHERE rolname = $1) AS "canLogin"`,
       [APP_ROLE],
     );
-    expect(rows[0]?.exists).toBe(false);
+    expect(rows[0]?.exists).toBe(true);
+    // NOLOGIN locally — no password in source (F39); the deployed credential
+    // is set out of band, from Secrets Manager, never by this migration.
+    expect(rows[0]?.canLogin).toBe(false);
+  });
+
+  it('holds exactly the expected privilege set — SELECT/INSERT/UPDATE/DELETE on content/curriculum/scoring, SELECT/INSERT only on platform', async () => {
+    const { rows } = await database.pool.query<GrantRow & { schema: string }>(
+      `SELECT table_schema AS "schema", table_name AS "table", privilege_type AS "privilege", grantee AS "grantee"
+         FROM information_schema.role_table_grants
+        WHERE grantee = $1 AND table_schema IN ('content', 'curriculum', 'scoring', 'platform')`,
+      [APP_ROLE],
+    );
+
+    expect(rows.length).toBeGreaterThan(0);
+
+    const byTable = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const key = `${row.schema}.${row.table}`;
+      const set = byTable.get(key) ?? new Set<string>();
+      set.add(row.privilege);
+      byTable.set(key, set);
+    }
+
+    for (const [table, privileges] of byTable) {
+      expect(privileges.has('TRUNCATE'), table).toBe(false);
+      if (table.startsWith('platform.')) {
+        expect([...privileges].sort(), table).toEqual(['INSERT', 'SELECT']);
+      } else {
+        expect(privileges.has('SELECT'), table).toBe(true);
+        expect(privileges.has('INSERT'), table).toBe(true);
+        expect(privileges.has('UPDATE'), table).toBe(true);
+        expect(privileges.has('DELETE'), table).toBe(true);
+      }
+    }
   });
 
   it('finds no TRUNCATE held by the application role', async () => {
@@ -103,8 +139,10 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
     expect(checkNoTruncateGrant(rows, [APP_ROLE])).toEqual([]);
   });
 
-  // Which, locally, is a result about a role that is not there. So the check is
-  // shown to fire on the same catalogue rows with the grant present.
+  // A real result about a role that now really exists (M0-24) — so the check
+  // is also shown to fire on the same catalogue shape with the grant present,
+  // the first time F7/F40 has ever fired against a real role rather than a
+  // planted row alone.
   it('fires when the application role does hold TRUNCATE', () => {
     const violations = checkNoTruncateGrant(
       [
@@ -136,5 +174,30 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
         [APP_ROLE],
       ),
     ).toEqual([]);
+  });
+});
+
+describe('F40 — no UPDATE/DELETE/TRUNCATE on an append-only platform table', () => {
+  const APP_ROLE = 'questionbank_app';
+
+  it('finds none held on platform.audit_record, against the real catalogue', async () => {
+    const { rows } = await database.pool.query<GrantRow>(
+      `SELECT table_name AS "table", privilege_type AS "privilege", grantee AS "grantee"
+         FROM information_schema.role_table_grants
+        WHERE table_schema = 'platform' AND table_name = 'audit_record'`,
+    );
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(checkNoWriteGrantOnAppendOnlyTable(rows, [APP_ROLE])).toEqual([]);
+  });
+
+  it('fires when the application role holds UPDATE on platform.audit_record', () => {
+    const violations = checkNoWriteGrantOnAppendOnlyTable(
+      [{ table: 'audit_record', privilege: 'UPDATE', grantee: APP_ROLE }],
+      [APP_ROLE],
+    );
+    expect(violations).toEqual([
+      { rule: 'F40_WRITE_GRANT_ON_AN_APPEND_ONLY_TABLE', subject: 'audit_record', detail: `${APP_ROLE} holds UPDATE` },
+    ]);
   });
 });

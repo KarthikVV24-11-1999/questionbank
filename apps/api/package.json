@@ -7,7 +7,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "fitness": "vitest run --project unit src/fitness",
-    "test:fast": "vitest run"
+    "test:fast": "vitest run",
+    "start": "vite-node src/main.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",
@@ -37,6 +38,7 @@
     "ajv-formats": "^3.0.1",
     "supertest": "^7.2.2",
     "typescript": "^5.7.3",
+    "vite-node": "^3.2.4",
     "vitest": "^3.0.5",
     "yaml": "^2.9.0"
   }

@@ -2,6 +2,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  ATTEMPT_ENGINE_PACKAGES,
+  checkAttemptEngineFrameworkFree,
   checkNoColorLiterals,
   checkNoHandwrittenFetch,
   COLOR_TOKEN_MODULES,
@@ -104,5 +106,35 @@ describe('F24 — no colour literal outside the token layer (§9 rule 16, M0-18)
       excludePatterns: [/planted-.*\.tsx$/u],
     });
     expect(violations).toEqual([]);
+  });
+});
+
+describe('F26 — the attempt engine imports no framework (M0-25) — its subject does not exist yet', () => {
+  it("packages/attempt-engine is absent, and the check says so rather than passing over an empty scan silently", () => {
+    const { presentPackages, violations } = checkAttemptEngineFrameworkFree(REPO_ROOT);
+    expect(presentPackages).toEqual([]);
+    expect(violations).toEqual([]);
+  });
+
+  it('no unconfirmed attempt-engine-shaped package exists in packages/', () => {
+    const { unconfirmedPackages } = checkAttemptEngineFrameworkFree(REPO_ROOT);
+    expect(unconfirmedPackages).toEqual([]);
+    expect(ATTEMPT_ENGINE_PACKAGES).toContain('packages/attempt-engine');
+  });
+
+  it('the rule is proven working before it has a real subject: a planted React import fails it', () => {
+    const { violations, presentPackages } = checkAttemptEngineFrameworkFree(REPO_ROOT, {
+      packages: ['apps/api/src/fitness-fixtures/as-attempt-engine'],
+    });
+    expect(presentPackages).toEqual(['apps/api/src/fitness-fixtures/as-attempt-engine']);
+    expect(violations.some((v) => v.rule === 'F26_FRAMEWORK_IMPORT_IN_ATTEMPT_ENGINE')).toBe(true);
+  });
+
+  it('a real attempt-engine-shaped package not in the named list fails the check', () => {
+    const { unconfirmedPackages } = checkAttemptEngineFrameworkFree(REPO_ROOT, {
+      packages: [],
+      packagesDir: 'apps/api/src/fitness-fixtures/as-packages-dir',
+    });
+    expect(unconfirmedPackages).toEqual(['apps/api/src/fitness-fixtures/as-packages-dir/attempt-engine']);
   });
 });

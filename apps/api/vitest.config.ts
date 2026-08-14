@@ -492,6 +492,15 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M0-26. This decides what boots and what closes — a gap here is a
+        // leaked pool on shutdown (the real bug this threshold's own proof
+        // found) or an override silently reaching the production path.
+        'src/platform/composition/app-factory.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         // M0-02. This decides what a secret is and what boots — a gap here
         // is a signing key with no default reaching production, or a
         // malformed value reaching the application silently coerced.

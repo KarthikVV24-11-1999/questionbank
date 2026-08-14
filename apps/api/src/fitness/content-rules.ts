@@ -27,6 +27,7 @@ export const CONTENT_RULES = [
   'F6_KEY_ON_A_DELIVERY_SURFACE',
   'F6_KEY_ABSENT_FROM_AN_AUTHORING_SURFACE',
   'F7_WRITE_GRANT_ON_A_PUBLISHED_VERSION_TABLE',
+  'F40_WRITE_GRANT_ON_AN_APPEND_ONLY_TABLE',
   'F20_SECOND_CONTENT_RENDERER',
   'INV01_AI_REACHES_CONTENT',
   'INV14_RENDERED_MARKUP_FIELD',
@@ -383,6 +384,26 @@ export function checkNoTruncateGrant(
       rule: 'F7_WRITE_GRANT_ON_A_PUBLISHED_VERSION_TABLE' as const,
       subject: row.table,
       detail: `${row.grantee} holds TRUNCATE`,
+    }));
+}
+
+/**
+ * F40 (M0-24) — `platform.*` tables are append-only by design (the audit
+ * log, the idempotency ledger, the outbox): the app role may `SELECT` and
+ * `INSERT`, never `UPDATE`, `DELETE` or `TRUNCATE`. Unlike a content version,
+ * there is no draft state to make any of the three legitimate.
+ */
+export function checkNoWriteGrantOnAppendOnlyTable(
+  grants: readonly GrantRow[],
+  appRoles: readonly string[],
+): ContentViolation[] {
+  const forbidden = new Set(['UPDATE', 'DELETE', 'TRUNCATE']);
+  return grants
+    .filter((row) => forbidden.has(row.privilege) && appRoles.includes(row.grantee))
+    .map((row) => ({
+      rule: 'F40_WRITE_GRANT_ON_AN_APPEND_ONLY_TABLE' as const,
+      subject: row.table,
+      detail: `${row.grantee} holds ${row.privilege}`,
     }));
 }
 

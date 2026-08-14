@@ -512,7 +512,9 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
     F1: ['src/fitness/boundary-rules.spec.ts', 'F1'],
     F2: ['src/fitness/boundary-rules.spec.ts', 'F2'],
     F5: ['src/fitness/content-rules.integration.spec.ts', 'F5'],
+    F7: ['src/fitness/content-rules.integration.spec.ts', 'F7'],
     F9: ['src/testing/golden/golden-regression.spec.ts', 'F9'],
+    F40: ['src/fitness/content-rules.integration.spec.ts', 'F40'],
     F15: ['src/contracts/content-contract.spec.ts', 'F15'],
     F18: ['src/contexts/content/domain/events/content-events.spec.ts', 'F18'],
     F36: ['src/contexts/content/application/authoring-boundary.spec.ts', 'F36'],
@@ -528,7 +530,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
       return !existsSync(path) || !readFileSync(path, 'utf8').includes(phrase);
     });
     expect(wrong).toEqual([]);
-    expect(Object.keys(GATES)).toHaveLength(11);
+    expect(Object.keys(GATES)).toHaveLength(13);
   });
 
   // The phrase check is shown to fail, or it is a second existence check.
@@ -538,7 +540,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
   });
 
   it('declares every rule this module can report', () => {
-    expect(CONTENT_RULES).toHaveLength(11);
+    expect(CONTENT_RULES).toHaveLength(12);
     expect(new Set(CONTENT_RULES).size).toBe(CONTENT_RULES.length);
   });
 });
