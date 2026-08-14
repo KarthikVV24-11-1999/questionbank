@@ -1,7 +1,15 @@
-import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkNoTsxFiles, checkNoUntypedConfigReads, ENV_READ_ALLOWLIST } from './platform-rules.js';
+import { checkCoverageThresholds } from './content-rules.js';
+import {
+  checkNoTsxFiles,
+  checkNoUntypedConfigReads,
+  CORRECTNESS_BEARING_PLATFORM_MODULES,
+  ENV_READ_ALLOWLIST,
+} from './platform-rules.js';
+import config from '../../vitest.config.js';
 
 const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -10,12 +18,13 @@ describe('F16 — no configuration read outside the typed config module', () => 
     expect(checkNoUntypedConfigReads(API_ROOT)).toEqual([]);
   });
 
-  it('the scan is not vacuous — with the allowlist cleared, it finds the two real readers', () => {
-    // config.ts and testing/database.ts genuinely read process.env. If the
-    // scan walked nothing, this would report [] too, same as a correct pass
-    // — so finding the real files is what rules out a scan walking zero.
+  it('the scan is not vacuous — with the allowlist cleared, it finds the three real readers', () => {
+    // config.ts, testing/database.ts and main.ts genuinely read process.env.
+    // If the scan walked nothing, this would report [] too, same as a
+    // correct pass — so finding the real files is what rules out a scan
+    // walking zero.
     const violations = checkNoUntypedConfigReads(API_ROOT, { allowlist: [] }).map((v) => v.file).sort();
-    expect(violations).toEqual(['src/platform/config/config.ts', 'src/testing/database.ts']);
+    expect(violations).toEqual(['src/main.ts', 'src/platform/config/config.ts', 'src/testing/database.ts']);
   });
 
   it('fires on the planted violation, naming the file', () => {
@@ -41,8 +50,12 @@ describe('F16 — no configuration read outside the typed config module', () => 
     expect(violations).toEqual([]);
   });
 
-  it('the enumerated allowlist is exactly the two files ADR-0004 already names', () => {
-    expect([...ENV_READ_ALLOWLIST]).toEqual(['src/platform/config/config.ts', 'src/testing/database.ts']);
+  it('the enumerated allowlist is exactly the three reviewed readers', () => {
+    expect([...ENV_READ_ALLOWLIST]).toEqual([
+      'src/platform/config/config.ts',
+      'src/testing/database.ts',
+      'src/main.ts',
+    ]);
   });
 });
 
@@ -85,5 +98,44 @@ describe('API_NO_TSX — the API type-checks the renderer, it does not author JS
       excludePatterns: [],
     });
     expect(violations).toEqual([]);
+  });
+});
+
+describe('ADR-0008 — every correctness-bearing platform module carries a 100% threshold (M0-26)', () => {
+  const exists = (module: string): boolean => existsSync(join(API_ROOT, module));
+
+  function declaredThresholds(): Readonly<Record<string, unknown>> {
+    const coverage = config.test?.coverage as { thresholds?: Record<string, unknown> } | undefined;
+    expect(coverage?.thresholds).toBeDefined();
+    return coverage?.thresholds as Readonly<Record<string, unknown>>;
+  }
+
+  it('holds for the real config', () => {
+    expect(checkCoverageThresholds(declaredThresholds(), CORRECTNESS_BEARING_PLATFORM_MODULES, exists)).toEqual([]);
+  });
+
+  it('checked a list with something on it', () => {
+    expect(CORRECTNESS_BEARING_PLATFORM_MODULES.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('fires when an in-scope module has no threshold', () => {
+    const violations = checkCoverageThresholds({}, ['src/platform/auth/token.ts'], exists);
+    expect(violations.map((v) => v.rule)).toEqual(['ADR0008_MISSING_THRESHOLD']);
+  });
+
+  it('fires when a threshold is below 100', () => {
+    const violations = checkCoverageThresholds(
+      { 'src/platform/auth/token.ts': { branches: 90, lines: 100, functions: 100, statements: 100 } },
+      ['src/platform/auth/token.ts'],
+      exists,
+    );
+    expect(violations).toEqual([
+      { rule: 'ADR0008_WEAK_THRESHOLD', subject: 'src/platform/auth/token.ts', detail: 'branches threshold is 90, not 100' },
+    ]);
+  });
+
+  it('fires when the list names a module that has been deleted', () => {
+    const violations = checkCoverageThresholds({}, ['src/platform/deleted-yesterday.ts'], exists);
+    expect(violations.map((v) => v.rule)).toEqual(['ADR0008_THRESHOLD_NAMES_A_DELETED_MODULE']);
   });
 });

@@ -11,6 +11,7 @@ import { stripComments } from './source-scan.js';
  *
  *   F15 — no hand-written API call; everything through the generated client (M0-17)
  *   F24 — no colour literal outside the token layer (§9 rule 16, M0-18)
+ *   F26 — the attempt engine imports no framework (M0-25) — its subject does not exist yet
  */
 export interface HandwrittenFetchViolation {
   readonly rule: 'F15_HANDWRITTEN_FETCH';
@@ -147,4 +148,74 @@ export function checkNoColorLiterals(
     }
   }
   return { violations, scannedFiles: files.length };
+}
+
+export interface FrameworkImportViolation {
+  readonly rule: 'F26_FRAMEWORK_IMPORT_IN_ATTEMPT_ENGINE';
+  readonly file: string;
+  readonly detail: string;
+}
+
+/**
+ * ROADMAP M0 lists F26 — the offline attempt engine (`packages/attempt-engine`,
+ * M6's) imports no framework. **The package does not exist yet.** The honest
+ * options were "report blocked" or "a gate that catches the package the
+ * instant it appears"; this is the second. Recorded in the close-out as
+ * `Pass (rule proven) / no subject` — not a plain pass, because a rule that
+ * has never seen a violation of the shipped tree is not proven by the
+ * shipped tree being clean.
+ */
+export const ATTEMPT_ENGINE_PACKAGES = ['packages/attempt-engine'] as const;
+
+const FRAMEWORK_IMPORT_PATTERN = /from\s+['"](react|react-dom|@nestjs\/[^'"]*)['"]|\bdocument\s*\.|(?<![.\w])window\s*\./u;
+
+function packagesMatchingAttemptEngine(root: string, packagesDir: string): readonly string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(join(root, packagesDir));
+  } catch {
+    return [];
+  }
+  return entries.filter((name) => /attempt.?engine/iu.test(name)).map((name) => `${packagesDir}/${name}`);
+}
+
+/**
+ * Two things, not one: every named package's own files (if it exists) are
+ * scanned for a framework import, **and** `packages/` itself is scanned for
+ * anything matching the package's own name that is not on the named list —
+ * a directory appearing without the list being updated is exactly the
+ * silent-widening this check exists to catch, the same shape of guard
+ * `HANDWRITTEN_FETCH_ALLOWLIST` and `COLOR_TOKEN_MODULES` are.
+ */
+export function checkAttemptEngineFrameworkFree(
+  root: string,
+  options: { readonly packages?: readonly string[]; readonly packagesDir?: string } = {},
+): {
+  readonly violations: readonly FrameworkImportViolation[];
+  readonly presentPackages: readonly string[];
+  readonly unconfirmedPackages: readonly string[];
+} {
+  const named = options.packages ?? ATTEMPT_ENGINE_PACKAGES;
+  const violations: FrameworkImportViolation[] = [];
+  const presentPackages: string[] = [];
+
+  for (const pkg of named) {
+    const files = walk(join(root, pkg))
+      .map((file) => relative(root, file).replaceAll('\\', '/'))
+      .filter((file) => file.endsWith('.ts') || file.endsWith('.tsx'));
+    if (files.length === 0) continue;
+    presentPackages.push(pkg);
+    for (const file of files) {
+      const code = stripComments(readFileSync(join(root, file), 'utf8'));
+      const match = FRAMEWORK_IMPORT_PATTERN.exec(code);
+      if (match !== null) {
+        violations.push({ rule: 'F26_FRAMEWORK_IMPORT_IN_ATTEMPT_ENGINE', file, detail: match[0] });
+      }
+    }
+  }
+
+  const matchingReal = packagesMatchingAttemptEngine(root, options.packagesDir ?? 'packages');
+  const unconfirmedPackages = matchingReal.filter((pkg) => !named.includes(pkg));
+
+  return { violations, presentPackages, unconfirmedPackages };
 }

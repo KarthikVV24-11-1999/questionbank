@@ -22,11 +22,19 @@ export interface EnvReadViolation {
  * once, through `loadConfigFromProcessEnv` — `loadConfig` itself is pure and
  * takes `env` as a parameter. `src/testing/database.ts` is test/tool support
  * and not shipped runtime (ADR-0004); it defaults `DATABASE_URL`
- * independently of the running application's config (DEC-M0-8). A file added
- * to this list is a reviewed diff; a file reading `process.env` without
- * being added here fails the check instead.
+ * independently of the running application's config (DEC-M0-8). `main.ts`
+ * (M0-27) checks `process.env['VITEST']` — not application configuration,
+ * the marker every vitest runner sets and nothing else this file's callers
+ * use — to decide whether importing this module should also boot it; a
+ * config-shaped value never reaches that check. A file added to this list is
+ * a reviewed diff; a file reading `process.env` without being added here
+ * fails the check instead.
  */
-export const ENV_READ_ALLOWLIST = ['src/platform/config/config.ts', 'src/testing/database.ts'] as const;
+export const ENV_READ_ALLOWLIST = [
+  'src/platform/config/config.ts',
+  'src/testing/database.ts',
+  'src/main.ts',
+] as const;
 
 const ENV_READ_PATTERN = /\bprocess\s*\.\s*env\b/u;
 const DEFAULT_EXCLUDES = [/\.spec\.ts$/u, /^src\/fitness-fixtures\//u, /^src\/fitness\//u];
@@ -120,3 +128,19 @@ export function checkNoTsxFiles(
 
   return files.filter((file) => file.endsWith('.tsx')).map((file) => ({ rule: 'API_NO_TSX' as const, file }));
 }
+
+/**
+ * ADR-0008, applied to `platform/` (M0-26). A defect in any of these decides
+ * who is who, what a secret is, what leaks, what boots, or what runs twice —
+ * `platform-rules.spec.ts` polices this list the same three ways
+ * `content-rules.spec.ts` polices its own: a listed module with no
+ * threshold fails, a threshold below 100 fails, a listed module that no
+ * longer exists fails.
+ */
+export const CORRECTNESS_BEARING_PLATFORM_MODULES = [
+  'src/platform/auth/token.ts',
+  'src/platform/config/config.ts',
+  'src/platform/observability/serializer.ts',
+  'src/platform/composition/app-factory.ts',
+  'src/platform/persistence/idempotency-store.ts',
+] as const;

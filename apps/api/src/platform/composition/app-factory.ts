@@ -1,6 +1,14 @@
-import { Module, type DynamicModule, type INestApplication } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Module,
+  type DynamicModule,
+  type INestApplication,
+  type OnModuleDestroy,
+  type Provider,
+} from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import type { Pool } from 'pg';
+import { Pool } from 'pg';
 import type { AppConfig } from '../config/config.js';
 import { createPool } from '../persistence/pool.js';
 import { SystemClock, type Clock } from '../persistence/clock.js';
@@ -61,8 +69,31 @@ export interface CreateApplicationOverrides {
  */
 @Module({})
 export class RootModule {
-  static register(imports: readonly DynamicModule[]): DynamicModule {
-    return { module: RootModule, imports: [...imports] };
+  static register(imports: readonly DynamicModule[], providers: readonly Provider[] = []): DynamicModule {
+    return { module: RootModule, imports: [...imports], providers: [...providers] };
+  }
+}
+
+/**
+ * The one provider `RootModule` carries of its own — registered only when
+ * `createApplication` built the pool itself (never for a test-supplied
+ * one). Nest's `app.close()` already calls `onModuleDestroy` on every
+ * provider it manages; a plain reassignment of `app.close` does not work,
+ * because `NestFactory.create`'s return value is a Proxy whose `close`
+ * always forwards to Nest's own implementation regardless of what an own
+ * property is set to — found by reading `app.close.toString()` after the
+ * reassignment and seeing Nest's proxy trap, not this file's function.
+ */
+@Injectable()
+class FactoryOwnedPoolCloser implements OnModuleDestroy {
+  readonly #pool: Pool;
+
+  constructor(@Inject(Pool) pool: Pool) {
+    this.#pool = pool;
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.#pool.end();
   }
 }
 
@@ -91,23 +122,15 @@ export async function createApplication(
   const curriculumModule = curriculumRegister({ pool, clock, identifiers, audit, principals });
   const scoringModule = scoringRegister({ pool, clock, identifiers, audit, principals });
 
-  const app = await NestFactory.create(
-    RootModule.register([contentModule, curriculumModule, scoringModule, HealthModule.register(pool)]),
-    { logger: false },
-  );
-  app.useGlobalInterceptors(new TelemetryInterceptor(telemetry));
-
+  const rootImports = [contentModule, curriculumModule, scoringModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
-  // `app.close()` here never double-closes a connection the caller still
-  // owns (pool.ts: "`close` is what main.ts's graceful shutdown calls").
-  if (poolOwnedByFactory) {
-    const closeApp = app.close.bind(app);
-    app.close = (async () => {
-      await closeApp();
-      await pool.end();
-    }) as typeof app.close;
-  }
+  // `app.close()` never double-closes a connection the caller still owns
+  // (pool.ts: "`close` is what main.ts's graceful shutdown calls").
+  const rootProviders = poolOwnedByFactory ? [FactoryOwnedPoolCloser, { provide: Pool, useValue: pool }] : [];
+
+  const app = await NestFactory.create(RootModule.register(rootImports, rootProviders), { logger: false });
+  app.useGlobalInterceptors(new TelemetryInterceptor(telemetry));
 
   return app;
 }

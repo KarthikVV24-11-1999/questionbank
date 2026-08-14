@@ -356,12 +356,36 @@ CI already checked formatting, lint, types, coverage, budgets, and fitness funct
 
 ## 11. Day One
 
-1. `git clone && pnpm install && docker compose up` — full stack, ≤ 10 minutes
-2. `pnpm seed` — demo exam profile, taxonomy, ~200 items
-3. `pnpm test` — everything green
-4. Read [DECISIONS.md](DECISIONS.md), then [DOMAIN-MODEL.md](DOMAIN-MODEL.md) §2 (the ten load-bearing decisions)
-5. Ship something small on day one — a copy fix, a test, a doc correction
+Two paths. **The first is the one someone has actually taken**, this session, on this machine — every
+command below was run for real while M0-27 wrote this section, not copied from a plan. The second is
+authored and has never been booted; ADR-0004 names exactly what verifying it requires.
 
-If step 1 does not work, that is the first bug and it outranks whatever you were assigned.
+### The supported path (verified, M0-27)
 
----
+1. `git clone && corepack pnpm install --offline` (or, on a machine with network, drop `--offline`) —
+   installs from the workspace's own lockfile, no Docker required
+2. Homebrew Postgres on port 5433 (`~/.questionbank-pg`, ADR-0004); export
+   `DATABASE_URL="postgres://postgres@127.0.0.1:5433/questionbank"` (and `questionbank_test` for the test
+   database)
+3. `corepack pnpm -r --workspace-concurrency=1 test` — everything green
+4. `corepack pnpm --filter @questionbank/seed run seed` — demo exam profile, taxonomy, sample items, against
+   the same database
+5. `corepack pnpm --filter @questionbank/api start` — boots the composed application for real. Verified this
+   session: `/healthz` and `/readyz` both 200, an authenticated `GET /v1/exams` returns `200 []` against a
+   freshly migrated database with the `X-Correlation-Id` response header present. `start` runs `vite-node
+   src/main.ts` — there is no build step for `apps/api` in this repository, and `vite-node` is the one
+   TypeScript-with-decorators runner in the offline dependency store that does not need one
+6. Read [DECISIONS.md](DECISIONS.md), then [DOMAIN-MODEL.md](DOMAIN-MODEL.md) §2 (the ten load-bearing
+   decisions)
+7. Ship something small on day one — a copy fix, a test, a doc correction
+
+If step 3 does not work, that is the first bug and it outranks whatever you were assigned.
+
+### The Compose path — authored, unverified (Tier 2, ADR-0013)
+
+`git clone && pnpm install && docker compose -f infra/compose/docker-compose.yml up --wait`, then `pnpm
+seed` and `pnpm test` with `DATABASE_URL` unset (Compose publishes 5432, the documented default). **Nobody
+in this repository's history has run this.** `infra/compose/docker-compose.yml` is authored and its service
+graph, health checks and dependency order are asserted by parsing it (M0-20); none of that is a boot time,
+and F8 (`full stack healthy in ≤ 10 min`) stays `Fail — blocked` until this path has actually been taken
+once, on a machine with a container runtime (ADR-0004's own outstanding verification).

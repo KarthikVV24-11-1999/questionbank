@@ -57,6 +57,12 @@ describe('createApplication — unit speed', () => {
     expect(app).toBeDefined();
   });
 
+  it('closes the pool it built itself when app.close() is called — the production path only', async () => {
+    const built = await createApplication(CONFIG);
+    await expect(built.close()).resolves.toBeUndefined();
+    app = undefined;
+  });
+
   it('rejects a planted policy-less handler across the composed set, naming the handler', async () => {
     const policyLessHandler = {
       name: 'PlantedPolicyLessHandler',
