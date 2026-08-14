@@ -1,0 +1,114 @@
+name: questionbank
+
+# Local Compose parity for TECH-STACK §14 (M0-20). Tier 2 (ADR-0013): this
+# file is authored and asserted by parsing it — compose-rules.spec.ts checks
+# every property named below. Nothing here has been booted on this machine;
+# F8 stays Fail — blocked until it has. The verification to run when a
+# machine with Docker exists:
+#
+#   docker compose -f infra/compose/docker-compose.yml up --wait
+#
+# No boot time is claimed anywhere in this repository until that command has
+# actually been run once and timed.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: questionbank
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  valkey:
+    image: valkey/valkey:8.0
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: questionbank
+      MINIO_ROOT_PASSWORD: questionbank-local
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  ai-fixture:
+    build:
+      context: ./ai-fixture
+    ports:
+      - '4100:4100'
+    environment:
+      PORT: '4100'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:4100/health']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: postgres://postgres@postgres:5432/questionbank
+      NODE_ENV: production
+      PORT: '3000'
+      AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY}
+      AUTH_ISSUER: questionbank
+      AUTH_TOKEN_TTL_SECONDS: '3600'
+      MEDIA_STORAGE_ROOT: /var/media
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ai-fixture:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/healthz']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  studio:
+    build:
+      context: ../..
+      dockerfile: apps/studio/Dockerfile
+    ports:
+      - '4173:4173'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:4173/']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s

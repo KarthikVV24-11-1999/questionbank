@@ -1,0 +1,6 @@
+# Copy to staging.tfvars and fill in the real values. No secret belongs in
+# this file — F39 (secret-rules.spec.ts, M0-23) scans it too.
+region              = "ap-south-1"
+environment         = "staging"
+vpc_id              = "vpc-REPLACE_ME"
+private_subnet_ids  = ["subnet-REPLACE_ME_A", "subnet-REPLACE_ME_B"]

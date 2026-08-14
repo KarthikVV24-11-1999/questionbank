@@ -63,7 +63,8 @@ const DEFAULTS = {
 } as const;
 
 /** Environment variable name for each config key — the only mapping this module needs. */
-const ENV_VAR_NAMES: Record<ConfigKey, string> = {
+/** Exported so F39 (secret-rules.ts, M0-23) can assert `.env.example` names exactly this set. */
+export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   databaseUrl: 'DATABASE_URL',
   port: 'PORT',
   nodeEnv: 'NODE_ENV',
