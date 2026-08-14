@@ -149,10 +149,10 @@ Both files' headers record the reasoning.
 ## A decision surfaced and not answered mid-session
 
 Before M0-17, a genuine pre-existing contract/implementation divergence was found (the `ListMyDrafts`
-wrapping bug above) and a clarifying question was asked via the question tool. **No answer arrived
-synchronously**, so the session proceeded with the tool's own labelled recommendation — fix the handler to
-match the document, since D18 makes the document authoritative — rather than stall. Worth confirming this
-was the right call before it is relied on further; nothing downstream depends on it being reversible only
+wrapping bug above) and a clarifying question was raised. **No answer arrived synchronously**, so the
+session proceeded with the labelled recommendation — fix the handler to match the document, since D18 makes
+the document authoritative — rather than stall. Worth confirming this was the right call before it is relied
+on further; nothing downstream depends on it being reversible only
 with difficulty (it is a one-file, well-tested change).
 
 ---

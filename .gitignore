@@ -3,4 +3,7 @@ dist/
 coverage/
 .DS_Store
 .claude/settings.local.json
-coverage/
+.env
+.env.local
+.env.*.local
+*.pgpass
