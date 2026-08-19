@@ -363,6 +363,18 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        'src/contexts/content/domain/review/ageing.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/domain/review/review-policy.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/content/infrastructure/review-decision.repository.ts': {
           branches: 100,
           lines: 100,

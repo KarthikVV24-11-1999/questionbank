@@ -468,6 +468,8 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/domain/review/review-assignment.ts',
   'src/contexts/content/domain/review/queue-ordering.ts',
   'src/contexts/content/domain/review/self-review.ts',
+  'src/contexts/content/domain/review/ageing.ts',
+  'src/contexts/content/domain/review/review-policy.ts',
   'src/contexts/content/domain/solution.ts',
   'src/contexts/content/domain/stimulus.ts',
   'src/contexts/content/domain/taxonomy-tag.ts',
