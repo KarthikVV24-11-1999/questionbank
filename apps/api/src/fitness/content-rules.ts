@@ -475,6 +475,7 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/domain/review/edit-scope.ts',
   'src/contexts/content/domain/review/fingerprint.ts',
   'src/contexts/content/domain/review/trigram.ts',
+  'src/contexts/content/domain/review/qc-sampling.ts',
   'src/contexts/content/domain/solution.ts',
   'src/contexts/content/domain/stimulus.ts',
   'src/contexts/content/domain/taxonomy-tag.ts',
