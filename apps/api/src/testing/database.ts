@@ -41,8 +41,9 @@ export interface TestDatabase {
   close(): Promise<void>;
 }
 
-export async function connectTestDatabase(): Promise<TestDatabase> {
-  const pool = new Pool({ connectionString: DATABASE_URL, max: 4 });
+/** `connectionString` defaults to `DATABASE_URL`; a caller overrides it to stand up a second database against the same cluster. */
+export async function connectTestDatabase(connectionString: string = DATABASE_URL): Promise<TestDatabase> {
+  const pool = new Pool({ connectionString, max: 4 });
   const db = drizzle(pool);
 
   return {

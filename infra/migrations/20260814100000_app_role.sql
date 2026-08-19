@@ -60,4 +60,16 @@ BEGIN
 END
 $$;
 
-DROP ROLE IF EXISTS questionbank_app;
+-- The role is a cluster object, not a database object: `CREATE ROLE` above is
+-- idempotent and safe to re-run, but `questionbank_app` is visible — and, per
+-- the README's own setup instructions, granted through — in every database in
+-- the cluster, `questionbank` and `questionbank_test` both. `DROP OWNED BY`
+-- only revoked what this role owns in the *current* database; the role can
+-- still hold live grants in the other one. Dropping it here would either fail
+-- outright ("role questionbank_app cannot be dropped because some objects
+-- depend on it") or, if it happened to succeed, silently break every grant
+-- the other database still depends on — and a database-scoped migration has
+-- no way to know which. So the down path stops at `DROP OWNED BY` and
+-- deliberately does not drop the role at all; the role is left for a
+-- cluster-level operation (a runbook, not a migration) to remove once no
+-- database needs it.

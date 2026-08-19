@@ -242,6 +242,15 @@ block from the file it lives in.
 | Proven from raw SQL, not only through the ORM | › a published version is immutable (INV-03) | ✅ |
 | Migrations reversible with the triggers in place | › migrations run up, down and up again with the triggers in place | ✅ |
 
+> **Correction, 2026-08-19.** Both "migrations run up, down and up again" rows above (M3-19 and this one)
+> were true as verified — `infra/migrations/20260814100000_app_role.sql` landed two days after this document
+> was written and is not part of what these tests exercised then. Its down path called `DROP ROLE IF EXISTS
+> questionbank_app` after `DROP OWNED BY`, which only revokes the role's privileges in the *current*
+> database; once the role held grants in a second database too (`questionbank`, per the README's own setup
+> steps), the cluster-wide `DROP ROLE` failed and every `revertMigrations()` after it did too — silently,
+> until M4 found it. Fixed in that migration file; proven by
+> `apps/api/src/testing/app-role-cluster-scope.integration.spec.ts`.
+
 ### M3-21 · `Item` repository
 | Criterion | Test | |
 |---|---|---|

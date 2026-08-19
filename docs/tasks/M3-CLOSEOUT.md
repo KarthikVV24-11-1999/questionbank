@@ -73,6 +73,18 @@ gate's own phrase, and that check is shown to fail.
 `content-immutability.integration.spec.ts` › migrations run up, down and up again
 with the triggers in place.
 
+> **Correction, 2026-08-19.** This was true when verified — `infra/migrations/20260814100000_app_role.sql`
+> did not exist yet (added two days after this audit, in M0 Track D). Its down path later broke this exact
+> claim for both named tests: it ran `DROP ROLE IF EXISTS questionbank_app` after `DROP OWNED BY`, and
+> `DROP OWNED BY` only revokes a role's privileges in the *current* database. Once `questionbank_app` held
+> grants in a second database too — `questionbank`, which the README's own setup instructions have every
+> reader migrate — the cluster-wide `DROP ROLE` failed with "role questionbank_app cannot be dropped because
+> some objects depend on it", and every subsequent `revertMigrations()` failed the same way, silently, until
+> M4 found it. Fixed in `infra/migrations/20260814100000_app_role.sql`: the down path now stops at
+> `DROP OWNED BY` and does not attempt to drop the cluster-scoped role at all, proven by
+> `apps/api/src/testing/app-role-cluster-scope.integration.spec.ts` running up/down/up while the role holds
+> grants in a second, real database.
+
 ### Published-version immutability under raw SQL
 
 `content-immutability.integration.spec.ts` proves UPDATE and DELETE refused on
