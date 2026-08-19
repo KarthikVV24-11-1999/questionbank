@@ -560,7 +560,7 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(checkReviewAuthoringSubBoundary(API_ROOT)).toEqual([]);
   });
 
-  it('catches a review/ module reaching into content’s authoring side', () => {
+  it('catches review plumbing (application/review/) reaching into content’s authoring plumbing', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     }).filter((violation) => violation.rule === 'M4_01_REVIEW_REACHES_AUTHORING');
@@ -569,16 +569,16 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations[0]?.subject).toContain('planted-reaches-authoring.ts');
   });
 
-  it('catches an authoring-side module reaching into review/, the other direction', () => {
+  it('catches authoring plumbing reaching into review plumbing, the other direction', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     }).filter((violation) => violation.rule === 'M4_01_AUTHORING_REACHES_REVIEW');
 
     expect(violations).toHaveLength(1);
-    expect(violations[0]?.subject).toContain('planted-reaches-review.ts');
+    expect(violations[0]?.subject).toContain('authoring-reaches-review.ts');
   });
 
-  it('permits review/ to import a domain aggregate/value object', () => {
+  it('permits review plumbing to import a domain-root aggregate/value object', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     }).filter((violation) => violation.subject.includes('permitted-domain-import.ts'));
@@ -586,10 +586,18 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('permits review/ to import application/authorization.ts', () => {
+  it('permits review plumbing to import application/authorization.ts', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     }).filter((violation) => violation.subject.includes('permitted-authorization-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('permits an authoring-side domain module to import a domain/review/ aggregate (M4-04)', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('authoring-domain-imports-review-domain.ts'));
 
     expect(violations).toEqual([]);
   });

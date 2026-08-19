@@ -12,12 +12,22 @@
  * **The rule this directory exists to prove holds — asserted by
  * `apps/api/src/fitness/content-rules.ts`'s
  * `checkReviewAuthoringSubBoundary`:**
- *   - `review/` may import content's domain aggregates and value objects
- *     (any file directly under `domain/`, not nested under `domain/review/`)
- *     and `application/authorization.ts`, and nothing else content owns
- *     outside `review/`.
- *   - The rest of content — its handlers, queries, commands, repositories,
- *     controllers — may import nothing from `review/`.
+ *   - The *restricted* review layer — `application/review/`,
+ *     `infrastructure/review/`, `api/review.controller.ts` — may import
+ *     content's domain layer (any file under `domain/`, `domain/review/`
+ *     included) and `application/authorization.ts`, and nothing else content
+ *     owns outside those three directories.
+ *   - Content's authoring-side application/infrastructure/api plumbing may
+ *     import nothing from that restricted layer.
+ *
+ * **`domain/review/` is not part of either restricted side.** F2 (`domain/`
+ * imports nothing but itself and the shared kernel) already keeps this
+ * directory pure; a domain aggregate that lives here — `ReviewAssignment`,
+ * `self-review.ts` — is exactly the kind of thing content's authoring domain
+ * and review's application layer both need to call, which is why
+ * `publication-preconditions.ts` (authoring's domain) can import
+ * `isSelfReview` (M4-04) without this gate refusing it. The wall this
+ * directory is under is the outer-layer one, not a second domain wall.
  *
  * Both directions are enforced structurally, not by convention: co-location
  * without an enforced seam is the entanglement DEC-M4-7 warns against.

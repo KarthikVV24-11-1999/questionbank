@@ -467,6 +467,7 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/domain/review-decision.ts',
   'src/contexts/content/domain/review/review-assignment.ts',
   'src/contexts/content/domain/review/queue-ordering.ts',
+  'src/contexts/content/domain/review/self-review.ts',
   'src/contexts/content/domain/solution.ts',
   'src/contexts/content/domain/stimulus.ts',
   'src/contexts/content/domain/taxonomy-tag.ts',
@@ -525,20 +526,27 @@ export function checkCoverageThresholds(
  * ------------------------------------------------------------------ */
 
 /**
- * A module belongs to `review/` when its path carries a `review` directory
- * segment, or it is `review.controller.ts` — the one review file that sits
- * directly under `api/` rather than under an `api/review/` directory.
+ * A module belongs to the **restricted review layer** when it is
+ * `application/review/**`, `infrastructure/review/**`, or
+ * `api/review.controller.ts` — the write-path plumbing DEC-M4-7 walls off.
+ *
+ * **`domain/review/*.ts` is deliberately not matched here.** F2 (`domain/`
+ * imports nothing but itself and the shared kernel) already keeps every
+ * domain module pure, `domain/review/` included — a second, narrower purity
+ * rule for one sub-directory of domain would be a rule checking a rule. What
+ * this gate adds on top of F2 is the *application/infrastructure/api*
+ * boundary, where review's write path and content's existing authoring
+ * surface would otherwise reach into each other's plumbing. A domain
+ * aggregate that happens to live under `domain/review/` — `ReviewAssignment`,
+ * `self-review.ts` — is exactly the kind of thing DEC-M4-7 says both sides
+ * "meet only at": callable from content's authoring domain the same way any
+ * other domain module is, which is what lets `publication-preconditions.ts`
+ * call `isSelfReview` (M4-04) without this gate refusing it.
  */
-const REVIEW_PATH_SEGMENT = /(^|\/)review(\/|\.controller\.ts$)/u;
+const REVIEW_PATH_SEGMENT = /(^|\/)(?:application|infrastructure)\/review\/|(^|\/)review\.controller\.ts$/u;
 
-/**
- * A domain aggregate or value object: a `.ts` file directly under a
- * `domain/` directory, one level deep. `domain/review/*.ts` does not match —
- * the trailing segment before the filename is `review`, not `domain`'s own
- * files — so review's own domain modules are governed by
- * `REVIEW_PATH_SEGMENT` above, never by this permission.
- */
-const DOMAIN_ROOT_MODULE = /(^|\/)domain\/[^/]+\.ts$/u;
+/** Any module under a `domain/` tree, at any depth — the whole domain layer, F2-pure by construction. */
+const DOMAIN_MODULE = /(^|\/)domain\/.+\.ts$/u;
 
 /** The one named exception outside the domain layer (DEC-M4-7). */
 const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
@@ -551,8 +559,8 @@ const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
  * Classification is purely structural on path segments, which is what lets
  * this run unchanged over both the real tree and a fixture directory shaped
  * like one (`as-content-review-subboundary/`): the rule does not care which
- * context it is scanning, only whether a `review/`-shaped module reaches a
- * non-`review/`-shaped one it should not, or vice versa.
+ * context it is scanning, only whether a review-plumbing module reaches an
+ * authoring-plumbing one it should not, or vice versa.
  */
 export function checkReviewAuthoringSubBoundary(
   root: string,
@@ -578,7 +586,7 @@ export function checkReviewAuthoringSubBoundary(
       const targetIsReview = REVIEW_PATH_SEGMENT.test(relTarget);
 
       if (fileIsReview && !targetIsReview) {
-        const permitted = DOMAIN_ROOT_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget);
+        const permitted = DOMAIN_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget);
         if (!permitted) {
           violations.push({
             rule: 'M4_01_REVIEW_REACHES_AUTHORING',

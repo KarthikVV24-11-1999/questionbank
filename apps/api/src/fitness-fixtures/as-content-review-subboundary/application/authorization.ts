@@ -1,6 +1,5 @@
 /**
  * Stands in for `application/authorization.ts` — the one named exception
- * `checkReviewAuthoringSubBoundary` permits `review/` to import beyond the
- * domain layer.
+ * outside the domain layer that the review plumbing may import.
  */
 export const fakeAuthorization = 'authorization';
