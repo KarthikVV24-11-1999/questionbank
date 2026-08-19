@@ -471,6 +471,7 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/domain/review/ageing.ts',
   'src/contexts/content/domain/review/review-policy.ts',
   'src/contexts/content/domain/review/rejection-taxonomy.ts',
+  'src/contexts/content/domain/review/decision-evidence.ts',
   'src/contexts/content/domain/solution.ts',
   'src/contexts/content/domain/stimulus.ts',
   'src/contexts/content/domain/taxonomy-tag.ts',

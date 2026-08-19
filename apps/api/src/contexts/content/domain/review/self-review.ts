@@ -61,12 +61,15 @@ export function assertAssignable(
  * `self-review.spec.ts` asserts each named module both exists and calls
  * `assertAssignable` or `isSelfReview`.
  *
- * **Only one call site exists yet.** `application/review/claim.ts` (M4-18,
- * the claim predicate) and `application/handlers/*` (M4-28, the decision
- * handler) are not built within M4-01–M4-07's scope; M4-18 and M4-28 each
- * add their entry here and to `self-review.spec.ts`'s enumeration when they
- * land — the list grows to three, it does not start there.
+ * **Two of three call sites exist.** `decision-evidence.ts`'s
+ * `assertDecisionEvidenceComplete` (M4-07) is the decision-time check;
+ * `publication-preconditions.ts` is the publication-time check. The claim
+ * predicate (`application/review/`, M4-18) is not built within
+ * M4-01–M4-07's scope; M4-18 adds its entry here and to
+ * `self-review.spec.ts`'s enumeration when it lands — the list grows to
+ * three, it does not start there.
  */
 export const SELF_REVIEW_CALL_SITES = [
   'src/contexts/content/domain/publication-preconditions.ts',
+  'src/contexts/content/domain/review/decision-evidence.ts',
 ] as const;
