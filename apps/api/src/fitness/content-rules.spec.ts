@@ -16,10 +16,11 @@ import {
   checkNoRenderedMarkupField,
   checkNoTruncateGrant,
   checkPayloadSurfaces,
+  checkReviewAuthoringSubBoundary,
   checkSingleContentRenderer,
   modulesReachableFrom,
 } from './content-rules.js';
-import { tsFilesUnder } from './source-scan.js';
+import { filesMatching, tsFilesUnder } from './source-scan.js';
 import { checkNoMachinePublishesItsOwnContent } from '../contexts/content/domain/publication-preconditions.js';
 import { createItemVersion } from '../contexts/content/domain/item-version.js';
 import {
@@ -477,6 +478,11 @@ describe('ADR-0008 — every correctness-bearing content module carries a 100% t
     'src/contexts/content/application/commands/stimulus-commands.ts',
     'src/contexts/content/infrastructure/content-media-ref.ts',
     'src/contexts/content/infrastructure/schema.ts',
+    // A barrel re-exporting content's existing Result/ContentError; decides
+    // nothing itself (M4-01).
+    'src/contexts/content/domain/review/index.ts',
+    // Empty and unregistered until M4-37 wires it to a handler.
+    'src/contexts/content/api/review.controller.ts',
   ];
 
   it('classifies every content module, so a new one cannot arrive unclassified', () => {
@@ -540,7 +546,88 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
   });
 
   it('declares every rule this module can report', () => {
-    expect(CONTENT_RULES).toHaveLength(12);
+    expect(CONTENT_RULES).toHaveLength(14);
     expect(new Set(CONTENT_RULES).size).toBe(CONTENT_RULES.length);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * M4-01 — the review/authoring intra-context sub-boundary (DEC-M4-7)
+ * ------------------------------------------------------------------ */
+
+describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
+  it('is green on the real content tree', () => {
+    expect(checkReviewAuthoringSubBoundary(API_ROOT)).toEqual([]);
+  });
+
+  it('catches a review/ module reaching into content’s authoring side', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.rule === 'M4_01_REVIEW_REACHES_AUTHORING');
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.subject).toContain('planted-reaches-authoring.ts');
+  });
+
+  it('catches an authoring-side module reaching into review/, the other direction', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.rule === 'M4_01_AUTHORING_REACHES_REVIEW');
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.subject).toContain('planted-reaches-review.ts');
+  });
+
+  it('permits review/ to import a domain aggregate/value object', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-domain-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('permits review/ to import application/authorization.ts', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-authorization-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('reports exactly the two planted violations over the fixture directory, no more', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    });
+
+    expect(violations).toHaveLength(2);
+  });
+});
+
+describe('domain/review/ carries no throw and reads no clock (M4-01)', () => {
+  const REVIEW_DOMAIN_DIR = fileURLToPath(new URL('../contexts/content/domain/review/', import.meta.url));
+  const PLANTED_DIR = fileURLToPath(new URL('../fitness-fixtures/as-content-review-domain/', import.meta.url));
+
+  function throwsIn(directory: string): string[] {
+    return filesMatching(directory, /(^|[^.\w])throw\s/u);
+  }
+
+  function clockReadsIn(directory: string): string[] {
+    return filesMatching(directory, /\bDate\.now\b|\bnew Date\b/u);
+  }
+
+  it('contains no throw under the real domain/review/', () => {
+    expect(throwsIn(REVIEW_DOMAIN_DIR)).toEqual([]);
+  });
+
+  it('reads no clock under the real domain/review/', () => {
+    expect(clockReadsIn(REVIEW_DOMAIN_DIR)).toEqual([]);
+  });
+
+  it('catches a planted throw', () => {
+    expect(throwsIn(PLANTED_DIR)).toHaveLength(1);
+  });
+
+  it('catches a planted clock read', () => {
+    expect(clockReadsIn(PLANTED_DIR)).toHaveLength(1);
   });
 });

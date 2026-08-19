@@ -16,6 +16,10 @@ import { importsOf, readCode, tsFilesUnder } from './source-scan.js';
  *          controller, by **import graph** rather than by naming convention
  *   ADR-0008 — every correctness-bearing content module carries a 100%
  *          coverage threshold, and the list polices itself
+ *   M4-01 (DEC-M4-7) — the review/authoring intra-context sub-boundary: a
+ *          review/ module reaches only content's domain aggregates/value
+ *          objects and application/authorization.ts; the rest of content
+ *          reaches nothing in review/, in either direction
  *
  * Every function here is pure over its inputs, so each can be run against the
  * real tree *and* against a planted violation. A gate nobody has seen fail is
@@ -35,6 +39,8 @@ export const CONTENT_RULES = [
   'ADR0008_MISSING_THRESHOLD',
   'ADR0008_WEAK_THRESHOLD',
   'ADR0008_THRESHOLD_NAMES_A_DELETED_MODULE',
+  'M4_01_REVIEW_REACHES_AUTHORING',
+  'M4_01_AUTHORING_REACHES_REVIEW',
 ] as const;
 export type ContentRule = (typeof CONTENT_RULES)[number];
 
@@ -506,6 +512,87 @@ export function checkCoverageThresholds(
         subject: module,
         detail: `${metric} threshold is ${String(threshold[metric])}, not 100`,
       });
+    }
+  }
+
+  return violations;
+}
+
+/* ------------------------------------------------------------------ *
+ * M4-01 — the review/authoring intra-context sub-boundary (DEC-M4-7)
+ * ------------------------------------------------------------------ */
+
+/**
+ * A module belongs to `review/` when its path carries a `review` directory
+ * segment, or it is `review.controller.ts` — the one review file that sits
+ * directly under `api/` rather than under an `api/review/` directory.
+ */
+const REVIEW_PATH_SEGMENT = /(^|\/)review(\/|\.controller\.ts$)/u;
+
+/**
+ * A domain aggregate or value object: a `.ts` file directly under a
+ * `domain/` directory, one level deep. `domain/review/*.ts` does not match —
+ * the trailing segment before the filename is `review`, not `domain`'s own
+ * files — so review's own domain modules are governed by
+ * `REVIEW_PATH_SEGMENT` above, never by this permission.
+ */
+const DOMAIN_ROOT_MODULE = /(^|\/)domain\/[^/]+\.ts$/u;
+
+/** The one named exception outside the domain layer (DEC-M4-7). */
+const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
+
+/**
+ * DEC-M4-7's sub-boundary, both directions, by import graph rather than
+ * convention — the same discipline `checkAuthoringUnreachableFromDelivery`
+ * applies to ADR-0009 condition 3.
+ *
+ * Classification is purely structural on path segments, which is what lets
+ * this run unchanged over both the real tree and a fixture directory shaped
+ * like one (`as-content-review-subboundary/`): the rule does not care which
+ * context it is scanning, only whether a `review/`-shaped module reaches a
+ * non-`review/`-shaped one it should not, or vice versa.
+ */
+export function checkReviewAuthoringSubBoundary(
+  root: string,
+  options: { readonly include?: readonly string[]; readonly exclude?: readonly RegExp[] } = {},
+): ContentViolation[] {
+  const includes = options.include ?? ['src/contexts/content'];
+  const excludes = options.exclude ?? [/\.spec\.ts$/u];
+  const violations: ContentViolation[] = [];
+
+  const files = includes
+    .flatMap((directory) => tsFilesUnder(join(root, directory)))
+    .filter((file) => !excludes.some((pattern) => pattern.test(file)));
+
+  for (const file of files) {
+    const relFile = relative(root, file).replaceAll('\\', '/');
+    const fileIsReview = REVIEW_PATH_SEGMENT.test(relFile);
+
+    for (const importPath of importsOf(readCode(file))) {
+      if (!importPath.startsWith('.')) continue; // a package or a node builtin — not this context
+      const resolved = resolve(dirname(file), importPath).replace(/\.js$/u, '.ts');
+      if (!existsSync(resolved)) continue;
+      const relTarget = relative(root, resolved).replaceAll('\\', '/');
+      const targetIsReview = REVIEW_PATH_SEGMENT.test(relTarget);
+
+      if (fileIsReview && !targetIsReview) {
+        const permitted = DOMAIN_ROOT_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget);
+        if (!permitted) {
+          violations.push({
+            rule: 'M4_01_REVIEW_REACHES_AUTHORING',
+            subject: relFile,
+            detail: `imports ${importPath} (${relTarget}), which is neither a domain aggregate/value object nor application/authorization.ts`,
+          });
+        }
+      }
+
+      if (!fileIsReview && targetIsReview) {
+        violations.push({
+          rule: 'M4_01_AUTHORING_REACHES_REVIEW',
+          subject: relFile,
+          detail: `imports ${importPath} (${relTarget}); authoring/ may not import review/ (DEC-M4-7)`,
+        });
+      }
     }
   }
 
