@@ -114,16 +114,35 @@ export async function readChainPage(
   pool: Queryable,
   fromSeq: number,
   limit: number,
+  toSeq = Number.MAX_SAFE_INTEGER,
 ): Promise<readonly ChainRow[]> {
   const found = await pool.query<ChainRowShape>(
     `SELECT ${SELECT_CHAIN_ROW}
        FROM platform.audit_record
-      WHERE chain_seq >= $1
+      WHERE chain_seq >= $1 AND chain_seq <= $2
       ORDER BY chain_seq
-      LIMIT $2`,
-    [fromSeq, limit],
+      LIMIT $3`,
+    [fromSeq, toSeq, limit],
   );
   return found.rows.map(toChainRow);
+}
+
+/**
+ * The link immediately before `seq`, or `null` when `seq` opens the chain.
+ * A bounded verification needs a starting predecessor it did not itself
+ * verify: the window's first row is checked against this, and a tamper
+ * outside the window is outside the claim.
+ */
+export async function readChainRowBefore(pool: Queryable, seq: number): Promise<ChainRow | null> {
+  const found = await pool.query<ChainRowShape>(
+    `SELECT ${SELECT_CHAIN_ROW}
+       FROM platform.audit_record
+      WHERE chain_seq < $1
+      ORDER BY chain_seq DESC
+      LIMIT 1`,
+    [seq],
+  );
+  return found.rowCount === 0 ? null : toChainRow(found.rows[0]!);
 }
 
 /** The last link, or `null` when nothing has been audited yet. */

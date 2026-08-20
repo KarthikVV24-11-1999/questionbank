@@ -152,4 +152,7 @@ export const CORRECTNESS_BEARING_PLATFORM_MODULES = [
   // is a tampered history that verifies, or an untampered one that does not.
   'src/platform/persistence/audit-chain.ts',
   'src/platform/persistence/audit-anchor.ts',
+  // M4-25. F41 itself — the module that decides whether the audit history can
+  // be shown untampered, and where it broke if it cannot.
+  'src/platform/persistence/audit-chain-verify.ts',
 ] as const;

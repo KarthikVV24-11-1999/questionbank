@@ -673,6 +673,13 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M4-25. F41.
+        'src/platform/persistence/audit-chain-verify.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         // M0-08. Closes D22 — a gap here is a retried autosave rewriting a
         // row or writing a second audit record.
         'src/platform/persistence/idempotency-store.ts': {
