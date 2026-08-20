@@ -186,6 +186,47 @@ export interface ReviewAssignmentRepository {
   findById(assignmentId: string): Promise<Result<ReviewAssignment, RepositoryError>>;
 }
 
+/**
+ * The duplicate-detection cache (M4-09/M4-20, DEC-M4-2). One row per item
+ * version, recomputed and replaced — `save` upserts, there is no history.
+ */
+export interface ItemFingerprintRecord {
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly exactHash: string;
+  readonly skeletonHash: string;
+  readonly normalizedText: string;
+  readonly computedAt: string;
+}
+
+export interface FingerprintRepository {
+  save(fingerprint: ItemFingerprintRecord): Promise<Result<true, RepositoryError>>;
+
+  /** Exact-match, B-tree backed — authoritative, never touches the trigram index. */
+  findByExactHash(subject: string, exactHash: string): Promise<Result<readonly ItemFingerprintRecord[], RepositoryError>>;
+
+  /** Exact-match, B-tree backed — authoritative, never touches the trigram index. */
+  findBySkeletonHash(
+    subject: string,
+    skeletonHash: string,
+  ): Promise<Result<readonly ItemFingerprintRecord[], RepositoryError>>;
+
+  /**
+   * Recall-widening only (DEC-M4-2) — narrowed by the trigram GIN index when
+   * `pg_trgm` is installed, by a full scan of the subject's fingerprints
+   * when it is not. Both paths score and rank identically, in-repo, via
+   * `domain/review/trigram.ts` — the index only decides which rows reach
+   * that scoring, never the ranking itself, so the two paths return the
+   * same candidates.
+   */
+  findSimilarCandidates(
+    subject: string,
+    normalizedText: string,
+    limit: number,
+  ): Promise<Result<readonly { readonly fingerprint: ItemFingerprintRecord; readonly similarity: number }[], RepositoryError>>;
+}
+
 export interface MediaAssetRepository {
   /** One aggregate, one transaction: the asset, its versions and their licensing. */
   save(asset: MediaAsset, events?: readonly ContentEvent[]): Promise<Result<MediaAsset, RepositoryError>>;

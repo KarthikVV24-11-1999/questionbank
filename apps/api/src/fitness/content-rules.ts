@@ -484,6 +484,7 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/infrastructure/outbox-emitter.ts',
   'src/contexts/content/infrastructure/render-validator.adapter.ts',
   'src/contexts/content/infrastructure/review-decision.repository.ts',
+  'src/contexts/content/infrastructure/review/fingerprint.repository.ts',
   'src/contexts/content/infrastructure/review/review-assignment.repository.ts',
   'src/contexts/content/infrastructure/review/review-candidate-shown.repository.ts',
   'src/contexts/content/infrastructure/solution.repository.ts',
