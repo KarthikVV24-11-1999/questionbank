@@ -17,6 +17,7 @@ import {
   authorize,
   authorizeDraftAccess,
   policy,
+  resolveAuthoringSubject,
   type ApplicationError,
 } from '../authorization.js';
 import type { Handler } from '../handler-registry.js';
@@ -95,6 +96,10 @@ export class CreateItemDraftHandler implements Handler<CreateItemDraft, Item> {
     const permitted = authorize(this.policy, context);
     if (!permitted.ok) return err(permitted.error);
 
+    // FR-TCH-01 rule 1, resolved rather than declared-and-trusted (M4-14).
+    const subject = resolveAuthoringSubject(command.subject, context);
+    if (!subject.ok) return err(subject.error);
+
     const at = this.deps.clock.now();
     const version = createItemVersion(
       versionProps(
@@ -115,6 +120,7 @@ export class CreateItemDraftHandler implements Handler<CreateItemDraft, Item> {
       itemId: this.deps.identifiers.next(),
       itemType: command.itemType,
       initialVersion: version.value,
+      authoringSubject: subject.value,
     });
     if (!item.ok) return err(fromContent(item.error));
 

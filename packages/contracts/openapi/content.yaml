@@ -1114,6 +1114,7 @@ components:
         currentPublishedVersionId: { type: string, format: uuid }
         versions: { type: array, items: { $ref: '#/components/schemas/AuthoringItemVersion' } }
         stateEnteredAt: { type: string }
+        authoringSubject: { type: string }
 
     AuthoringItemPage:
       type: object
@@ -1129,6 +1130,7 @@ components:
       properties:
         itemType: { $ref: '#/components/schemas/ItemType' }
         content: { $ref: '#/components/schemas/AuthoringItemContent' }
+        subject: { type: string }
 
     AuthoringUpdateItemRequest:
       type: object

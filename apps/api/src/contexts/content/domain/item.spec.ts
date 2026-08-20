@@ -663,6 +663,52 @@ describe('stateEnteredAt (M4-13)', () => {
   });
 });
 
+// M4-14's addition. Optional and resolved by the handler — every test above
+// this point never mentions it and stays green unchanged.
+describe('authoringSubject (M4-14)', () => {
+  it('is absent when createItem is not given one — M3’s own call shape', () => {
+    expect(draft().authoringSubject).toBeUndefined();
+  });
+
+  it('is carried by createItem when supplied', () => {
+    const item = expectValue(
+      createItem({
+        itemId: 'item-1',
+        itemType: 'SINGLE_CORRECT_MCQ',
+        initialVersion: V1,
+        authoringSubject: 'physics',
+      }),
+    );
+    expect(item.authoringSubject).toBe('physics');
+  });
+
+  it('refuses a blank createItem authoringSubject', () => {
+    const failure = expectError(
+      createItem({ itemId: 'item-1', itemType: 'SINGLE_CORRECT_MCQ', initialVersion: V1, authoringSubject: '  ' }),
+    );
+    expect(failure.code).toBe('AUTHORING_SUBJECT_BLANK');
+  });
+
+  it('is carried by reconstituteItem when supplied, and absent when not', () => {
+    expect(inState('draft', { authoringSubject: 'chemistry' }).authoringSubject).toBe('chemistry');
+    expect(inState('draft').authoringSubject).toBeUndefined();
+  });
+
+  it('refuses a blank reconstituteItem authoringSubject', () => {
+    const failure = expectError(
+      reconstituteItem({
+        itemId: 'item-1',
+        itemType: 'SINGLE_CORRECT_MCQ',
+        lifecycleState: 'draft',
+        versions: [V1],
+        aggregateVersion: 1,
+        authoringSubject: '   ',
+      }),
+    );
+    expect(failure.code).toBe('AUTHORING_SUBJECT_BLANK');
+  });
+});
+
 describe('editability', () => {
   it.each([
     ['draft', true],

@@ -651,15 +651,78 @@ must still pass unchanged unless it asserted something that stopped being true �
 - *Rejected alternative, recorded in the task:* deriving the instant from `platform.audit_record`. An audit log is evidence, not an index; routing the queue through it makes renaming an action string a silent queue outage
 **Tests** Integration: migration up/down/up · every transition updates the instant, asserted per transition · backfill correctness on a pre-existing row · absent from delivery views · the M3 lifecycle matrix still green
 
-### M4-14 · `authoringSubject` persisted (DEC-M4-8)
-**Objective** The routing key. Content validates a declared subject today and stores nothing.
-**Files** `domain/item.ts`, `infrastructure/item.repository.ts`, `application/handlers/authoring-handlers.ts`, `infra/migrations/<ts>_content_authoring_subject.sql`
+### M4-14 · `authoringSubject` — corrected 2026-08-20, split into two tasks
+
+**Correction.** This entry's premise — "content validates a declared subject today" — is false
+for items. `authorizeSubjectScope(command.subject, …)` is called by the stimulus, solution,
+media and import handlers. It is called by **none** of the four item handlers:
+`CreateItemDraft` carries no `subject` field at all, and `CreateItemDraftHandler` never calls it.
+FR-TCH-01 rule 1 was unenforced on the primary authoring path — found while implementing this
+task, proven with a test before the fix (a Physics-scoped author declaring `chemistry` was not
+refused; the item was created), corrected rather than implemented around.
+
+**The decision made, resolve rather than declare.** For a subject-scoped author, their scope
+**is** the subject of everything they author — letting them declare a different one is the exact
+mistagging D23 says nothing catches. So `CreateItemDraft.subject` is optional; the handler
+*resolves* it: exactly one `subject:<name>` scope on the principal derives it (a declaration
+that disagrees is refused, one that agrees is redundant); an unscoped principal (Content Ops) or
+one scoped to several subjects must declare it, authorized the existing way; neither derivable
+nor declared is `Validation`. The resolved value is persisted. `UpdateItemDraft`,
+`DeriveDraftFromVersion` and `DeleteItemDraft` take **no** subject at all — a subject is a fact
+about the item, not something a later edit could misdeclare, so each authorizes against the
+*stored* value instead.
+
+That is strictly better than declare-and-check, not merely equivalent to it: the common case
+cannot be lied about, and edits have nothing to declare. It is more than the original additive
+storage change, so it is split in two.
+
+### M4-14a · Resolve and persist the authoring subject at item creation
+**Objective** FR-TCH-01 rule 1, actually enforced on item creation.
+**Files** `domain/item.ts`, `application/authorization.ts`, `application/commands/authoring-commands.ts`,
+`application/handlers/authoring-handlers.ts` (`CreateItemDraftHandler` only),
+`application/queries/authoring-queries.ts`, `infrastructure/item.repository.ts`,
+`infra/migrations/<ts>_content_authoring_subject.sql`
 **Acceptance**
-- `content.item.authoring_subject text NOT NULL CHECK (length(btrim(...)) > 0)`, written from the create command's already-validated subject
+- `resolveAuthoringSubject(declared, context)` in `application/authorization.ts`: single scope →
+  derive, refuse a disagreeing declaration; unscoped or multi-scoped → declaration required,
+  authorized via the existing `authorizeSubjectScope`; neither → `Validation`, located
+- `CreateItemDraft.subject?: string` — optional, so a single-scoped author's existing call
+  (declaring nothing) is unaffected
+- `content.item.authoring_subject text NOT NULL`, a non-blank `CHECK`, backfilled and
+  column-defaulted to `'unclassified'` for rows and callers that predate subject tracking
+- `Item.authoringSubject` optional at the domain level, the same discipline `stateEnteredAt`
+  (M4-13) already set — every M3 constructor call site is unaffected
 - Exposed on `AuthoringItemView`; **not** on delivery views
-- **`authorizeSubjectScope` is unchanged** — this stores the value it already checks and does not become a second authorization source
-- **The D23 caveat is restated in the module header, verbatim**: a mistagged item routes to the wrong pool and nothing here detects it. D23 stays open with its existing trigger
-**Tests** Integration: round trip · a blank subject refused at the database and in the type · existing authoring tests green unchanged · the D23 note asserted present
+- **The D23 caveat restated, corrected**: this closes the half of D23 where a scoped author's
+  own declaration could disagree with their scope. It does not close the half where nothing
+  cross-checks a resolved or declared subject against the content itself — that still needs a
+  concept → subject-domain lookup Curriculum does not expose. D23 stays open for that half, with
+  its existing trigger
+**Tests** Unit: `resolveAuthoringSubject` over all six shapes (single-agree, single-disagree,
+single-absent-declaration, multi-required, unscoped-required, neither-derivable-nor-declared) ·
+Integration: round trip · a blank subject refused at the database and in the type · **the
+before/after hole-closing test, with the before state recorded** · existing authoring tests
+green (the shared author/otherAuthor fixtures needed a subject scope each — the fixture was
+part of the gap, not incidental to it)
+
+### M4-14b · Authorize every later touch against the stored subject
+**Objective** The hole was not only at creation. `UpdateItemDraft`, `DeriveDraftFromVersion` and
+`DeleteItemDraft` touched an item with no subject check at all, before this task and after
+M4-14a alone.
+**Files** `application/handlers/authoring-handlers.ts` (`UpdateItemDraftHandler`,
+`DeriveDraftFromVersionHandler`, `DeleteItemDraftHandler`)
+**Acceptance**
+- None of the three commands gain a `subject` field
+- Each handler calls `authorizeSubjectScope(item.authoringSubject, context)` after
+  `authorizeDraftAccess`, so an existing ownership refusal's error code is unchanged — this only
+  ever refuses an owner (or Content Ops) whose own scope no longer covers the item
+**Tests** Integration: a principal whose subject scope no longer covers the item's stored
+subject is refused on update, derive and delete · Content Ops (cross-subject) unaffected ·
+existing ownership tests green unchanged
+
+**Not done now, named for later:** the stimulus, solution and media authoring paths still
+declare-and-check rather than resolve. Aligning them to `resolveAuthoringSubject` is worth doing
+the next time one of them is touched; it is not part of M4-14a/b.
 
 ### M4-15 · `editedBy` & the bounded reviewer edit — ADR-0018
 **Objective** DEC-M4-3, in the domain where every caller meets it.

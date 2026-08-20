@@ -51,6 +51,7 @@ interface ItemRow {
   readonly replaced_by_item_id: string | null;
   readonly aggregate_version: number;
   readonly state_entered_at: Date;
+  readonly authoring_subject: string;
 }
 
 interface VersionRow {
@@ -206,10 +207,16 @@ export class PostgresItemRepository implements ItemRepository {
       // state_entered_at: the domain-supplied instant if createItem was given
       // one, else the database's own now() — never a clock read in the
       // domain, and never NULL, since the column is NOT NULL (M4-13).
+      //
+      // authoring_subject is fixed at creation and never revisited by the
+      // final UPDATE below — it is a fact about the item, not something a
+      // later save changes (M4-14). 'unclassified' is the same placeholder
+      // the migration backfills pre-existing rows with, for a caller that
+      // saves an Item the domain never resolved a subject for.
       await client.query(
-        `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version, state_entered_at)
-         VALUES ($1, $2, 'draft', $3, COALESCE($4, now()))`,
-        [item.itemId, item.itemType, item.aggregateVersion, item.stateEnteredAt ?? null],
+        `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version, state_entered_at, authoring_subject)
+         VALUES ($1, $2, 'draft', $3, COALESCE($4, now()), COALESCE($5, 'unclassified'))`,
+        [item.itemId, item.itemType, item.aggregateVersion, item.stateEnteredAt ?? null, item.authoringSubject ?? null],
       );
     } else {
       // P8 optimistic concurrency. A stale write is a Conflict, never a silent
@@ -534,7 +541,7 @@ export class PostgresItemRepository implements ItemRepository {
   async findById(itemId: string): Promise<Result<Item, RepositoryError>> {
     const items = await this.#pool.query<ItemRow>(
       `SELECT item_id, item_type, lifecycle_state, current_published_version_id,
-              retirement_reason, replaced_by_item_id, aggregate_version, state_entered_at
+              retirement_reason, replaced_by_item_id, aggregate_version, state_entered_at, authoring_subject
          FROM content.item WHERE item_id = $1 AND deleted_at IS NULL`,
       [itemId],
     );
@@ -570,7 +577,7 @@ export class PostgresItemRepository implements ItemRepository {
     // author's when they wrote its latest version.
     const items = await this.#pool.query<ItemRow>(
       `SELECT DISTINCT i.item_id, i.item_type, i.lifecycle_state, i.current_published_version_id,
-              i.retirement_reason, i.replaced_by_item_id, i.aggregate_version, i.state_entered_at
+              i.retirement_reason, i.replaced_by_item_id, i.aggregate_version, i.state_entered_at, i.authoring_subject
          FROM content.item i
          JOIN content.item_version v ON v.item_id = i.item_id
         WHERE i.deleted_at IS NULL
@@ -687,6 +694,7 @@ export class PostgresItemRepository implements ItemRepository {
       ...(row.retirement_reason === null ? {} : { retirementReason: row.retirement_reason }),
       ...(row.replaced_by_item_id === null ? {} : { replacedByItemId: row.replaced_by_item_id }),
       stateEnteredAt: toIsoInstant(row.state_entered_at),
+      authoringSubject: row.authoring_subject,
     });
 
     return item.ok

@@ -183,6 +183,7 @@ export const AuthoringItemSchema = z.object({
   "currentPublishedVersionId": z.string().optional(),
   "versions": z.array(AuthoringItemVersionSchema),
   "stateEnteredAt": z.string().optional(),
+  "authoringSubject": z.string().optional(),
 }).strict();
 
 export type AuthoringItem = z.infer<typeof AuthoringItemSchema>;
@@ -196,6 +197,7 @@ export type AuthoringItemPage = z.infer<typeof AuthoringItemPageSchema>;
 export const AuthoringCreateItemRequestSchema = z.object({
   "itemType": ItemTypeSchema,
   "content": AuthoringItemContentSchema,
+  "subject": z.string().optional(),
 }).strict();
 
 export type AuthoringCreateItemRequest = z.infer<typeof AuthoringCreateItemRequestSchema>;

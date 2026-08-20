@@ -44,7 +44,9 @@ import {
  */
 
 const AUTHOR_ID = '00000000-0000-4000-8100-000000000001';
-const author: PrincipalRef = { kind: 'human', id: AUTHOR_ID, roleContext: ['author'] };
+// Subject-scoped (M4-14) so CreateItemDraft calls below that never declare a
+// subject still resolve one, from the single scope held.
+const author: PrincipalRef = { kind: 'human', id: AUTHOR_ID, roleContext: ['author', 'subject:physics'] };
 const contentOps: PrincipalRef = { kind: 'human', id: 'ops-1', roleContext: ['content_ops'] };
 const admin: PrincipalRef = { kind: 'human', id: 'admin-1', roleContext: ['admin'] };
 const as = (principal: PrincipalRef): ApplicationContext => ({ principal, correlationId: 'c' });
@@ -98,6 +100,7 @@ function draftItem(): Item {
       itemId: identifiers.next(),
       itemType: 'SINGLE_CORRECT_MCQ',
       initialVersion: draftVersion(),
+      authoringSubject: 'physics',
     }),
   );
 }

@@ -96,6 +96,8 @@ export interface AuthoringItemView {
   readonly versions: readonly AuthoringItemVersionView[];
   /** The review queue's ageing clock (M4-13). Never on a delivery view — a student has no interest in review latency. */
   readonly stateEnteredAt?: string;
+  /** The routing key (M4-14). Never on a delivery view. */
+  readonly authoringSubject?: string;
 }
 
 export interface AuthoringMediaAssetView {
@@ -142,6 +144,7 @@ export function toAuthoringItemView(item: Item): AuthoringItemView {
       : { currentPublishedVersionId: item.currentPublishedVersionId }),
     versions: Object.freeze(item.versions.map(toAuthoringVersionView)),
     ...(item.stateEnteredAt === undefined ? {} : { stateEnteredAt: item.stateEnteredAt }),
+    ...(item.authoringSubject === undefined ? {} : { authoringSubject: item.authoringSubject }),
   });
 }
 

@@ -52,6 +52,25 @@ export interface Item {
    * that never mentions review timing does not have to start mentioning it.
    */
   readonly stateEnteredAt?: string;
+  /**
+   * The routing key a subject-scoped queue needs (M4-14, DEC-M4-8). **Optional
+   * here for the same reason `stateEnteredAt` is**: `content.item.authoring_subject`
+   * is `NOT NULL` in storage, but every M3 call site that never mentions a
+   * subject constructs exactly the `Item` it always did.
+   *
+   * **D23, restated.** This is *resolved* at creation from the principal's
+   * subject scope where that is unambiguous (`resolveAuthoringSubject`,
+   * `application/authorization.ts`) — an in-scope author cannot mistype their
+   * own subject the way a purely declared value could be. It is not
+   * cross-checked against the content itself: nothing in this model records
+   * the subject of a passage or a stem, and `curriculum/public/` exposes no
+   * concept → subject-domain lookup. An author scoped to more than one
+   * subject, or unscoped (Content Ops), still declares it and nothing here
+   * catches a mistagging of *their own* in-scope work. D23 stays open for
+   * that half, with its trigger unchanged: Curriculum exposing a concept →
+   * subject lookup.
+   */
+  readonly authoringSubject?: string;
 }
 
 export type ItemErrorCode =
@@ -69,7 +88,8 @@ export type ItemErrorCode =
   | 'REPLACEMENT_IS_SELF'
   | 'ITEM_NOT_DELETABLE'
   | 'VERSION_NOT_EDITABLE'
-  | 'STATE_ENTERED_AT_NOT_A_TIMESTAMP';
+  | 'STATE_ENTERED_AT_NOT_A_TIMESTAMP'
+  | 'AUTHORING_SUBJECT_BLANK';
 
 export type ItemError = ContentError<ItemErrorCode>;
 
@@ -91,12 +111,22 @@ function checkStateEnteredAt(stateEnteredAt: string | undefined, location: strin
   return undefined;
 }
 
+function checkAuthoringSubject(authoringSubject: string | undefined, location: string): ItemError | undefined {
+  if (authoringSubject === undefined) return undefined;
+  if (isBlank(authoringSubject)) {
+    return validationError('AUTHORING_SUBJECT_BLANK', 'authoringSubject, if supplied, is not blank', location);
+  }
+  return undefined;
+}
+
 export interface CreateItemProps {
   readonly itemId: string;
   readonly itemType: ItemType;
   readonly initialVersion: ItemVersion;
   /** Supplied by the handler from the clock port (M4-13) — the domain stays clock-free. */
   readonly stateEnteredAt?: string;
+  /** Resolved by the handler (M4-14) — the domain does not know a principal's scope. */
+  readonly authoringSubject?: string;
 }
 
 /** A new item is always a draft holding exactly one version. */
@@ -130,6 +160,8 @@ export function createItem(
   }
   const stateEnteredAtError = checkStateEnteredAt(props.stateEnteredAt, `${location}.stateEnteredAt`);
   if (stateEnteredAtError !== undefined) return err(stateEnteredAtError);
+  const authoringSubjectError = checkAuthoringSubject(props.authoringSubject, `${location}.authoringSubject`);
+  if (authoringSubjectError !== undefined) return err(authoringSubjectError);
 
   return ok(
     Object.freeze({
@@ -139,6 +171,7 @@ export function createItem(
       versions: Object.freeze([props.initialVersion]),
       aggregateVersion: 1,
       ...(props.stateEnteredAt === undefined ? {} : { stateEnteredAt: props.stateEnteredAt }),
+      ...(props.authoringSubject === undefined ? {} : { authoringSubject: props.authoringSubject }),
     }),
   );
 }
@@ -158,6 +191,7 @@ export interface ReconstituteItemProps {
   readonly replacedByItemId?: string;
   readonly aggregateVersion: number;
   readonly stateEnteredAt?: string;
+  readonly authoringSubject?: string;
 }
 
 export function reconstituteItem(
@@ -234,6 +268,8 @@ export function reconstituteItem(
 
   const stateEnteredAtError = checkStateEnteredAt(props.stateEnteredAt, `${location}.stateEnteredAt`);
   if (stateEnteredAtError !== undefined) return err(stateEnteredAtError);
+  const authoringSubjectError = checkAuthoringSubject(props.authoringSubject, `${location}.authoringSubject`);
+  if (authoringSubjectError !== undefined) return err(authoringSubjectError);
 
   return ok(
     Object.freeze({
@@ -248,6 +284,7 @@ export function reconstituteItem(
       ...(props.retirementReason === undefined ? {} : { retirementReason: props.retirementReason }),
       ...(props.replacedByItemId === undefined ? {} : { replacedByItemId: props.replacedByItemId }),
       ...(props.stateEnteredAt === undefined ? {} : { stateEnteredAt: props.stateEnteredAt }),
+      ...(props.authoringSubject === undefined ? {} : { authoringSubject: props.authoringSubject }),
     }),
   );
 }
