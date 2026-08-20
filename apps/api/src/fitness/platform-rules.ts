@@ -148,4 +148,8 @@ export const CORRECTNESS_BEARING_PLATFORM_MODULES = [
   // a link the SQL twin computes differently, which is a chain that fails
   // later, on data, with nothing to point at.
   'src/platform/persistence/audit-link.ts',
+  // M4-23/M4-24. The chain's read path and the daily anchor. A gap in either
+  // is a tampered history that verifies, or an untampered one that does not.
+  'src/platform/persistence/audit-chain.ts',
+  'src/platform/persistence/audit-anchor.ts',
 ] as const;

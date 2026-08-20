@@ -45,6 +45,7 @@ beforeAll(async () => {
       port: PORT,
       nodeEnv: 'test',
       authSigningKey: SIGNING_KEY,
+      auditAnchorKey: `anchor-${SIGNING_KEY}`,
       authIssuer: ISSUER,
       authTokenTtlSeconds: 3600,
       mediaStorageRoot: './var/media-test',

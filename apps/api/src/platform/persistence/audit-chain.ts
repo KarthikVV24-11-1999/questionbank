@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { GENESIS_PREV_HASH, recordHash, type AuditLinkRecord } from './audit-link.js';
 
 /**
@@ -61,6 +61,14 @@ export interface ChainRow {
   readonly record: AuditLinkRecord;
 }
 
+/**
+ * A pool or a client. The verifier (M4-25) plants tamper inside a rolled-back
+ * transaction, and rows written there are visible only on the client that
+ * wrote them — a read path that took a `Pool` alone could not see what it was
+ * asked to detect.
+ */
+export type Queryable = Pick<Pool, 'query'> | Pick<PoolClient, 'query'>;
+
 export class AuditChainError extends Error {
   constructor(message: string) {
     super(`audit_chain: ${message}`);
@@ -103,7 +111,7 @@ function toChainRow(row: ChainRowShape): ChainRow {
  * is the one table guaranteed to grow forever.
  */
 export async function readChainPage(
-  pool: Pool,
+  pool: Queryable,
   fromSeq: number,
   limit: number,
 ): Promise<readonly ChainRow[]> {
@@ -119,7 +127,7 @@ export async function readChainPage(
 }
 
 /** The last link, or `null` when nothing has been audited yet. */
-export async function readChainHead(pool: Pool): Promise<ChainRow | null> {
+export async function readChainHead(pool: Queryable): Promise<ChainRow | null> {
   const found = await pool.query<ChainRowShape>(
     `SELECT ${SELECT_CHAIN_ROW}
        FROM platform.audit_record
@@ -127,26 +135,6 @@ export async function readChainHead(pool: Pool): Promise<ChainRow | null> {
       LIMIT 1`,
   );
   return found.rowCount === 0 ? null : toChainRow(found.rows[0]!);
-}
-
-/** The sequence range covering a UTC day, or `null` when the day holds no records. */
-export async function readSeqRangeForDay(
-  pool: Pool,
-  day: string,
-): Promise<{ readonly firstSeq: number; readonly lastSeq: number; readonly recordCount: number } | null> {
-  const found = await pool.query<{ first: string | null; last: string | null; count: string }>(
-    `SELECT min(chain_seq)::text AS first, max(chain_seq)::text AS last, count(*)::text AS count
-       FROM platform.audit_record
-      WHERE occurred_at >= $1::date AND occurred_at < ($1::date + interval '1 day')`,
-    [day],
-  );
-  const row = found.rows[0]!;
-  if (row.first === null || row.last === null) return null;
-  return Object.freeze({
-    firstSeq: assertSafeSeq(row.first),
-    lastSeq: assertSafeSeq(row.last),
-    recordCount: assertSafeSeq(row.count),
-  });
 }
 
 /**

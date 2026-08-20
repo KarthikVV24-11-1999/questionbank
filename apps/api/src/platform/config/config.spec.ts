@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig, loadConfigFromProcessEnv } from './config.js';
 
 const VALID_KEY = 'a'.repeat(32);
+/** Distinct from VALID_KEY on purpose: config refuses the two being equal (M4-24, ADR-0020). */
+const VALID_ANCHOR_KEY = 'an-audit-anchor-key-of-32-plus-bytes';
 
 function validEnv(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
   return {
@@ -9,6 +11,7 @@ function validEnv(overrides: Record<string, string | undefined> = {}): Record<st
     PORT: '3000',
     NODE_ENV: 'development',
     AUTH_SIGNING_KEY: VALID_KEY,
+    AUDIT_ANCHOR_KEY: VALID_ANCHOR_KEY,
     AUTH_ISSUER: 'questionbank',
     AUTH_TOKEN_TTL_SECONDS: '3600',
     MEDIA_STORAGE_ROOT: './var/media',
@@ -27,6 +30,7 @@ describe('loadConfig — every key loads', () => {
         port: 3000,
         nodeEnv: 'development',
         authSigningKey: VALID_KEY,
+        auditAnchorKey: VALID_ANCHOR_KEY,
         authIssuer: 'questionbank',
         authTokenTtlSeconds: 3600,
         mediaStorageRoot: './var/media',
@@ -36,7 +40,11 @@ describe('loadConfig — every key loads', () => {
   });
 
   it('applies documented defaults for every key but the signing key and the database URL', () => {
-    const result = loadConfig({ DATABASE_URL: validEnv().DATABASE_URL, AUTH_SIGNING_KEY: VALID_KEY });
+    const result = loadConfig({
+      DATABASE_URL: validEnv().DATABASE_URL,
+      AUTH_SIGNING_KEY: VALID_KEY,
+      AUDIT_ANCHOR_KEY: VALID_ANCHOR_KEY,
+    });
     expect(result).toEqual({
       ok: true,
       value: {
@@ -44,6 +52,7 @@ describe('loadConfig — every key loads', () => {
         port: 3000,
         nodeEnv: 'development',
         authSigningKey: VALID_KEY,
+        auditAnchorKey: VALID_ANCHOR_KEY,
         authIssuer: 'questionbank',
         authTokenTtlSeconds: 3600,
         mediaStorageRoot: './var/media',

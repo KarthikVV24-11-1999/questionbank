@@ -382,3 +382,35 @@ describe('the guarantees the chain must not have weakened', () => {
     expect(message).toContain('audit_record_chain_seq_unique');
   });
 });
+
+describe('the read path refuses what it cannot carry', () => {
+  it('reports an empty chain as no head rather than as a zero-sequence one', async () => {
+    await database.revertMigrations();
+    await database.applyMigrations();
+    expect(await readChainHead(database.pool)).toBeNull();
+    expect(await readChainPage(database.pool, 1, 10)).toEqual([]);
+  });
+
+  /**
+   * `chain_seq` is `bigint`. Beyond 2^53 a JavaScript `number` silently
+   * rounds, and a verifier comparing two rounded sequences would report
+   * distinct records as the same link. Refused rather than rounded.
+   *
+   * Planted for real, as the append-only trigger allows nothing else: inside
+   * a transaction that is rolled back, with the trigger disabled, and read
+   * back on the same client so the uncommitted row is visible.
+   */
+  it('refuses a chain_seq past the safe integer range instead of rounding it', async () => {
+    await insertAuditRecord();
+    const client = await database.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`ALTER TABLE platform.audit_record DISABLE TRIGGER audit_record_append_only`);
+      await client.query(`UPDATE platform.audit_record SET chain_seq = 9007199254740993`);
+      await expect(readChainHead(client)).rejects.toThrow(/exceeds the safe integer range/u);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+});

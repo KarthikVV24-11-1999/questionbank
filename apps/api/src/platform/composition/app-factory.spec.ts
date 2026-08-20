@@ -24,6 +24,7 @@ const CONFIG: AppConfig = {
   port: 3000,
   nodeEnv: 'test',
   authSigningKey: 'a'.repeat(32),
+  auditAnchorKey: 'b'.repeat(32),
   authIssuer: 'questionbank',
   authTokenTtlSeconds: 3600,
   mediaStorageRoot: './var/media-test',
