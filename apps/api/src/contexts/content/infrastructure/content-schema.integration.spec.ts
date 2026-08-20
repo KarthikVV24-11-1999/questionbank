@@ -38,6 +38,9 @@ const CONTENT_TABLES = [
   'content_media_ref',
   'distractor_analysis',
   'item',
+  // The duplicate-detection cache (M4-09/M4-20) — the same not-in-§4 note
+  // 'review_decision' already carries below applies here too.
+  'item_fingerprint',
   'item_matching_member',
   'item_matching_pair',
   'item_numeric_spec',
@@ -48,10 +51,16 @@ const CONTENT_TABLES = [
   'item_version_locale',
   'media_asset',
   'media_asset_version',
+  // The review workspace's own storage (M4-17/M4-18/DEC-M4-7). DATA-ARCHITECTURE
+  // §4 does not name any of these three because ROADMAP put review in M4 — the
+  // same reason 'review_decision' below is not there either.
+  'review_assignment',
+  'review_candidate_shown',
   // The review record (M3-28). DATA-ARCHITECTURE §4 does not name it because
   // ROADMAP put review in M4; ADR-0010 records why the lifecycle — and so the
   // evidence its preconditions consume — lands here instead.
   'review_decision',
+  'review_escalation',
   'solution',
   'solution_step',
   'solution_version',
