@@ -67,6 +67,8 @@ export interface ReviewAssignment {
   readonly leaseExpiresAt: string;
   readonly releasedAt?: string;
   readonly decidedAt?: string;
+  /** P8 (M1 convention). Starts at 1; every state transition increments it — the optimistic-concurrency token M4-18's `release` compares against. */
+  readonly aggregateVersion: number;
 }
 
 export type ReviewAssignmentErrorCode =
@@ -198,6 +200,7 @@ export function createReviewAssignment(
       state: 'claimed' as const,
       claimedAt: props.claimedAt,
       leaseExpiresAt: props.leaseExpiresAt,
+      aggregateVersion: 1,
     }),
   );
 }
@@ -228,7 +231,9 @@ export function transitionReviewAssignment(
 
   const stamp = to === 'decided' ? { decidedAt: at } : to === 'released' ? { releasedAt: at } : {};
 
-  return ok(Object.freeze({ ...assignment, state: to, ...stamp }));
+  return ok(
+    Object.freeze({ ...assignment, state: to, aggregateVersion: assignment.aggregateVersion + 1, ...stamp }),
+  );
 }
 
 /** Pure over a supplied instant — no clock in the domain. Inclusive at the boundary. */

@@ -61,15 +61,17 @@ export function assertAssignable(
  * `self-review.spec.ts` asserts each named module both exists and calls
  * `assertAssignable` or `isSelfReview`.
  *
- * **Two of three call sites exist.** `decision-evidence.ts`'s
+ * **All three call sites exist.** `decision-evidence.ts`'s
  * `assertDecisionEvidenceComplete` (M4-07) is the decision-time check;
- * `publication-preconditions.ts` is the publication-time check. The claim
- * predicate (`application/review/`, M4-18) is not built within
- * M4-01–M4-07's scope; M4-18 adds its entry here and to
- * `self-review.spec.ts`'s enumeration when it lands — the list grows to
- * three, it does not start there.
+ * `publication-preconditions.ts` is the publication-time check;
+ * `infrastructure/review/review-assignment.repository.ts`'s `claimNext`
+ * (M4-18) is the claim-time check — the re-check after `FOR UPDATE SKIP
+ * LOCKED` selects a candidate, which is what actually closes INV-12 for a
+ * version an approve-with-edits reviewer touched (the SQL predicate only
+ * excludes the author).
  */
 export const SELF_REVIEW_CALL_SITES = [
   'src/contexts/content/domain/publication-preconditions.ts',
   'src/contexts/content/domain/review/decision-evidence.ts',
+  'src/contexts/content/infrastructure/review/review-assignment.repository.ts',
 ] as const;

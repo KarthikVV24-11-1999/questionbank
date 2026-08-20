@@ -1,3 +1,4 @@
+import type { PrincipalRef } from '@questionbank/domain-types';
 import type { Result } from './result.js';
 import type { ContentError } from './content-error.js';
 import type { Item } from './item.js';
@@ -5,6 +6,7 @@ import type { ItemVersion } from './item-version.js';
 import type { MediaAsset, MediaAssetVersion } from './media-asset.js';
 import type { ContentEvent } from './events/content-events.js';
 import type { ReviewDecision, ReviewedOwnerType } from './review-decision.js';
+import type { ReviewAssignment } from './review/review-assignment.js';
 import type { Solution, SolutionVersion } from './solution.js';
 import type { Stimulus, StimulusVersion } from './stimulus.js';
 
@@ -113,6 +115,55 @@ export interface ReviewDecisionRepository {
     ownerType: ReviewedOwnerType,
     ownerVersionId: string,
   ): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
+}
+
+/**
+ * Column-derived priority within the candidate set (M4-18). Not M4-03's full
+ * `orderCandidates` — that needs confidence, which comes from M3 validation
+ * this repository has no access to — just the two signals SQL already has:
+ * whether an escalation exists, and how long the item has waited.
+ */
+export type ReviewClaimOrdering = 'escalated_first' | 'oldest_first';
+
+export interface ClaimNextReviewAssignment {
+  readonly subject: string;
+  readonly reviewer: PrincipalRef;
+  readonly ordering: ReviewClaimOrdering;
+  readonly now: string;
+  readonly leaseExpiresAt: string;
+}
+
+export interface ReviewAssignmentRepository {
+  /**
+   * The one piece of concurrency in this milestone that can silently be
+   * wrong (M4-18). One statement: `SELECT … FOR UPDATE SKIP LOCKED` over the
+   * candidate set, then the assignment INSERT, in the same transaction — not
+   * a read followed by a separate write, which races.
+   *
+   * Self-review is excluded twice, on purpose. The predicate excludes the
+   * version's author; it does not reach `editedBy` (approve-with-edits,
+   * M4-15), because a version's editor is a fact this query does not carry
+   * inline the way `authoredBy` is. The re-check after selection, `assertAssignable`
+   * (M4-04, INV-12), reads the whole candidate and catches that case for
+   * real — not a redundant check, the one that actually closes the hole.
+   *
+   * `NOT_FOUND` when the candidate set is empty; a self-review the re-check
+   * catches is `PERSISTENCE_REJECTED`, since `RepositoryError`'s code union
+   * has no fourth member to name it more precisely.
+   */
+  claimNext(criteria: ClaimNextReviewAssignment): Promise<Result<ReviewAssignment, RepositoryError>>;
+
+  /** Optimistic concurrency on `aggregate_version`; a stale write is `Conflict`. */
+  release(
+    assignmentId: string,
+    at: string,
+    expectedVersion: number,
+  ): Promise<Result<ReviewAssignment, RepositoryError>>;
+
+  /** Every lease past expiry, released in one statement. Idempotent: a second run finds nothing left to release. */
+  releaseExpired(now: string): Promise<Result<readonly ReviewAssignment[], RepositoryError>>;
+
+  findById(assignmentId: string): Promise<Result<ReviewAssignment, RepositoryError>>;
 }
 
 export interface MediaAssetRepository {
