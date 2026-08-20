@@ -302,6 +302,12 @@ class StubReviews implements ReviewDecisionRepository {
   async findAllFor(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
     return ok([]);
   }
+  async findByItemVersion(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
+    return ok([]);
+  }
+  async findByReviewer(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
+    return ok([]);
+  }
 }
 
 class StubAssets implements MediaAssetRepository {

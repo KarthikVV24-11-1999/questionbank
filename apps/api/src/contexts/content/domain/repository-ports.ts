@@ -95,8 +95,28 @@ export interface ReviewDecisionRepository {
    * Append-only. A reviewer who changes their mind records a second decision,
    * because the history is what FR-TCH-09 rule 1 needs when comments have to
    * persist against the version they addressed.
+   *
+   * One transaction, one schema, one pool (M4-19): the decision row, its
+   * `candidatesShownIds` as rows in `review_candidate_shown`, and — when
+   * `claimedAssignmentId` is supplied — that assignment's transition to
+   * `decided`, all commit together or none does. `claimedAssignmentId` is
+   * optional because not every reviewed owner type has a claim behind it yet
+   * (M4-18's claim exists for items only); omitting it writes the decision
+   * and its candidate rows with no assignment side effect.
    */
-  record(decision: ReviewDecision): Promise<Result<ReviewDecision, RepositoryError>>;
+  record(
+    decision: ReviewDecision,
+    claimedAssignmentId?: string,
+  ): Promise<Result<ReviewDecision, RepositoryError>>;
+
+  /** Every decision against an item version, most recent first — `findAllFor('item_version', …)` under a name M4-33 reads more easily. */
+  findByItemVersion(itemVersionId: string): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
+
+  /** A reviewer's decisions within an instant range, oldest first — the throughput instrument's source (M4-33). */
+  findByReviewer(
+    reviewerId: string,
+    range: { readonly from: string; readonly to: string },
+  ): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
 
   /**
    * The most recent **approving** decision for a version — the signature
