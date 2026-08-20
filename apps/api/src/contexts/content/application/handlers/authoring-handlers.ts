@@ -16,6 +16,7 @@ import {
   applicationError,
   authorize,
   authorizeDraftAccess,
+  authorizeSubjectScope,
   policy,
   resolveAuthoringSubject,
   type ApplicationError,
@@ -159,6 +160,17 @@ export class UpdateItemDraftHandler implements Handler<UpdateItemDraft, Item> {
     const owns = authorizeDraftAccess(current.authoredBy.id, context);
     if (!owns.ok) return err(owns.error);
 
+    // The subject is a fact about the item, not something a later edit could
+    // misdeclare (M4-14) — authorized against the stored value, never a
+    // command-supplied one. Runs after ownership so an existing "not the
+    // owner" refusal's error code is unchanged; this only ever refuses an
+    // owner (or Content Ops) whose own subject scope no longer covers the
+    // item they are touching. `authoringSubject` is optional on `Item` only
+    // for M3's own constructors (`item.ts`); every item this repository
+    // returns has one — `content.item.authoring_subject` is `NOT NULL`.
+    const scoped = authorizeSubjectScope(item.authoringSubject as string, context);
+    if (!scoped.ok) return err(scoped.error);
+
     // A retried save returns what already exists rather than rewriting the row
     // and writing a second audit record. Checked after authorization, so a
     // principal who may not touch this draft is still refused.
@@ -229,6 +241,11 @@ export class DeriveDraftFromVersionHandler implements Handler<DeriveDraftFromVer
     const owns = authorizeDraftAccess(latestVersionOf(item).authoredBy.id, context);
     if (!owns.ok) return err(owns.error);
 
+    // Authorized against the stored subject, not declared (M4-14) — see
+    // UpdateItemDraftHandler's own comment.
+    const scoped = authorizeSubjectScope(item.authoringSubject as string, context);
+    if (!scoped.ok) return err(scoped.error);
+
     const from = item.versions.find((version) => version.versionId === command.fromVersionId);
     if (from === undefined) {
       return err(
@@ -288,6 +305,11 @@ export class DeleteItemDraftHandler implements Handler<DeleteItemDraft, true> {
 
     const owns = authorizeDraftAccess(latestVersionOf(item).authoredBy.id, context);
     if (!owns.ok) return err(owns.error);
+
+    // Authorized against the stored subject, not declared (M4-14) — see
+    // UpdateItemDraftHandler's own comment.
+    const scoped = authorizeSubjectScope(item.authoringSubject as string, context);
+    if (!scoped.ok) return err(scoped.error);
 
     // FR-TCH-06 rule 3. The domain decides; anything past draft is withdrawn,
     // never deleted.

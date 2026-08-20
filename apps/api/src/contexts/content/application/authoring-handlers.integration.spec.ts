@@ -768,3 +768,62 @@ describe('drafts are scoped to their author (FR-TCH-06 rule 1)', () => {
   });
 });
 
+describe('later touches authorize against the stored subject, never a declaration (M4-14b)', () => {
+  // Same principal id as `author` (so ownership passes) but re-scoped away
+  // from the subject the item was created under — the case DEC-M4-8 leaves
+  // open even after M4-14a: a principal's own scope changing between
+  // creation and a later touch.
+  const authorRescopedToChemistry: PrincipalRef = {
+    ...author,
+    roleContext: ['author', 'subject:chemistry'],
+  };
+
+  it('refuses UpdateItemDraft once the owner’s scope no longer covers the item’s stored subject', async () => {
+    const deps = bench();
+    const created = await draftFor(deps); // author, subject:physics
+
+    const refused = await new UpdateItemDraftHandler(deps).handle(
+      { itemId: created.itemId, content: content(), idempotencyKey: 'k' },
+      as(authorRescopedToChemistry),
+    );
+    const error = expectError(refused);
+    expect(error.kind).toBe('Authorization');
+    expect(error.code).toBe('OUT_OF_SUBJECT_SCOPE');
+  });
+
+  it('refuses DeriveDraftFromVersion the same way', async () => {
+    const deps = bench();
+    const created = await draftFor(deps);
+
+    const refused = await new DeriveDraftFromVersionHandler(deps).handle(
+      { itemId: created.itemId, fromVersionId: created.versions[0]!.versionId },
+      as(authorRescopedToChemistry),
+    );
+    expect(expectError(refused).code).toBe('OUT_OF_SUBJECT_SCOPE');
+  });
+
+  it('refuses DeleteItemDraft the same way, and the item survives', async () => {
+    const deps = bench();
+    const created = await draftFor(deps);
+
+    const refused = await new DeleteItemDraftHandler(deps).handle(
+      { itemId: created.itemId, justification: 'wrong subject now' },
+      as(authorRescopedToChemistry),
+    );
+    expect(expectError(refused).code).toBe('OUT_OF_SUBJECT_SCOPE');
+    expectValue(await items.findById(created.itemId));
+  });
+
+  it('permits Content Ops regardless of scope — a cross-subject role bypasses the stored-subject check', async () => {
+    const deps = bench();
+    const created = await draftFor(deps);
+
+    expectValue(
+      await new UpdateItemDraftHandler(deps).handle(
+        { itemId: created.itemId, content: content({ difficultyEstimate: 'advanced' }), idempotencyKey: 'ops-k' },
+        as(contentOps),
+      ),
+    );
+  });
+});
+
