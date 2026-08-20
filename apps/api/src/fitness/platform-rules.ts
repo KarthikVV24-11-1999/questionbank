@@ -143,4 +143,16 @@ export const CORRECTNESS_BEARING_PLATFORM_MODULES = [
   'src/platform/observability/serializer.ts',
   'src/platform/composition/app-factory.ts',
   'src/platform/persistence/idempotency-store.ts',
+  // M4-22 (DEC-M4-4, ADR-0020). This module is the *specification* for the
+  // PL/pgSQL that actually chains the audit log; an uncovered branch here is
+  // a link the SQL twin computes differently, which is a chain that fails
+  // later, on data, with nothing to point at.
+  'src/platform/persistence/audit-link.ts',
+  // M4-23/M4-24. The chain's read path and the daily anchor. A gap in either
+  // is a tampered history that verifies, or an untampered one that does not.
+  'src/platform/persistence/audit-chain.ts',
+  'src/platform/persistence/audit-anchor.ts',
+  // M4-25. F41 itself — the module that decides whether the audit history can
+  // be shown untampered, and where it broke if it cannot.
+  'src/platform/persistence/audit-chain-verify.ts',
 ] as const;

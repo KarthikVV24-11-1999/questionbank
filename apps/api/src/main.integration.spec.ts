@@ -36,6 +36,8 @@ beforeEach(() => {
   originalEnv = { ...process.env };
   process.env['DATABASE_URL'] = DATABASE_URL;
   process.env['AUTH_SIGNING_KEY'] = 'a'.repeat(32);
+  // Distinct from the auth key: config refuses the two being equal (M4-24, ADR-0020).
+  process.env['AUDIT_ANCHOR_KEY'] = 'an-audit-anchor-key-of-32-plus-bytes';
   process.env['PORT'] = String(PORT);
   process.env['NODE_ENV'] = 'test';
 });

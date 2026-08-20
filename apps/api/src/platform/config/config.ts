@@ -31,6 +31,7 @@ export const CONFIG_KEYS = [
   'port',
   'nodeEnv',
   'authSigningKey',
+  'auditAnchorKey',
   'authIssuer',
   'authTokenTtlSeconds',
   'mediaStorageRoot',
@@ -44,6 +45,14 @@ export interface AppConfig {
   readonly nodeEnv: NodeEnv;
   /** No default, deliberately (DEC-M0-7) — a signing key an app never chose to set is not a safe one. */
   readonly authSigningKey: string;
+  /**
+   * The audit anchor's HMAC key (M4-24, DEC-M4-4 → ADR-0020). No default, for
+   * DEC-M0-7's reason, and **required to differ from `authSigningKey`** — the
+   * whole argument for a second key is that one key compromised should not
+   * forge both sessions and history, which a config that accepts the same
+   * value for both silently gives away.
+   */
+  readonly auditAnchorKey: string;
   readonly authIssuer: string;
   readonly authTokenTtlSeconds: number;
   readonly mediaStorageRoot: string;
@@ -69,6 +78,7 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   port: 'PORT',
   nodeEnv: 'NODE_ENV',
   authSigningKey: 'AUTH_SIGNING_KEY',
+  auditAnchorKey: 'AUDIT_ANCHOR_KEY',
   authIssuer: 'AUTH_ISSUER',
   authTokenTtlSeconds: 'AUTH_TOKEN_TTL_SECONDS',
   mediaStorageRoot: 'MEDIA_STORAGE_ROOT',
@@ -133,6 +143,29 @@ function parseAuthSigningKey(env: Readonly<Record<string, string | undefined>>):
   return required;
 }
 
+/**
+ * The audit anchor's key (M4-24). Same minimum as the auth key and the same
+ * no-default rule, plus one more: it may not *be* the auth key. ADR-0020's
+ * reason for a separate key is that a single compromise should not forge both
+ * sessions and history; two keys with the same value are one key wearing two
+ * names, and nothing else in the system would notice.
+ */
+function parseAuditAnchorKey(
+  env: Readonly<Record<string, string | undefined>>,
+  authSigningKey: string,
+): ConfigResult<string> {
+  const required = requireValue(env, 'auditAnchorKey');
+  if (!required.ok) return required;
+  if (Buffer.byteLength(required.value, 'utf8') < MIN_SIGNING_KEY_BYTES) {
+    // Names the requirement, never the value or a length that narrows a guess.
+    return fail('auditAnchorKey', `AUDIT_ANCHOR_KEY must be at least ${MIN_SIGNING_KEY_BYTES} bytes`);
+  }
+  if (required.value === authSigningKey) {
+    return fail('auditAnchorKey', 'AUDIT_ANCHOR_KEY must not equal AUTH_SIGNING_KEY (ADR-0020)');
+  }
+  return required;
+}
+
 function parseAuthIssuer(env: Readonly<Record<string, string | undefined>>): ConfigResult<string> {
   const raw = withDefault(env, 'authIssuer', DEFAULTS.authIssuer);
   if (raw.trim().length === 0) {
@@ -183,6 +216,9 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   const authSigningKey = parseAuthSigningKey(env);
   if (!authSigningKey.ok) return authSigningKey;
 
+  const auditAnchorKey = parseAuditAnchorKey(env, authSigningKey.value);
+  if (!auditAnchorKey.ok) return auditAnchorKey;
+
   const authIssuer = parseAuthIssuer(env);
   if (!authIssuer.ok) return authIssuer;
 
@@ -202,6 +238,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       port: port.value,
       nodeEnv: nodeEnv.value,
       authSigningKey: authSigningKey.value,
+      auditAnchorKey: auditAnchorKey.value,
       authIssuer: authIssuer.value,
       authTokenTtlSeconds: authTokenTtlSeconds.value,
       mediaStorageRoot: mediaStorageRoot.value,
