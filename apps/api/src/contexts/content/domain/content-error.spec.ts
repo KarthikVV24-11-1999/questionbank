@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { filesMatching, importsOf, stripComments, tsFilesUnder } from '../../../fitness/source-scan.js';
+import { isPureNodeBuiltin } from '../../../fitness/boundary-rules.js';
 import {
   conflictError,
   CONTENT_ERROR_KINDS,
@@ -32,7 +33,8 @@ function outwardImportsIn(directory: string): string[] {
   return tsFilesUnder(directory).flatMap((file) =>
     importsOf(readFileSync(file, 'utf8'))
       .filter((path) => !path.startsWith('.') || /\/(infrastructure|application|api)\//u.test(path))
-      .filter((path) => path !== '@questionbank/domain-types'),
+      .filter((path) => path !== '@questionbank/domain-types')
+      .filter((path) => !isPureNodeBuiltin(path)),
   );
 }
 
