@@ -4,6 +4,7 @@ import {
   AI_AGENT,
   AUTHOR,
   AUTHORED_AT,
+  REVIEWER,
   aiProvenance,
   itemVersionProps,
   mathBody,
@@ -18,11 +19,13 @@ import { fileURLToPath } from 'node:url';
 import {
   createItemVersion,
   deriveDraft,
+  deriveReviewerEditedVersion,
   DIFFICULTY_BANDS,
   pinStimulusVersion,
   stimulusVersionOf,
   type ItemVersion,
 } from './item-version.js';
+import { isSelfReview } from './review/self-review.js';
 
 const DOMAIN_DIR = fileURLToPath(new URL('.', import.meta.url));
 
@@ -337,5 +340,148 @@ describe('pinning a stimulus version (FR-TCH-03 rule 2)', () => {
     const failure = expectError(pinStimulusVersion(build(), '   '));
     expect(failure.code).toBe('STIMULUS_VERSION_REF_BLANK');
     expect(failure.location).toBe('version.stimulusVersionRef');
+  });
+});
+
+// M4-15 (ADR-0018, DEC-M4-3). authoredBy survives; editedBy is the second,
+// distinct fact isSelfReview checks.
+describe('deriveReviewerEditedVersion', () => {
+  function editProps(overrides: Partial<Parameters<typeof deriveReviewerEditedVersion>[1]> = {}) {
+    return {
+      versionId: 'version-2',
+      editedBy: REVIEWER,
+      createdAt: '2026-08-15T09:00:00Z',
+      edits: {},
+      ...overrides,
+    };
+  }
+
+  it('carries authoredBy over from the source version, untouched', () => {
+    const source = build();
+    const edited = expectValue(deriveReviewerEditedVersion(source, editProps({ edits: { difficultyEstimate: 'advanced' } })));
+    expect(edited.authoredBy).toEqual(source.authoredBy);
+  });
+
+  it('sets editedBy to the reviewer making the edit', () => {
+    const edited = expectValue(
+      deriveReviewerEditedVersion(build(), editProps({ edits: { difficultyEstimate: 'advanced' } })),
+    );
+    expect(edited.editedBy?.id).toBe(REVIEWER.id);
+  });
+
+  it('leaves the source version’s own editedBy absent', () => {
+    const source = build();
+    expectValue(deriveReviewerEditedVersion(source, editProps({ edits: { difficultyEstimate: 'advanced' } })));
+    expect(source.editedBy).toBeUndefined();
+  });
+
+  it('increments versionNo and assigns the new versionId', () => {
+    const source = build();
+    const edited = expectValue(
+      deriveReviewerEditedVersion(source, editProps({ edits: { difficultyEstimate: 'challenging' } })),
+    );
+    expect(edited.versionId).toBe('version-2');
+    expect(edited.versionNo).toBe(source.versionNo + 1);
+  });
+
+  it('permits editing the stem', () => {
+    const newStem = textBody('edited stem');
+    const edited = expectValue(deriveReviewerEditedVersion(build(), editProps({ edits: { stem: newStem } })));
+    expect(edited.stem).toEqual(newStem);
+  });
+
+  it('permits editing taxonomy tags', () => {
+    const edited = expectValue(
+      deriveReviewerEditedVersion(build(), editProps({ edits: { taxonomyTags: tags({ isPrimary: true }) } })),
+    );
+    expect(edited.taxonomyTags).toHaveLength(1);
+  });
+
+  it('permits editing difficultyEstimate', () => {
+    const edited = expectValue(
+      deriveReviewerEditedVersion(build(), editProps({ edits: { difficultyEstimate: 'advanced' } })),
+    );
+    expect(edited.difficultyEstimate).toBe('advanced');
+  });
+
+  it('refuses an invalid taxonomyTags edit, and applies nothing', () => {
+    const failure = expectError(deriveReviewerEditedVersion(build(), editProps({ edits: { taxonomyTags: [] } })));
+    expect(failure.code).toBe('TAGS_REQUIRED');
+  });
+
+  it('permits an empty edit — the diff is reported as empty and nothing changes', () => {
+    const source = build();
+    const edited = expectValue(deriveReviewerEditedVersion(source, editProps()));
+    expect(edited.stem).toEqual(source.stem);
+    expect(edited.difficultyEstimate).toBe(source.difficultyEstimate);
+  });
+
+  it('refuses a responseSpec edit, naming request_changes, and applies nothing', () => {
+    const failure = expectError(
+      deriveReviewerEditedVersion(
+        build(),
+        editProps({ edits: { responseSpec: singleCorrectSpec() } }),
+      ),
+    );
+    expect(failure.code).toBe('KEY_EDIT_REQUIRES_CHANGES_REQUESTED');
+    expect(failure.message).toContain('request_changes');
+  });
+
+  it('refuses a blank editedBy id', () => {
+    const failure = expectError(
+      deriveReviewerEditedVersion(build(), editProps({ editedBy: { ...REVIEWER, id: '  ' } })),
+    );
+    expect(failure.code).toBe('EDITED_BY_REQUIRED');
+  });
+
+  it('refuses an unknown editedBy principal kind', () => {
+    const failure = expectError(
+      deriveReviewerEditedVersion(build(), editProps({ editedBy: { ...REVIEWER, kind: 'robot' as never } })),
+    );
+    expect(failure.code).toBe('EDITED_BY_KIND_UNKNOWN');
+  });
+
+  it('refuses a createdAt that is not an ISO instant', () => {
+    const failure = expectError(deriveReviewerEditedVersion(build(), editProps({ createdAt: 'whenever' })));
+    expect(failure.code).toBe('CREATED_AT_NOT_A_TIMESTAMP');
+  });
+
+  it('refuses a blank versionId', () => {
+    const failure = expectError(deriveReviewerEditedVersion(build(), editProps({ versionId: ' ' })));
+    expect(failure.code).toBe('VERSION_ID_REQUIRED');
+  });
+
+  it('freezes the produced version and its editedBy', () => {
+    const edited = expectValue(
+      deriveReviewerEditedVersion(build(), editProps({ edits: { difficultyEstimate: 'advanced' } })),
+    );
+    expect(Object.isFrozen(edited)).toBe(true);
+    expect(Object.isFrozen(edited.editedBy)).toBe(true);
+    expect(Object.isFrozen(edited.editedBy?.roleContext)).toBe(true);
+  });
+
+  it('INV-12: isSelfReview treats a reviewer who edited a version as not independent of it', () => {
+    const edited = expectValue(
+      deriveReviewerEditedVersion(build(), editProps({ edits: { difficultyEstimate: 'advanced' } })),
+    );
+    expect(isSelfReview(edited, REVIEWER)).toBe(true);
+    // The original author is still refused too — a version's author never stops being one.
+    expect(isSelfReview(edited, AUTHOR)).toBe(true);
+  });
+
+  it('a different reviewer than the one who edited is not self-review', () => {
+    const edited = expectValue(
+      deriveReviewerEditedVersion(build(), editProps({ edits: { difficultyEstimate: 'advanced' } })),
+    );
+    expect(isSelfReview(edited, AI_AGENT)).toBe(false);
+  });
+
+  it('AI provenance still requires a human signature — editedBy does not substitute for one', () => {
+    const source = build({ provenance: aiProvenance() });
+    const edited = expectValue(
+      deriveReviewerEditedVersion(source, editProps({ edits: { difficultyEstimate: 'advanced' } })),
+    );
+    expect(edited.provenance.sourceType).not.toBe('original');
+    expect(edited.editedBy?.kind).toBe('human');
   });
 });

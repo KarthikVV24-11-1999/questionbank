@@ -16,6 +16,7 @@ import {
   type ItemType,
   type ResponseSpecification,
 } from './response-specification.js';
+import { diffWithinScope, type EditScopeError } from './review/edit-scope.js';
 
 /**
  * `ItemVersion` — the immutable snapshot of a question (DOMAIN-MODEL §5, D1).
@@ -54,6 +55,14 @@ export interface ItemVersion {
   readonly stimulusVersionRef?: string;
   readonly authoredBy: PrincipalRef;
   readonly createdAt: string;
+  /**
+   * Set only by `deriveReviewerEditedVersion` (M4-15, ADR-0018,
+   * DEC-M4-3) — a reviewer's bounded edit under `approve_with_edits`.
+   * `authoredBy` is never rewritten by an edit; this is the second,
+   * distinct fact `isSelfReview` checks (`domain/review/self-review.ts`),
+   * so a reviewer who edited a version cannot also be the one who signs it.
+   */
+  readonly editedBy?: PrincipalRef;
 }
 
 /**
@@ -75,7 +84,9 @@ export type ItemVersionErrorCode =
   | 'AUTHORED_BY_REQUIRED'
   | 'AUTHORED_BY_KIND_UNKNOWN'
   | 'CREATED_AT_NOT_A_TIMESTAMP'
-  | 'STIMULUS_VERSION_REF_BLANK';
+  | 'STIMULUS_VERSION_REF_BLANK'
+  | 'EDITED_BY_REQUIRED'
+  | 'EDITED_BY_KIND_UNKNOWN';
 
 export type ItemVersionError = ContentError<ItemVersionErrorCode>;
 
@@ -308,4 +319,101 @@ export function pinStimulusVersion(
 /** Whether this version pins a stimulus, and which version of it. */
 export function stimulusVersionOf(version: ItemVersion): string | undefined {
   return version.stimulusVersionRef;
+}
+
+/**
+ * The bounded reviewer edit under `approve_with_edits` (M4-15, ADR-0018,
+ * DEC-M4-3). What separates this from `deriveDraft`: `authoredBy` is carried
+ * over from `from`, **never** rewritten — the reviewer's contribution is
+ * recorded as `editedBy`, a second, distinct fact. `authoredBy` answers
+ * *whose subject-matter work is this*, and a reviewer fixing a typo does not
+ * become the author.
+ *
+ * `edits` names only the fields DEC-M4-3 opens for this outcome; whichever of
+ * them are actually supplied is checked against `edit-scope.ts`'s
+ * `diffWithinScope` — the **same function** M4-08 built for exactly this, not
+ * a second implementation of the bound. `responseSpec` is accepted here only
+ * so a caller who supplies one is refused by name (`KEY_EDIT_REQUIRES_CHANGES_REQUESTED`);
+ * `itemType` and `provenance` cannot be supplied at all — there is no
+ * parameter for either, which is the closed part of the bound no runtime
+ * check could add anything to.
+ */
+export interface ReviewerEdits {
+  readonly stem?: ContentBody;
+  readonly taxonomyTags?: readonly CreateTaxonomyTagProps[];
+  readonly difficultyEstimate?: DifficultyBand;
+  /** Never actually applied — present only so supplying one is refused by name, not silently ignored. */
+  readonly responseSpec?: CreateResponseSpecificationProps;
+}
+
+export interface DeriveReviewerEditedVersionProps {
+  readonly versionId: string;
+  readonly editedBy: PrincipalRef;
+  readonly createdAt: string;
+  readonly edits: ReviewerEdits;
+}
+
+export function deriveReviewerEditedVersion(
+  from: ItemVersion,
+  props: DeriveReviewerEditedVersionProps,
+  location = 'version',
+): Result<ItemVersion, ItemVersionError | EditScopeError | ContentError> {
+  if (isBlank(props.versionId)) {
+    return err(invalid('VERSION_ID_REQUIRED', 'a derived version requires its own versionId', location));
+  }
+  if (isBlank(props.editedBy.id)) {
+    return err(
+      invalid('EDITED_BY_REQUIRED', 'a reviewer edit records who made it (INV-12)', `${location}.editedBy`),
+    );
+  }
+  if (!(PRINCIPAL_KINDS as readonly string[]).includes(props.editedBy.kind)) {
+    return err(
+      invalid(
+        'EDITED_BY_KIND_UNKNOWN',
+        `unknown principal kind "${props.editedBy.kind}"`,
+        `${location}.editedBy`,
+      ),
+    );
+  }
+  if (!ISO_INSTANT.test(props.createdAt)) {
+    return err(
+      invalid(
+        'CREATED_AT_NOT_A_TIMESTAMP',
+        `createdAt "${props.createdAt}" is not an ISO-8601 instant`,
+        `${location}.createdAt`,
+      ),
+    );
+  }
+
+  const changedFields = [
+    ...(props.edits.stem !== undefined ? ['stem'] : []),
+    ...(props.edits.taxonomyTags !== undefined ? ['taxonomyTags'] : []),
+    ...(props.edits.difficultyEstimate !== undefined ? ['difficultyEstimate'] : []),
+    ...(props.edits.responseSpec !== undefined ? ['responseSpec'] : []),
+  ];
+  const scoped = diffWithinScope(changedFields, `${location}.edits`);
+  if (!scoped.ok) return err(scoped.error);
+
+  let taxonomyTags = from.taxonomyTags;
+  if (props.edits.taxonomyTags !== undefined) {
+    const built = createTaxonomyTagSet(props.edits.taxonomyTags, `${location}.taxonomyTags`);
+    if (!built.ok) return err(built.error);
+    taxonomyTags = built.value;
+  }
+
+  return ok(
+    Object.freeze({
+      ...from,
+      versionId: props.versionId,
+      versionNo: from.versionNo + 1,
+      taxonomyTags,
+      ...(props.edits.stem === undefined ? {} : { stem: props.edits.stem }),
+      ...(props.edits.difficultyEstimate === undefined ? {} : { difficultyEstimate: props.edits.difficultyEstimate }),
+      editedBy: Object.freeze({
+        ...props.editedBy,
+        roleContext: Object.freeze([...props.editedBy.roleContext]),
+      }),
+      createdAt: props.createdAt,
+    }),
+  );
 }

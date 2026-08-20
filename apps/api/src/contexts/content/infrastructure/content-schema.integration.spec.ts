@@ -680,3 +680,47 @@ describe('content.item.state_entered_at (M4-13) — up, down, up again', () => {
     expect(row?.state_entered_at.toISOString()).toBe(row?.created_at.toISOString());
   });
 });
+
+describe('content.item_version.edited_by_* (M4-15) — up, down, up again', () => {
+  async function editedByColumns(): Promise<number> {
+    const [result] = await rows<{ count: string }>(
+      `SELECT count(*)::text AS count FROM information_schema.columns
+        WHERE table_schema = 'content' AND table_name = 'item_version'
+          AND column_name IN ('edited_by_kind', 'edited_by_id')`,
+    );
+    return Number(result?.count ?? '0');
+  }
+
+  it('adds two nullable columns on up, drops them cleanly on down, rebuilds identically on up again', async () => {
+    await database.revertMigrations();
+    await database.applyMigrations();
+    expect(await editedByColumns()).toBe(2);
+
+    await database.revertMigrations();
+    expect(await editedByColumns()).toBe(0);
+
+    await database.applyMigrations();
+    expect(await editedByColumns()).toBe(2);
+  });
+
+  it('enforces both-or-neither at the database', async () => {
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version)
+       VALUES ('00000000-0000-4000-8000-000000000102', 'NUMERIC', 'draft', 1)`,
+    );
+    const rejected = await database.pool
+      .query(
+        `INSERT INTO content.item_version
+           (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text,
+            difficulty_estimate, authored_by_kind, authored_by_id, edited_by_kind)
+         VALUES ('00000000-0000-4000-8000-000000000103', '00000000-0000-4000-8000-000000000102', 1,
+                 'NUMERIC', '{}'::jsonb, 'x', 'moderate', 'human', '00000000-0000-4000-8000-000000000104',
+                 'human')`,
+      )
+      .then(
+        () => null,
+        (error: Error) => error.message,
+      );
+    expect(rejected).toContain('item_version_edited_by_both_or_neither');
+  });
+});

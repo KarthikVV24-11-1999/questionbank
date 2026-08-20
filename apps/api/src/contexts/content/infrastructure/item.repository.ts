@@ -63,6 +63,8 @@ interface VersionRow {
   readonly stimulus_version_id: string | null;
   readonly authored_by_kind: 'human' | 'ai_agent' | 'system';
   readonly authored_by_id: string;
+  readonly edited_by_kind: 'human' | 'ai_agent' | 'system' | null;
+  readonly edited_by_id: string | null;
   readonly created_at: Date;
 }
 
@@ -322,8 +324,9 @@ export class PostgresItemRepository implements ItemRepository {
     await client.query(
       `INSERT INTO content.item_version
          (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text, notation_terms,
-          difficulty_estimate, stimulus_version_id, authored_by_kind, authored_by_id, created_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)
+          difficulty_estimate, stimulus_version_id, authored_by_kind, authored_by_id, created_at,
+          edited_by_kind, edited_by_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (item_version_id) DO UPDATE SET
          version_no = EXCLUDED.version_no,
          item_type = EXCLUDED.item_type,
@@ -348,6 +351,8 @@ export class PostgresItemRepository implements ItemRepository {
         version.authoredBy.kind,
         version.authoredBy.id,
         version.createdAt,
+        version.editedBy?.kind ?? null,
+        version.editedBy?.id ?? null,
       ],
     );
 
@@ -626,7 +631,8 @@ export class PostgresItemRepository implements ItemRepository {
   async #hydrate(row: ItemRow): Promise<Result<Item, RepositoryError>> {
     const versions = await this.#pool.query<VersionRow>(
       `SELECT item_version_id, version_no, item_type, stem_body, difficulty_estimate,
-              stimulus_version_id, authored_by_kind, authored_by_id, created_at
+              stimulus_version_id, authored_by_kind, authored_by_id, created_at,
+              edited_by_kind, edited_by_id
          FROM content.item_version WHERE item_id = $1 ORDER BY version_no`,
       [row.item_id],
     );
@@ -775,6 +781,15 @@ export class PostgresItemRepository implements ItemRepository {
         roleContext: Object.freeze([]),
       }),
       createdAt: toIsoInstant(row.created_at),
+      ...(row.edited_by_kind === null || row.edited_by_id === null
+        ? {}
+        : {
+            editedBy: Object.freeze({
+              kind: row.edited_by_kind,
+              id: row.edited_by_id,
+              roleContext: Object.freeze([]),
+            }),
+          }),
     });
   }
 

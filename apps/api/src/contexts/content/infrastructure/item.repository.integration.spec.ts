@@ -4,6 +4,7 @@ import { expectError, expectValue } from '../../../testing/expect-result.js';
 import {
   AUTHOR,
   FOUR_OPTIONS,
+  REVIEWER,
   aiProvenance,
   itemVersionProps,
   mathBody,
@@ -11,7 +12,7 @@ import {
   PROVENANCE_CONTEXT,
   textBody,
 } from '../../../testing/content-fixtures.js';
-import { createItemVersion, deriveDraft, type ItemVersion } from '../domain/item-version.js';
+import { createItemVersion, deriveDraft, deriveReviewerEditedVersion, type ItemVersion } from '../domain/item-version.js';
 import { addVersion, createItem, publishVersion, transitionItem, type Item } from '../domain/item.js';
 import { createContentBody, type Block } from '../domain/content-body.js';
 import { projectContentBody } from '../domain/content-body-projections.js';
@@ -1043,5 +1044,39 @@ describe('state_entered_at', () => {
     const afterSubmit = expectValue(await repository.findById(item.itemId));
     expect(afterSubmit.stateEnteredAt).toBeDefined();
     expect(() => new Date(afterSubmit.stateEnteredAt as string)).not.toThrow();
+  });
+});
+
+// M4-15, ADR-0018.
+describe('editedBy', () => {
+  const DB_REVIEWER = { ...REVIEWER, id: freshUuid() };
+
+  it('round trips absent when a version was never reviewer-edited', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    expect(loaded.versions[0]!.editedBy).toBeUndefined();
+  });
+
+  it('round trips editedBy on a reviewer-edited version, leaving authoredBy the original author', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const edited = expectValue(
+      deriveReviewerEditedVersion(afterInsert.versions[0]!, {
+        versionId: freshUuid(),
+        editedBy: DB_REVIEWER,
+        createdAt: '2026-08-15T09:00:00Z',
+        edits: { difficultyEstimate: 'advanced' },
+      }),
+    );
+    expectValue(await repository.save(expectValue(addVersion(afterInsert, edited))));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    const editedVersion = loaded.versions.find((version) => version.versionId === edited.versionId);
+    expect(editedVersion?.editedBy?.id).toBe(DB_REVIEWER.id);
+    expect(editedVersion?.authoredBy.id).toBe(AUTHOR_ID);
   });
 });
