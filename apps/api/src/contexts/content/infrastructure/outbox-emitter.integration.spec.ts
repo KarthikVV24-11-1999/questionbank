@@ -56,7 +56,7 @@ function envelope<T extends ContentEventType>(eventType: T) {
   } as const;
 }
 
-/** One of every event type, so the payload inspection covers all six. */
+/** One of every event type, so the payload inspection covers all ten (M4-12). */
 function eventOfEveryType(): readonly ContentEvent[] {
   return [
     {
@@ -108,6 +108,45 @@ function eventOfEveryType(): readonly ContentEvent[] {
         assetVersionId: randomUUID(),
         assetType: 'diagram',
         mimeType: 'image/png',
+      },
+    },
+    {
+      ...envelope('ReviewClaimed'),
+      payload: {
+        assignmentId: randomUUID(),
+        itemId: ITEM_ID,
+        itemVersionId: randomUUID(),
+        subject: 'physics',
+        assignmentType: 'claimed',
+      },
+    },
+    {
+      ...envelope('ReviewReleased'),
+      payload: {
+        assignmentId: randomUUID(),
+        itemId: ITEM_ID,
+        itemVersionId: randomUUID(),
+        releaseType: 'released',
+      },
+    },
+    {
+      ...envelope('ReviewDecided'),
+      payload: {
+        decisionId: randomUUID(),
+        itemId: ITEM_ID,
+        itemVersionId: randomUUID(),
+        outcomeType: 'reject',
+        reasonCode: 'DUPLICATE',
+        duplicateOfItemId: randomUUID(),
+      },
+    },
+    {
+      ...envelope('ItemReviewEscalated'),
+      payload: {
+        itemId: ITEM_ID,
+        itemVersionId: randomUUID(),
+        subject: 'physics',
+        targetRoleType: 'content_ops',
       },
     },
   ];
@@ -295,7 +334,10 @@ describe('what a payload may not carry (§9 rules 10, 12)', () => {
 
     // `reason` and `retirementReason` are the two free-text fields, and both
     // are an operator's justification for a governance act — not content.
-    const permitted = /Id$|Ids$|^versionNo$|Type$|^reason$|^retirementReason$/u;
+    // `Code$` (M4-12's `reasonCode`) is a closed-vocabulary member the same
+    // way `Type$` fields are; `subject` (M4-12) is a routing key from
+    // curriculum's own closed set, not free text.
+    const permitted = /Id$|Ids$|^versionNo$|Type$|Code$|^subject$|^reason$|^retirementReason$/u;
     for (const row of await rowsFor(correlationId)) {
       for (const key of Object.keys(row.payload)) {
         expect(permitted.test(key), `${row.event_type}.${key}`).toBe(true);

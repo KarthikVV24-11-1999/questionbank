@@ -22,6 +22,10 @@ export const CONTENT_EVENT_TYPES = [
   'StimulusPublished',
   'SolutionPublished',
   'MediaAssetPublished',
+  'ReviewClaimed',
+  'ReviewReleased',
+  'ReviewDecided',
+  'ItemReviewEscalated',
 ] as const;
 
 export type ContentEventType = (typeof CONTENT_EVENT_TYPES)[number];
@@ -97,12 +101,76 @@ export interface MediaAssetPublishedPayload {
   readonly mimeType: string;
 }
 
+/**
+ * DEC-M4-7 / §9 rule 4 — the review workspace lives inside content, so it
+ * shares content's event vocabulary rather than declaring a second one; a
+ * fourth context would have needed its own, which is exactly the
+ * entanglement DEC-M4-7 avoids.
+ *
+ * A claim is queue plumbing, not content — carries the assignment, which
+ * item version, the subject it routed on, and how it was assigned
+ * (`assignmentType`, DEC-M4-9's `kind`). No reviewer identity beyond the
+ * envelope's own `principal`, and nothing from `ItemVersion` itself.
+ */
+export interface ReviewClaimedPayload {
+  readonly assignmentId: string;
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly assignmentType: string;
+}
+
+/**
+ * `releaseType` distinguishes a reviewer stepping back (`released`) from a
+ * lease timing out (`expired`, DEC-M4-1) — different failures, same shape.
+ */
+export interface ReviewReleasedPayload {
+  readonly assignmentId: string;
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly releaseType: string;
+}
+
+/**
+ * **Carries the outcome and the reason code — the two fields capacity
+ * planning needs — and nothing more** (M4-12's own acceptance criterion).
+ * Never `justification`: a reviewer's free-text justification is feedback to
+ * one author, not an analytics field, and the outbox drains to analytics
+ * (P4/D17) — exactly where it must never arrive. `duplicateOfItemId` is an
+ * identifier, not the duplicate's content, so it is as safe here as
+ * `itemId` is.
+ */
+export interface ReviewDecidedPayload {
+  readonly decisionId: string;
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly outcomeType: string;
+  readonly reasonCode?: string;
+  readonly duplicateOfItemId?: string;
+}
+
+/**
+ * DEC-M4-1 — escalation makes an item visible to Content Ops; it does not
+ * reassign it, and `targetRoleType` names the role the item became visible
+ * to (always `content_ops` today), never a principal.
+ */
+export interface ItemReviewEscalatedPayload {
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly targetRoleType: string;
+}
+
 export type ItemPublished = DomainEvent<'ItemPublished', ItemPublishedPayload>;
 export type ItemSuspended = DomainEvent<'ItemSuspended', ItemSuspendedPayload>;
 export type ItemRetired = DomainEvent<'ItemRetired', ItemRetiredPayload>;
 export type StimulusPublished = DomainEvent<'StimulusPublished', StimulusPublishedPayload>;
 export type SolutionPublished = DomainEvent<'SolutionPublished', SolutionPublishedPayload>;
 export type MediaAssetPublished = DomainEvent<'MediaAssetPublished', MediaAssetPublishedPayload>;
+export type ReviewClaimed = DomainEvent<'ReviewClaimed', ReviewClaimedPayload>;
+export type ReviewReleased = DomainEvent<'ReviewReleased', ReviewReleasedPayload>;
+export type ReviewDecided = DomainEvent<'ReviewDecided', ReviewDecidedPayload>;
+export type ItemReviewEscalated = DomainEvent<'ItemReviewEscalated', ItemReviewEscalatedPayload>;
 
 export type ContentEvent =
   | ItemPublished
@@ -110,7 +178,11 @@ export type ContentEvent =
   | ItemRetired
   | StimulusPublished
   | SolutionPublished
-  | MediaAssetPublished;
+  | MediaAssetPublished
+  | ReviewClaimed
+  | ReviewReleased
+  | ReviewDecided
+  | ItemReviewEscalated;
 
 /**
  * Every event either has an analytics counterpart or an explicit exemption
@@ -167,6 +239,41 @@ export const CONTENT_EVENT_REGISTRY: readonly EventRegistration[] = Object.freez
     analyticsEvent: null,
     analyticsExemptionReason:
       'a media asset is a component of an item; the authoring funnel is measured on item.* events',
+  }),
+  Object.freeze({
+    eventType: 'ReviewClaimed' as const,
+    schemaVersion: 1,
+    analyticsEvent: null,
+    // Queue plumbing, not a funnel milestone. A per-claim analytics event is
+    // also exactly the raw material a per-reviewer leaderboard would be built
+    // from, which UX §11 and DEC-M4-13 forbid outright — capacity planning
+    // reads the dedicated queue-health query (M4-33), never this event.
+    analyticsExemptionReason:
+      'a claim is queue plumbing; per-reviewer analytics here is the raw material of the ranking UX §11 forbids — capacity planning uses the dedicated queue-health query (M4-33)',
+  }),
+  Object.freeze({
+    eventType: 'ReviewReleased' as const,
+    schemaVersion: 1,
+    analyticsEvent: null,
+    analyticsExemptionReason:
+      'a release — voluntary or a lease expiring (DEC-M4-1) — is a lock timing out or a reviewer stepping back, not a funnel signal',
+  }),
+  Object.freeze({
+    eventType: 'ReviewDecided' as const,
+    schemaVersion: 1,
+    // EVENT-TAXONOMY §3's content pipeline already catalogues this exact
+    // counterpart.
+    analyticsEvent: 'item.review_decided',
+    analyticsExemptionReason: null,
+  }),
+  Object.freeze({
+    eventType: 'ItemReviewEscalated' as const,
+    schemaVersion: 1,
+    analyticsEvent: null,
+    // DEC-M4-1: escalation is computed on read and exists to drive the
+    // Content Ops queue surface (M4-33), not to feed analytics.
+    analyticsExemptionReason:
+      'escalation is computed on read (DEC-M4-1) and drives the Content Ops queue surface (M4-33), not an analytics funnel',
   }),
 ]);
 
