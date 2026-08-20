@@ -55,8 +55,28 @@ function isSharedKernel(importPath: string): boolean {
   return importPath === '@questionbank/domain-types';
 }
 
-function isNodeBuiltin(importPath: string): boolean {
-  return importPath.startsWith('node:');
+/**
+ * Builtins §9 rule 2 does not forbid — enumerated, never a blanket
+ * `startsWith('node:')`. `domain/` imports nothing but itself and the shared
+ * kernel because that rule exists to keep the domain free of coupling *and*
+ * of I/O, a clock, or randomness; a blanket exemption for every builtin would
+ * quietly let `node:fs` or `node:child_process` through as if the rule only
+ * cared about coupling. What earns a place here is a builtin that is a pure
+ * function of its arguments — same input, same output, nothing reached
+ * outside the process — with the reason written down next to it. A builtin
+ * earns its place when a real module needs it, not speculatively.
+ *
+ * `content-error.spec.ts` imports this same function rather than
+ * re-implementing the predicate — one definition, every call site.
+ */
+const PURE_NODE_BUILTINS: ReadonlySet<string> = new Set([
+  // sha256/hex digests over bytes this process was handed — no I/O, no clock,
+  // no randomness (fingerprint.ts, qc-sampling.ts, marking-rule-set-hash.ts).
+  'node:crypto',
+]);
+
+export function isPureNodeBuiltin(importPath: string): boolean {
+  return PURE_NODE_BUILTINS.has(importPath);
 }
 
 /** The bounded context a path belongs to, or null for anything outside contexts/. */
@@ -107,7 +127,7 @@ export function checkBoundaries(root: string, options: BoundaryCheckOptions = {}
       if (insideDomain) {
         const staysInDomain =
           owningContext !== null && resolved?.startsWith(`src/contexts/${owningContext}/domain/`) === true;
-        if (!staysInDomain && !isSharedKernel(importPath) && !isNodeBuiltin(importPath)) {
+        if (!staysInDomain && !isSharedKernel(importPath) && !isPureNodeBuiltin(importPath)) {
           violations.push({
             rule: 'F2_DOMAIN_IMPORTS_NOTHING',
             file,

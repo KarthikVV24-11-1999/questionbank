@@ -136,3 +136,39 @@ describe('the outcome vocabulary', () => {
     expect(isApproving(outcome)).toBe(expected);
   });
 });
+
+// M4-07's governance fields — a plain passthrough on this constructor. The
+// rules they carry are enforced by domain/review/decision-evidence.ts, not
+// here, which is what keeps every test above this point green unchanged.
+describe('the governance fields (M4-07)', () => {
+  it('is absent for reasonCode, duplicateOfItemId and candidatesShownIds when none are supplied', () => {
+    const decision = expectValue(createReviewDecision(props()));
+    expect(decision.reasonCode).toBeUndefined();
+    expect(decision.duplicateOfItemId).toBeUndefined();
+    expect(decision.candidatesShownIds).toBeUndefined();
+  });
+
+  it('carries reasonCode and duplicateOfItemId through unchanged', () => {
+    const decision = expectValue(
+      createReviewDecision(
+        props({ outcome: 'reject', justification: 'same item, retyped', reasonCode: 'DUPLICATE', duplicateOfItemId: 'item-9' }),
+      ),
+    );
+    expect(decision.reasonCode).toBe('DUPLICATE');
+    expect(decision.duplicateOfItemId).toBe('item-9');
+  });
+
+  it('distinguishes an empty candidatesShownIds from an absent one', () => {
+    const withNone = expectValue(createReviewDecision(props({ candidatesShownIds: [] })));
+    const withoutTheField = expectValue(createReviewDecision(props()));
+    expect(withNone.candidatesShownIds).toEqual([]);
+    expect(withoutTheField.candidatesShownIds).toBeUndefined();
+    expect(withNone.candidatesShownIds).not.toBe(withoutTheField.candidatesShownIds);
+  });
+
+  it('carries a non-empty candidatesShownIds through, frozen', () => {
+    const decision = expectValue(createReviewDecision(props({ candidatesShownIds: ['item-1', 'item-2'] })));
+    expect(decision.candidatesShownIds).toEqual(['item-1', 'item-2']);
+    expect(Object.isFrozen(decision.candidatesShownIds)).toBe(true);
+  });
+});

@@ -16,6 +16,10 @@ import { importsOf, readCode, tsFilesUnder } from './source-scan.js';
  *          controller, by **import graph** rather than by naming convention
  *   ADR-0008 — every correctness-bearing content module carries a 100%
  *          coverage threshold, and the list polices itself
+ *   M4-01 (DEC-M4-7) — the review/authoring intra-context sub-boundary: a
+ *          review/ module reaches only content's domain aggregates/value
+ *          objects and application/authorization.ts; the rest of content
+ *          reaches nothing in review/, in either direction
  *
  * Every function here is pure over its inputs, so each can be run against the
  * real tree *and* against a planted violation. A gate nobody has seen fail is
@@ -35,6 +39,8 @@ export const CONTENT_RULES = [
   'ADR0008_MISSING_THRESHOLD',
   'ADR0008_WEAK_THRESHOLD',
   'ADR0008_THRESHOLD_NAMES_A_DELETED_MODULE',
+  'M4_01_REVIEW_REACHES_AUTHORING',
+  'M4_01_AUTHORING_REACHES_REVIEW',
 ] as const;
 export type ContentRule = (typeof CONTENT_RULES)[number];
 
@@ -459,6 +465,17 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/domain/publication-preconditions.ts',
   'src/contexts/content/domain/response-specification.ts',
   'src/contexts/content/domain/review-decision.ts',
+  'src/contexts/content/domain/review/review-assignment.ts',
+  'src/contexts/content/domain/review/queue-ordering.ts',
+  'src/contexts/content/domain/review/self-review.ts',
+  'src/contexts/content/domain/review/ageing.ts',
+  'src/contexts/content/domain/review/review-policy.ts',
+  'src/contexts/content/domain/review/rejection-taxonomy.ts',
+  'src/contexts/content/domain/review/decision-evidence.ts',
+  'src/contexts/content/domain/review/edit-scope.ts',
+  'src/contexts/content/domain/review/fingerprint.ts',
+  'src/contexts/content/domain/review/trigram.ts',
+  'src/contexts/content/domain/review/qc-sampling.ts',
   'src/contexts/content/domain/solution.ts',
   'src/contexts/content/domain/stimulus.ts',
   'src/contexts/content/domain/taxonomy-tag.ts',
@@ -506,6 +523,94 @@ export function checkCoverageThresholds(
         subject: module,
         detail: `${metric} threshold is ${String(threshold[metric])}, not 100`,
       });
+    }
+  }
+
+  return violations;
+}
+
+/* ------------------------------------------------------------------ *
+ * M4-01 — the review/authoring intra-context sub-boundary (DEC-M4-7)
+ * ------------------------------------------------------------------ */
+
+/**
+ * A module belongs to the **restricted review layer** when it is
+ * `application/review/**`, `infrastructure/review/**`, or
+ * `api/review.controller.ts` — the write-path plumbing DEC-M4-7 walls off.
+ *
+ * **`domain/review/*.ts` is deliberately not matched here.** F2 (`domain/`
+ * imports nothing but itself and the shared kernel) already keeps every
+ * domain module pure, `domain/review/` included — a second, narrower purity
+ * rule for one sub-directory of domain would be a rule checking a rule. What
+ * this gate adds on top of F2 is the *application/infrastructure/api*
+ * boundary, where review's write path and content's existing authoring
+ * surface would otherwise reach into each other's plumbing. A domain
+ * aggregate that happens to live under `domain/review/` — `ReviewAssignment`,
+ * `self-review.ts` — is exactly the kind of thing DEC-M4-7 says both sides
+ * "meet only at": callable from content's authoring domain the same way any
+ * other domain module is, which is what lets `publication-preconditions.ts`
+ * call `isSelfReview` (M4-04) without this gate refusing it.
+ */
+const REVIEW_PATH_SEGMENT = /(^|\/)(?:application|infrastructure)\/review\/|(^|\/)review\.controller\.ts$/u;
+
+/** Any module under a `domain/` tree, at any depth — the whole domain layer, F2-pure by construction. */
+const DOMAIN_MODULE = /(^|\/)domain\/.+\.ts$/u;
+
+/** The one named exception outside the domain layer (DEC-M4-7). */
+const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
+
+/**
+ * DEC-M4-7's sub-boundary, both directions, by import graph rather than
+ * convention — the same discipline `checkAuthoringUnreachableFromDelivery`
+ * applies to ADR-0009 condition 3.
+ *
+ * Classification is purely structural on path segments, which is what lets
+ * this run unchanged over both the real tree and a fixture directory shaped
+ * like one (`as-content-review-subboundary/`): the rule does not care which
+ * context it is scanning, only whether a review-plumbing module reaches an
+ * authoring-plumbing one it should not, or vice versa.
+ */
+export function checkReviewAuthoringSubBoundary(
+  root: string,
+  options: { readonly include?: readonly string[]; readonly exclude?: readonly RegExp[] } = {},
+): ContentViolation[] {
+  const includes = options.include ?? ['src/contexts/content'];
+  const excludes = options.exclude ?? [/\.spec\.ts$/u];
+  const violations: ContentViolation[] = [];
+
+  const files = includes
+    .flatMap((directory) => tsFilesUnder(join(root, directory)))
+    .filter((file) => !excludes.some((pattern) => pattern.test(file)));
+
+  for (const file of files) {
+    const relFile = relative(root, file).replaceAll('\\', '/');
+    const fileIsReview = REVIEW_PATH_SEGMENT.test(relFile);
+
+    for (const importPath of importsOf(readCode(file))) {
+      if (!importPath.startsWith('.')) continue; // a package or a node builtin — not this context
+      const resolved = resolve(dirname(file), importPath).replace(/\.js$/u, '.ts');
+      if (!existsSync(resolved)) continue;
+      const relTarget = relative(root, resolved).replaceAll('\\', '/');
+      const targetIsReview = REVIEW_PATH_SEGMENT.test(relTarget);
+
+      if (fileIsReview && !targetIsReview) {
+        const permitted = DOMAIN_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget);
+        if (!permitted) {
+          violations.push({
+            rule: 'M4_01_REVIEW_REACHES_AUTHORING',
+            subject: relFile,
+            detail: `imports ${importPath} (${relTarget}), which is neither a domain aggregate/value object nor application/authorization.ts`,
+          });
+        }
+      }
+
+      if (!fileIsReview && targetIsReview) {
+        violations.push({
+          rule: 'M4_01_AUTHORING_REACHES_REVIEW',
+          subject: relFile,
+          detail: `imports ${importPath} (${relTarget}); authoring/ may not import review/ (DEC-M4-7)`,
+        });
+      }
     }
   }
 

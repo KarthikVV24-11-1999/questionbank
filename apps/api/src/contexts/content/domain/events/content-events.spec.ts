@@ -9,9 +9,13 @@ import {
   type ContentEvent,
   type ContentEventType,
   type ItemPublished,
+  type ItemReviewEscalated,
   type ItemRetired,
   type ItemSuspended,
   type MediaAssetPublished,
+  type ReviewClaimed,
+  type ReviewDecided,
+  type ReviewReleased,
   type SolutionPublished,
   type StimulusPublished,
 } from './content-events.js';
@@ -93,6 +97,53 @@ const MEDIA_PUBLISHED: MediaAssetPublished = {
   },
 };
 
+const REVIEW_CLAIMED: ReviewClaimed = {
+  ...ENVELOPE,
+  eventType: 'ReviewClaimed',
+  payload: {
+    assignmentId: 'assignment-1',
+    itemId: 'item-1',
+    itemVersionId: 'version-1',
+    subject: 'physics',
+    assignmentType: 'claimed',
+  },
+};
+
+const REVIEW_RELEASED: ReviewReleased = {
+  ...ENVELOPE,
+  eventType: 'ReviewReleased',
+  payload: {
+    assignmentId: 'assignment-1',
+    itemId: 'item-1',
+    itemVersionId: 'version-1',
+    releaseType: 'released',
+  },
+};
+
+const REVIEW_DECIDED: ReviewDecided = {
+  ...ENVELOPE,
+  eventType: 'ReviewDecided',
+  payload: {
+    decisionId: 'decision-1',
+    itemId: 'item-1',
+    itemVersionId: 'version-1',
+    outcomeType: 'reject',
+    reasonCode: 'DUPLICATE',
+    duplicateOfItemId: 'item-9',
+  },
+};
+
+const ITEM_REVIEW_ESCALATED: ItemReviewEscalated = {
+  ...ENVELOPE,
+  eventType: 'ItemReviewEscalated',
+  payload: {
+    itemId: 'item-1',
+    itemVersionId: 'version-1',
+    subject: 'physics',
+    targetRoleType: 'content_ops',
+  },
+};
+
 const ALL: readonly ContentEvent[] = [
   ITEM_PUBLISHED,
   ITEM_SUSPENDED,
@@ -100,10 +151,19 @@ const ALL: readonly ContentEvent[] = [
   STIMULUS_PUBLISHED,
   SOLUTION_PUBLISHED,
   MEDIA_PUBLISHED,
+  REVIEW_CLAIMED,
+  REVIEW_RELEASED,
+  REVIEW_DECIDED,
+  ITEM_REVIEW_ESCALATED,
 ];
 
 describe('the event vocabulary', () => {
-  it('names six events, all past tense (§2)', () => {
+  // M4-12 grows this list from six to ten (DEC-M4-7: the review workspace
+  // shares content's vocabulary rather than declaring a second one). This
+  // assertion is the closed-vocabulary gate — it exists so growing
+  // CONTENT_EVENT_TYPES is a deliberate, reviewed diff, not something that
+  // happens by accident. Updating it here IS that review.
+  it('names ten events, all past tense (§2)', () => {
     expect([...CONTENT_EVENT_TYPES]).toEqual([
       'ItemPublished',
       'ItemSuspended',
@@ -111,9 +171,13 @@ describe('the event vocabulary', () => {
       'StimulusPublished',
       'SolutionPublished',
       'MediaAssetPublished',
+      'ReviewClaimed',
+      'ReviewReleased',
+      'ReviewDecided',
+      'ItemReviewEscalated',
     ]);
     for (const eventType of CONTENT_EVENT_TYPES) {
-      expect(eventType).toMatch(/(Published|Suspended|Retired)$/u);
+      expect(eventType).toMatch(/(Published|Suspended|Retired|Claimed|Released|Decided|Escalated)$/u);
     }
   });
 
@@ -156,6 +220,7 @@ describe('payloads carry identifiers, never content (§9 rules 10 and 12)', () =
     'email',
     'displayName',
     'phone',
+    'justification',
   ];
 
   it.each(ALL.map((event) => [event.eventType, event] as const))(
@@ -201,6 +266,33 @@ describe('payloads carry identifiers, never content (§9 rules 10 and 12)', () =
       payload: { itemId: 'item-1', itemVersionId: 'version-1', retirementReason: 'off syllabus' },
     };
     expect(Object.hasOwn(withoutReplacement.payload, 'replacedByItemId')).toBe(false);
+  });
+
+  // Explicit, the way SolutionPublished's own test asserts no explanation
+  // text: a reviewer's justification is feedback to one author, and the
+  // outbox drains to analytics (P4/D17) — exactly where it must never land.
+  it('ReviewDecided carries the outcome and the reason code, never the justification prose', () => {
+    expect(Object.hasOwn(REVIEW_DECIDED.payload, 'justification')).toBe(false);
+    expect(REVIEW_DECIDED.payload).toMatchObject({ outcomeType: 'reject', reasonCode: 'DUPLICATE' });
+  });
+
+  it('ReviewDecided carries duplicateOfItemId as an identifier, never the duplicate’s own content', () => {
+    expect(REVIEW_DECIDED.payload.duplicateOfItemId).toBe('item-9');
+    expect(JSON.stringify(REVIEW_DECIDED.payload)).not.toMatch(/"(stem|body|blocks)"/u);
+  });
+
+  it('omits reasonCode and duplicateOfItemId on an approving decision', () => {
+    const approved: ReviewDecided = {
+      ...REVIEW_DECIDED,
+      payload: { decisionId: 'decision-2', itemId: 'item-1', itemVersionId: 'version-1', outcomeType: 'approve' },
+    };
+    expect(Object.hasOwn(approved.payload, 'reasonCode')).toBe(false);
+    expect(Object.hasOwn(approved.payload, 'duplicateOfItemId')).toBe(false);
+  });
+
+  it('ItemReviewEscalated names a role, never a principal', () => {
+    expect(ITEM_REVIEW_ESCALATED.payload.targetRoleType).toBe('content_ops');
+    expect(Object.hasOwn(ITEM_REVIEW_ESCALATED.payload, 'reviewerId')).toBe(false);
   });
 });
 

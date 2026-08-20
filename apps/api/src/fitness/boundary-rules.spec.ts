@@ -41,13 +41,24 @@ describe('F2 — domain imports nothing', () => {
     expect(violations).toEqual([]);
   });
 
-  it('permits the shared kernel and node builtins', () => {
+  it('permits the shared kernel and the enumerated pure builtins (node:crypto), over the real tree', () => {
     expect(
       checkBoundaries(API_ROOT).filter((violation) => violation.importPath.includes('domain-types')),
     ).toEqual([]);
     expect(
-      checkBoundaries(API_ROOT).filter((violation) => violation.importPath.startsWith('node:')),
+      checkBoundaries(API_ROOT).filter((violation) => violation.importPath === 'node:crypto'),
     ).toEqual([]);
+  });
+
+  it('does not exempt every node: builtin — only the enumerated, pure ones', () => {
+    const violations = checkBoundaries(API_ROOT, {
+      include: ['src/fitness-fixtures/as-domain'],
+      excludePatterns: [/\.spec\.ts$/u],
+      domainPattern: /^src\/fitness-fixtures\/as-domain\//u,
+    }).filter((violation) => violation.file.includes('planted-impure-builtin'));
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({ rule: 'F2_DOMAIN_IMPORTS_NOTHING', importPath: 'node:fs' });
   });
 
   it('catches a domain module evading the rule by dynamic import or require', () => {

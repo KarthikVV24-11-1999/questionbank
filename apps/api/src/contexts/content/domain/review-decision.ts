@@ -42,6 +42,20 @@ export interface ReviewDecision {
   /** Required on anything that sends work back — "rejected" is not feedback. */
   readonly justification?: string;
   readonly decidedAt: string;
+  /**
+   * The governance fields (M4-07, DEC-M4-11, DEC-M4-2). Accepted here as a
+   * plain passthrough — this constructor's own validation is unchanged from
+   * M3, so its existing suite stays green unchanged. The rules these fields
+   * carry (a reason required on a non-approving outcome, self-review refused,
+   * `DUPLICATE` naming its target, absent-vs-empty candidates distinguished)
+   * are enforced by `domain/review/decision-evidence.ts`'s
+   * `assertDecisionEvidenceComplete`, which a caller runs before constructing
+   * a decision it intends to persist.
+   */
+  readonly reasonCode?: string;
+  readonly duplicateOfItemId?: string;
+  /** Absent means the duplicate check did not run; empty means it ran and found nothing — never the same value. */
+  readonly candidatesShownIds?: readonly string[];
 }
 
 export type ReviewDecisionErrorCode =
@@ -77,6 +91,9 @@ export interface CreateReviewDecisionProps {
   readonly outcome: ReviewOutcome;
   readonly justification?: string;
   readonly decidedAt: string;
+  readonly reasonCode?: string;
+  readonly duplicateOfItemId?: string;
+  readonly candidatesShownIds?: readonly string[];
 }
 
 export function createReviewDecision(
@@ -135,6 +152,11 @@ export function createReviewDecision(
       outcome: props.outcome,
       ...(props.justification === undefined ? {} : { justification: props.justification }),
       decidedAt: props.decidedAt,
+      ...(props.reasonCode === undefined ? {} : { reasonCode: props.reasonCode }),
+      ...(props.duplicateOfItemId === undefined ? {} : { duplicateOfItemId: props.duplicateOfItemId }),
+      ...(props.candidatesShownIds === undefined
+        ? {}
+        : { candidatesShownIds: Object.freeze([...props.candidatesShownIds]) }),
     }),
   );
 }

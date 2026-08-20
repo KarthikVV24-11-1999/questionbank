@@ -6,6 +6,7 @@ import type { ItemVersion } from './item-version.js';
 import { publicationBlockReason } from './licensing-status.js';
 import { isMachineProposed } from './provenance.js';
 import { primaryTagOf } from './taxonomy-tag.js';
+import { isSelfReview } from './review/self-review.js';
 
 /**
  * The publication preconditions (INV-07, INV-12, INV-01, INV-14, FR-TCH-07).
@@ -161,10 +162,10 @@ export function checkPublishable(
       ),
     );
   } else {
-    // INV-12. Checked here as well as at assignment, because assignment is
-    // M4's and a precondition that depends on another milestone's diligence is
-    // not a precondition.
-    if (signature.reviewer.id === version.authoredBy.id) {
+    // INV-12, via the one shared function (M4-04) — checked here as well as
+    // at assignment, because assignment is M4's and a precondition that
+    // depends on another milestone's diligence is not a precondition.
+    if (isSelfReview(version, signature.reviewer)) {
       failures.push(
         unmet(
           'REVIEWER_IS_AUTHOR',

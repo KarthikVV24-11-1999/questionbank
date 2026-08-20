@@ -25,6 +25,12 @@ const AGGREGATE_TYPE_BY_EVENT: Readonly<Record<ContentEventType, string>> = Obje
   StimulusPublished: 'Stimulus',
   SolutionPublished: 'Solution',
   MediaAssetPublished: 'MediaAsset',
+  // The review events are all facts about an Item under review — DEC-M4-7's
+  // review workspace has no aggregate of its own to attribute them to.
+  ReviewClaimed: 'Item',
+  ReviewReleased: 'Item',
+  ReviewDecided: 'Item',
+  ItemReviewEscalated: 'Item',
 });
 
 /**
@@ -45,6 +51,11 @@ function aggregateIdOf(event: ContentEvent): string {
       return event.payload.solutionId;
     case 'MediaAssetPublished':
       return event.payload.assetId;
+    case 'ReviewClaimed':
+    case 'ReviewReleased':
+    case 'ReviewDecided':
+    case 'ItemReviewEscalated':
+      return event.payload.itemId;
   }
 }
 
