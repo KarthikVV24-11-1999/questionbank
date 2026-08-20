@@ -170,6 +170,122 @@ describe('claimNext — the atomic claim (M4-18)', () => {
       await poolB.end();
     }
   });
+
+  /**
+   * The test above proves `SKIP LOCKED` throughput — two claimants get two
+   * different items. That is not the invariant. The invariant is that **one**
+   * item cannot be held twice, and with two items on the table a passing
+   * result is compatible with an implementation that hands the same row to
+   * both. So: one item, two claimants.
+   *
+   * Deterministic under any interleaving. Row locks are exclusive, so of the
+   * two `SELECT … FOR UPDATE OF v SKIP LOCKED` statements exactly one
+   * acquires the candidate and the other skips it, leaving an empty candidate
+   * set — a clean `NOT_FOUND`, never an exception and never a second row.
+   *
+   * **What this test pins, proven by planting:** removing `SKIP LOCKED` from
+   * `claimNext` turns the loser's outcome from `NOT_FOUND` into
+   * `PERSISTENCE_REJECTED` — "duplicate key value violates unique constraint
+   * review_assignment_one_live_per_version". So the two mechanisms are doing
+   * two different jobs, and this asserts the second: the *index* is what
+   * stops the double claim, and `SKIP LOCKED` is what makes the refusal a
+   * clean answer rather than a raised exception. The test below pins the
+   * index itself, which no other test in `apps/api/src` named.
+   */
+  it('two concurrent claims against ONE item: exactly one wins, the other is cleanly refused', async () => {
+    const subject = `one-item-${freshUuid()}`;
+    const only = await seedInReviewItemVersion({ subject });
+
+    const poolA = new Pool({ connectionString: DATABASE_URL, max: 1 });
+    const poolB = new Pool({ connectionString: DATABASE_URL, max: 1 });
+    const repoA = new PostgresReviewAssignmentRepository(poolA);
+    const repoB = new PostgresReviewAssignmentRepository(poolB);
+    const reviewerA = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const reviewerB = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+
+    try {
+      const [claimA, claimB] = await Promise.all([
+        repoA.claimNext(claimCriteria({ subject, reviewer: reviewerA })),
+        repoB.claimNext(claimCriteria({ subject, reviewer: reviewerB })),
+      ]);
+
+      const won = [claimA, claimB].filter((outcome) => outcome.ok);
+      const refused = [claimA, claimB].filter((outcome) => !outcome.ok);
+      expect(won).toHaveLength(1);
+      expect(refused).toHaveLength(1);
+      expect(expectError(refused[0]!).code).toBe('NOT_FOUND');
+      expect(expectValue(won[0]!).itemVersionId).toBe(only.itemVersionId);
+
+      // And the table agrees: one live row for that version, not two.
+      const live = await database.pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM content.review_assignment
+          WHERE item_version_id = $1 AND state = 'claimed'`,
+        [only.itemVersionId],
+      );
+      expect(Number(live.rows[0]!.count)).toBe(1);
+    } finally {
+      await poolA.end();
+      await poolB.end();
+    }
+  });
+
+  /**
+   * The structural guarantee underneath the claim, asserted directly rather
+   * than inferred from the repository behaving well: `review_assignment_one_live_per_version`
+   * is a partial unique index on `(item_version_id) WHERE state = 'claimed'`.
+   * Nothing else in `apps/api/src` names it, so nothing else notices if a
+   * later migration drops it — this test does.
+   */
+  it('the partial unique index refuses a second LIVE assignment for one version, by raw SQL', async () => {
+    const subject = `index-${freshUuid()}`;
+    const { itemId, itemVersionId } = await seedInReviewItemVersion({ subject });
+    expectValue(await repository.claimNext(claimCriteria({ subject })));
+
+    let message = '';
+    try {
+      await database.pool.query(
+        `INSERT INTO content.review_assignment
+           (assignment_id, item_id, item_version_id, subject, reviewer_kind, reviewer_id, kind, state,
+            claimed_at, lease_expires_at)
+         VALUES ($1, $2, $3, $4, 'human', $5, 'claimed', 'claimed', now(), now() + interval '1 hour')`,
+        [freshUuid(), itemId, itemVersionId, subject, freshUuid()],
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('review_assignment_one_live_per_version');
+  });
+
+  it('but permits released and decided rows for the same version — history accumulates', async () => {
+    const subject = `history-${freshUuid()}`;
+    const { itemId, itemVersionId } = await seedInReviewItemVersion({ subject });
+    expectValue(await repository.claimNext(claimCriteria({ subject })));
+
+    // The index is partial: only `state = 'claimed'` rows are unique per
+    // version. A version reviewed, released, reclaimed and decided carries a
+    // row for each, which is the history the queue's own audit depends on.
+    for (const [state, stamp] of [
+      ['released', 'released_at'],
+      ['decided', 'decided_at'],
+      ['expired', null],
+    ] as const) {
+      await database.pool.query(
+        `INSERT INTO content.review_assignment
+           (assignment_id, item_id, item_version_id, subject, reviewer_kind, reviewer_id, kind, state,
+            claimed_at, lease_expires_at${stamp === null ? '' : `, ${stamp}`})
+         VALUES ($1, $2, $3, $4, 'human', $5, 'claimed', $6, now(), now() + interval '1 hour'${
+           stamp === null ? '' : ', now()'
+         })`,
+        [freshUuid(), itemId, itemVersionId, subject, freshUuid(), state],
+      );
+    }
+
+    const rows = await database.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM content.review_assignment WHERE item_version_id = $1`,
+      [itemVersionId],
+    );
+    expect(Number(rows.rows[0]!.count)).toBe(4);
+  });
 });
 
 describe('releaseExpired — every lease past expiry, idempotent (M4-18)', () => {
