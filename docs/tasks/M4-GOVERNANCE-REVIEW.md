@@ -172,6 +172,22 @@ records unchained, and publication is the event the chain exists to protect.
 `record_hash = sha256(canonical(row) ‖ prev_hash)` and `canonical(row)` is a deterministic serialization of
 the record's semantic columns (never `chain_seq`, never a default).
 
+> **Correction, 2026-08-20 (M4-23).** Two details of the sentence above were wrong or ambiguous and are
+> superseded by [ADR-0020](../adr/ADR-0020-the-audit-chain-is-database-enforced-and-locally-anchored.md),
+> which states both normatively. Original text kept above rather than rewritten.
+>
+> 1. **The concatenation order contradicted M4-22.** This line says `sha256(canonical ‖ prev_hash)`;
+>    M4-22's acceptance criterion says `SHA-256 over prevHash ‖ canonical`. **M4-22's order governs**:
+>    `record_hash = SHA-256(prev_hash ‖ canonical(row))`, fixed-length predecessor first so the boundary
+>    between the two inputs is unambiguous. Both are sound; what mattered was fixing one, since the SQL and
+>    TypeScript implementations are asserted byte-identical.
+> 2. **"never a default" was ambiguous about the primary key.** `audit_record_id` is a defaulted column but
+>    is **included** in the canonical form. The rule is mechanical: the canonical form is every column of
+>    `platform.audit_record` except the three the trigger itself sets — `chain_seq`, `prev_hash`,
+>    `record_hash` — because chaining over a value the trigger is computing is circular. Postgres applies
+>    column defaults before `BEFORE INSERT` triggers, so `NEW.audit_record_id` is populated and reproducible
+>    on both sides, and including it means the chain binds record identity rather than content alone.
+
 **How.** A `BEFORE INSERT` trigger taking `pg_advisory_xact_lock`, reading the head and computing the link
 **in the database**. Not in the application: a chain the application computes is bypassed by any other
 writer, and "any other writer" is the adversary. Concurrency is proven with overlapping transactions.
