@@ -652,6 +652,14 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M4-22 (DEC-M4-4, ADR-0020). The TypeScript specification the audit
+        // chain's PL/pgSQL twin is asserted byte-identical against.
+        'src/platform/persistence/audit-link.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         // M0-08. Closes D22 — a gap here is a retried autosave rewriting a
         // row or writing a second audit record.
         'src/platform/persistence/idempotency-store.ts': {
