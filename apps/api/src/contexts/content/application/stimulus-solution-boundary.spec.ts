@@ -5,6 +5,7 @@ import { originalProvenance, singleCorrectSpec, textBody } from '../../../testin
 import { err, ok, type Result } from '../domain/result.js';
 import type {
   ItemRepository,
+  SubmittedForReviewPage,
   RepositoryError,
   SolutionRepository,
   StimulusRepository,
@@ -175,6 +176,9 @@ class StubItems implements ItemRepository {
   }
   async countPublishedItemsUsingStimulusVersion(): Promise<Result<number, RepositoryError>> {
     return ok(0);
+  }
+  async findSubmittedForReview(): Promise<Result<SubmittedForReviewPage, RepositoryError>> {
+    return ok({ items: [] });
   }
 }
 

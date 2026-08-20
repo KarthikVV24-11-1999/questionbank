@@ -49,6 +49,7 @@ export const LIST_MY_DRAFTS_POLICY = policy('ListMyDrafts', AUTHORING_ROLES);
 export const GET_ITEM_VERSION_FOR_AUTHORING_POLICY = policy('GetItemVersionForAuthoring', AUTHORING_ROLES);
 export const GET_VALIDATION_FINDINGS_POLICY = policy('GetValidationFindings', AUTHORING_ROLES);
 export const LIST_MEDIA_ASSETS_POLICY = policy('ListMediaAssets', AUTHORING_ROLES);
+export const LIST_SUBMITTED_FOR_REVIEW_POLICY = policy('ListSubmittedForReview', AUTHORING_ROLES);
 
 export interface GetItemDraft {
   readonly itemId: string;
@@ -69,6 +70,14 @@ export interface GetValidationFindings {
 
 export interface ListMediaAssets {
   readonly _tag?: never;
+}
+
+export interface ListSubmittedForReview {
+  readonly subject?: string;
+  /** The source-level half of INV-12 (M4-04 re-checks after selection). */
+  readonly excludeAuthorId?: string;
+  readonly limit: number;
+  readonly cursor?: string;
 }
 
 /** The whole authored version, key included — this is the editing surface. */
@@ -343,6 +352,96 @@ export class ListMediaAssetsHandler implements Handler<ListMediaAssets, readonly
           });
         }),
       ),
+    );
+  }
+}
+
+/**
+ * The review queue's candidate source (M4-16). `stateEnteredAt` and
+ * `authoringSubject` are required here — every row this query returns came
+ * through the repository, where both are `NOT NULL` — unlike
+ * `AuthoringItemView`, where they stay optional for M3's own construction
+ * paths.
+ *
+ * `blockingCount`/`warningCount` are M3's validation counts (`validateDraft`,
+ * `pre-submission-validation.ts`), the "clean items first" half of
+ * DEC-M4-9's confidence signal — computed the same way
+ * `GetValidationFindingsHandler` already does, not a second implementation.
+ */
+export interface SubmittedForReviewItem {
+  readonly itemId: string;
+  readonly version: AuthoringItemVersionView;
+  readonly stateEnteredAt: string;
+  readonly authoringSubject: string;
+  readonly blockingCount: number;
+  readonly warningCount: number;
+}
+
+export interface SubmittedForReviewPage {
+  readonly items: readonly SubmittedForReviewItem[];
+  readonly nextCursor?: string;
+}
+
+export class ListSubmittedForReviewHandler
+  implements Handler<ListSubmittedForReview, SubmittedForReviewPage>
+{
+  readonly name = 'ListSubmittedForReview';
+  readonly policy = LIST_SUBMITTED_FOR_REVIEW_POLICY;
+
+  constructor(private readonly deps: AuthoringQueryDependencies) {}
+
+  async handle(
+    query: ListSubmittedForReview,
+    context: ApplicationContext,
+  ): Promise<Result<SubmittedForReviewPage, ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return err(permitted.error);
+
+    const found = await this.deps.items.findSubmittedForReview({
+      limit: query.limit,
+      ...(query.subject === undefined ? {} : { subject: query.subject }),
+      ...(query.excludeAuthorId === undefined ? {} : { excludeAuthorId: query.excludeAuthorId }),
+      ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+    });
+    if (!found.ok) return err(fromContent(found.error));
+
+    const items: SubmittedForReviewItem[] = [];
+    for (const item of found.value.items) {
+      const version = latestVersionOf(item);
+      const solution = await this.deps.solutions.findPublishedForItemVersion(version.versionId);
+      const verdict = await this.deps.renderer.validate(version);
+      const report = validateDraft(version, {
+        answerSpecificationAccepted: isKeyAcceptedByExecutor(version.responseSpec),
+        solutionExists: solution.ok,
+        analysedDistractorOptionIds: solution.ok
+          ? solution.value.distractorAnalyses.map((analysis) => analysis.optionId)
+          : [],
+        renderFailures: verdict.failures,
+        // Curriculum exposes no concept→subject-domain lookup yet (D23).
+        outOfScopeConceptIds: [],
+        duplicateCheckState: 'not_evaluated',
+        asOf: this.deps.clock.now().toISOString(),
+      });
+
+      items.push(
+        Object.freeze({
+          itemId: item.itemId,
+          version: toAuthoringVersionView(version),
+          // Guaranteed by the query's own WHERE — every row is a real,
+          // repository-loaded item, where both columns are NOT NULL.
+          stateEnteredAt: item.stateEnteredAt as string,
+          authoringSubject: item.authoringSubject as string,
+          blockingCount: report.blocking.length,
+          warningCount: report.warnings.length,
+        }),
+      );
+    }
+
+    return ok(
+      Object.freeze({
+        items: Object.freeze(items),
+        ...(found.value.nextCursor === undefined ? {} : { nextCursor: found.value.nextCursor }),
+      }),
     );
   }
 }

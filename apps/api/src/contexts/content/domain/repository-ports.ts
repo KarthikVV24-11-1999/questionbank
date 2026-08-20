@@ -57,6 +57,35 @@ export interface ItemRepository {
   countPublishedItemsUsingStimulusVersion(
     stimulusVersionId: string,
   ): Promise<Result<number, RepositoryError>>;
+
+  /**
+   * The review queue's candidate source (M4-16). `ListMyDrafts` is
+   * author-scoped; nothing else lists submitted work. Returns only items
+   * whose `lifecycleState` is `in_review` — the state restriction is a
+   * `WHERE`, not a filter applied after the fact, so a caller cannot widen
+   * it by accident.
+   *
+   * `excludeAuthorId` is the source-level half of INV-12 (M4-04 re-checks
+   * after selection, the same discipline the claim predicate uses). Paged by
+   * a stable keyset on `item_id` — never `OFFSET`, which a concurrent insert
+   * shifts under a page boundary — so `nextCursor` names the last id this
+   * page returned and a later page never duplicates or skips a row.
+   */
+  findSubmittedForReview(
+    criteria: SubmittedForReviewCriteria,
+  ): Promise<Result<SubmittedForReviewPage, RepositoryError>>;
+}
+
+export interface SubmittedForReviewCriteria {
+  readonly subject?: string;
+  readonly excludeAuthorId?: string;
+  readonly limit: number;
+  readonly cursor?: string;
+}
+
+export interface SubmittedForReviewPage {
+  readonly items: readonly Item[];
+  readonly nextCursor?: string;
 }
 
 export interface ReviewDecisionRepository {

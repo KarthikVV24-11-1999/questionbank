@@ -949,6 +949,26 @@ describe('a stored row that cannot reconstitute is reported, not returned', () =
     const failure = expectError(await repository.findDraftsByAuthor(OTHER_AUTHOR_ID));
     expect(failure.code).toBe('PERSISTENCE_REJECTED');
   });
+
+  it('propagates the failure out of the review queue rather than dropping the row', async () => {
+    const itemId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state) VALUES ($1, 'SINGLE_CORRECT_MCQ', 'in_review')`,
+      [itemId],
+    );
+    for (const versionNo of [1, 3]) {
+      await database.pool.query(
+        `INSERT INTO content.item_version
+           (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text,
+            difficulty_estimate, authored_by_kind, authored_by_id)
+         VALUES ($1, $2, $3, 'SINGLE_CORRECT_MCQ', '{}'::jsonb, 's', 'moderate', 'human', $4)`,
+        [freshUuid(), itemId, versionNo, OTHER_AUTHOR_ID],
+      );
+    }
+
+    const failure = expectError(await repository.findSubmittedForReview({ limit: 10 }));
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+  });
 });
 
 describe('the casing boundary lives here and nowhere else (§2)', () => {

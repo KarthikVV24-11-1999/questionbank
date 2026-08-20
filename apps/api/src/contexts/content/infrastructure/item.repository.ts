@@ -3,7 +3,12 @@ import { err, ok, type Result } from '../domain/result.js';
 import type { ContentEvent } from '../domain/events/content-events.js';
 import { ContentOutboxEmitter } from './outbox-emitter.js';
 import { conflictError, notFoundError, validationError } from '../domain/content-error.js';
-import type { ItemRepository, RepositoryError } from '../domain/repository-ports.js';
+import type {
+  ItemRepository,
+  RepositoryError,
+  SubmittedForReviewCriteria,
+  SubmittedForReviewPage,
+} from '../domain/repository-ports.js';
 import { reconstituteItem, type Item } from '../domain/item.js';
 import type { ItemVersion } from '../domain/item-version.js';
 import type { LifecycleState } from '../domain/item-lifecycle.js';
@@ -626,6 +631,55 @@ export class PostgresItemRepository implements ItemRepository {
       [stimulusVersionId],
     );
     return ok(Number(result.rows[0]!.count));
+  }
+
+  /**
+   * The review queue's candidate source (M4-16). The state restriction is a
+   * `WHERE`, never a post-filter: only `in_review` items can leave this
+   * query, on any argument. Paged by keyset on `item_id` (UUIDv7, so
+   * ascending order is also insertion order) rather than `OFFSET`, which a
+   * concurrent insert would shift a page boundary through — keyset never
+   * duplicates or skips a row, because `> cursor` names a fixed point instead
+   * of a position that moves under it.
+   */
+  async findSubmittedForReview(
+    criteria: SubmittedForReviewCriteria,
+  ): Promise<Result<SubmittedForReviewPage, RepositoryError>> {
+    const items = await this.#pool.query<ItemRow>(
+      `SELECT i.item_id, i.item_type, i.lifecycle_state, i.current_published_version_id,
+              i.retirement_reason, i.replaced_by_item_id, i.aggregate_version, i.state_entered_at,
+              i.authoring_subject
+         FROM content.item i
+         JOIN content.item_version v
+           ON v.item_id = i.item_id
+          AND v.version_no = (SELECT max(v2.version_no) FROM content.item_version v2 WHERE v2.item_id = i.item_id)
+        WHERE i.deleted_at IS NULL
+          AND i.lifecycle_state = 'in_review'
+          AND ($1::text IS NULL OR i.authoring_subject = $1)
+          AND ($2::uuid IS NULL OR v.authored_by_id <> $2)
+          AND ($3::uuid IS NULL OR i.item_id > $3)
+        ORDER BY i.item_id
+        LIMIT $4`,
+      [criteria.subject ?? null, criteria.excludeAuthorId ?? null, criteria.cursor ?? null, criteria.limit],
+    );
+
+    const hydrated: Item[] = [];
+    for (const row of items.rows) {
+      const item = await this.#hydrate(row);
+      if (!item.ok) return err(item.error);
+      hydrated.push(item.value);
+    }
+
+    // A page shorter than the limit is the last one — no cursor to hand back.
+    const nextCursor =
+      hydrated.length === criteria.limit ? hydrated[hydrated.length - 1]!.itemId : undefined;
+
+    return ok(
+      Object.freeze({
+        items: Object.freeze(hydrated),
+        ...(nextCursor === undefined ? {} : { nextCursor }),
+      }),
+    );
   }
 
   async #hydrate(row: ItemRow): Promise<Result<Item, RepositoryError>> {

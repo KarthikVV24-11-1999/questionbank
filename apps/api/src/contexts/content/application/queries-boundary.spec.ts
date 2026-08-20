@@ -7,6 +7,7 @@ import type {
   MediaAssetRepository,
   RepositoryError,
   SolutionRepository,
+  SubmittedForReviewPage,
 } from '../domain/repository-ports.js';
 import type { Item } from '../domain/item.js';
 import type { ItemVersion } from '../domain/item-version.js';
@@ -49,6 +50,9 @@ class StubItems implements ItemRepository {
   }
   async countPublishedItemsUsingStimulusVersion(): Promise<Result<number, RepositoryError>> {
     return ok(0);
+  }
+  async findSubmittedForReview(): Promise<Result<SubmittedForReviewPage, RepositoryError>> {
+    return ok({ items: [] });
   }
 }
 

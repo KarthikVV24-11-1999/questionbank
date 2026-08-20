@@ -60,6 +60,7 @@ import {
   GetValidationFindingsHandler,
   ListMediaAssetsHandler,
   ListMyDraftsHandler,
+  ListSubmittedForReviewHandler,
 } from '../application/queries/authoring-queries.js';
 import {
   GetPublishedItemHandler,
@@ -200,6 +201,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new GetItemVersionForAuthoringHandler(bag),
     new GetValidationFindingsHandler(bag),
     new ListMediaAssetsHandler(bag),
+    new ListSubmittedForReviewHandler(bag),
     // Delivery queries
     new GetPublishedItemHandler(bag),
     new GetPublishedStimulusHandler(bag),
