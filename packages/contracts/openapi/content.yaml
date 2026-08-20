@@ -1113,6 +1113,7 @@ components:
         lifecycleState: { $ref: '#/components/schemas/LifecycleState' }
         currentPublishedVersionId: { type: string, format: uuid }
         versions: { type: array, items: { $ref: '#/components/schemas/AuthoringItemVersion' } }
+        stateEnteredAt: { type: string }
 
     AuthoringItemPage:
       type: object

@@ -182,6 +182,7 @@ export const AuthoringItemSchema = z.object({
   "lifecycleState": LifecycleStateSchema,
   "currentPublishedVersionId": z.string().optional(),
   "versions": z.array(AuthoringItemVersionSchema),
+  "stateEnteredAt": z.string().optional(),
 }).strict();
 
 export type AuthoringItem = z.infer<typeof AuthoringItemSchema>;

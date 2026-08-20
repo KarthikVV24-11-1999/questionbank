@@ -625,3 +625,58 @@ describe('migrations run up, down and up again', () => {
     expect(Number(rebuilt!.count)).toBe(CONTENT_TABLES.length);
   });
 });
+
+// M4-13's own migration, isolated from the rest of the cycle above — the
+// first additive column migration since the cluster-role fix, and the first
+// down path proven against exactly the schema-less condition that fix named.
+describe('content.item.state_entered_at (M4-13) — up, down, up again', () => {
+  async function stateEnteredAtColumn(): Promise<{ is_nullable: string; column_default: string | null } | undefined> {
+    const [column] = await rows<{ is_nullable: string; column_default: string | null }>(
+      `SELECT is_nullable, column_default FROM information_schema.columns
+        WHERE table_schema = 'content' AND table_name = 'item' AND column_name = 'state_entered_at'`,
+    );
+    return column;
+  }
+
+  it('adds a NOT NULL column with a now() default on up, drops it cleanly on down, and rebuilds identically on up again', async () => {
+    // Starts from whatever state the previous test in this file left behind
+    // (migrated) — revert first so "up" below is a real transition, not a
+    // no-op against an already-applied schema.
+    await database.revertMigrations();
+    await database.applyMigrations();
+    const afterUp = await stateEnteredAtColumn();
+    expect(afterUp?.is_nullable).toBe('NO');
+    expect(afterUp?.column_default).toContain('now()');
+
+    await database.revertMigrations();
+    expect(await stateEnteredAtColumn()).toBeUndefined();
+
+    await database.applyMigrations();
+    const afterUpAgain = await stateEnteredAtColumn();
+    expect(afterUpAgain?.is_nullable).toBe('NO');
+    expect(afterUpAgain?.column_default).toContain('now()');
+  });
+
+  it('backfills state_entered_at from created_at for a row written directly, bypassing the domain', async () => {
+    // Simulates a pre-existing row from before this migration: writes
+    // straight through SQL with no state_entered_at, then re-runs the
+    // migration's own backfill statement against it, the way a real
+    // rollout would find rows the domain never touched.
+    const itemId = '00000000-0000-4000-8000-000000000101';
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version, created_at)
+       VALUES ($1, 'NUMERIC', 'draft', 1, '2026-08-01T00:00:00Z')`,
+      [itemId],
+    );
+    await database.pool.query(
+      `UPDATE content.item SET state_entered_at = created_at WHERE item_id = $1`,
+      [itemId],
+    );
+
+    const [row] = await rows<{ state_entered_at: Date; created_at: Date }>(
+      `SELECT state_entered_at, created_at FROM content.item WHERE item_id = $1`,
+      [itemId],
+    );
+    expect(row?.state_entered_at.toISOString()).toBe(row?.created_at.toISOString());
+  });
+});

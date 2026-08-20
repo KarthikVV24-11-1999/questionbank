@@ -564,6 +564,105 @@ describe('replacing a draft version in place', () => {
   });
 });
 
+// M4-13's addition. stateEnteredAt is optional and supplied, never a clock
+// read here — every test above this point never mentions it, and stays
+// green unchanged, which is the proof this is additive.
+describe('stateEnteredAt (M4-13)', () => {
+  const AT = '2026-08-19T09:00:00Z';
+  const LATER = '2026-08-19T10:00:00Z';
+
+  it('is absent when createItem is not given one — M3’s own call shape', () => {
+    expect(draft().stateEnteredAt).toBeUndefined();
+  });
+
+  it('is carried by createItem when supplied', () => {
+    const item = expectValue(
+      createItem({ itemId: 'item-1', itemType: 'SINGLE_CORRECT_MCQ', initialVersion: V1, stateEnteredAt: AT }),
+    );
+    expect(item.stateEnteredAt).toBe(AT);
+  });
+
+  it('refuses a createItem stateEnteredAt that is not an ISO instant', () => {
+    const failure = expectError(
+      createItem({ itemId: 'item-1', itemType: 'SINGLE_CORRECT_MCQ', initialVersion: V1, stateEnteredAt: 'whenever' }),
+    );
+    expect(failure.code).toBe('STATE_ENTERED_AT_NOT_A_TIMESTAMP');
+  });
+
+  it('is carried by reconstituteItem when supplied, and absent when not', () => {
+    const withIt = inState('draft', { stateEnteredAt: AT });
+    expect(withIt.stateEnteredAt).toBe(AT);
+    expect(inState('draft').stateEnteredAt).toBeUndefined();
+  });
+
+  it('refuses a reconstituteItem stateEnteredAt that is not an ISO instant', () => {
+    const failure = expectError(
+      reconstituteItem({
+        itemId: 'item-1',
+        itemType: 'SINGLE_CORRECT_MCQ',
+        lifecycleState: 'draft',
+        versions: [V1],
+        aggregateVersion: 1,
+        stateEnteredAt: 'whenever',
+      }),
+    );
+    expect(failure.code).toBe('STATE_ENTERED_AT_NOT_A_TIMESTAMP');
+  });
+
+  it('is set on a transition when supplied', () => {
+    const submitted = expectValue(
+      transitionItem(draft(), { transition: 'submit_for_review', stateEnteredAt: AT }),
+    );
+    expect(submitted.stateEnteredAt).toBe(AT);
+  });
+
+  it('stays absent on a transition when not supplied — no silent default', () => {
+    const submitted = expectValue(transitionItem(draft(), { transition: 'submit_for_review' }));
+    expect(submitted.stateEnteredAt).toBeUndefined();
+  });
+
+  it('refuses a transition stateEnteredAt that is not an ISO instant', () => {
+    const failure = expectError(
+      transitionItem(draft(), { transition: 'submit_for_review', stateEnteredAt: 'whenever' }),
+    );
+    expect(failure.code).toBe('STATE_ENTERED_AT_NOT_A_TIMESTAMP');
+  });
+
+  it('moves forward on each successive transition, when supplied each time', () => {
+    const submitted = expectValue(
+      transitionItem(draft(), { transition: 'submit_for_review', stateEnteredAt: AT }),
+    );
+    const approved = expectValue(
+      transitionItem(submitted, { transition: 'approve', stateEnteredAt: LATER }),
+    );
+    expect(approved.stateEnteredAt).toBe(LATER);
+  });
+
+  it('is set on publication when supplied', () => {
+    const approved = inState('approved');
+    const published = expectValue(
+      publishVersion(approved, { versionId: V1.versionId, preconditionsSatisfied: true, stateEnteredAt: AT }),
+    );
+    expect(published.stateEnteredAt).toBe(AT);
+  });
+
+  it('stays absent on publication when not supplied', () => {
+    const approved = inState('approved');
+    const published = expectValue(
+      publishVersion(approved, { versionId: V1.versionId, preconditionsSatisfied: true }),
+    );
+    expect(published.stateEnteredAt).toBeUndefined();
+  });
+
+  it('refuses a publication stateEnteredAt that is not an ISO instant', () => {
+    const approved = inState('approved');
+    const failure = expectError(
+      publishVersion(approved, { versionId: V1.versionId, preconditionsSatisfied: true, stateEnteredAt: 'whenever' }),
+    );
+    expect(failure.code).toBe('STATE_ENTERED_AT_NOT_A_TIMESTAMP');
+  });
+});
+
 describe('editability', () => {
   it.each([
     ['draft', true],

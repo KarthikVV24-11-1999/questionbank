@@ -963,3 +963,85 @@ describe('the casing boundary lives here and nowhere else (§2)', () => {
     expect(serialized).not.toMatch(/"lifecycle_state"/u);
   });
 });
+
+// The review queue's ageing clock (M4-13, DEC-M4-1).
+describe('state_entered_at', () => {
+  it('is stamped on a freshly inserted draft, even though the domain object never carried one', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    expect(loaded.stateEnteredAt).toBeDefined();
+    expect(() => new Date(loaded.stateEnteredAt as string)).not.toThrow();
+  });
+
+  it('carries the domain-supplied instant through on insert, rather than the database’s own now()', async () => {
+    const item = expectValue(
+      createItem({
+        itemId: freshUuid(),
+        itemType: version().itemType,
+        initialVersion: version(),
+        stateEnteredAt: '2026-08-01T00:00:00.000Z',
+      }),
+    );
+    expectValue(await repository.save(item));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    expect(loaded.stateEnteredAt).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('moves forward on a real transition, per transition', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const submitted = expectValue(
+      transitionItem(afterInsert, { transition: 'submit_for_review', stateEnteredAt: '2026-08-15T12:00:00.000Z' }),
+    );
+    expectValue(await repository.save(submitted));
+    const afterSubmit = expectValue(await repository.findById(item.itemId));
+    expect(afterSubmit.stateEnteredAt).toBe('2026-08-15T12:00:00.000Z');
+    expect(afterSubmit.stateEnteredAt).not.toBe(afterInsert.stateEnteredAt);
+
+    const changesRequested = expectValue(
+      transitionItem(afterSubmit, {
+        transition: 'request_changes',
+        stateEnteredAt: '2026-08-16T09:00:00.000Z',
+      }),
+    );
+    expectValue(await repository.save(changesRequested));
+    const afterRequestChanges = expectValue(await repository.findById(item.itemId));
+    expect(afterRequestChanges.stateEnteredAt).toBe('2026-08-16T09:00:00.000Z');
+  });
+
+  it('does not move on a save that is not a transition — adding a version leaves it untouched', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const v2 = expectValue(
+      deriveDraft(item.versions[0]!, { versionId: freshUuid(), authoredBy: DB_AUTHOR, createdAt: '2026-08-10T09:00:00Z' }),
+    );
+    const withSecondVersion = expectValue(addVersion(afterInsert, v2));
+    expectValue(await repository.save(withSecondVersion));
+
+    const afterAddVersion = expectValue(await repository.findById(item.itemId));
+    expect(afterAddVersion.stateEnteredAt).toBe(afterInsert.stateEnteredAt);
+  });
+
+  it('defaults to now() at the database when the domain does not supply one on a real transition', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const submitted = expectValue(transitionItem(afterInsert, { transition: 'submit_for_review' }));
+    expectValue(await repository.save(submitted));
+
+    // Not asserted as strictly later than the insert's own now() — a fast
+    // test can land both within the same clock second. What matters is that
+    // it came from the database's own now(), not a value this test invented.
+    const afterSubmit = expectValue(await repository.findById(item.itemId));
+    expect(afterSubmit.stateEnteredAt).toBeDefined();
+    expect(() => new Date(afterSubmit.stateEnteredAt as string)).not.toThrow();
+  });
+});
