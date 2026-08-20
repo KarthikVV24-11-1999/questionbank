@@ -275,7 +275,9 @@ describe('release — the claim/release round trip, optimistic concurrency (M4-1
     await seedInReviewItemVersion({ subject });
     const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
     await database.pool.query(
-      `UPDATE content.review_assignment SET state = 'decided', decided_at = now() WHERE assignment_id = $1`,
+      `UPDATE content.review_assignment
+          SET state = 'decided', decided_at = now(), aggregate_version = aggregate_version + 1
+        WHERE assignment_id = $1`,
       [claimed.assignmentId],
     );
 

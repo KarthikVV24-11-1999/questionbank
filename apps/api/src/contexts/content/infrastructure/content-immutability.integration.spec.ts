@@ -438,12 +438,17 @@ describe('the other aggregates freeze the same way', () => {
 
 describe('the trigger surface itself', () => {
   it('guards every version table and every part table', async () => {
+    // Scoped to INV-03's own trigger functions, not "every trigger in
+    // content" — M4-21 adds a second, unrelated immutability policy
+    // (append-only / state-machine) to the review tables, and conflating
+    // the two closed lists would make each less able to say what it means.
     const guarded = await rows<{ table_name: string }>(
       `SELECT c.relname AS table_name
          FROM pg_trigger t
          JOIN pg_class c ON c.oid = t.tgrelid
          JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'content' AND NOT t.tgisinternal
+         JOIN pg_proc p ON p.oid = t.tgfoid
+        WHERE n.nspname = 'content' AND NOT t.tgisinternal AND p.proname LIKE 'reject_published%'
         ORDER BY c.relname`,
     );
     expect(guarded.map((row) => row.table_name)).toEqual([
@@ -502,7 +507,8 @@ describe('migrations run up, down and up again with the triggers in place', () =
          FROM pg_trigger t
          JOIN pg_class c ON c.oid = t.tgrelid
          JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'content' AND NOT t.tgisinternal`,
+         JOIN pg_proc p ON p.oid = t.tgfoid
+        WHERE n.nspname = 'content' AND NOT t.tgisinternal AND p.proname LIKE 'reject_published%'`,
     );
     expect(Number(triggers!.count)).toBe(15);
   });
