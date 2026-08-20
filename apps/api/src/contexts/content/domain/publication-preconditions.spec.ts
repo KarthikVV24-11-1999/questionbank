@@ -451,3 +451,28 @@ describe('the check is pure', () => {
     }
   });
 });
+
+// M4-15 (ADR-0018) — INV-12 extended to the reviewer-edit path, via the same
+// isSelfReview function this file already calls. Additive: nothing above
+// this point is touched.
+describe('INV-12 extended to editedBy (M4-15)', () => {
+  it('refuses a reviewer who edited the version signing that same version', () => {
+    const edited = { ...V1, editedBy: REVIEWER } as ItemVersion;
+    const satisfied = arePublicationPreconditionsSatisfied(
+      item(edited),
+      edited,
+      facts({ signature: signature({ reviewer: REVIEWER, itemVersionId: edited.versionId }) }),
+    );
+    expect(satisfied).toBe(false);
+  });
+
+  it('permits a different reviewer than the one who edited to sign it', () => {
+    const edited = { ...V1, editedBy: REVIEWER } as ItemVersion;
+    const satisfied = arePublicationPreconditionsSatisfied(
+      item(edited),
+      edited,
+      facts({ signature: signature({ reviewer: AI_AGENT, itemVersionId: edited.versionId }) }),
+    );
+    expect(satisfied).toBe(true);
+  });
+});

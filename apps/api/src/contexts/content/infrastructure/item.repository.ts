@@ -3,7 +3,12 @@ import { err, ok, type Result } from '../domain/result.js';
 import type { ContentEvent } from '../domain/events/content-events.js';
 import { ContentOutboxEmitter } from './outbox-emitter.js';
 import { conflictError, notFoundError, validationError } from '../domain/content-error.js';
-import type { ItemRepository, RepositoryError } from '../domain/repository-ports.js';
+import type {
+  ItemRepository,
+  RepositoryError,
+  SubmittedForReviewCriteria,
+  SubmittedForReviewPage,
+} from '../domain/repository-ports.js';
 import { reconstituteItem, type Item } from '../domain/item.js';
 import type { ItemVersion } from '../domain/item-version.js';
 import type { LifecycleState } from '../domain/item-lifecycle.js';
@@ -50,6 +55,8 @@ interface ItemRow {
   readonly retirement_reason: string | null;
   readonly replaced_by_item_id: string | null;
   readonly aggregate_version: number;
+  readonly state_entered_at: Date;
+  readonly authoring_subject: string;
 }
 
 interface VersionRow {
@@ -61,6 +68,8 @@ interface VersionRow {
   readonly stimulus_version_id: string | null;
   readonly authored_by_kind: 'human' | 'ai_agent' | 'system';
   readonly authored_by_id: string;
+  readonly edited_by_kind: 'human' | 'ai_agent' | 'system' | null;
+  readonly edited_by_id: string | null;
   readonly created_at: Date;
 }
 
@@ -202,10 +211,19 @@ export class PostgresItemRepository implements ItemRepository {
       // cannot be deferred, so a published item has to reach its real state in
       // the final UPDATE below — after its versions exist for the foreign key
       // to resolve.
+      // state_entered_at: the domain-supplied instant if createItem was given
+      // one, else the database's own now() — never a clock read in the
+      // domain, and never NULL, since the column is NOT NULL (M4-13).
+      //
+      // authoring_subject is fixed at creation and never revisited by the
+      // final UPDATE below — it is a fact about the item, not something a
+      // later save changes (M4-14). 'unclassified' is the same placeholder
+      // the migration backfills pre-existing rows with, for a caller that
+      // saves an Item the domain never resolved a subject for.
       await client.query(
-        `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version)
-         VALUES ($1, $2, 'draft', $3)`,
-        [item.itemId, item.itemType, item.aggregateVersion],
+        `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version, state_entered_at, authoring_subject)
+         VALUES ($1, $2, 'draft', $3, COALESCE($4, now()), COALESCE($5, 'unclassified'))`,
+        [item.itemId, item.itemType, item.aggregateVersion, item.stateEnteredAt ?? null, item.authoringSubject ?? null],
       );
     } else {
       // P8 optimistic concurrency. A stale write is a Conflict, never a silent
@@ -245,13 +263,32 @@ export class PostgresItemRepository implements ItemRepository {
     // State and published version move together, and last. The column
     // references item_version, so the version must exist; the CHECK requires
     // both to agree, so they cannot be set in separate statements.
+    //
+    // state_entered_at moves only when lifecycle_state actually changes
+    // (compared against the row's own pre-update value, which is what the
+    // right-hand `lifecycle_state` in the CASE reads — every SET expression
+    // in one UPDATE sees the old row). An autosave (replaceDraftVersion) or
+    // a version add leaves it untouched, whatever the domain object does or
+    // does not carry; a real transition stamps the supplied instant, or
+    // now() if the domain did not supply one.
+    //
+    // `$8` repeats `$2`'s value under its own placeholder rather than reusing
+    // $2: the enum column's assignment context (`SET lifecycle_state = $2`)
+    // and its comparison context (`IS DISTINCT FROM`) resolve an untyped
+    // parameter's type by different rules, and Postgres refuses to unify one
+    // placeholder across both ("inconsistent types deduced for parameter")
+    // — found the hard way, by every save in this file failing at once.
     await client.query(
       `UPDATE content.item
           SET lifecycle_state = $2,
               current_published_version_id = $3,
               retirement_reason = $4,
               replaced_by_item_id = $5,
-              aggregate_version = $6
+              aggregate_version = $6,
+              state_entered_at = CASE
+                WHEN lifecycle_state IS DISTINCT FROM $8 THEN COALESCE($7, now())
+                ELSE state_entered_at
+              END
         WHERE item_id = $1`,
       [
         item.itemId,
@@ -260,6 +297,8 @@ export class PostgresItemRepository implements ItemRepository {
         item.retirementReason ?? null,
         item.replacedByItemId ?? null,
         item.aggregateVersion,
+        item.stateEnteredAt ?? null,
+        item.lifecycleState,
       ],
     );
 
@@ -290,8 +329,9 @@ export class PostgresItemRepository implements ItemRepository {
     await client.query(
       `INSERT INTO content.item_version
          (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text, notation_terms,
-          difficulty_estimate, stimulus_version_id, authored_by_kind, authored_by_id, created_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)
+          difficulty_estimate, stimulus_version_id, authored_by_kind, authored_by_id, created_at,
+          edited_by_kind, edited_by_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (item_version_id) DO UPDATE SET
          version_no = EXCLUDED.version_no,
          item_type = EXCLUDED.item_type,
@@ -316,6 +356,8 @@ export class PostgresItemRepository implements ItemRepository {
         version.authoredBy.kind,
         version.authoredBy.id,
         version.createdAt,
+        version.editedBy?.kind ?? null,
+        version.editedBy?.id ?? null,
       ],
     );
 
@@ -509,7 +551,7 @@ export class PostgresItemRepository implements ItemRepository {
   async findById(itemId: string): Promise<Result<Item, RepositoryError>> {
     const items = await this.#pool.query<ItemRow>(
       `SELECT item_id, item_type, lifecycle_state, current_published_version_id,
-              retirement_reason, replaced_by_item_id, aggregate_version
+              retirement_reason, replaced_by_item_id, aggregate_version, state_entered_at, authoring_subject
          FROM content.item WHERE item_id = $1 AND deleted_at IS NULL`,
       [itemId],
     );
@@ -545,7 +587,7 @@ export class PostgresItemRepository implements ItemRepository {
     // author's when they wrote its latest version.
     const items = await this.#pool.query<ItemRow>(
       `SELECT DISTINCT i.item_id, i.item_type, i.lifecycle_state, i.current_published_version_id,
-              i.retirement_reason, i.replaced_by_item_id, i.aggregate_version
+              i.retirement_reason, i.replaced_by_item_id, i.aggregate_version, i.state_entered_at, i.authoring_subject
          FROM content.item i
          JOIN content.item_version v ON v.item_id = i.item_id
         WHERE i.deleted_at IS NULL
@@ -591,10 +633,60 @@ export class PostgresItemRepository implements ItemRepository {
     return ok(Number(result.rows[0]!.count));
   }
 
+  /**
+   * The review queue's candidate source (M4-16). The state restriction is a
+   * `WHERE`, never a post-filter: only `in_review` items can leave this
+   * query, on any argument. Paged by keyset on `item_id` (UUIDv7, so
+   * ascending order is also insertion order) rather than `OFFSET`, which a
+   * concurrent insert would shift a page boundary through — keyset never
+   * duplicates or skips a row, because `> cursor` names a fixed point instead
+   * of a position that moves under it.
+   */
+  async findSubmittedForReview(
+    criteria: SubmittedForReviewCriteria,
+  ): Promise<Result<SubmittedForReviewPage, RepositoryError>> {
+    const items = await this.#pool.query<ItemRow>(
+      `SELECT i.item_id, i.item_type, i.lifecycle_state, i.current_published_version_id,
+              i.retirement_reason, i.replaced_by_item_id, i.aggregate_version, i.state_entered_at,
+              i.authoring_subject
+         FROM content.item i
+         JOIN content.item_version v
+           ON v.item_id = i.item_id
+          AND v.version_no = (SELECT max(v2.version_no) FROM content.item_version v2 WHERE v2.item_id = i.item_id)
+        WHERE i.deleted_at IS NULL
+          AND i.lifecycle_state = 'in_review'
+          AND ($1::text IS NULL OR i.authoring_subject = $1)
+          AND ($2::uuid IS NULL OR v.authored_by_id <> $2)
+          AND ($3::uuid IS NULL OR i.item_id > $3)
+        ORDER BY i.item_id
+        LIMIT $4`,
+      [criteria.subject ?? null, criteria.excludeAuthorId ?? null, criteria.cursor ?? null, criteria.limit],
+    );
+
+    const hydrated: Item[] = [];
+    for (const row of items.rows) {
+      const item = await this.#hydrate(row);
+      if (!item.ok) return err(item.error);
+      hydrated.push(item.value);
+    }
+
+    // A page shorter than the limit is the last one — no cursor to hand back.
+    const nextCursor =
+      hydrated.length === criteria.limit ? hydrated[hydrated.length - 1]!.itemId : undefined;
+
+    return ok(
+      Object.freeze({
+        items: Object.freeze(hydrated),
+        ...(nextCursor === undefined ? {} : { nextCursor }),
+      }),
+    );
+  }
+
   async #hydrate(row: ItemRow): Promise<Result<Item, RepositoryError>> {
     const versions = await this.#pool.query<VersionRow>(
       `SELECT item_version_id, version_no, item_type, stem_body, difficulty_estimate,
-              stimulus_version_id, authored_by_kind, authored_by_id, created_at
+              stimulus_version_id, authored_by_kind, authored_by_id, created_at,
+              edited_by_kind, edited_by_id
          FROM content.item_version WHERE item_id = $1 ORDER BY version_no`,
       [row.item_id],
     );
@@ -661,6 +753,8 @@ export class PostgresItemRepository implements ItemRepository {
         : { currentPublishedVersionId: row.current_published_version_id }),
       ...(row.retirement_reason === null ? {} : { retirementReason: row.retirement_reason }),
       ...(row.replaced_by_item_id === null ? {} : { replacedByItemId: row.replaced_by_item_id }),
+      stateEnteredAt: toIsoInstant(row.state_entered_at),
+      authoringSubject: row.authoring_subject,
     });
 
     return item.ok
@@ -741,6 +835,15 @@ export class PostgresItemRepository implements ItemRepository {
         roleContext: Object.freeze([]),
       }),
       createdAt: toIsoInstant(row.created_at),
+      ...(row.edited_by_kind === null || row.edited_by_id === null
+        ? {}
+        : {
+            editedBy: Object.freeze({
+              kind: row.edited_by_kind,
+              id: row.edited_by_id,
+              roleContext: Object.freeze([]),
+            }),
+          }),
     });
   }
 

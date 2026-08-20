@@ -35,9 +35,12 @@ import {
   RecordItemReviewDecisionHandler,
   RecordSolutionReviewDecisionHandler,
   RecordStimulusReviewDecisionHandler,
+  RetireItemHandler,
   SubmitItemForReviewHandler,
   SubmitSolutionForReviewHandler,
   SubmitStimulusForReviewHandler,
+  SuspendItemHandler,
+  WithdrawItemFromReviewHandler,
   type LifecycleDependencies,
 } from './handlers/lifecycle-handlers.js';
 import {
@@ -46,8 +49,12 @@ import {
   GetValidationFindingsHandler,
   ListMediaAssetsHandler,
   ListMyDraftsHandler,
+  ListSubmittedForReviewHandler,
   type AuthoringQueryDependencies,
 } from './queries/authoring-queries.js';
+import { LIFECYCLE_STATES, type LifecycleState } from '../domain/item-lifecycle.js';
+
+const LIFECYCLE_STATES_UNDER_TEST = LIFECYCLE_STATES.filter((state) => state !== 'in_review');
 import {
   GetPublishedItemHandler,
   GetPublishedSolutionHandler,
@@ -886,5 +893,231 @@ describe('the media library reports what it cannot read', () => {
 
     await database.pool.query(`DELETE FROM content.media_asset WHERE asset_id = $1`, [orphanId]);
     expectValue(await new ListMediaAssetsHandler(authoringQueries()).handle({}, as(author)));
+  });
+});
+
+/** Drives a freshly drafted item to exactly the named state, via real handlers. */
+async function driveToState(item: Item, state: LifecycleState): Promise<Item> {
+  const deps = lifecycle();
+  const versionId = item.versions[0]!.versionId;
+  switch (state) {
+    case 'draft':
+      return item;
+    case 'in_review':
+      return expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+    case 'changes_requested': {
+      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+      return expectValue(
+        await new RecordItemReviewDecisionHandler(deps).handle(
+          { itemId: item.itemId, itemVersionId: versionId, outcome: 'request_changes', justification: 'unclear' },
+          as(reviewer),
+        ),
+      );
+    }
+    case 'approved': {
+      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+      return expectValue(
+        await new RecordItemReviewDecisionHandler(deps).handle(
+          { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve' },
+          as(reviewer),
+        ),
+      );
+    }
+    case 'rejected': {
+      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+      return expectValue(
+        await new RecordItemReviewDecisionHandler(deps).handle(
+          { itemId: item.itemId, itemVersionId: versionId, outcome: 'reject', justification: 'off-syllabus' },
+          as(reviewer),
+        ),
+      );
+    }
+    case 'published':
+      return publishItem(item);
+    case 'suspended': {
+      const published = await publishItem(item);
+      return expectValue(
+        await new SuspendItemHandler(deps).handle(
+          { itemId: published.itemId, justification: 'defect report' },
+          asOps(),
+        ),
+      );
+    }
+    case 'retired': {
+      const published = await publishItem(item);
+      return expectValue(
+        await new RetireItemHandler(deps).handle(
+          { itemId: published.itemId, retirementReason: 'superseded' },
+          asOps(),
+        ),
+      );
+    }
+  }
+}
+
+describe('ListSubmittedForReview, the review queue candidate source (M4-16)', () => {
+  it('returns only in_review items — proven exhaustively over all 8 lifecycle states', async () => {
+    const inReviewItem = await driveToState(await draftItem(), 'in_review');
+    const others: Item[] = [];
+    for (const state of LIFECYCLE_STATES_UNDER_TEST) {
+      others.push(await driveToState(await draftItem(), state));
+    }
+
+    const page = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle({ limit: 100 }, as(reviewer)),
+    );
+    const ids = page.items.map((i) => i.itemId);
+    expect(ids).toContain(inReviewItem.itemId);
+    for (const other of others) expect(ids).not.toContain(other.itemId);
+  });
+
+  it('filters by subject', async () => {
+    const item = await draftItem({}, author);
+    await driveToState(item, 'in_review');
+
+    const matched = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle(
+        { limit: 100, subject: 'physics' },
+        as(reviewer),
+      ),
+    );
+    expect(matched.items.map((i) => i.itemId)).toContain(item.itemId);
+
+    const unmatched = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle(
+        { limit: 100, subject: 'chemistry' },
+        as(reviewer),
+      ),
+    );
+    expect(unmatched.items.map((i) => i.itemId)).not.toContain(item.itemId);
+  });
+
+  it('excludes the named author — the source-level half of INV-12', async () => {
+    const mine = await driveToState(await draftItem({}, author), 'in_review');
+    const theirs = await driveToState(await draftItem({}, otherAuthor), 'in_review');
+
+    const page = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle(
+        { limit: 100, excludeAuthorId: AUTHOR_ID },
+        as(reviewer),
+      ),
+    );
+    const ids = page.items.map((i) => i.itemId);
+    expect(ids).not.toContain(mine.itemId);
+    expect(ids).toContain(theirs.itemId);
+  });
+
+  it('paginates by a stable keyset cursor rather than an offset', async () => {
+    const first = await driveToState(await draftItem(), 'in_review');
+    const second = await driveToState(await draftItem(), 'in_review');
+
+    const page1 = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle({ limit: 1 }, as(reviewer)),
+    );
+    expect(page1.items).toHaveLength(1);
+    expect(page1.nextCursor).toBeDefined();
+    const cursor = page1.nextCursor!;
+
+    // A concurrent insert between pages must not shift the boundary.
+    const inserted = await driveToState(await draftItem(), 'in_review');
+
+    const page2 = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle({ limit: 100, cursor }, as(reviewer)),
+    );
+    const page2Ids = page2.items.map((i) => i.itemId);
+    expect(page2Ids).not.toContain(page1.items[0]!.itemId);
+    for (const id of [first.itemId, second.itemId, inserted.itemId]) {
+      expect([...page1.items.map((i) => i.itemId), ...page2Ids]).toContain(id);
+    }
+  });
+
+  it('reports blockingCount/warningCount from M3’s own validation', async () => {
+    const item = await driveToState(await draftItem(), 'in_review');
+    const page = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle({ limit: 100 }, as(reviewer)),
+    );
+    const found = page.items.find((i) => i.itemId === item.itemId);
+    expect(found).toBeDefined();
+    // No solution published yet — FR-TCH-07's missing-solution finding blocks.
+    expect(found?.blockingCount).toBeGreaterThan(0);
+  });
+
+  it('refuses a learner with Authorization', async () => {
+    const refused = await new ListSubmittedForReviewHandler(authoringQueries()).handle(
+      { limit: 100 },
+      as(learner),
+    );
+    const error = expectError(refused);
+    expect(error.kind).toBe('Authorization');
+    expect(error.code).toBe('NOT_PERMITTED');
+  });
+
+  it('lowers blockingCount once a solution is published for the version under review', async () => {
+    const item = await draftItem();
+    const solution = expectValue(
+      await new CreateSolutionDraftHandler(solutionBench()).handle(
+        {
+          itemId: item.itemId,
+          targetItemVersionId: item.versions[0]!.versionId,
+          subject: 'physics',
+          content: {
+            finalAnswerAssertion: finalAnswerFor(item),
+            steps: [{ ordinal: 1, body: textBody('Resolve the weight along the incline.'), conceptRefs: [] }],
+            distractorAnalyses: [{ optionId: 'a', misconception: textBody('Forgot to resolve the weight.') }],
+            alternateApproaches: [],
+          },
+        },
+        as(author),
+      ),
+    );
+    const deps = lifecycle();
+    expectValue(await new SubmitSolutionForReviewHandler(deps).handle({ solutionId: solution.solutionId }, as(author)));
+    expectValue(
+      await new RecordSolutionReviewDecisionHandler(deps).handle(
+        { solutionId: solution.solutionId, solutionVersionId: solution.versions[0]!.versionId, outcome: 'approve' },
+        as(reviewer),
+      ),
+    );
+    expectValue(
+      await new PublishSolutionVersionHandler(deps).handle(
+        { solutionId: solution.solutionId, solutionVersionId: solution.versions[0]!.versionId },
+        asOps(),
+      ),
+    );
+
+    await driveToState(item, 'in_review');
+
+    const page = expectValue(
+      await new ListSubmittedForReviewHandler(authoringQueries()).handle({ limit: 100 }, as(reviewer)),
+    );
+    const found = page.items.find((i) => i.itemId === item.itemId);
+    expect(found).toBeDefined();
+    expect(found?.blockingCount).toBe(0);
+  });
+
+  it('propagates a repository failure rather than dropping the row (PERSISTENCE_REJECTED)', async () => {
+    const itemId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state) VALUES ($1, 'SINGLE_CORRECT_MCQ', 'in_review')`,
+      [itemId],
+    );
+    for (const versionNo of [1, 3]) {
+      await database.pool.query(
+        `INSERT INTO content.item_version
+           (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text,
+            difficulty_estimate, authored_by_kind, authored_by_id)
+         VALUES ($1, $2, $3, 'SINGLE_CORRECT_MCQ', '{}'::jsonb, 's', 'moderate', 'human', $4)`,
+        [freshUuid(), itemId, versionNo, AUTHOR_ID],
+      );
+    }
+
+    const refused = await new ListSubmittedForReviewHandler(authoringQueries()).handle(
+      { limit: 100 },
+      as(reviewer),
+    );
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+
+    await database.pool.query(`DELETE FROM content.item_version WHERE item_id = $1`, [itemId]);
+    await database.pool.query(`DELETE FROM content.item WHERE item_id = $1`, [itemId]);
   });
 });

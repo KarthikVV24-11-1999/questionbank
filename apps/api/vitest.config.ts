@@ -417,6 +417,24 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        'src/contexts/content/infrastructure/review/review-assignment.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/infrastructure/review/fingerprint.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/infrastructure/review/review-candidate-shown.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/content/application/final-answer-agreement.ts': {
           branches: 100,
           lines: 100,

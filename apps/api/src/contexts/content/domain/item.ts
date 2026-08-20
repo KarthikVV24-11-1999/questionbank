@@ -41,6 +41,36 @@ export interface Item {
   readonly retirementReason?: string;
   readonly replacedByItemId?: string;
   readonly aggregateVersion: number;
+  /**
+   * When the item entered `lifecycleState` (M4-13) — the review queue's
+   * ageing clock (DEC-M4-1). **Optional here, never optional in storage**:
+   * `content.item.state_entered_at` is `NOT NULL`, but every constructor
+   * below accepts it as an optional, supplied fact rather than a required
+   * one, so M3's own call sites — which never pass it — construct exactly
+   * the `Item` they always did. The repository is what always supplies it
+   * for a real row (M4-13's own infrastructure change); a domain-only test
+   * that never mentions review timing does not have to start mentioning it.
+   */
+  readonly stateEnteredAt?: string;
+  /**
+   * The routing key a subject-scoped queue needs (M4-14, DEC-M4-8). **Optional
+   * here for the same reason `stateEnteredAt` is**: `content.item.authoring_subject`
+   * is `NOT NULL` in storage, but every M3 call site that never mentions a
+   * subject constructs exactly the `Item` it always did.
+   *
+   * **D23, restated.** This is *resolved* at creation from the principal's
+   * subject scope where that is unambiguous (`resolveAuthoringSubject`,
+   * `application/authorization.ts`) — an in-scope author cannot mistype their
+   * own subject the way a purely declared value could be. It is not
+   * cross-checked against the content itself: nothing in this model records
+   * the subject of a passage or a stem, and `curriculum/public/` exposes no
+   * concept → subject-domain lookup. An author scoped to more than one
+   * subject, or unscoped (Content Ops), still declares it and nothing here
+   * catches a mistagging of *their own* in-scope work. D23 stays open for
+   * that half, with its trigger unchanged: Curriculum exposing a concept →
+   * subject lookup.
+   */
+  readonly authoringSubject?: string;
 }
 
 export type ItemErrorCode =
@@ -57,7 +87,9 @@ export type ItemErrorCode =
   | 'RETIREMENT_REASON_REQUIRED'
   | 'REPLACEMENT_IS_SELF'
   | 'ITEM_NOT_DELETABLE'
-  | 'VERSION_NOT_EDITABLE';
+  | 'VERSION_NOT_EDITABLE'
+  | 'STATE_ENTERED_AT_NOT_A_TIMESTAMP'
+  | 'AUTHORING_SUBJECT_BLANK';
 
 export type ItemError = ContentError<ItemErrorCode>;
 
@@ -65,10 +97,36 @@ function isBlank(value: string): boolean {
   return value.trim().length === 0;
 }
 
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u;
+
+function checkStateEnteredAt(stateEnteredAt: string | undefined, location: string): ItemError | undefined {
+  if (stateEnteredAt === undefined) return undefined;
+  if (!ISO_INSTANT.test(stateEnteredAt)) {
+    return validationError(
+      'STATE_ENTERED_AT_NOT_A_TIMESTAMP',
+      `stateEnteredAt "${stateEnteredAt}" is not an ISO-8601 instant`,
+      location,
+    );
+  }
+  return undefined;
+}
+
+function checkAuthoringSubject(authoringSubject: string | undefined, location: string): ItemError | undefined {
+  if (authoringSubject === undefined) return undefined;
+  if (isBlank(authoringSubject)) {
+    return validationError('AUTHORING_SUBJECT_BLANK', 'authoringSubject, if supplied, is not blank', location);
+  }
+  return undefined;
+}
+
 export interface CreateItemProps {
   readonly itemId: string;
   readonly itemType: ItemType;
   readonly initialVersion: ItemVersion;
+  /** Supplied by the handler from the clock port (M4-13) — the domain stays clock-free. */
+  readonly stateEnteredAt?: string;
+  /** Resolved by the handler (M4-14) — the domain does not know a principal's scope. */
+  readonly authoringSubject?: string;
 }
 
 /** A new item is always a draft holding exactly one version. */
@@ -100,6 +158,10 @@ export function createItem(
       ),
     );
   }
+  const stateEnteredAtError = checkStateEnteredAt(props.stateEnteredAt, `${location}.stateEnteredAt`);
+  if (stateEnteredAtError !== undefined) return err(stateEnteredAtError);
+  const authoringSubjectError = checkAuthoringSubject(props.authoringSubject, `${location}.authoringSubject`);
+  if (authoringSubjectError !== undefined) return err(authoringSubjectError);
 
   return ok(
     Object.freeze({
@@ -108,6 +170,8 @@ export function createItem(
       lifecycleState: 'draft' as LifecycleState,
       versions: Object.freeze([props.initialVersion]),
       aggregateVersion: 1,
+      ...(props.stateEnteredAt === undefined ? {} : { stateEnteredAt: props.stateEnteredAt }),
+      ...(props.authoringSubject === undefined ? {} : { authoringSubject: props.authoringSubject }),
     }),
   );
 }
@@ -126,6 +190,8 @@ export interface ReconstituteItemProps {
   readonly retirementReason?: string;
   readonly replacedByItemId?: string;
   readonly aggregateVersion: number;
+  readonly stateEnteredAt?: string;
+  readonly authoringSubject?: string;
 }
 
 export function reconstituteItem(
@@ -200,6 +266,11 @@ export function reconstituteItem(
     );
   }
 
+  const stateEnteredAtError = checkStateEnteredAt(props.stateEnteredAt, `${location}.stateEnteredAt`);
+  if (stateEnteredAtError !== undefined) return err(stateEnteredAtError);
+  const authoringSubjectError = checkAuthoringSubject(props.authoringSubject, `${location}.authoringSubject`);
+  if (authoringSubjectError !== undefined) return err(authoringSubjectError);
+
   return ok(
     Object.freeze({
       itemId: props.itemId,
@@ -212,6 +283,8 @@ export function reconstituteItem(
         : { currentPublishedVersionId: props.currentPublishedVersionId }),
       ...(props.retirementReason === undefined ? {} : { retirementReason: props.retirementReason }),
       ...(props.replacedByItemId === undefined ? {} : { replacedByItemId: props.replacedByItemId }),
+      ...(props.stateEnteredAt === undefined ? {} : { stateEnteredAt: props.stateEnteredAt }),
+      ...(props.authoringSubject === undefined ? {} : { authoringSubject: props.authoringSubject }),
     }),
   );
 }
@@ -346,6 +419,8 @@ export interface TransitionProps {
   /** Required by `retire` (FR-QM-07 rule 3). */
   readonly retirementReason?: string;
   readonly replacedByItemId?: string;
+  /** Supplied by the handler from the clock port (M4-13) — set on every transition, when supplied. */
+  readonly stateEnteredAt?: string;
 }
 
 /**
@@ -365,6 +440,9 @@ export function transitionItem(item: Item, props: TransitionProps): Result<Item,
 
   const next = applyTransition(item.lifecycleState, props.transition);
   if (!next.ok) return err(next.error);
+
+  const stateEnteredAtError = checkStateEnteredAt(props.stateEnteredAt, 'stateEnteredAt');
+  if (stateEnteredAtError !== undefined) return err(stateEnteredAtError);
 
   if (props.transition === 'retire') {
     if (props.retirementReason === undefined || isBlank(props.retirementReason)) {
@@ -394,6 +472,7 @@ export function transitionItem(item: Item, props: TransitionProps): Result<Item,
       ...(props.transition === 'retire' && props.replacedByItemId !== undefined
         ? { replacedByItemId: props.replacedByItemId }
         : {}),
+      ...(props.stateEnteredAt === undefined ? {} : { stateEnteredAt: props.stateEnteredAt }),
     }),
   );
 }
@@ -406,6 +485,8 @@ export interface PublishVersionProps {
    * different and much harder thing to bypass.
    */
   readonly preconditionsSatisfied: boolean;
+  /** Supplied by the handler from the clock port (M4-13) — publication is a transition too. */
+  readonly stateEnteredAt?: string;
 }
 
 /**
@@ -438,12 +519,16 @@ export function publishVersion(item: Item, props: PublishVersionProps): Result<I
     );
   }
 
+  const stateEnteredAtError = checkStateEnteredAt(props.stateEnteredAt, 'stateEnteredAt');
+  if (stateEnteredAtError !== undefined) return err(stateEnteredAtError);
+
   return ok(
     Object.freeze({
       ...item,
       lifecycleState: next.value,
       currentPublishedVersionId: props.versionId,
       aggregateVersion: item.aggregateVersion + 1,
+      ...(props.stateEnteredAt === undefined ? {} : { stateEnteredAt: props.stateEnteredAt }),
     }),
   );
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
 import { originalProvenance, singleCorrectSpec, textBody } from '../../../testing/content-fixtures.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { ItemRepository, RepositoryError } from '../domain/repository-ports.js';
+import type { ItemRepository, RepositoryError, SubmittedForReviewPage } from '../domain/repository-ports.js';
 import { createItem, type Item } from '../domain/item.js';
 import { createItemVersion, type ItemVersion } from '../domain/item-version.js';
 import {
@@ -44,7 +44,9 @@ import {
  */
 
 const AUTHOR_ID = '00000000-0000-4000-8100-000000000001';
-const author: PrincipalRef = { kind: 'human', id: AUTHOR_ID, roleContext: ['author'] };
+// Subject-scoped (M4-14) so CreateItemDraft calls below that never declare a
+// subject still resolve one, from the single scope held.
+const author: PrincipalRef = { kind: 'human', id: AUTHOR_ID, roleContext: ['author', 'subject:physics'] };
 const contentOps: PrincipalRef = { kind: 'human', id: 'ops-1', roleContext: ['content_ops'] };
 const admin: PrincipalRef = { kind: 'human', id: 'admin-1', roleContext: ['admin'] };
 const as = (principal: PrincipalRef): ApplicationContext => ({ principal, correlationId: 'c' });
@@ -98,6 +100,7 @@ function draftItem(): Item {
       itemId: identifiers.next(),
       itemType: 'SINGLE_CORRECT_MCQ',
       initialVersion: draftVersion(),
+      authoringSubject: 'physics',
     }),
   );
 }
@@ -131,6 +134,9 @@ class StubItems implements ItemRepository {
   }
   async countPublishedItemsUsingStimulusVersion(): Promise<Result<number, RepositoryError>> {
     return ok(0);
+  }
+  async findSubmittedForReview(): Promise<Result<SubmittedForReviewPage, RepositoryError>> {
+    return ok({ items: [] });
   }
 }
 

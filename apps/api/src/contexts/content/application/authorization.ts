@@ -163,6 +163,68 @@ export function authorizeSubjectScope(
 }
 
 /**
+ * FR-TCH-01 rule 1, resolved rather than merely declared (M4-14, DEC-M4-8).
+ *
+ * For a subject-scoped author, their scope **is** the subject of everything
+ * they author — a Physics-scoped principal has no legitimate reason to
+ * declare anything else, and letting them declare a *different* subject is
+ * exactly the mistagging D23 says nothing catches. So:
+ *
+ *   - **Exactly one `subject:<name>` scope**: the subject is derived from it.
+ *     A declaration that agrees is redundant and ignored; one that disagrees
+ *     is refused — the principal cannot talk their way out of their own
+ *     scope.
+ *   - **Unscoped (Content Ops) or scoped to more than one subject**: nothing
+ *     can be derived unambiguously, so the command must declare it, and the
+ *     declaration is authorized the existing way, through
+ *     `authorizeSubjectScope`.
+ *   - **Neither derivable nor declared**: refused as `Validation`, located —
+ *     this is a missing input, not an authorization failure.
+ *
+ * This closes the creation-time half of D23 (an in-scope author cannot
+ * mistype their own subject); it does not close the half `authorizeSubjectScope`
+ * never closed either — nothing here cross-checks a resolved or declared
+ * subject against the content itself, which needs a concept → subject-domain
+ * lookup Curriculum does not expose yet.
+ */
+export function resolveAuthoringSubject(
+  declared: string | undefined,
+  context: AuthorizationContext,
+): Result<string, ApplicationError> {
+  const scopes = subjectScopesOf(context);
+
+  if (scopes.length === 1) {
+    const derived = scopes[0] as string;
+    if (declared !== undefined && declared.trim().length > 0 && declared !== derived) {
+      return err(
+        applicationError(
+          'Validation',
+          'SUBJECT_DISAGREES_WITH_SCOPE',
+          `principal ${context.principal.id} is scoped to ${derived}; the command declared ${declared}`,
+          'subject',
+        ),
+      );
+    }
+    return ok(derived);
+  }
+
+  if (declared === undefined || declared.trim().length === 0) {
+    return err(
+      applicationError(
+        'Validation',
+        'SUBJECT_REQUIRED',
+        'authoring names the subject it is scoped to (FR-TCH-01 rule 1)',
+        'subject',
+      ),
+    );
+  }
+
+  const scoped = authorizeSubjectScope(declared, context);
+  if (!scoped.ok) return err(scoped.error);
+  return ok(declared);
+}
+
+/**
  * The ownership half of draft access. The role check says "may act on drafts";
  * this says "may act on *this* draft".
  *

@@ -78,7 +78,7 @@ describe('the Item Browser, wired to the real composed API (M0-19)', () => {
     // response's shape (this one only needs the created `itemId`).
     const setupResponse = await fetch(`http://127.0.0.1:${PORT}/v1/authoring/items`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenFor(['author'], AUTHOR_ID)}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenFor(['author', 'subject:physics'], AUTHOR_ID)}` },
       body: JSON.stringify({
         itemType: 'SINGLE_CORRECT_MCQ',
         content: {
@@ -112,7 +112,7 @@ describe('the Item Browser, wired to the real composed API (M0-19)', () => {
 
     const browserApi = createLiveItemBrowserApi({
       baseUrl: `http://127.0.0.1:${PORT}`,
-      getToken: () => tokenFor(['author'], AUTHOR_ID),
+      getToken: () => tokenFor(['author', 'subject:physics'], AUTHOR_ID),
       myPrincipalId: AUTHOR_ID,
     });
 

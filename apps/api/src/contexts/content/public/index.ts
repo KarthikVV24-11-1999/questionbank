@@ -74,6 +74,9 @@ export type {
   GetValidationFindings,
   ListMediaAssets,
   ListMyDrafts,
+  ListSubmittedForReview,
+  SubmittedForReviewItem,
+  SubmittedForReviewPage,
 } from '../application/queries/authoring-queries.js';
 
 export type {

@@ -73,8 +73,15 @@ const CONCEPT_ID = freshUuid();
 const OTHER_CONCEPT_ID = freshUuid();
 const TAXONOMY_ID = freshUuid();
 
-const author: PrincipalRef = { kind: 'human', id: AUTHOR_ID, roleContext: ['author'] };
-const otherAuthor: PrincipalRef = { kind: 'human', id: OTHER_AUTHOR_ID, roleContext: ['author'] };
+// Subject-scoped (M4-14) — a single scope each, so every existing call below
+// that never declares `subject` on CreateItemDraft keeps working unchanged:
+// resolveAuthoringSubject derives it from the one scope held.
+const author: PrincipalRef = { kind: 'human', id: AUTHOR_ID, roleContext: ['author', 'subject:physics'] };
+const otherAuthor: PrincipalRef = {
+  kind: 'human',
+  id: OTHER_AUTHOR_ID,
+  roleContext: ['author', 'subject:chemistry'],
+};
 const contentOps: PrincipalRef = { kind: 'human', id: OPS_ID, roleContext: ['content_ops'] };
 const learner: PrincipalRef = { kind: 'human', id: LEARNER_ID, roleContext: ['learner'] };
 
@@ -151,6 +158,45 @@ async function mediaVersionId(): Promise<string> {
   expectValue(await assets.save(asset));
   return version.versionId;
 }
+
+describe('CreateItemDraft — the subject is resolved, not merely declared (M4-14a)', () => {
+  it('derives the subject from a single-scoped author, ignoring an absent declaration', async () => {
+    const created = await draftFor(bench());
+    expect(created.authoringSubject).toBe('physics');
+  });
+
+  it('refuses an unscoped principal (Content Ops) who declares no subject', async () => {
+    const deps = bench();
+    const refused = await new CreateItemDraftHandler(deps).handle(
+      { itemType: 'SINGLE_CORRECT_MCQ', content: content() },
+      as(contentOps),
+    );
+    const error = expectError(refused);
+    expect(error.kind).toBe('Validation');
+    expect(error.code).toBe('SUBJECT_REQUIRED');
+  });
+
+  it('authorizes an unscoped principal’s declared subject and persists it', async () => {
+    const deps = bench();
+    const created = expectValue(
+      await new CreateItemDraftHandler(deps).handle(
+        { itemType: 'SINGLE_CORRECT_MCQ', content: content(), subject: 'biology' },
+        as(contentOps),
+      ),
+    );
+    expect(created.authoringSubject).toBe('biology');
+  });
+
+  it('refuses a single-scoped author declaring a subject that disagrees with their own scope', async () => {
+    const deps = bench();
+    const refused = await new CreateItemDraftHandler(deps).handle(
+      { itemType: 'SINGLE_CORRECT_MCQ', content: content(), subject: 'chemistry' },
+      as(author),
+    );
+    const error = expectError(refused);
+    expect(error.code).toBe('SUBJECT_DISAGREES_WITH_SCOPE');
+  });
+});
 
 describe('CreateItemDraft', () => {
   it('persists a draft holding exactly one version, authored by the principal', async () => {
@@ -721,3 +767,63 @@ describe('drafts are scoped to their author (FR-TCH-06 rule 1)', () => {
     expect(expectError(refused).code).toBe('NOT_THE_DRAFT_OWNER');
   });
 });
+
+describe('later touches authorize against the stored subject, never a declaration (M4-14b)', () => {
+  // Same principal id as `author` (so ownership passes) but re-scoped away
+  // from the subject the item was created under — the case DEC-M4-8 leaves
+  // open even after M4-14a: a principal's own scope changing between
+  // creation and a later touch.
+  const authorRescopedToChemistry: PrincipalRef = {
+    ...author,
+    roleContext: ['author', 'subject:chemistry'],
+  };
+
+  it('refuses UpdateItemDraft once the owner’s scope no longer covers the item’s stored subject', async () => {
+    const deps = bench();
+    const created = await draftFor(deps); // author, subject:physics
+
+    const refused = await new UpdateItemDraftHandler(deps).handle(
+      { itemId: created.itemId, content: content(), idempotencyKey: 'k' },
+      as(authorRescopedToChemistry),
+    );
+    const error = expectError(refused);
+    expect(error.kind).toBe('Authorization');
+    expect(error.code).toBe('OUT_OF_SUBJECT_SCOPE');
+  });
+
+  it('refuses DeriveDraftFromVersion the same way', async () => {
+    const deps = bench();
+    const created = await draftFor(deps);
+
+    const refused = await new DeriveDraftFromVersionHandler(deps).handle(
+      { itemId: created.itemId, fromVersionId: created.versions[0]!.versionId },
+      as(authorRescopedToChemistry),
+    );
+    expect(expectError(refused).code).toBe('OUT_OF_SUBJECT_SCOPE');
+  });
+
+  it('refuses DeleteItemDraft the same way, and the item survives', async () => {
+    const deps = bench();
+    const created = await draftFor(deps);
+
+    const refused = await new DeleteItemDraftHandler(deps).handle(
+      { itemId: created.itemId, justification: 'wrong subject now' },
+      as(authorRescopedToChemistry),
+    );
+    expect(expectError(refused).code).toBe('OUT_OF_SUBJECT_SCOPE');
+    expectValue(await items.findById(created.itemId));
+  });
+
+  it('permits Content Ops regardless of scope — a cross-subject role bypasses the stored-subject check', async () => {
+    const deps = bench();
+    const created = await draftFor(deps);
+
+    expectValue(
+      await new UpdateItemDraftHandler(deps).handle(
+        { itemId: created.itemId, content: content({ difficultyEstimate: 'advanced' }), idempotencyKey: 'ops-k' },
+        as(contentOps),
+      ),
+    );
+  });
+});
+

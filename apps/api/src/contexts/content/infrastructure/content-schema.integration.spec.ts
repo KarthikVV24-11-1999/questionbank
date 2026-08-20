@@ -38,6 +38,9 @@ const CONTENT_TABLES = [
   'content_media_ref',
   'distractor_analysis',
   'item',
+  // The duplicate-detection cache (M4-09/M4-20) — the same not-in-§4 note
+  // 'review_decision' already carries below applies here too.
+  'item_fingerprint',
   'item_matching_member',
   'item_matching_pair',
   'item_numeric_spec',
@@ -48,10 +51,16 @@ const CONTENT_TABLES = [
   'item_version_locale',
   'media_asset',
   'media_asset_version',
+  // The review workspace's own storage (M4-17/M4-18/DEC-M4-7). DATA-ARCHITECTURE
+  // §4 does not name any of these three because ROADMAP put review in M4 — the
+  // same reason 'review_decision' below is not there either.
+  'review_assignment',
+  'review_candidate_shown',
   // The review record (M3-28). DATA-ARCHITECTURE §4 does not name it because
   // ROADMAP put review in M4; ADR-0010 records why the lifecycle — and so the
   // evidence its preconditions consume — lands here instead.
   'review_decision',
+  'review_escalation',
   'solution',
   'solution_step',
   'solution_version',
@@ -623,5 +632,104 @@ describe('migrations run up, down and up again', () => {
       `SELECT count(*)::text AS count FROM information_schema.tables WHERE table_schema = 'content'`,
     );
     expect(Number(rebuilt!.count)).toBe(CONTENT_TABLES.length);
+  });
+});
+
+// M4-13's own migration, isolated from the rest of the cycle above — the
+// first additive column migration since the cluster-role fix, and the first
+// down path proven against exactly the schema-less condition that fix named.
+describe('content.item.state_entered_at (M4-13) — up, down, up again', () => {
+  async function stateEnteredAtColumn(): Promise<{ is_nullable: string; column_default: string | null } | undefined> {
+    const [column] = await rows<{ is_nullable: string; column_default: string | null }>(
+      `SELECT is_nullable, column_default FROM information_schema.columns
+        WHERE table_schema = 'content' AND table_name = 'item' AND column_name = 'state_entered_at'`,
+    );
+    return column;
+  }
+
+  it('adds a NOT NULL column with a now() default on up, drops it cleanly on down, and rebuilds identically on up again', async () => {
+    // Starts from whatever state the previous test in this file left behind
+    // (migrated) — revert first so "up" below is a real transition, not a
+    // no-op against an already-applied schema.
+    await database.revertMigrations();
+    await database.applyMigrations();
+    const afterUp = await stateEnteredAtColumn();
+    expect(afterUp?.is_nullable).toBe('NO');
+    expect(afterUp?.column_default).toContain('now()');
+
+    await database.revertMigrations();
+    expect(await stateEnteredAtColumn()).toBeUndefined();
+
+    await database.applyMigrations();
+    const afterUpAgain = await stateEnteredAtColumn();
+    expect(afterUpAgain?.is_nullable).toBe('NO');
+    expect(afterUpAgain?.column_default).toContain('now()');
+  });
+
+  it('backfills state_entered_at from created_at for a row written directly, bypassing the domain', async () => {
+    // Simulates a pre-existing row from before this migration: writes
+    // straight through SQL with no state_entered_at, then re-runs the
+    // migration's own backfill statement against it, the way a real
+    // rollout would find rows the domain never touched.
+    const itemId = '00000000-0000-4000-8000-000000000101';
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version, created_at)
+       VALUES ($1, 'NUMERIC', 'draft', 1, '2026-08-01T00:00:00Z')`,
+      [itemId],
+    );
+    await database.pool.query(
+      `UPDATE content.item SET state_entered_at = created_at WHERE item_id = $1`,
+      [itemId],
+    );
+
+    const [row] = await rows<{ state_entered_at: Date; created_at: Date }>(
+      `SELECT state_entered_at, created_at FROM content.item WHERE item_id = $1`,
+      [itemId],
+    );
+    expect(row?.state_entered_at.toISOString()).toBe(row?.created_at.toISOString());
+  });
+});
+
+describe('content.item_version.edited_by_* (M4-15) — up, down, up again', () => {
+  async function editedByColumns(): Promise<number> {
+    const [result] = await rows<{ count: string }>(
+      `SELECT count(*)::text AS count FROM information_schema.columns
+        WHERE table_schema = 'content' AND table_name = 'item_version'
+          AND column_name IN ('edited_by_kind', 'edited_by_id')`,
+    );
+    return Number(result?.count ?? '0');
+  }
+
+  it('adds two nullable columns on up, drops them cleanly on down, rebuilds identically on up again', async () => {
+    await database.revertMigrations();
+    await database.applyMigrations();
+    expect(await editedByColumns()).toBe(2);
+
+    await database.revertMigrations();
+    expect(await editedByColumns()).toBe(0);
+
+    await database.applyMigrations();
+    expect(await editedByColumns()).toBe(2);
+  });
+
+  it('enforces both-or-neither at the database', async () => {
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state, aggregate_version)
+       VALUES ('00000000-0000-4000-8000-000000000102', 'NUMERIC', 'draft', 1)`,
+    );
+    const rejected = await database.pool
+      .query(
+        `INSERT INTO content.item_version
+           (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text,
+            difficulty_estimate, authored_by_kind, authored_by_id, edited_by_kind)
+         VALUES ('00000000-0000-4000-8000-000000000103', '00000000-0000-4000-8000-000000000102', 1,
+                 'NUMERIC', '{}'::jsonb, 'x', 'moderate', 'human', '00000000-0000-4000-8000-000000000104',
+                 'human')`,
+      )
+      .then(
+        () => null,
+        (error: Error) => error.message,
+      );
+    expect(rejected).toContain('item_version_edited_by_both_or_neither');
   });
 });

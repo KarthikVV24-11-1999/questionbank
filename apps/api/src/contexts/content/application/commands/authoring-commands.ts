@@ -31,6 +31,13 @@ export interface AuthoredItemContent {
 export interface CreateItemDraft {
   readonly itemType: ItemType;
   readonly content: AuthoredItemContent;
+  /**
+   * Declared only when it cannot be derived from the principal's own scope
+   * (M4-14) — absent for the common case of a single-subject-scoped author,
+   * where `resolveAuthoringSubject` derives it and refuses a declaration
+   * that disagrees.
+   */
+  readonly subject?: string;
 }
 
 /**

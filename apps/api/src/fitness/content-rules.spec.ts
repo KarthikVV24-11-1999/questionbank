@@ -555,6 +555,15 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
  * M4-01 — the review/authoring intra-context sub-boundary (DEC-M4-7)
  * ------------------------------------------------------------------ */
 
+describe('stateEnteredAt is absent from every delivery surface (M4-13)', () => {
+  it('is not named anywhere in the enumerated delivery surfaces', () => {
+    for (const module of DELIVERY_SURFACES) {
+      const source = readFileSync(join(API_ROOT, module), 'utf8');
+      expect(source, module).not.toMatch(/\bstateEnteredAt\b/u);
+    }
+  });
+});
+
 describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
   it('is green on the real content tree', () => {
     expect(checkReviewAuthoringSubBoundary(API_ROOT)).toEqual([]);

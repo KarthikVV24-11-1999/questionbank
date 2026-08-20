@@ -44,6 +44,14 @@ const PUBLISHED_VERSION_TABLES = [
   'media_asset_version',
 ];
 
+// M4-21's extension of M0-24's closed table list — not a second one.
+const APPEND_ONLY_CONTENT_TABLES = [
+  'content.review_decision',
+  'content.review_candidate_shown',
+  'content.review_escalation',
+];
+const UPDATE_ONLY_CONTENT_TABLES = ['content.review_assignment'];
+
 describe('F5 — every content JSONB column has a version sibling', () => {
   it('holds across the whole content schema, over a catalogue that is not empty', async () => {
     const { rows } = await database.pool.query<ColumnRow>(
@@ -115,8 +123,13 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
 
     for (const [table, privileges] of byTable) {
       expect(privileges.has('TRUNCATE'), table).toBe(false);
-      if (table.startsWith('platform.')) {
+      if (table.startsWith('platform.') || APPEND_ONLY_CONTENT_TABLES.includes(table)) {
         expect([...privileges].sort(), table).toEqual(['INSERT', 'SELECT']);
+      } else if (UPDATE_ONLY_CONTENT_TABLES.includes(table)) {
+        // review_assignment (M4-21): claimed, released, reassigned and
+        // escalated by design — UPDATE stays, but nothing legitimately
+        // deletes one, so DELETE does not.
+        expect([...privileges].sort(), table).toEqual(['INSERT', 'SELECT', 'UPDATE']);
       } else {
         expect(privileges.has('SELECT'), table).toBe(true);
         expect(privileges.has('INSERT'), table).toBe(true);
@@ -199,5 +212,185 @@ describe('F40 — no UPDATE/DELETE/TRUNCATE on an append-only platform table', (
     expect(violations).toEqual([
       { rule: 'F40_WRITE_GRANT_ON_AN_APPEND_ONLY_TABLE', subject: 'audit_record', detail: `${APP_ROLE} holds UPDATE` },
     ]);
+  });
+});
+
+describe('review-table immutability & grants (M4-21, F7/F40)', () => {
+  async function rejects(query: string, params: readonly unknown[] = []): Promise<string> {
+    try {
+      await database.pool.query(query, [...params]);
+    } catch (error) {
+      return (error as Error).message;
+    }
+    throw new Error(`expected the database to refuse: ${query}`);
+  }
+
+  let uuidSeed = 0;
+  function freshUuid(): string {
+    uuidSeed += 1;
+    return `00000000-0000-4000-d000-${uuidSeed.toString(16).padStart(12, '0')}`;
+  }
+
+  async function seedItemVersion(): Promise<{ itemId: string; itemVersionId: string }> {
+    const itemId = freshUuid();
+    const itemVersionId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state, authoring_subject) VALUES ($1, 'SINGLE_CORRECT_MCQ', 'in_review', 'physics')`,
+      [itemId],
+    );
+    await database.pool.query(
+      `INSERT INTO content.item_version
+         (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text, difficulty_estimate,
+          authored_by_kind, authored_by_id)
+       VALUES ($1, $2, 1, 'SINGLE_CORRECT_MCQ', '{}'::jsonb, 's', 'moderate', 'human', $3)`,
+      [itemVersionId, itemId, freshUuid()],
+    );
+    return { itemId, itemVersionId };
+  }
+
+  async function seedAssignment(): Promise<string> {
+    const { itemId, itemVersionId } = await seedItemVersion();
+    const assignmentId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.review_assignment
+         (assignment_id, item_id, item_version_id, subject, reviewer_kind, reviewer_id, kind, state,
+          claimed_at, lease_expires_at)
+       VALUES ($1, $2, $3, 'physics', 'human', $4, 'claimed', 'claimed', now(), now() + interval '1 hour')`,
+      [assignmentId, itemId, itemVersionId, freshUuid()],
+    );
+    return assignmentId;
+  }
+
+  it('rejects UPDATE and DELETE on review_decision', async () => {
+    const decisionId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.review_decision (review_decision_id, owner_type, owner_version_id, reviewer_kind, reviewer_id, outcome, decided_at)
+       VALUES ($1, 'item_version', $2, 'human', $3, 'approve', now())`,
+      [decisionId, freshUuid(), freshUuid()],
+    );
+    expect(
+      await rejects(`UPDATE content.review_decision SET outcome = 'reject' WHERE review_decision_id = $1`, [
+        decisionId,
+      ]),
+    ).toContain('append_only');
+    expect(
+      await rejects(`DELETE FROM content.review_decision WHERE review_decision_id = $1`, [decisionId]),
+    ).toContain('append_only');
+  });
+
+  it('rejects UPDATE and DELETE on review_candidate_shown', async () => {
+    const decisionId = freshUuid();
+    const candidateId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.review_decision (review_decision_id, owner_type, owner_version_id, reviewer_kind, reviewer_id, outcome, decided_at)
+       VALUES ($1, 'item_version', $2, 'human', $3, 'approve', now())`,
+      [decisionId, freshUuid(), freshUuid()],
+    );
+    await database.pool.query(
+      `INSERT INTO content.review_candidate_shown (review_decision_id, candidate_item_id) VALUES ($1, $2)`,
+      [decisionId, candidateId],
+    );
+    expect(
+      await rejects(
+        `UPDATE content.review_candidate_shown SET candidate_item_id = $1 WHERE review_decision_id = $2`,
+        [freshUuid(), decisionId],
+      ),
+    ).toContain('append_only');
+    expect(
+      await rejects(`DELETE FROM content.review_candidate_shown WHERE review_decision_id = $1`, [decisionId]),
+    ).toContain('append_only');
+  });
+
+  it('rejects UPDATE and DELETE on review_escalation', async () => {
+    const { itemId, itemVersionId } = await seedItemVersion();
+    const escalationId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.review_escalation (escalation_id, item_id, item_version_id, reason, escalated_at)
+       VALUES ($1, $2, $3, 'aged_out', now())`,
+      [escalationId, itemId, itemVersionId],
+    );
+    expect(
+      await rejects(`UPDATE content.review_escalation SET reason = 'other' WHERE escalation_id = $1`, [
+        escalationId,
+      ]),
+    ).toContain('append_only');
+    expect(
+      await rejects(`DELETE FROM content.review_escalation WHERE escalation_id = $1`, [escalationId]),
+    ).toContain('append_only');
+  });
+
+  it('permits the state changes review_assignment’s own machine names', async () => {
+    const assignmentId = await seedAssignment();
+    await database.pool.query(
+      `UPDATE content.review_assignment
+          SET state = 'released', released_at = now(), aggregate_version = aggregate_version + 1
+        WHERE assignment_id = $1`,
+      [assignmentId],
+    );
+    const found = await database.pool.query<{ state: string }>(
+      `SELECT state FROM content.review_assignment WHERE assignment_id = $1`,
+      [assignmentId],
+    );
+    expect(found.rows[0]!.state).toBe('released');
+  });
+
+  it('rejects a review_assignment transition its machine does not name', async () => {
+    const assignmentId = await seedAssignment();
+    expect(
+      await rejects(
+        `UPDATE content.review_assignment
+            SET state = 'claimed', aggregate_version = aggregate_version + 1
+          WHERE assignment_id = $1`,
+        [assignmentId],
+      ),
+    ).toContain('transition_not_permitted');
+  });
+
+  it('rejects a review_assignment update that touches a column outside the state machine', async () => {
+    const assignmentId = await seedAssignment();
+    expect(
+      await rejects(`UPDATE content.review_assignment SET subject = 'chemistry' WHERE assignment_id = $1`, [
+        assignmentId,
+      ]),
+    ).toContain('only_the_state_machine_may_change');
+  });
+
+  it('never permits deleting a review_assignment', async () => {
+    const assignmentId = await seedAssignment();
+    expect(await rejects(`DELETE FROM content.review_assignment WHERE assignment_id = $1`, [assignmentId])).toContain(
+      'is_never_deleted',
+    );
+  });
+
+  it('a granted UPDATE inside a rolled-back transaction still makes the trigger fire', async () => {
+    const decisionId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.review_decision (review_decision_id, owner_type, owner_version_id, reviewer_kind, reviewer_id, outcome, decided_at)
+       VALUES ($1, 'item_version', $2, 'human', $3, 'approve', now())`,
+      [decisionId, freshUuid(), freshUuid()],
+    );
+    const client = await database.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await expect(
+        client.query(`UPDATE content.review_decision SET outcome = 'reject' WHERE review_decision_id = $1`, [
+          decisionId,
+        ]),
+      ).rejects.toThrow(/append_only/);
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+  });
+
+  it('the privilege set extended in this file holds no UPDATE/DELETE/TRUNCATE on the three append-only review tables', async () => {
+    const { rows } = await database.pool.query<GrantRow>(
+      `SELECT table_name AS "table", privilege_type AS "privilege", grantee AS "grantee"
+         FROM information_schema.role_table_grants
+        WHERE table_schema = 'content' AND grantee = 'questionbank_app'
+          AND table_name IN ('review_decision', 'review_candidate_shown', 'review_escalation')`,
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(checkNoWriteGrantOnAppendOnlyTable(rows, ['questionbank_app'])).toEqual([]);
   });
 });

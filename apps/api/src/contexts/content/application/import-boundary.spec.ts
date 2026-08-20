@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { expectError } from '../../../testing/expect-result.js';
 import { singleCorrectSpec, textBody } from '../../../testing/content-fixtures.js';
 import { err, ok, type Result } from '../domain/result.js';
-import type { ItemRepository, RepositoryError } from '../domain/repository-ports.js';
+import type { ItemRepository, RepositoryError, SubmittedForReviewPage } from '../domain/repository-ports.js';
 import type { Item } from '../domain/item.js';
 import type { ItemVersion } from '../domain/item-version.js';
 import { ImportItemBatchHandler, type ImportDependencies } from './handlers/import-handlers.js';
@@ -75,6 +75,9 @@ class StubItems implements ItemRepository {
   }
   async countPublishedItemsUsingStimulusVersion(): Promise<Result<number, RepositoryError>> {
     return ok(0);
+  }
+  async findSubmittedForReview(): Promise<Result<SubmittedForReviewPage, RepositoryError>> {
+    return ok({ items: [] });
   }
 }
 

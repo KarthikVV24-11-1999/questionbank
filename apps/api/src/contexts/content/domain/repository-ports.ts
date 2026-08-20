@@ -1,3 +1,4 @@
+import type { PrincipalRef } from '@questionbank/domain-types';
 import type { Result } from './result.js';
 import type { ContentError } from './content-error.js';
 import type { Item } from './item.js';
@@ -5,6 +6,7 @@ import type { ItemVersion } from './item-version.js';
 import type { MediaAsset, MediaAssetVersion } from './media-asset.js';
 import type { ContentEvent } from './events/content-events.js';
 import type { ReviewDecision, ReviewedOwnerType } from './review-decision.js';
+import type { ReviewAssignment } from './review/review-assignment.js';
 import type { Solution, SolutionVersion } from './solution.js';
 import type { Stimulus, StimulusVersion } from './stimulus.js';
 
@@ -57,6 +59,35 @@ export interface ItemRepository {
   countPublishedItemsUsingStimulusVersion(
     stimulusVersionId: string,
   ): Promise<Result<number, RepositoryError>>;
+
+  /**
+   * The review queue's candidate source (M4-16). `ListMyDrafts` is
+   * author-scoped; nothing else lists submitted work. Returns only items
+   * whose `lifecycleState` is `in_review` — the state restriction is a
+   * `WHERE`, not a filter applied after the fact, so a caller cannot widen
+   * it by accident.
+   *
+   * `excludeAuthorId` is the source-level half of INV-12 (M4-04 re-checks
+   * after selection, the same discipline the claim predicate uses). Paged by
+   * a stable keyset on `item_id` — never `OFFSET`, which a concurrent insert
+   * shifts under a page boundary — so `nextCursor` names the last id this
+   * page returned and a later page never duplicates or skips a row.
+   */
+  findSubmittedForReview(
+    criteria: SubmittedForReviewCriteria,
+  ): Promise<Result<SubmittedForReviewPage, RepositoryError>>;
+}
+
+export interface SubmittedForReviewCriteria {
+  readonly subject?: string;
+  readonly excludeAuthorId?: string;
+  readonly limit: number;
+  readonly cursor?: string;
+}
+
+export interface SubmittedForReviewPage {
+  readonly items: readonly Item[];
+  readonly nextCursor?: string;
 }
 
 export interface ReviewDecisionRepository {
@@ -64,8 +95,28 @@ export interface ReviewDecisionRepository {
    * Append-only. A reviewer who changes their mind records a second decision,
    * because the history is what FR-TCH-09 rule 1 needs when comments have to
    * persist against the version they addressed.
+   *
+   * One transaction, one schema, one pool (M4-19): the decision row, its
+   * `candidatesShownIds` as rows in `review_candidate_shown`, and — when
+   * `claimedAssignmentId` is supplied — that assignment's transition to
+   * `decided`, all commit together or none does. `claimedAssignmentId` is
+   * optional because not every reviewed owner type has a claim behind it yet
+   * (M4-18's claim exists for items only); omitting it writes the decision
+   * and its candidate rows with no assignment side effect.
    */
-  record(decision: ReviewDecision): Promise<Result<ReviewDecision, RepositoryError>>;
+  record(
+    decision: ReviewDecision,
+    claimedAssignmentId?: string,
+  ): Promise<Result<ReviewDecision, RepositoryError>>;
+
+  /** Every decision against an item version, most recent first — `findAllFor('item_version', …)` under a name M4-33 reads more easily. */
+  findByItemVersion(itemVersionId: string): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
+
+  /** A reviewer's decisions within an instant range, oldest first — the throughput instrument's source (M4-33). */
+  findByReviewer(
+    reviewerId: string,
+    range: { readonly from: string; readonly to: string },
+  ): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
 
   /**
    * The most recent **approving** decision for a version — the signature
@@ -84,6 +135,96 @@ export interface ReviewDecisionRepository {
     ownerType: ReviewedOwnerType,
     ownerVersionId: string,
   ): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
+}
+
+/**
+ * Column-derived priority within the candidate set (M4-18). Not M4-03's full
+ * `orderCandidates` — that needs confidence, which comes from M3 validation
+ * this repository has no access to — just the two signals SQL already has:
+ * whether an escalation exists, and how long the item has waited.
+ */
+export type ReviewClaimOrdering = 'escalated_first' | 'oldest_first';
+
+export interface ClaimNextReviewAssignment {
+  readonly subject: string;
+  readonly reviewer: PrincipalRef;
+  readonly ordering: ReviewClaimOrdering;
+  readonly now: string;
+  readonly leaseExpiresAt: string;
+}
+
+export interface ReviewAssignmentRepository {
+  /**
+   * The one piece of concurrency in this milestone that can silently be
+   * wrong (M4-18). One statement: `SELECT … FOR UPDATE SKIP LOCKED` over the
+   * candidate set, then the assignment INSERT, in the same transaction — not
+   * a read followed by a separate write, which races.
+   *
+   * Self-review is excluded twice, on purpose. The predicate excludes the
+   * version's author; it does not reach `editedBy` (approve-with-edits,
+   * M4-15), because a version's editor is a fact this query does not carry
+   * inline the way `authoredBy` is. The re-check after selection, `assertAssignable`
+   * (M4-04, INV-12), reads the whole candidate and catches that case for
+   * real — not a redundant check, the one that actually closes the hole.
+   *
+   * `NOT_FOUND` when the candidate set is empty; a self-review the re-check
+   * catches is `PERSISTENCE_REJECTED`, since `RepositoryError`'s code union
+   * has no fourth member to name it more precisely.
+   */
+  claimNext(criteria: ClaimNextReviewAssignment): Promise<Result<ReviewAssignment, RepositoryError>>;
+
+  /** Optimistic concurrency on `aggregate_version`; a stale write is `Conflict`. */
+  release(
+    assignmentId: string,
+    at: string,
+    expectedVersion: number,
+  ): Promise<Result<ReviewAssignment, RepositoryError>>;
+
+  /** Every lease past expiry, released in one statement. Idempotent: a second run finds nothing left to release. */
+  releaseExpired(now: string): Promise<Result<readonly ReviewAssignment[], RepositoryError>>;
+
+  findById(assignmentId: string): Promise<Result<ReviewAssignment, RepositoryError>>;
+}
+
+/**
+ * The duplicate-detection cache (M4-09/M4-20, DEC-M4-2). One row per item
+ * version, recomputed and replaced — `save` upserts, there is no history.
+ */
+export interface ItemFingerprintRecord {
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly exactHash: string;
+  readonly skeletonHash: string;
+  readonly normalizedText: string;
+  readonly computedAt: string;
+}
+
+export interface FingerprintRepository {
+  save(fingerprint: ItemFingerprintRecord): Promise<Result<true, RepositoryError>>;
+
+  /** Exact-match, B-tree backed — authoritative, never touches the trigram index. */
+  findByExactHash(subject: string, exactHash: string): Promise<Result<readonly ItemFingerprintRecord[], RepositoryError>>;
+
+  /** Exact-match, B-tree backed — authoritative, never touches the trigram index. */
+  findBySkeletonHash(
+    subject: string,
+    skeletonHash: string,
+  ): Promise<Result<readonly ItemFingerprintRecord[], RepositoryError>>;
+
+  /**
+   * Recall-widening only (DEC-M4-2) — narrowed by the trigram GIN index when
+   * `pg_trgm` is installed, by a full scan of the subject's fingerprints
+   * when it is not. Both paths score and rank identically, in-repo, via
+   * `domain/review/trigram.ts` — the index only decides which rows reach
+   * that scoring, never the ranking itself, so the two paths return the
+   * same candidates.
+   */
+  findSimilarCandidates(
+    subject: string,
+    normalizedText: string,
+    limit: number,
+  ): Promise<Result<readonly { readonly fingerprint: ItemFingerprintRecord; readonly similarity: number }[], RepositoryError>>;
 }
 
 export interface MediaAssetRepository {

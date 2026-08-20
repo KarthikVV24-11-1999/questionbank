@@ -4,6 +4,7 @@ import { expectError, expectValue } from '../../../testing/expect-result.js';
 import {
   AUTHOR,
   FOUR_OPTIONS,
+  REVIEWER,
   aiProvenance,
   itemVersionProps,
   mathBody,
@@ -11,7 +12,7 @@ import {
   PROVENANCE_CONTEXT,
   textBody,
 } from '../../../testing/content-fixtures.js';
-import { createItemVersion, deriveDraft, type ItemVersion } from '../domain/item-version.js';
+import { createItemVersion, deriveDraft, deriveReviewerEditedVersion, type ItemVersion } from '../domain/item-version.js';
 import { addVersion, createItem, publishVersion, transitionItem, type Item } from '../domain/item.js';
 import { createContentBody, type Block } from '../domain/content-body.js';
 import { projectContentBody } from '../domain/content-body-projections.js';
@@ -948,6 +949,26 @@ describe('a stored row that cannot reconstitute is reported, not returned', () =
     const failure = expectError(await repository.findDraftsByAuthor(OTHER_AUTHOR_ID));
     expect(failure.code).toBe('PERSISTENCE_REJECTED');
   });
+
+  it('propagates the failure out of the review queue rather than dropping the row', async () => {
+    const itemId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state) VALUES ($1, 'SINGLE_CORRECT_MCQ', 'in_review')`,
+      [itemId],
+    );
+    for (const versionNo of [1, 3]) {
+      await database.pool.query(
+        `INSERT INTO content.item_version
+           (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text,
+            difficulty_estimate, authored_by_kind, authored_by_id)
+         VALUES ($1, $2, $3, 'SINGLE_CORRECT_MCQ', '{}'::jsonb, 's', 'moderate', 'human', $4)`,
+        [freshUuid(), itemId, versionNo, OTHER_AUTHOR_ID],
+      );
+    }
+
+    const failure = expectError(await repository.findSubmittedForReview({ limit: 10 }));
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+  });
 });
 
 describe('the casing boundary lives here and nowhere else (§2)', () => {
@@ -961,5 +982,121 @@ describe('the casing boundary lives here and nowhere else (§2)', () => {
     expect(serialized).toMatch(/"lifecycleState"/u);
     expect(serialized).not.toMatch(/"item_id"/u);
     expect(serialized).not.toMatch(/"lifecycle_state"/u);
+  });
+});
+
+// The review queue's ageing clock (M4-13, DEC-M4-1).
+describe('state_entered_at', () => {
+  it('is stamped on a freshly inserted draft, even though the domain object never carried one', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    expect(loaded.stateEnteredAt).toBeDefined();
+    expect(() => new Date(loaded.stateEnteredAt as string)).not.toThrow();
+  });
+
+  it('carries the domain-supplied instant through on insert, rather than the database’s own now()', async () => {
+    const item = expectValue(
+      createItem({
+        itemId: freshUuid(),
+        itemType: version().itemType,
+        initialVersion: version(),
+        stateEnteredAt: '2026-08-01T00:00:00.000Z',
+      }),
+    );
+    expectValue(await repository.save(item));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    expect(loaded.stateEnteredAt).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('moves forward on a real transition, per transition', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const submitted = expectValue(
+      transitionItem(afterInsert, { transition: 'submit_for_review', stateEnteredAt: '2026-08-15T12:00:00.000Z' }),
+    );
+    expectValue(await repository.save(submitted));
+    const afterSubmit = expectValue(await repository.findById(item.itemId));
+    expect(afterSubmit.stateEnteredAt).toBe('2026-08-15T12:00:00.000Z');
+    expect(afterSubmit.stateEnteredAt).not.toBe(afterInsert.stateEnteredAt);
+
+    const changesRequested = expectValue(
+      transitionItem(afterSubmit, {
+        transition: 'request_changes',
+        stateEnteredAt: '2026-08-16T09:00:00.000Z',
+      }),
+    );
+    expectValue(await repository.save(changesRequested));
+    const afterRequestChanges = expectValue(await repository.findById(item.itemId));
+    expect(afterRequestChanges.stateEnteredAt).toBe('2026-08-16T09:00:00.000Z');
+  });
+
+  it('does not move on a save that is not a transition — adding a version leaves it untouched', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const v2 = expectValue(
+      deriveDraft(item.versions[0]!, { versionId: freshUuid(), authoredBy: DB_AUTHOR, createdAt: '2026-08-10T09:00:00Z' }),
+    );
+    const withSecondVersion = expectValue(addVersion(afterInsert, v2));
+    expectValue(await repository.save(withSecondVersion));
+
+    const afterAddVersion = expectValue(await repository.findById(item.itemId));
+    expect(afterAddVersion.stateEnteredAt).toBe(afterInsert.stateEnteredAt);
+  });
+
+  it('defaults to now() at the database when the domain does not supply one on a real transition', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const submitted = expectValue(transitionItem(afterInsert, { transition: 'submit_for_review' }));
+    expectValue(await repository.save(submitted));
+
+    // Not asserted as strictly later than the insert's own now() — a fast
+    // test can land both within the same clock second. What matters is that
+    // it came from the database's own now(), not a value this test invented.
+    const afterSubmit = expectValue(await repository.findById(item.itemId));
+    expect(afterSubmit.stateEnteredAt).toBeDefined();
+    expect(() => new Date(afterSubmit.stateEnteredAt as string)).not.toThrow();
+  });
+});
+
+// M4-15, ADR-0018.
+describe('editedBy', () => {
+  const DB_REVIEWER = { ...REVIEWER, id: freshUuid() };
+
+  it('round trips absent when a version was never reviewer-edited', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    expect(loaded.versions[0]!.editedBy).toBeUndefined();
+  });
+
+  it('round trips editedBy on a reviewer-edited version, leaving authoredBy the original author', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const afterInsert = expectValue(await repository.findById(item.itemId));
+
+    const edited = expectValue(
+      deriveReviewerEditedVersion(afterInsert.versions[0]!, {
+        versionId: freshUuid(),
+        editedBy: DB_REVIEWER,
+        createdAt: '2026-08-15T09:00:00Z',
+        edits: { difficultyEstimate: 'advanced' },
+      }),
+    );
+    expectValue(await repository.save(expectValue(addVersion(afterInsert, edited))));
+
+    const loaded = expectValue(await repository.findById(item.itemId));
+    const editedVersion = loaded.versions.find((version) => version.versionId === edited.versionId);
+    expect(editedVersion?.editedBy?.id).toBe(DB_REVIEWER.id);
+    expect(editedVersion?.authoredBy.id).toBe(AUTHOR_ID);
   });
 });

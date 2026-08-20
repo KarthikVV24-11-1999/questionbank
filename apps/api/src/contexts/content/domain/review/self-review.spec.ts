@@ -78,11 +78,7 @@ describe('the three call sites (M4-04) — enumerated, red when one is removed',
     }
   });
 
-  it('is not yet three — M4-18 adds its entry when it lands', () => {
-    // Documents the known-incomplete state rather than silently asserting
-    // three today: the claim predicate is M4-18's, outside M4-01–M4-07's
-    // scope. This test goes red the day someone claims three without
-    // adding that entry.
-    expect(SELF_REVIEW_CALL_SITES).toHaveLength(2);
+  it('is three — M4-18 added the claim-time entry', () => {
+    expect(SELF_REVIEW_CALL_SITES).toHaveLength(3);
   });
 });

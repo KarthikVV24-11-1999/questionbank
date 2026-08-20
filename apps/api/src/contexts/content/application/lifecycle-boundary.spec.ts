@@ -5,6 +5,7 @@ import { originalProvenance, singleCorrectSpec, textBody } from '../../../testin
 import { err, ok, type Result } from '../domain/result.js';
 import type {
   ItemRepository,
+  SubmittedForReviewPage,
   MediaAssetRepository,
   RepositoryError,
   ReviewDecisionRepository,
@@ -249,6 +250,9 @@ class StubItems implements ItemRepository {
   async countPublishedItemsUsingStimulusVersion() {
     return this.onCount();
   }
+  async findSubmittedForReview(): Promise<Result<SubmittedForReviewPage, RepositoryError>> {
+    return ok({ items: [] });
+  }
 }
 
 class StubStimuli implements StimulusRepository {
@@ -296,6 +300,12 @@ class StubReviews implements ReviewDecisionRepository {
     return this.onApproval();
   }
   async findAllFor(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
+    return ok([]);
+  }
+  async findByItemVersion(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
+    return ok([]);
+  }
+  async findByReviewer(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
     return ok([]);
   }
 }
