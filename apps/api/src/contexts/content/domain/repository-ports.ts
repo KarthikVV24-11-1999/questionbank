@@ -243,6 +243,22 @@ export interface ReviewAssignmentRepository {
   releaseExpired(now: string): Promise<Result<readonly ReviewAssignment[], RepositoryError>>;
 
   findById(assignmentId: string): Promise<Result<ReviewAssignment, RepositoryError>>;
+
+  /**
+   * Whether a **live** claim exists for this item version, as of `now` — an
+   * expired lease is not begun work (FR-TCH-08 rule 2, M4-30).
+   *
+   * `tx` is not optional, unlike `save`/`record`'s. This read is meaningless
+   * outside a transaction: it locks the same `content.item_version` row
+   * `claimNext`'s own `FOR UPDATE OF v SKIP LOCKED` locks, **without**
+   * `SKIP LOCKED`, so a concurrent claim and a concurrent call to this
+   * method block behind each other rather than racing past — whichever
+   * transaction reaches the row first decides the other's answer. That is
+   * the property that makes a claim and a withdrawal in overlapping
+   * transactions resolve to exactly one winner, which neither a port
+   * nor a read-only projection could promise on its own (W4, superseded).
+   */
+  hasLiveClaim(itemVersionId: string, now: string, tx: TransactionContext): Promise<Result<boolean, RepositoryError>>;
 }
 
 export interface AssignReview {

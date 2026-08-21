@@ -8,6 +8,7 @@ import type {
   SubmittedForReviewPage,
   MediaAssetRepository,
   RepositoryError,
+  ReviewAssignmentRepository,
   ReviewDecisionRepository,
   SolutionRepository,
   StimulusRepository,
@@ -61,7 +62,6 @@ import {
 } from '../domain/media-asset.js';
 import {
   InMemoryAuditRecorder,
-  InMemoryReviewProgress,
   type ApplicationContext,
   type Clock,
   type IdentifierFactory,
@@ -311,6 +311,32 @@ class StubReviews implements ReviewDecisionRepository {
   }
 }
 
+/** Only `hasLiveClaim` is exercised in this file (M4-30); the rest throw if ever reached. */
+class StubAssignments implements ReviewAssignmentRepository {
+  constructor(private readonly onHasLiveClaim: () => Result<boolean, RepositoryError> = () => ok(false)) {}
+  async hasLiveClaim() {
+    return this.onHasLiveClaim();
+  }
+  async claimNext(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async assign(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async release(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async extendLease(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async releaseExpired(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async findById(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+}
+
 class StubAssets implements MediaAssetRepository {
   constructor(
     private readonly onFind: () => Result<MediaAsset, RepositoryError>,
@@ -368,7 +394,7 @@ function deps(over: Partial<LifecycleDependencies> = {}): LifecycleDependencies 
     solutions: new StubSolutions(() => err(missing)),
     reviews: new StubReviews(),
     renderer: passingRenderer,
-    reviewProgress: new InMemoryReviewProgress(),
+    assignments: new StubAssignments(),
     transactions: stubTransactions,
     clock,
     identifiers,

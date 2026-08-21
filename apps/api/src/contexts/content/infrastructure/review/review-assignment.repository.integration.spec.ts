@@ -4,15 +4,18 @@ import { connectTestDatabase, DATABASE_URL, type TestDatabase } from '../../../.
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
 import type { ClaimNextReviewAssignment } from '../../domain/repository-ports.js';
 import { PostgresReviewAssignmentRepository } from './review-assignment.repository.js';
+import { PostgresTransactionRunner } from '../transaction-runner.js';
 
 let database: TestDatabase;
 let repository: PostgresReviewAssignmentRepository;
+let runner: PostgresTransactionRunner;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
   repository = new PostgresReviewAssignmentRepository(database.pool);
+  runner = new PostgresTransactionRunner(database.pool);
 });
 
 afterAll(async () => {
@@ -554,6 +557,56 @@ describe('extendLease — pushes the lease forward without a state transition (M
 
     const refused = await repository.extendLease(claimed.assignmentId, claimed.leaseExpiresAt, claimed.aggregateVersion);
     expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+});
+
+describe('hasLiveClaim — the withdrawal read, inside a shared transaction (M4-30)', () => {
+  it('is false with no claim at all', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion({ subject: `live-${freshUuid()}` });
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, new Date().toISOString(), tx));
+    expect(expectValue(result)).toBe(false);
+  });
+
+  it('is true for a claim that is live', async () => {
+    const subject = `live-${freshUuid()}`;
+    const { itemVersionId } = await seedInReviewItemVersion({ subject });
+    expectValue(await repository.claimNext(claimCriteria({ subject })));
+
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, new Date().toISOString(), tx));
+    expect(expectValue(result)).toBe(true);
+  });
+
+  it('is false once the claim’s lease has expired — an expired lease is not begun work', async () => {
+    const subject = `live-${freshUuid()}`;
+    const { itemVersionId } = await seedInReviewItemVersion({ subject });
+    const now = new Date();
+    expectValue(
+      await repository.claimNext(
+        claimCriteria({
+          subject,
+          now: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+          leaseExpiresAt: new Date(now.getTime() - 60 * 60 * 1000).toISOString(),
+        }),
+      ),
+    );
+
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, now.toISOString(), tx));
+    expect(expectValue(result)).toBe(false);
+  });
+
+  it('is false once the claim has been released', async () => {
+    const subject = `live-${freshUuid()}`;
+    const { itemVersionId } = await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    expectValue(await repository.release(claimed.assignmentId, new Date().toISOString(), claimed.aggregateVersion));
+
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, new Date().toISOString(), tx));
+    expect(expectValue(result)).toBe(false);
+  });
+
+  it('reports a malformed read as PERSISTENCE_REJECTED, not thrown', async () => {
+    const result = await runner.run(async (tx) => repository.hasLiveClaim('not-a-uuid', 'not-a-timestamp', tx));
+    expect(expectError(result).code).toBe('PERSISTENCE_REJECTED');
   });
 });
 

@@ -2,6 +2,7 @@ import { err, ok, type Result } from '../../domain/result.js';
 import type { ContentError } from '../../domain/content-error.js';
 import type {
   ItemRepository,
+  ReviewAssignmentRepository,
   ReviewDecisionRepository,
   SolutionRepository,
   StimulusRepository,
@@ -48,7 +49,6 @@ import type {
   IdentifierFactory,
   MediaStore,
   RenderValidator,
-  ReviewProgress,
   TransactionRunner,
 } from '../ports.js';
 import type {
@@ -114,7 +114,8 @@ export interface LifecycleDependencies {
   readonly solutions: SolutionRepository;
   readonly reviews: ReviewDecisionRepository;
   readonly renderer: RenderValidator;
-  readonly reviewProgress: ReviewProgress;
+  /** M4-30: `WithdrawItemFromReviewHandler`'s `hasLiveClaim` read, inside its own transaction. */
+  readonly assignments: ReviewAssignmentRepository;
   /** M4-28's one-transaction write — decision, candidates, assignment and lifecycle transition together. */
   readonly transactions: TransactionRunner;
   readonly clock: Clock;
@@ -248,12 +249,33 @@ export class WithdrawItemFromReviewHandler
     const found = await this.deps.items.findById(command.itemId);
     if (!found.ok) return err(fromContent(found.error));
     const item = found.value;
-
-    // FR-TCH-08 rule 2. Withdrawing work a reviewer has already started on
-    // spends their time twice; withdrawing before they pick it up costs
-    // nobody anything.
     const versionId = item.versions[item.versions.length - 1]!.versionId;
-    if (await this.deps.reviewProgress.hasBegun(versionId)) {
+
+    // The domain decides the transition's validity here, in memory, before
+    // any write or any transaction — an item in the wrong state is refused
+    // without ever reaching the claim check below.
+    const withdrawn = transitionItem(item, { transition: 'withdraw' });
+    if (!withdrawn.ok) return err(fromContent(withdrawn.error));
+
+    // FR-TCH-08 rule 2 (M4-30). Withdrawing work a reviewer has already
+    // started on spends their time twice; withdrawing before they pick it
+    // up costs nobody anything. `hasLiveClaim` reads inside this same
+    // transaction and locks the row `claimNext` locks, so a claim and a
+    // withdrawal racing in overlapping transactions resolve to exactly one
+    // winner rather than both succeeding.
+    type WithdrawOutcome = { readonly refused: true } | { readonly refused: false; readonly item: Item };
+    const written = await this.deps.transactions.run<WithdrawOutcome>(async (tx) => {
+      const live = await this.deps.assignments.hasLiveClaim(versionId, this.deps.clock.now().toISOString(), tx);
+      if (!live.ok) return live;
+      if (live.value) return ok({ refused: true });
+
+      const saved = await this.deps.items.save(withdrawn.value, [], tx);
+      if (!saved.ok) return saved;
+      return ok({ refused: false, item: saved.value });
+    });
+    if (!written.ok) return err(fromContent(written.error));
+
+    if (written.value.refused) {
       return err(
         applicationError(
           'PreconditionFailed',
@@ -264,14 +286,8 @@ export class WithdrawItemFromReviewHandler
       );
     }
 
-    const withdrawn = transitionItem(item, { transition: 'withdraw' });
-    if (!withdrawn.ok) return err(fromContent(withdrawn.error));
-
-    const saved = await this.deps.items.save(withdrawn.value);
-    if (!saved.ok) return err(fromContent(saved.error));
-
     await this.writeAudit(context, this.name, 'Item', command.itemId);
-    return ok(saved.value);
+    return ok(written.value.item);
   }
 }
 

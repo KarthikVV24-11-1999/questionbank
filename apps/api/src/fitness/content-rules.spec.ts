@@ -576,14 +576,16 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     }).filter((violation) => violation.rule === 'M4_01_REVIEW_REACHES_AUTHORING');
 
-    // Three planted: the original generic authoring file, plus the two that
-    // specifically prove the M4-27 ports.ts exemption did not widen into
-    // "all of application/" — authoring-queries.ts and lifecycle-handlers.ts.
-    expect(violations).toHaveLength(3);
+    // Four planted: the original generic authoring file, the two that prove
+    // the M4-27 ports.ts exemption did not widen into "all of application/",
+    // and the one that proves the M4-28/M4-30 transaction-runner.ts
+    // exemption did not widen into "all of infrastructure/".
+    expect(violations).toHaveLength(4);
     const subjects = violations.map((v) => v.subject);
     expect(subjects.some((s) => s.includes('planted-reaches-authoring.ts'))).toBe(true);
     expect(subjects.some((s) => s.includes('planted-reaches-authoring-queries.ts'))).toBe(true);
     expect(subjects.some((s) => s.includes('planted-reaches-lifecycle-handlers.ts'))).toBe(true);
+    expect(subjects.some((s) => s.includes('planted-reaches-item-repository.ts'))).toBe(true);
   });
 
   it('catches authoring plumbing reaching into review plumbing, the other direction', () => {
@@ -619,6 +621,14 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
+  it('permits review plumbing to import infrastructure/transaction-runner.ts (M4-28/M4-30)', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-transaction-runner-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
   it('does not widen the ports.ts exemption into all of application/ — authoring-queries.ts and lifecycle-handlers.ts still fail', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
@@ -634,6 +644,15 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(lifecycleHandlers[0]?.rule).toBe('M4_01_REVIEW_REACHES_AUTHORING');
   });
 
+  it('does not widen the transaction-runner.ts exemption into all of infrastructure/ — item.repository.ts still fails', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((v) => v.subject.includes('planted-reaches-item-repository.ts'));
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.rule).toBe('M4_01_REVIEW_REACHES_AUTHORING');
+  });
+
   it('permits an authoring-side domain module to import a domain/review/ aggregate (M4-04)', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
@@ -642,14 +661,15 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('reports exactly the four planted violations over the fixture directory, no more', () => {
-    // 3 M4_01_REVIEW_REACHES_AUTHORING (the original, plus the two M4-27
-    // narrowness proofs) + 1 M4_01_AUTHORING_REACHES_REVIEW.
+  it('reports exactly the five planted violations over the fixture directory, no more', () => {
+    // 4 M4_01_REVIEW_REACHES_AUTHORING (the original, the two M4-27
+    // narrowness proofs, and the M4-28/M4-30 transaction-runner.ts
+    // narrowness proof) + 1 M4_01_AUTHORING_REACHES_REVIEW.
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     });
 
-    expect(violations).toHaveLength(4);
+    expect(violations).toHaveLength(5);
   });
 
   it('exempts the composition seam (public/composition.ts) reaching into review plumbing', () => {
@@ -709,5 +729,32 @@ describe('domain/review/ carries no throw and reads no clock (M4-01)', () => {
 
   it('catches a planted clock read', () => {
     expect(clockReadsIn(PLANTED_DIR)).toHaveLength(1);
+  });
+});
+
+describe('ReviewProgress exists nowhere in the tree (M4-30)', () => {
+  const REVIEW_PROGRESS_PLANTED_DIR = fileURLToPath(
+    new URL('../fitness-fixtures/as-content-review-progress-deleted/', import.meta.url),
+  );
+
+  function reviewProgressIn(directory: string, exclude: readonly string[] = []): string[] {
+    // `readCode` (via `filesMatching`) strips comments first, so a prose
+    // mention like "`ReviewProgress` is gone" in a doc comment does not
+    // trip this — only a real identifier in executable code does.
+    return filesMatching(directory, /\bReviewProgress\b/u, { exclude });
+  }
+
+  it('is absent from the whole apps/api source tree', () => {
+    // The planted fixture below lives under this same tree on purpose
+    // (fitness-fixtures/), and is the one file this check must not be blind
+    // to — excluded here only because it exists to be found by the second
+    // test, not because this check cannot see it.
+    expect(reviewProgressIn(API_ROOT, ['/fitness-fixtures/as-content-review-progress-deleted/planted-review-progress.ts'])).toEqual(
+      [],
+    );
+  });
+
+  it('catches a planted ReviewProgress declaration, so the check above is not silently vacuous', () => {
+    expect(reviewProgressIn(REVIEW_PROGRESS_PLANTED_DIR)).toHaveLength(1);
   });
 });

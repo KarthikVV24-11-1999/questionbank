@@ -149,28 +149,25 @@ export interface TransactionRunner {
 }
 
 /**
- * Whether a reviewer has started on a version (FR-TCH-08 rule 2). Assignment
- * is M4's, so M4 supplies the adapter; M3 ships the port and the refusal.
+ * Whether a reviewer has started on a version (FR-TCH-08 rule 2) — W4's
+ * question, closed by M4-30, 2026-08-21. `ReviewProgress` and
+ * `InMemoryReviewProgress` are deleted, not narrowed: M3 shipped this port
+ * and its always-permitted refusal because assignment lived in a milestone
+ * that had not landed yet ("until M4 lands, nothing claims a version, so
+ * withdrawal while `in_review` is always permitted" — this note's original
+ * text, kept here per M0's convention rather than deleted).
  *
- * Until M4 lands, nothing in this milestone claims a version, so withdrawal
- * while `in_review` is always permitted. That is stated rather than hidden:
- * the rule is enforced here, and the data that would trip it arrives later.
+ * **What exists now.** M4 landed real claims (`content.review_assignment`,
+ * M4-18/M4-27), so the question has a real answer, read directly rather
+ * than through a port with a hardcoded one: `WithdrawItemFromReviewHandler`
+ * (`application/handlers/lifecycle-handlers.ts`) calls
+ * `ReviewAssignmentRepository.hasLiveClaim` inside its own transaction — an
+ * expired lease is not begun work, and the read's own row lock is what
+ * makes a claim and a withdrawal racing in overlapping transactions
+ * resolve to exactly one winner, a property no port and no projection
+ * (in-memory or otherwise) could have promised. See ADR-0015's amendment
+ * for the composition-side half of this change.
  */
-export interface ReviewProgress {
-  hasBegun(itemVersionId: string): Promise<boolean>;
-}
-
-export class InMemoryReviewProgress implements ReviewProgress {
-  readonly #claimed = new Set<string>();
-
-  async hasBegun(itemVersionId: string): Promise<boolean> {
-    return this.#claimed.has(itemVersionId);
-  }
-
-  claim(itemVersionId: string): void {
-    this.#claimed.add(itemVersionId);
-  }
-}
 
 /**
  * What a principal's plan grants (D9). Derived at evaluation time and never

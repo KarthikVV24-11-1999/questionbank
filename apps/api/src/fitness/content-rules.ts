@@ -571,45 +571,74 @@ export function checkCoverageThresholds(
  * other domain module is, which is what lets `publication-preconditions.ts`
  * call `isSelfReview` (M4-04) without this gate refusing it.
  *
- * **Exactly three things outside `domain/` are permitted targets for review
- * plumbing reaching into authoring plumbing, and no more without a reviewed
- * reason to add a fourth:**
+ * **A third category exists alongside "review" and "authoring", named here
+ * rather than granted case by case: context-wide shared contracts.** A
+ * module qualifies only if it is used by both sides, specific to neither,
+ * and carries no authoring or review business logic of its own — the same
+ * test applied each time a member was added. Exactly four today, and a
+ * fifth requires **stopping and asking**, not matching the pattern; an
+ * exemption list that grows by resemblance is not a boundary:
  *
- *   1. `application/authorization.ts` — a context-wide structural contract
- *      (policies, role checks), specific to neither side.
- *   2. `application/ports.ts` — the same argument, for `Clock`,
- *      `AuditRecorder`, `IdentifierFactory`, `ApplicationContext`. On
- *      extraction, a standalone review context would declare its own copies
- *      of these — exactly as content, curriculum and scoring each declare
- *      their own today — never import content's, so this is not an
- *      extraction-survivability concern the way an authoring-specific module
- *      would be.
- *   3. `public/composition.ts` — the composition root, exempt in both
+ *   1. `application/authorization.ts` — policies, role checks.
+ *   2. `application/ports.ts` — `Clock`, `AuditRecorder`, `IdentifierFactory`,
+ *      `ApplicationContext`, `TransactionRunner`.
+ *   3. `infrastructure/transaction-runner.ts` — `TransactionContext`'s one
+ *      concrete implementation and `clientOf`, its downcast (M4-28). Three
+ *      repositories call `clientOf` in shipped code today —
+ *      `item.repository.ts`, `review-decision.repository.ts` (both
+ *      authoring-side) and `review-assignment.repository.ts`'s
+ *      `hasLiveClaim` (review-side, M4-30) — so this is the established
+ *      mechanism for joining a caller's shared transaction, not a new one
+ *      invented to pass this gate.
+ *   4. `public/composition.ts` — the composition root, exempt in both
  *      directions (below).
  *
+ * On extraction, a standalone review context would declare its own copies
+ * of 1–3 — exactly as content, curriculum and scoring each declare their
+ * own `Clock`/`AuditRecorder`/`IdentifierFactory` today — never import
+ * content's, so none of the four is an extraction-survivability concern
+ * the way an authoring-specific module would be.
+ *
  * Anything authoring-specific — `ListSubmittedForReview`, a lifecycle
- * command type, a handler class — is reachable only through what
- * `public/index.ts` exports. If that is not enough for some future task, the
- * fix is a reviewed addition to what the barrel exports, not a fourth
- * exemption here.
+ * command type, a handler class, `item.repository.ts` itself — is reachable
+ * only through what `public/index.ts` exports. If that is not enough for
+ * some future task, the fix is a reviewed addition to what the barrel
+ * exports, not a fifth exemption here.
+ *
+ * **Debt, named with its trigger.** The four members above are scattered
+ * across `application/` and `infrastructure/` by historical accident, not
+ * by a shared physical location — membership is enforced by this list, not
+ * by path. Moving them under one `shared/`-shaped directory would let this
+ * gate check a path prefix instead of an enumeration, which is more robust
+ * against a future addition slipping in unreviewed. Not attempted now: it
+ * touches every import site of all four, and M4-28/M4-29/M4-30 already
+ * shipped against the current layout. Trigger: the fifth member.
  */
 const REVIEW_PATH_SEGMENT = /(^|\/)(?:application|infrastructure)\/review\/|(^|\/)review\.controller\.ts$/u;
 
 /** Any module under a `domain/` tree, at any depth — the whole domain layer, F2-pure by construction. */
 const DOMAIN_MODULE = /(^|\/)domain\/.+\.ts$/u;
 
-/** Permitted target 1 of 3 outside `domain/` (DEC-M4-7). */
+/** Shared-contract member 1 of 4 (DEC-M4-7). */
 const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
 
 /**
- * Permitted target 2 of 3 outside `domain/` (DEC-M4-7). Exact path, not a
- * prefix — matching `application/ports.ts` specifically is what stops this
- * exemption growing into "all of `application/`" by accident. A review
- * module reaching `application/queries/authoring-queries.ts` or
+ * Shared-contract member 2 of 4 (DEC-M4-7). Exact path, not a prefix —
+ * matching `application/ports.ts` specifically is what stops this exemption
+ * growing into "all of `application/`" by accident. A review module
+ * reaching `application/queries/authoring-queries.ts` or
  * `application/handlers/lifecycle-handlers.ts` must still fail; both are
  * planted and proven in `content-rules.spec.ts`.
  */
 const PORTS_MODULE = /(^|\/)application\/ports\.ts$/u;
+
+/**
+ * Shared-contract member 3 of 4 (M4-28/M4-30). Exact path, same reasoning
+ * as `PORTS_MODULE`: a review module reaching `infrastructure/item.repository.ts`
+ * or any other authoring-specific infrastructure module must still fail,
+ * planted and proven in `content-rules.spec.ts`.
+ */
+const TRANSACTION_RUNNER_MODULE = /(^|\/)infrastructure\/transaction-runner\.ts$/u;
 
 /**
  * The composition seam (ADR-0015) — exempt from this gate in both
@@ -665,12 +694,13 @@ export function checkReviewAuthoringSubBoundary(
           DOMAIN_MODULE.test(relTarget) ||
           AUTHORIZATION_MODULE.test(relTarget) ||
           PORTS_MODULE.test(relTarget) ||
+          TRANSACTION_RUNNER_MODULE.test(relTarget) ||
           COMPOSITION_ROOT.test(relTarget);
         if (!permitted) {
           violations.push({
             rule: 'M4_01_REVIEW_REACHES_AUTHORING',
             subject: relFile,
-            detail: `imports ${importPath} (${relTarget}), which is none of a domain aggregate/value object, application/authorization.ts, or application/ports.ts`,
+            detail: `imports ${importPath} (${relTarget}), which is none of a domain aggregate/value object, application/authorization.ts, application/ports.ts, or infrastructure/transaction-runner.ts`,
           });
         }
       }

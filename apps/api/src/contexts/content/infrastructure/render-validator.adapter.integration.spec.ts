@@ -8,6 +8,7 @@ import type { PublicationError } from '../domain/publication-preconditions.js';
 import { PostgresItemRepository } from './item.repository.js';
 import { PostgresMediaAssetRepository } from './media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from './review-decision.repository.js';
+import { PostgresReviewAssignmentRepository } from './review/review-assignment.repository.js';
 import { PostgresTransactionRunner } from './transaction-runner.js';
 import { PostgresSolutionRepository } from './solution.repository.js';
 import { PostgresStimulusRepository } from './stimulus.repository.js';
@@ -29,7 +30,6 @@ import {
   InMemoryAuditRecorder,
   InMemoryIdempotencyStore,
   InMemoryMediaStore,
-  InMemoryReviewProgress,
   type ApplicationContext,
   type Clock,
   type IdentifierFactory,
@@ -47,6 +47,7 @@ import {
 let database: TestDatabase;
 let items: PostgresItemRepository;
 let solutions: PostgresSolutionRepository;
+let reviewAssignments: PostgresReviewAssignmentRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
@@ -54,6 +55,7 @@ beforeAll(async () => {
   await database.applyMigrations();
   items = new PostgresItemRepository(database.pool);
   solutions = new PostgresSolutionRepository(database.pool);
+  reviewAssignments = new PostgresReviewAssignmentRepository(database.pool);
 });
 
 afterAll(async () => {
@@ -94,7 +96,7 @@ function lifecycle(): LifecycleDependencies {
     solutions,
     reviews: new PostgresReviewDecisionRepository(database.pool),
     renderer,
-    reviewProgress: new InMemoryReviewProgress(),
+    assignments: reviewAssignments,
     transactions: new PostgresTransactionRunner(database.pool),
     clock,
     identifiers,

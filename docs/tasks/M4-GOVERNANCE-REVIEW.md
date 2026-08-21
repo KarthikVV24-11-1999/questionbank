@@ -1024,6 +1024,37 @@ file.*
 - **The M3 test asserting withdrawal is always permitted is rewritten to assert the real rule**, not removed (DEC-M4-16 tripwire 4)
 **Tests** Integration: withdrawal permitted with no claim · refused with a live claim · permitted again after the lease expires · **the race** — a claim and a withdrawal in overlapping transactions resolve to exactly one winner · a spec asserts `ReviewProgress` no longer exists anywhere in the tree · 100%
 
+> **Correction, 2026-08-21 (M4-30).** Two additions the Files line above
+> does not name.
+>
+> **`domain/repository-ports.ts` and `infrastructure/review/review-assignment.repository.ts`
+> both changed.** The "read `content.review_assignment` directly" bullet
+> needed a real method to do it through: `ReviewAssignmentRepository` gained
+> `hasLiveClaim(itemVersionId, now, tx)`, `tx` **required** rather than
+> optional (M4-28's `save`/`record` precedent) — this read is meaningless
+> outside a transaction, since its own row lock is the entire mechanism
+> that makes the race resolve to one winner. It locks the same
+> `content.item_version` row `claimNext`'s `FOR UPDATE OF v SKIP LOCKED`
+> locks, without `SKIP LOCKED`, so a concurrent claim blocks behind it
+> rather than racing past.
+>
+> **The M4-01 sub-boundary gate gained a fourth named exemption**,
+> `infrastructure/transaction-runner.ts` — `hasLiveClaim`'s implementation
+> needs `clientOf` to unwrap the `TransactionContext` it is handed, the
+> same downcast `item.repository.ts` and `review-decision.repository.ts`
+> already use. The gate's three-exemption list (M4-27's correction) is
+> reframed as a named category — **context-wide shared contracts**: used by
+> both review and authoring, specific to neither, no business logic of its
+> own. Four members today (`application/authorization.ts`,
+> `application/ports.ts`, `infrastructure/transaction-runner.ts`,
+> `public/composition.ts`); a fifth requires stopping and asking, not
+> matching the pattern. Recorded as debt with a named trigger (the gate's
+> own header comment): the four are scattered by historical accident, not
+> by a shared physical location, and moving them under one directory would
+> let the gate check a path prefix instead of an enumeration — not
+> attempted now, since it touches every import site of all four and three
+> tasks already shipped against the current layout.
+
 ### M4-31 · The ageing sweep & escalation handler (DEC-M4-15)
 **Objective** FR-ADM-05, without a scheduler.
 **Files** `application/review/handlers/ageing-handlers.ts`

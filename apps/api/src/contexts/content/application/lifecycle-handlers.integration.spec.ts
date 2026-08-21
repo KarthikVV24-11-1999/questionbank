@@ -20,7 +20,7 @@ import { RegisterMediaAssetHandler } from './handlers/media-handlers.js';
 import { transitionSolution, type Solution } from '../domain/solution.js';
 import { transitionStimulus, type Stimulus } from '../domain/stimulus.js';
 import type { PublicationError } from '../domain/publication-preconditions.js';
-import type { ReviewDecisionRepository } from '../domain/repository-ports.js';
+import type { ReviewAssignmentRepository, ReviewDecisionRepository } from '../domain/repository-ports.js';
 import { PostgresItemRepository } from '../infrastructure/item.repository.js';
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
@@ -67,7 +67,6 @@ import {
   InMemoryAuditRecorder,
   InMemoryIdempotencyStore,
   InMemoryMediaStore,
-  InMemoryReviewProgress,
   type ApplicationContext,
   type Clock,
   type IdentifierFactory,
@@ -130,7 +129,6 @@ type Refusal = Result<unknown, ApplicationError>;
 const NOW = new Date('2026-08-11T09:00:00.000Z');
 const clock: Clock = { now: () => NOW };
 const identifiers: IdentifierFactory = { next: () => freshUuid() };
-const reviewProgress = new InMemoryReviewProgress();
 const mediaStore = new InMemoryMediaStore();
 
 const passingRenderer: RenderValidator = {
@@ -163,7 +161,7 @@ function lifecycle(renderer: RenderValidator = passingRenderer): LifecycleDepend
     solutions,
     reviews,
     renderer,
-    reviewProgress,
+    assignments: reviewAssignments,
     transactions: new PostgresTransactionRunner(database.pool),
     clock,
     identifiers,
@@ -1252,6 +1250,24 @@ describe('publication is refused for each unmet precondition', () => {
 });
 
 describe('withdrawal (FR-TCH-08 rule 2)', () => {
+  it('reports the repository error verbatim when hasLiveClaim itself fails', async () => {
+    const item = await draftItem();
+    const failingAssignments: ReviewAssignmentRepository = {
+      hasLiveClaim: async () => err(validationError('PERSISTENCE_REJECTED', 'forced for this test', 'test')),
+      claimNext: (...args) => reviewAssignments.claimNext(...args),
+      assign: (...args) => reviewAssignments.assign(...args),
+      release: (...args) => reviewAssignments.release(...args),
+      extendLease: (...args) => reviewAssignments.extendLease(...args),
+      releaseExpired: (...args) => reviewAssignments.releaseExpired(...args),
+      findById: (...args) => reviewAssignments.findById(...args),
+    };
+    const deps = { ...lifecycle(), assignments: failingAssignments };
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+
   it('is permitted before a reviewer has started', async () => {
     const deps = lifecycle();
     const item = await draftItem();
@@ -1263,14 +1279,46 @@ describe('withdrawal (FR-TCH-08 rule 2)', () => {
     expect(withdrawn.lifecycleState).toBe('draft');
   });
 
-  it('is refused once review has begun', async () => {
+  it('is refused once review has begun (a live claim exists, M4-30)', async () => {
     const deps = lifecycle();
     const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
     expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
-    reviewProgress.claim(item.versions[0]!.versionId);
+    expectValue(
+      await reviewAssignments.assign({
+        itemVersionId: versionId,
+        subject: 'physics',
+        reviewer,
+        now: clock.now().toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() + 4 * 60 * 60 * 1000).toISOString(),
+      }),
+    );
 
     const refused = await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
     expect(expectError(refused).code).toBe('REVIEW_ALREADY_BEGUN');
+  });
+
+  it('is permitted again after the claimed lease has expired — an expired lease is not begun work', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+    expectValue(
+      await reviewAssignments.assign({
+        itemVersionId: versionId,
+        subject: 'physics',
+        reviewer,
+        // Claimed and expired entirely in the past, relative to the fixed
+        // clock every handler in this file reads.
+        now: new Date(clock.now().getTime() - 2 * 60 * 60 * 1000).toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() - 60 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    const withdrawn = expectValue(
+      await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author)),
+    );
+    expect(withdrawn.lifecycleState).toBe('draft');
   });
 
   it('is refused for an item that is not in review at all', async () => {
@@ -1278,6 +1326,56 @@ describe('withdrawal (FR-TCH-08 rule 2)', () => {
     const item = await draftItem();
     const refused = await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
     expect(expectError(refused).code).toBe('TRANSITION_ILLEGAL');
+  });
+
+  it('a claim and a withdrawal racing in overlapping transactions resolve to exactly one winner', async () => {
+    const deps = lifecycle();
+    // A subject unique to this test: claimNext's candidate pool must contain
+    // exactly this one item version, or an unrelated in_review leftover
+    // from an earlier test in this shared-database file could be the one
+    // actually claimed, breaking the race's premise.
+    const raceSubject = `race-${freshUuid()}`;
+    const raceAuthor: PrincipalRef = { kind: 'human', id: freshUuid(), roleContext: ['author', `subject:${raceSubject}`] };
+    const raceReviewer: PrincipalRef = {
+      kind: 'human',
+      id: freshUuid(),
+      roleContext: ['reviewer', `subject:${raceSubject}`],
+    };
+
+    const item = expectValue(
+      await new CreateItemDraftHandler(itemBench()).handle(
+        { itemType: 'SINGLE_CORRECT_MCQ', content: itemContent() },
+        as(raceAuthor),
+      ),
+    );
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(raceAuthor)));
+
+    const [claimResult, withdrawResult] = await Promise.all([
+      reviewAssignments.claimNext({
+        subject: raceSubject,
+        reviewer: raceReviewer,
+        ordering: 'oldest_first',
+        now: clock.now().toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() + 4 * 60 * 60 * 1000).toISOString(),
+      }),
+      new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(raceAuthor)),
+    ]);
+
+    const outcomes = [claimResult.ok, withdrawResult.ok];
+    // Exactly one winner: never both succeed (a claim on an item that just
+    // withdrew, or a withdrawal racing past a live claim), and never both
+    // fail (there is nothing else contending for this one item version).
+    expect(outcomes.filter(Boolean)).toHaveLength(1);
+
+    if (withdrawResult.ok) {
+      expect(withdrawResult.value.lifecycleState).toBe('draft');
+      expect(expectError(claimResult).kind).toBe('NotFound');
+    } else {
+      expect(expectError(withdrawResult).code).toBe('REVIEW_ALREADY_BEGUN');
+      expect(claimResult.ok).toBe(true);
+      expect(claimResult.ok && claimResult.value.itemVersionId).toBe(versionId);
+    }
   });
 });
 

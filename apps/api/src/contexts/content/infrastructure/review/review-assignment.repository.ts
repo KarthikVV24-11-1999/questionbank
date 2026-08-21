@@ -7,7 +7,9 @@ import type {
   ClaimNextReviewAssignment,
   ReviewAssignmentRepository,
   RepositoryError,
+  TransactionContext,
 } from '../../domain/repository-ports.js';
+import { clientOf } from '../transaction-runner.js';
 import {
   transitionReviewAssignment,
   type ReviewAssignment,
@@ -362,6 +364,31 @@ export class PostgresReviewAssignmentRepository implements ReviewAssignmentRepos
       return err(notFoundError('NOT_FOUND', `no review assignment ${assignmentId}`, 'reviewAssignment'));
     }
     return ok(this.#hydrate(found.rows[0]!));
+  }
+
+  async hasLiveClaim(
+    itemVersionId: string,
+    now: string,
+    tx: TransactionContext,
+  ): Promise<Result<boolean, RepositoryError>> {
+    const client = clientOf(tx);
+    try {
+      // The same row `claimNext`'s `FOR UPDATE OF v SKIP LOCKED` locks —
+      // without `SKIP LOCKED`, so this blocks behind a concurrent claim
+      // rather than skipping past it (M4-30).
+      await client.query(`SELECT 1 FROM content.item_version WHERE item_version_id = $1 FOR UPDATE`, [
+        itemVersionId,
+      ]);
+      const live = await client.query(
+        `SELECT 1 FROM content.review_assignment
+          WHERE item_version_id = $1 AND state = 'claimed' AND lease_expires_at > $2
+          LIMIT 1`,
+        [itemVersionId, now],
+      );
+      return ok(live.rowCount !== 0);
+    } catch (error) {
+      return err(persistenceRejected((error as Error).message));
+    }
   }
 
   #hydrate(row: AssignmentRow): ReviewAssignment {

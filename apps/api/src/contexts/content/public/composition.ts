@@ -3,7 +3,6 @@ import type { DynamicModule } from '@nestjs/common';
 import type { Handler } from '../application/handler-registry.js';
 import {
   InMemoryEntitlements,
-  InMemoryReviewProgress,
   type AuditRecorder,
   type Clock,
   type IdentifierFactory,
@@ -99,16 +98,18 @@ import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer
  * exists to refuse. Constructing it here, one line below, keeps that import
  * inside the context that owns it.
  *
- * **`ReviewProgress` and `Entitlements` are the in-memory doubles, wired as
- * the production choice, not a shortcut.** `InMemoryReviewProgress` starts
- * with nothing claimed — `hasBegun` is `false` until M4 supplies an adapter
- * that can be true, which is exactly the behaviour W4 already documents:
- * nothing claims a version, so withdrawal while `in_review` is always
- * permitted. `InMemoryEntitlements` starts with nothing granted — `allows`
- * is `false` until an entitlement service exists, and INV-08 is what makes
- * that safe: the delivery solution query never asks it about basic
- * correctness, only about paid depth, so an absent entitlement service
- * cannot withhold the correct answer.
+ * **`ReviewProgress` is gone (M4-30, 2026-08-21), not replaced by another
+ * double.** `WithdrawItemFromReviewHandler` now reads `content.review_assignment`
+ * directly through `ReviewAssignmentRepository.hasLiveClaim`, already wired
+ * below as `assignments` for M4-27 — there is nothing left for a port or an
+ * in-memory double to stand in for. See ADR-0015's amendment.
+ *
+ * **`Entitlements` is still the in-memory double, wired as the production
+ * choice, not a shortcut.** `InMemoryEntitlements` starts with nothing
+ * granted — `allows` is `false` until an entitlement service exists, and
+ * INV-08 is what makes that safe: the delivery solution query never asks
+ * it about basic correctness, only about paid depth, so an absent
+ * entitlement service cannot withhold the correct answer.
  */
 export interface ContentCompositionDeps {
   readonly pool: Pool;
@@ -167,7 +168,6 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
   const reviews = new PostgresReviewDecisionRepository(deps.pool);
   const reviewAssignments = new PostgresReviewAssignmentRepository(deps.pool);
   const transactions = new PostgresTransactionRunner(deps.pool);
-  const reviewProgress = new InMemoryReviewProgress();
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
 
@@ -191,7 +191,6 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     reviews,
     store: deps.mediaStore,
     renderer,
-    reviewProgress,
     entitlements,
     clock: deps.clock,
     identifiers: deps.identifiers,

@@ -17,6 +17,7 @@ import type { CreateResponseSpecificationProps } from '../domain/response-specif
 import { PostgresItemRepository } from '../infrastructure/item.repository.js';
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
+import { PostgresReviewAssignmentRepository } from '../infrastructure/review/review-assignment.repository.js';
 import { PostgresTransactionRunner } from '../infrastructure/transaction-runner.js';
 import { PostgresSolutionRepository } from '../infrastructure/solution.repository.js';
 import { PostgresStimulusRepository } from '../infrastructure/stimulus.repository.js';
@@ -67,7 +68,6 @@ import {
   InMemoryEntitlements,
   InMemoryIdempotencyStore,
   InMemoryMediaStore,
-  InMemoryReviewProgress,
   type ApplicationContext,
   type Clock,
   type IdentifierFactory,
@@ -87,6 +87,7 @@ let stimuli: PostgresStimulusRepository;
 let solutions: PostgresSolutionRepository;
 let assets: PostgresMediaAssetRepository;
 let reviews: PostgresReviewDecisionRepository;
+let reviewAssignments: PostgresReviewAssignmentRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
@@ -97,6 +98,7 @@ beforeAll(async () => {
   solutions = new PostgresSolutionRepository(database.pool);
   assets = new PostgresMediaAssetRepository(database.pool);
   reviews = new PostgresReviewDecisionRepository(database.pool);
+  reviewAssignments = new PostgresReviewAssignmentRepository(database.pool);
 });
 
 afterAll(async () => {
@@ -172,7 +174,7 @@ const lifecycle = (): LifecycleDependencies => ({
   solutions,
   reviews,
   renderer: passingRenderer,
-  reviewProgress: new InMemoryReviewProgress(),
+  assignments: reviewAssignments,
   transactions: new PostgresTransactionRunner(database.pool),
   clock,
   identifiers,
