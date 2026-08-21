@@ -35,6 +35,10 @@ describe('loadConfig — every key loads', () => {
         authTokenTtlSeconds: 3600,
         mediaStorageRoot: './var/media',
         logLevel: 'info',
+        reviewWarnAfterHours: 48,
+        reviewEscalateAfterHours: 72,
+        reviewLeaseHours: 4,
+        reviewSampleRate: 0.05,
       },
     });
   });
@@ -57,6 +61,10 @@ describe('loadConfig — every key loads', () => {
         authTokenTtlSeconds: 3600,
         mediaStorageRoot: './var/media',
         logLevel: 'info',
+        reviewWarnAfterHours: 48,
+        reviewEscalateAfterHours: 72,
+        reviewLeaseHours: 4,
+        reviewSampleRate: 0.05,
       },
     });
   });
@@ -207,6 +215,92 @@ describe('loadConfig — every key validates individually', () => {
       const result = loadConfig(validEnv({ LOG_LEVEL: logLevel }));
       expect(result.ok).toBe(true);
     }
+  });
+});
+
+describe('loadConfig — ReviewPolicy’s four thresholds (M4-26, DEC-M4-1)', () => {
+  it('defaults to DEC-M4-1’s own numbers when unset', () => {
+    const result = loadConfig(
+      validEnv({
+        REVIEW_WARN_AFTER_HOURS: undefined,
+        REVIEW_ESCALATE_AFTER_HOURS: undefined,
+        REVIEW_LEASE_HOURS: undefined,
+        REVIEW_SAMPLE_RATE: undefined,
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.reviewWarnAfterHours).toBe(48);
+    expect(result.value.reviewEscalateAfterHours).toBe(72);
+    expect(result.value.reviewLeaseHours).toBe(4);
+    expect(result.value.reviewSampleRate).toBe(0.05);
+  });
+
+  it('rejects a non-numeric REVIEW_WARN_AFTER_HOURS', () => {
+    expect(loadConfig(validEnv({ REVIEW_WARN_AFTER_HOURS: 'soon' }))).toEqual({
+      ok: false,
+      error: { key: 'reviewWarnAfterHours', message: 'REVIEW_WARN_AFTER_HOURS must be a positive number of hours' },
+    });
+  });
+
+  it('rejects a zero or negative REVIEW_WARN_AFTER_HOURS', () => {
+    expect(loadConfig(validEnv({ REVIEW_WARN_AFTER_HOURS: '0' })).ok).toBe(false);
+    expect(loadConfig(validEnv({ REVIEW_WARN_AFTER_HOURS: '-1' })).ok).toBe(false);
+  });
+
+  it('rejects a non-numeric REVIEW_ESCALATE_AFTER_HOURS', () => {
+    expect(loadConfig(validEnv({ REVIEW_ESCALATE_AFTER_HOURS: 'late' }))).toEqual({
+      ok: false,
+      error: {
+        key: 'reviewEscalateAfterHours',
+        message: 'REVIEW_ESCALATE_AFTER_HOURS must be a positive number of hours',
+      },
+    });
+  });
+
+  it('rejects REVIEW_ESCALATE_AFTER_HOURS before REVIEW_WARN_AFTER_HOURS', () => {
+    const result = loadConfig(validEnv({ REVIEW_WARN_AFTER_HOURS: '72', REVIEW_ESCALATE_AFTER_HOURS: '48' }));
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        key: 'reviewEscalateAfterHours',
+        message: 'REVIEW_ESCALATE_AFTER_HOURS (48) must not be before REVIEW_WARN_AFTER_HOURS (72)',
+      },
+    });
+  });
+
+  it('accepts REVIEW_ESCALATE_AFTER_HOURS exactly equal to REVIEW_WARN_AFTER_HOURS', () => {
+    const result = loadConfig(validEnv({ REVIEW_WARN_AFTER_HOURS: '48', REVIEW_ESCALATE_AFTER_HOURS: '48' }));
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a non-numeric REVIEW_LEASE_HOURS', () => {
+    expect(loadConfig(validEnv({ REVIEW_LEASE_HOURS: 'nope' }))).toEqual({
+      ok: false,
+      error: { key: 'reviewLeaseHours', message: 'REVIEW_LEASE_HOURS must be a positive number of hours' },
+    });
+  });
+
+  it('rejects a zero or negative REVIEW_LEASE_HOURS', () => {
+    expect(loadConfig(validEnv({ REVIEW_LEASE_HOURS: '0' })).ok).toBe(false);
+    expect(loadConfig(validEnv({ REVIEW_LEASE_HOURS: '-4' })).ok).toBe(false);
+  });
+
+  it('rejects a non-numeric REVIEW_SAMPLE_RATE', () => {
+    expect(loadConfig(validEnv({ REVIEW_SAMPLE_RATE: 'five-percent' }))).toEqual({
+      ok: false,
+      error: { key: 'reviewSampleRate', message: 'REVIEW_SAMPLE_RATE must be a number within [0, 1]' },
+    });
+  });
+
+  it('rejects a REVIEW_SAMPLE_RATE outside [0, 1] on both sides', () => {
+    expect(loadConfig(validEnv({ REVIEW_SAMPLE_RATE: '-0.01' })).ok).toBe(false);
+    expect(loadConfig(validEnv({ REVIEW_SAMPLE_RATE: '1.01' })).ok).toBe(false);
+  });
+
+  it('accepts REVIEW_SAMPLE_RATE at both boundaries, 0 and 1', () => {
+    expect(loadConfig(validEnv({ REVIEW_SAMPLE_RATE: '0' })).ok).toBe(true);
+    expect(loadConfig(validEnv({ REVIEW_SAMPLE_RATE: '1' })).ok).toBe(true);
   });
 });
 

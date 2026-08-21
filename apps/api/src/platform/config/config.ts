@@ -36,6 +36,10 @@ export const CONFIG_KEYS = [
   'authTokenTtlSeconds',
   'mediaStorageRoot',
   'logLevel',
+  'reviewWarnAfterHours',
+  'reviewEscalateAfterHours',
+  'reviewLeaseHours',
+  'reviewSampleRate',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -57,6 +61,17 @@ export interface AppConfig {
   readonly authTokenTtlSeconds: number;
   readonly mediaStorageRoot: string;
   readonly logLevel: LogLevel;
+  /**
+   * `ReviewPolicy`'s four thresholds (DEC-M4-1, DEC-M4-14), read here and
+   * constructed into a `ReviewPolicy` value by the caller — the domain
+   * (`domain/review/review-policy.ts`) owns no default and reads no config,
+   * so a policy with these defaults is a value this module hands it, not a
+   * fallback the domain reaches for.
+   */
+  readonly reviewWarnAfterHours: number;
+  readonly reviewEscalateAfterHours: number;
+  readonly reviewLeaseHours: number;
+  readonly reviewSampleRate: number;
 }
 
 /** The minimum key length the auth stub (M0-05) accepts — matched here so config fails first. */
@@ -69,6 +84,14 @@ const DEFAULTS = {
   authTokenTtlSeconds: '3600',
   mediaStorageRoot: './var/media',
   logLevel: 'info',
+  // DEC-M4-1's own defaults, mirrored here as strings — DEC_M4_1_DEFAULT_POLICY
+  // in the domain carries the same four numbers as the fallback a caller who
+  // builds a ReviewPolicy without reading config would use; this module's
+  // defaults exist independently because config never imports the domain.
+  reviewWarnAfterHours: '48',
+  reviewEscalateAfterHours: '72',
+  reviewLeaseHours: '4',
+  reviewSampleRate: '0.05',
 } as const;
 
 /** Environment variable name for each config key — the only mapping this module needs. */
@@ -83,6 +106,10 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   authTokenTtlSeconds: 'AUTH_TOKEN_TTL_SECONDS',
   mediaStorageRoot: 'MEDIA_STORAGE_ROOT',
   logLevel: 'LOG_LEVEL',
+  reviewWarnAfterHours: 'REVIEW_WARN_AFTER_HOURS',
+  reviewEscalateAfterHours: 'REVIEW_ESCALATE_AFTER_HOURS',
+  reviewLeaseHours: 'REVIEW_LEASE_HOURS',
+  reviewSampleRate: 'REVIEW_SAMPLE_RATE',
 };
 
 function fail(key: ConfigKey, message: string): ConfigResult<never> {
@@ -198,6 +225,60 @@ function parseLogLevel(env: Readonly<Record<string, string | undefined>>): Confi
   return { ok: true, value: raw as LogLevel };
 }
 
+/** A positive, finite hour count — the shape every one of `ReviewPolicy`'s four thresholds shares. */
+function parsePositiveHours(
+  env: Readonly<Record<string, string | undefined>>,
+  key: 'reviewWarnAfterHours' | 'reviewEscalateAfterHours' | 'reviewLeaseHours',
+  fallback: string,
+): ConfigResult<number> {
+  const raw = withDefault(env, key, fallback);
+  const value = Number(raw);
+  if (raw.trim().length === 0 || !Number.isFinite(value) || value <= 0) {
+    return fail(key, `${ENV_VAR_NAMES[key]} must be a positive number of hours`);
+  }
+  return { ok: true, value };
+}
+
+function parseReviewWarnAfterHours(env: Readonly<Record<string, string | undefined>>): ConfigResult<number> {
+  return parsePositiveHours(env, 'reviewWarnAfterHours', DEFAULTS.reviewWarnAfterHours);
+}
+
+/**
+ * Individually valid is not enough: DEC-M4-1 states `warn` before `escalate`,
+ * and a config that let the escalation threshold arrive before the warning
+ * one would silently invert the two bands `domain/review/ageing.ts` computes.
+ * Checked here, at config, rather than left for `createReviewPolicy` to catch
+ * later — the same "fail first, fail close" discipline `parseAuditAnchorKey`
+ * already applies to its own cross-field rule.
+ */
+function parseReviewEscalateAfterHours(
+  env: Readonly<Record<string, string | undefined>>,
+  warnAfterHours: number,
+): ConfigResult<number> {
+  const parsed = parsePositiveHours(env, 'reviewEscalateAfterHours', DEFAULTS.reviewEscalateAfterHours);
+  if (!parsed.ok) return parsed;
+  if (parsed.value < warnAfterHours) {
+    return fail(
+      'reviewEscalateAfterHours',
+      `${ENV_VAR_NAMES['reviewEscalateAfterHours']} (${parsed.value}) must not be before ${ENV_VAR_NAMES['reviewWarnAfterHours']} (${warnAfterHours})`,
+    );
+  }
+  return parsed;
+}
+
+function parseReviewLeaseHours(env: Readonly<Record<string, string | undefined>>): ConfigResult<number> {
+  return parsePositiveHours(env, 'reviewLeaseHours', DEFAULTS.reviewLeaseHours);
+}
+
+function parseReviewSampleRate(env: Readonly<Record<string, string | undefined>>): ConfigResult<number> {
+  const raw = withDefault(env, 'reviewSampleRate', DEFAULTS.reviewSampleRate);
+  const value = Number(raw);
+  if (raw.trim().length === 0 || !Number.isFinite(value) || value < 0 || value > 1) {
+    return fail('reviewSampleRate', 'REVIEW_SAMPLE_RATE must be a number within [0, 1]');
+  }
+  return { ok: true, value };
+}
+
 /**
  * Total: never throws, and returns the first violated key's error rather
  * than collecting all of them — one bad value is enough to refuse boot, and
@@ -231,6 +312,18 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   const logLevel = parseLogLevel(env);
   if (!logLevel.ok) return logLevel;
 
+  const reviewWarnAfterHours = parseReviewWarnAfterHours(env);
+  if (!reviewWarnAfterHours.ok) return reviewWarnAfterHours;
+
+  const reviewEscalateAfterHours = parseReviewEscalateAfterHours(env, reviewWarnAfterHours.value);
+  if (!reviewEscalateAfterHours.ok) return reviewEscalateAfterHours;
+
+  const reviewLeaseHours = parseReviewLeaseHours(env);
+  if (!reviewLeaseHours.ok) return reviewLeaseHours;
+
+  const reviewSampleRate = parseReviewSampleRate(env);
+  if (!reviewSampleRate.ok) return reviewSampleRate;
+
   return {
     ok: true,
     value: {
@@ -243,6 +336,10 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       authTokenTtlSeconds: authTokenTtlSeconds.value,
       mediaStorageRoot: mediaStorageRoot.value,
       logLevel: logLevel.value,
+      reviewWarnAfterHours: reviewWarnAfterHours.value,
+      reviewEscalateAfterHours: reviewEscalateAfterHours.value,
+      reviewLeaseHours: reviewLeaseHours.value,
+      reviewSampleRate: reviewSampleRate.value,
     },
   };
 }

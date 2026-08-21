@@ -448,6 +448,10 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/application/handlers/stimulus-handlers.ts',
   'src/contexts/content/application/import/import-batch.ts',
   'src/contexts/content/application/ports.ts',
+  // M4-26. Decides who may claim, decide, edit, reassign, sweep or read queue
+  // health — a gap here is a role reaching a capability DEC-M4-9/DEC-M4-1
+  // never assigned it.
+  'src/contexts/content/application/review/policies.ts',
   'src/contexts/content/application/queries/authoring-queries.ts',
   'src/contexts/content/application/queries/delivery-queries.ts',
   'src/contexts/content/domain/content-body.ts',

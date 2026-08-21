@@ -262,6 +262,14 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M4-26. A role reaching a review capability DEC-M4-9/DEC-M4-1 never
+        // assigned it is exactly the class of bug this rule exists to catch.
+        'src/contexts/content/application/review/policies.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/content/application/handler-registry.ts': {
           branches: 100,
           lines: 100,
