@@ -76,6 +76,7 @@ import {
   ReassignReviewHandler,
   ReleaseAssignmentHandler,
 } from '../application/review/handlers/assignment-handlers.js';
+import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer-edit-handlers.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). `register` composes content's
@@ -238,6 +239,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new ReleaseAssignmentHandler(bag),
     new ReassignReviewHandler(bag),
     new ExtendLeaseHandler(bag),
+    new ApproveWithEditsHandler(bag),
     // Authoring queries
     new GetItemDraftHandler(bag),
     new ListMyDraftsHandler(bag),

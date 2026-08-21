@@ -456,6 +456,10 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   // atomic claim exists to close reopened at the application layer, or a
   // reviewer holding a claim past its policy cap.
   'src/contexts/content/application/review/handlers/assignment-handlers.ts',
+  // M4-29. Approve-with-edits — a gap here lets an edited version publish
+  // under its own editor's signature, or lets the author's name slip off a
+  // reviewer edit.
+  'src/contexts/content/application/review/handlers/reviewer-edit-handlers.ts',
   'src/contexts/content/application/queries/authoring-queries.ts',
   'src/contexts/content/application/queries/delivery-queries.ts',
   'src/contexts/content/domain/content-body.ts',

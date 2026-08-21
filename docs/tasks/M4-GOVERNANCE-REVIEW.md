@@ -979,6 +979,40 @@ file.*
 - Both versions remain retrievable — the author's and the edited one — which is ROADMAP's "records both versions"
 **Tests** Integration: a scoped edit publishes under a second reviewer · the editing reviewer's own signature refused · a key edit refused with `request_changes` named · both versions retrievable and distinguishable by `editedBy` · 100%
 
+> **Correction, 2026-08-21 (M4-29).** `domain/item.ts` gained a new function,
+> `addReviewerEditedVersion`, not named in the Files line above.
+>
+> `addVersion` — the only existing way to attach a version to an `Item` —
+> refuses unless `lifecycleState` is `draft`, `changes_requested` or
+> `rejected` (FR-TCH-08 rule 1: no editing during review). Approve-with-edits
+> needs to attach a version to an item that is `in_review`, which `addVersion`
+> cannot do without reopening the hole that check exists to close for every
+> other caller. `addReviewerEditedVersion` is a narrow sibling, on the
+> `replaceDraftVersion` precedent already in this file ("this is not
+> `addVersion`"): it requires `lifecycleState === 'in_review'`, and it
+> re-enforces ADR-0018's rules at the aggregate rather than trusting the
+> derivation that produced the version — `authoredBy` must carry over
+> unchanged from the version it derives from, and `editedBy` must differ
+> from it (INV-12 already makes this true at assignment and at decision;
+> asserting it a third time here makes "the reviewer became the author"
+> structurally unreachable, not merely unobserved on every path anyone has
+> thought of yet). It performs no lifecycle transition — attaching the
+> version and moving the item are two separate facts, the same restraint
+> `addVersion` itself keeps.
+>
+> This is also why the item does not transition to `approved` inside
+> `ApproveWithEditsHandler`. The decision it records against the edited
+> version can never itself stand as the publication signature — INV-12's
+> self-review check reads `editedBy` too (M4-04), and this decision's
+> reviewer *is* that `editedBy`, always, by construction — so driving an
+> `approve` transition off it would produce an `approved` item no signature
+> could ever publish. The item stays `in_review`, the edited version
+> re-enters the claimable pool, and a genuinely independent reviewer's
+> ordinary decision (`RecordItemReviewDecisionHandler`, M4-28) against that
+> same version is what actually transitions it — which is what "publishable
+> by a different reviewer, refused for the editing reviewer" in the
+> Acceptance line above turns out to mean end to end.
+
 ### M4-30 · `ReviewProgress` retired — W4 closed, ADR-0015 amended
 **Objective** The port M3 declared **because** it assumed assignment lived in another context. Under DEC-M4-7 it has no reason to exist.
 **Files** `application/ports.ts`, `application/handlers/lifecycle-handlers.ts`, `public/composition.ts`, `docs/adr/ADR-0015-the-composition-seam-is-a-fourth-barrel-export.md` (amended in place)
