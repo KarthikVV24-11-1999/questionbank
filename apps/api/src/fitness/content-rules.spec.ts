@@ -478,6 +478,7 @@ describe('ADR-0008 — every correctness-bearing content module carries a 100% t
     'src/contexts/content/application/commands/stimulus-commands.ts',
     'src/contexts/content/application/review/commands/assignment-commands.ts',
     'src/contexts/content/application/review/commands/reviewer-edit-commands.ts',
+    'src/contexts/content/application/review/commands/ageing-commands.ts',
     'src/contexts/content/infrastructure/content-media-ref.ts',
     'src/contexts/content/infrastructure/schema.ts',
     // A barrel re-exporting content's existing Result/ContentError; decides

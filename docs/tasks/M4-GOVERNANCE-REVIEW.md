@@ -1065,6 +1065,34 @@ file.*
 - **The header names the Tier-3 successor verbatim**: an hourly scheduled invocation in a deployed environment, which does not exist (**D36**)
 **Tests** Integration: expired leases released · escalation emitted once and not twice · nothing emitted below the threshold, emitted exactly at it · a sweep at a clock-skewed earlier instant is a no-op, not a negative age · 100%
 
+> **Correction, 2026-08-21 (M4-31).** The Files line names only the handler;
+> writing an escalation needed a new port and a new repository underneath
+> it that no earlier task built.
+>
+> **`domain/repository-ports.ts` gains `ReviewEscalationRepository`** with
+> one method, `escalateIfNew(criteria, event, tx)` — `tx` required, not
+> optional, the same discipline `hasLiveClaim` (M4-30) established: writing
+> the `review_escalation` row and its `ItemReviewEscalated` outbox event
+> happen together or not at all, and idempotency (`false` when a row for
+> the item version already exists) is what lets a second sweep at the same
+> instant emit nothing without this handler tracking what it already saw.
+>
+> **`infrastructure/review/review-escalation.repository.ts` inlines the
+> outbox insert** rather than importing `infrastructure/outbox-emitter.ts`'s
+> `ContentOutboxEmitter` — that module is ordinary authoring-side
+> infrastructure, not one of the M4-01 gate's four named shared contracts,
+> so review plumbing may not reach it. Two statements, the same trade
+> `review-decision.repository.ts` already made for the assignment-transition
+> write in M4-19. The one place this duplication could drift —
+> `aggregate_type` hardcoded to `'Item'` here, versus `ContentOutboxEmitter`'s
+> own `AGGREGATE_TYPE_BY_EVENT['ItemReviewEscalated']` — is asserted equal
+> by an integration test comparing the row this repository writes against
+> the shape the shared emitter would have written for the same event.
+>
+> No gate exemption was needed this time: `infrastructure/transaction-runner.ts`
+> (M4-28/M4-30's third shared-contract member) already covers the one
+> cross-boundary import this repository needs, `clientOf`.
+
 ### M4-32 · Duplicate candidates — refresh & query
 **Objective** DEC-M4-2's operational half, with its staleness stated.
 **Files** `application/review/handlers/fingerprint-handlers.ts`, `application/review/queries/duplicate-queries.ts`

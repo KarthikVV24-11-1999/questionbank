@@ -18,6 +18,7 @@ import { PostgresSolutionRepository } from '../infrastructure/solution.repositor
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
 import { PostgresReviewAssignmentRepository } from '../infrastructure/review/review-assignment.repository.js';
+import { PostgresReviewEscalationRepository } from '../infrastructure/review/review-escalation.repository.js';
 import { PostgresTransactionRunner } from '../infrastructure/transaction-runner.js';
 import { createReviewPolicy, type ReviewPolicy } from '../domain/review/review-policy.js';
 import {
@@ -76,6 +77,7 @@ import {
   ReleaseAssignmentHandler,
 } from '../application/review/handlers/assignment-handlers.js';
 import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer-edit-handlers.js';
+import { SweepReviewAgeingHandler } from '../application/review/handlers/ageing-handlers.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). `register` composes content's
@@ -167,6 +169,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
   const assets = new PostgresMediaAssetRepository(deps.pool);
   const reviews = new PostgresReviewDecisionRepository(deps.pool);
   const reviewAssignments = new PostgresReviewAssignmentRepository(deps.pool);
+  const reviewEscalations = new PostgresReviewEscalationRepository();
   const transactions = new PostgresTransactionRunner(deps.pool);
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
@@ -197,6 +200,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     audit: deps.audit,
     idempotency: deps.idempotency,
     assignments: reviewAssignments,
+    escalations: reviewEscalations,
     reviewPolicy,
     transactions,
   };
@@ -239,6 +243,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new ReassignReviewHandler(bag),
     new ExtendLeaseHandler(bag),
     new ApproveWithEditsHandler(bag),
+    new SweepReviewAgeingHandler(bag),
     // Authoring queries
     new GetItemDraftHandler(bag),
     new ListMyDraftsHandler(bag),

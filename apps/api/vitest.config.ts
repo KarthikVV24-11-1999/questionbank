@@ -284,6 +284,13 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M4-31. Exercised by the integration project (real Postgres).
+        'src/contexts/content/application/review/handlers/ageing-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/content/application/handler-registry.ts': {
           branches: 100,
           lines: 100,
@@ -446,6 +453,12 @@ export default defineConfig({
           statements: 100,
         },
         'src/contexts/content/infrastructure/review/review-assignment.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/infrastructure/review/review-escalation.repository.ts': {
           branches: 100,
           lines: 100,
           functions: 100,

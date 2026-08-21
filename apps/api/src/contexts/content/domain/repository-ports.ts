@@ -4,7 +4,7 @@ import type { ContentError } from './content-error.js';
 import type { Item } from './item.js';
 import type { ItemVersion } from './item-version.js';
 import type { MediaAsset, MediaAssetVersion } from './media-asset.js';
-import type { ContentEvent } from './events/content-events.js';
+import type { ContentEvent, ItemReviewEscalated } from './events/content-events.js';
 import type { ReviewDecision, ReviewedOwnerType } from './review-decision.js';
 import type { ReviewAssignment } from './review/review-assignment.js';
 import type { Solution, SolutionVersion } from './solution.js';
@@ -360,4 +360,33 @@ export interface StimulusRepository {
 
   /** The version an item authored today would pin, or `NotFound`. */
   findPublishedVersion(stimulusId: string): Promise<Result<StimulusVersion, RepositoryError>>;
+}
+
+/** M4-31's sweep — the facts a new `review_escalation` row and its event need. */
+export interface EscalateReviewVersion {
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly reason: string;
+  readonly escalatedAt: string;
+}
+
+export interface ReviewEscalationRepository {
+  /**
+   * Writes one `review_escalation` row and the `ItemReviewEscalated` event
+   * it produces together, inside `tx` — both or neither (M4-31, same
+   * discipline as `ReviewDecisionRepository.record`'s candidate rows).
+   *
+   * **Idempotent by construction, not by the caller's discipline.** When a
+   * row for this item version already exists, nothing is written and this
+   * returns `false`; a genuinely new escalation returns `true`. That
+   * boolean is the only signal `SweepReviewAgeingHandler` needs to decide
+   * whether anything just happened — a second sweep at the same instant
+   * finds every already-escalated item answers `false` and emits nothing.
+   */
+  escalateIfNew(
+    criteria: EscalateReviewVersion,
+    event: ItemReviewEscalated,
+    tx: TransactionContext,
+  ): Promise<Result<boolean, RepositoryError>>;
 }

@@ -460,6 +460,9 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   // under its own editor's signature, or lets the author's name slip off a
   // reviewer edit.
   'src/contexts/content/application/review/handlers/reviewer-edit-handlers.ts',
+  // M4-31. The ageing sweep — a gap here silently leaves an ageing item
+  // unescalated, or emits the escalation twice.
+  'src/contexts/content/application/review/handlers/ageing-handlers.ts',
   'src/contexts/content/application/queries/authoring-queries.ts',
   'src/contexts/content/application/queries/delivery-queries.ts',
   'src/contexts/content/domain/content-body.ts',
@@ -504,6 +507,7 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/infrastructure/review/fingerprint.repository.ts',
   'src/contexts/content/infrastructure/review/review-assignment.repository.ts',
   'src/contexts/content/infrastructure/review/review-candidate-shown.repository.ts',
+  'src/contexts/content/infrastructure/review/review-escalation.repository.ts',
   'src/contexts/content/infrastructure/solution.repository.ts',
   'src/contexts/content/infrastructure/stimulus.repository.ts',
 ] as const;
