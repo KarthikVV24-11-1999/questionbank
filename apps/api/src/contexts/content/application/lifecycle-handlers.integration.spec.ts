@@ -13,6 +13,8 @@ import { validationError } from '../domain/content-error.js';
 import { transitionItem, type Item } from '../domain/item.js';
 import type { ItemVersion } from '../domain/item-version.js';
 import { createReviewDecision } from '../domain/review-decision.js';
+import { isSampled } from '../domain/review/qc-sampling.js';
+import { DEC_M4_1_DEFAULT_POLICY } from '../domain/review/review-policy.js';
 import { transitionMediaAsset } from '../domain/media-asset.js';
 import { RegisterMediaAssetHandler } from './handlers/media-handlers.js';
 import { transitionSolution, type Solution } from '../domain/solution.js';
@@ -614,6 +616,51 @@ describe('RecordItemReviewDecisionHandler — one transaction (M4-28)', () => {
     // if the real handler ever omitted `tx` on this call.
     const leakedItem = expectValue(await items.findById(item.itemId));
     expect(leakedItem.lifecycleState).toBe('approved');
+  });
+
+  it('never delays or gates a decision because it happens to be sampled for QC (M4-11, DEC-M4-14)', async () => {
+    // Found by brute-force search over sha256(decisionId) against the
+    // default policy's 5% rate — not a special value the handler treats
+    // differently, just a decisionId `isSampled` happens to answer `true`
+    // for, so this test can exercise that branch of the *policy* without
+    // the handler having any branch of its own to exercise.
+    const SAMPLED_DECISION_ID = '00000000-0000-4000-e000-000000000001';
+    const UNSAMPLED_DECISION_ID = '00000000-0000-4000-e000-000000000002';
+    expect(isSampled(SAMPLED_DECISION_ID, DEC_M4_1_DEFAULT_POLICY)).toBe(true);
+    expect(isSampled(UNSAMPLED_DECISION_ID, DEC_M4_1_DEFAULT_POLICY)).toBe(false);
+
+    const outcomeFor = async (decisionId: string) => {
+      const item = await draftItem();
+      const versionId = item.versions[0]!.versionId;
+      const deps = { ...lifecycle(), identifiers: { next: () => decisionId } };
+      expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+      const before = await database.pool.query<{ n: string }>(`SELECT count(*) AS n FROM content.review_assignment`);
+      const decided = expectValue(
+        await new RecordItemReviewDecisionHandler(deps).handle(
+          { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve', candidatesShownIds: [] },
+          as(reviewer),
+        ),
+      );
+      const after = await database.pool.query<{ n: string }>(`SELECT count(*) AS n FROM content.review_assignment`);
+
+      return {
+        lifecycleState: decided.lifecycleState,
+        newAssignmentRows: Number(after.rows[0]!.n) - Number(before.rows[0]!.n),
+      };
+    };
+
+    const sampled = await outcomeFor(SAMPLED_DECISION_ID);
+    const unsampled = await outcomeFor(UNSAMPLED_DECISION_ID);
+
+    // Same shape either way: sampling is not wired into this handler at
+    // all, so there is nothing for the sampled bucket to gate or delay.
+    expect(sampled).toEqual(unsampled);
+    expect(sampled.lifecycleState).toBe('approved');
+    // The blocked half of M4-28 (no reviewer pool — see the module header
+    // and DEC-M4-5): a sampled decision creates no second-review
+    // assignment row, sampled or not.
+    expect(sampled.newAssignmentRows).toBe(0);
   });
 });
 

@@ -275,6 +275,33 @@ export class WithdrawItemFromReviewHandler
   }
 }
 
+/**
+ * **QC sampling (M4-11, DEC-M4-14) is deliberately not wired in here.**
+ * `isSampled(decisionId, policy)` stays pure and untouched by this handler —
+ * nothing below reads it, so a decision's outcome and timing cannot depend
+ * on whether it lands in the sampled 5%, which is the strongest form of
+ * "never gates" available.
+ *
+ * **The second-review assignment `isSampled` would drive is `Fail — blocked`,**
+ * not merely deferred. `ReviewAssignment` (M4-02) requires a named `reviewer`
+ * and starts at `state: 'claimed'` on every insert; there is no row shape for
+ * "unclaimed, awaiting a second look," and pushing to a *specific* reviewer
+ * needs a roster to pick one from. DEC-M4-5 already documents that no
+ * reviewer pool exists anywhere in M4 — the same missing resource the
+ * 40-items/hour throughput gate is blocked on. This is that gate again, not
+ * a second one; both share the M4-44 successor (build the pool, run three
+ * reviewers).
+ *
+ * **The sampled set is never stored.** `isSampled` is pure and deterministic
+ * on the decision id, so it is re-derivable exactly, at any time, by
+ * scanning approving decisions and re-applying it — a stored flag would be a
+ * cache nothing keeps correct, and an audit record is evidence an action was
+ * taken, not an index of measurements. One caveat, named rather than fixed:
+ * the derivation depends on `policy.sampleRate`, so changing the rate
+ * retroactively redefines which past decisions count as sampled. If that
+ * ever matters, the successor is pinning the rate actually in force onto the
+ * decision row at write time.
+ */
 export class RecordItemReviewDecisionHandler
   extends AuditedHandler
   implements Handler<RecordItemReviewDecision, Item>

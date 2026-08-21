@@ -923,6 +923,52 @@ file.*
 - **M3-28's existing lifecycle handler tests pass unchanged** — the extension adds fields and a sibling write, and changes no transition
 **Tests** Integration: each outcome end to end against real Postgres · a publication precondition refusal surfaces with its own code · **rollback leaves nothing written**, proven by forcing a failure after the decision insert · self-review refused before the transition is attempted · sampling creates a second assignment and does not delay the first · M3-28's suite green · 100%
 
+> **Correction, 2026-08-21 (M4-28).** Two divergences from the text above, both
+> load-bearing.
+>
+> **`application/review/handlers/decision-handlers.ts` was never created.**
+> The one-transaction write needs `ItemRepository` and `ReviewDecisionRepository`
+> in the same call, both authoring-side ports — a file under
+> `application/review/**` cannot reach them under the M4-01 sub-boundary
+> without a fourth gate exemption nothing here justifies. The whole handler
+> stays in `application/handlers/lifecycle-handlers.ts`'s (extended)
+> `RecordItemReviewDecisionHandler`, which already owned both ports. Sharing
+> one transaction across two repositories needed new infrastructure the
+> original text did not anticipate: an opaque `TransactionContext` handle
+> (`domain/repository-ports.ts`) and a `TransactionRunner` port
+> (`application/ports.ts`), concrete in the new
+> `infrastructure/transaction-runner.ts`.
+>
+> **"The QC sample creates a second-review assignment" does not hold.**
+> `ReviewAssignment` (M4-02, already shipped) requires a named `reviewer` and
+> starts at `state: 'claimed'` on every insert — there is no row shape for
+> "unclaimed, pending a second look." Pushing to a specific reviewer needs a
+> reviewer pool, and **DEC-M4-5 already documents that none exists anywhere
+> in M4** — the identical missing resource the 40-items/hour gate is
+> `Fail — blocked` on. The second-review-assignment half of this bullet is
+> `Fail — blocked` for the same reason, sharing that gate's successor rather
+> than naming a second one (see the Definition of Done, Tier 3).
+>
+> What ships instead: `isSampled(decisionId, policy)` (M4-11) stays exactly
+> what it was — pure, deterministic, no clock, no randomness — and nothing
+> in M4-28 stores or audits its result. The sampled set is derivable at any
+> time by scanning approving decisions and re-applying `isSampled`; storing
+> a flag would be a cache with nothing forcing it to stay correct, and an
+> audit record is evidence of an action taken, not an index of measurements
+> — recording one here would misuse it as the latter. The derivation is
+> `policy.sampleRate`-dependent: changing the rate retroactively redefines
+> which past decisions count as sampled. Named, not fixed — the successor,
+> if that ever matters, is pinning the rate actually used onto the decision
+> row at write time.
+>
+> "Never gates the decision" is proven the strongest way available: nothing
+> in `RecordItemReviewDecisionHandler`'s write path reads `isSampled` or
+> `reviewPolicy.sampleRate` at all, so a decision's outcome and timing
+> cannot depend on whether it happens to land in the sampled 5% — asserted
+> by a test that runs a decision known (by brute-force search over
+> `sha256`) to be sampled and shows it completes identically to one that
+> is not, with no extra assignment row appearing either way.
+
 ### M4-29 · Approve-with-edits handler
 **Objective** DEC-M4-3's path, end to end.
 **Files** `application/review/handlers/reviewer-edit-handlers.ts`
@@ -1204,7 +1250,7 @@ A task is done when merged with tests green. **The milestone** is done when all 
 
 ### Blocked — marked so now, and not to be narrowed until they pass (Tier 3)
 
-- [ ] **A reviewer sustains ≥ 40 items/hour on seeded content** — **`Fail — blocked`**: no reviewer pool exists. Nothing in M4 measures human throughput. Nearest evidence, reported under their own names and never under this one: ≤ 1 keystroke per decision, 0 reveal-clicks, 0 navigations; p95 claim→decide ≤ 300 ms; auto-advance served from prefetch. **Successor: the M4-44 protocol, run with three reviewers**
+- [ ] **A reviewer sustains ≥ 40 items/hour on seeded content, and the QC sample's second-review assignment exists** — **`Fail — blocked`, one resource, two lines**: no reviewer pool exists. Nothing in M4 measures human throughput, and nothing in M4 can push a second-review assignment to a specific reviewer — `ReviewAssignment` requires a named one at creation, and there is no roster to name one from. `isSampled` (M4-11) still runs, deterministic and ungated; only the assignment it would drive, and the divergence comparison a live second review would produce, are blocked. Nearest evidence for throughput, reported under their own names and never under this one: ≤ 1 keystroke per decision, 0 reveal-clicks, 0 navigations; p95 claim→decide ≤ 300 ms; auto-advance served from prefetch. **Successor, shared by both lines: the M4-44 protocol, run with three reviewers — building a reviewer pool is what turns "isSampled" into a live second assignment, and what gives the throughput gate a subject**
 - [ ] **The daily anchor is externally witnessed** — **`Fail — blocked`**: no network, no timestamping authority, no second party. The anchor is sealed and HMAC-signed locally, which bounds an attacker to one holding both database write and process configuration. **This is not notarization and is never described as one.** Successor: publish `head_hash` to an external witness
 - [ ] **The ageing sweep, the sampler and the anchor run on a schedule** — **`Fail — blocked`**: no scheduler, no deployment (**D36**). Each is a command with a handler, driven directly in tests
 - [ ] **An event emitted by the review area is consumed by anything** — **`Fail — blocked`**: no outbox relay exists (**D35**). Events are written transactionally and verified in the table; nothing reads them
