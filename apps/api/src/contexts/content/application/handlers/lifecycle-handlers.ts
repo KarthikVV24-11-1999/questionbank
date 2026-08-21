@@ -16,6 +16,7 @@ import {
   type ReviewedOwnerType,
   type ReviewOutcome,
 } from '../../domain/review-decision.js';
+import { assertDecisionEvidenceComplete } from '../../domain/review/decision-evidence.js';
 import {
   latestMediaVersionOf,
   transitionMediaAsset,
@@ -48,6 +49,7 @@ import type {
   MediaStore,
   RenderValidator,
   ReviewProgress,
+  TransactionRunner,
 } from '../ports.js';
 import type {
   PublishMediaAssetVersion,
@@ -113,6 +115,8 @@ export interface LifecycleDependencies {
   readonly reviews: ReviewDecisionRepository;
   readonly renderer: RenderValidator;
   readonly reviewProgress: ReviewProgress;
+  /** M4-28's one-transaction write — decision, candidates, assignment and lifecycle transition together. */
+  readonly transactions: TransactionRunner;
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
@@ -301,37 +305,62 @@ export class RecordItemReviewDecisionHandler
       );
     }
 
-    // INV-12, at the decision as well as at assignment (FR-QM-03). Refused
-    // here rather than recorded and caught later, because a self-approval on
-    // the record is evidence of a hole even if publication then refuses it.
-    if (version.authoredBy.id === context.principal.id) {
-      return err(
-        applicationError(
-          'RuleViolation',
-          'REVIEWER_IS_AUTHOR',
-          'the reviewer is the author of this version; self-review is prohibited (INV-12)',
-          'reviewer',
-        ),
-      );
-    }
-
-    const recorded = await this.recordDecision(
-      context,
-      'item_version',
-      command.itemVersionId,
-      command.outcome,
-      command.justification,
+    // The cheap refusal first (M4-28): self-review (INV-12, via M4-04's one
+    // shared function — the second of its three call sites), the reason code
+    // a non-approving outcome requires (DEC-M4-11), DUPLICATE naming its
+    // target, and the duplicate-check disclosure — all checked before the
+    // transition, or any write, is attempted.
+    const evidence = assertDecisionEvidenceComplete(
+      {
+        outcome: command.outcome,
+        reviewer: context.principal,
+        ...(command.reasonCode === undefined ? {} : { reasonCode: command.reasonCode }),
+        ...(command.duplicateOfItemId === undefined ? {} : { duplicateOfItemId: command.duplicateOfItemId }),
+        candidatesShownIds: command.candidatesShownIds,
+      },
+      {
+        authoredBy: version.authoredBy,
+        ...(version.editedBy === undefined ? {} : { editedBy: version.editedBy }),
+      },
     );
-    if (!recorded.ok) return err(recorded.error);
+    if (!evidence.ok) return err(fromContent(evidence.error));
 
+    const decision = createReviewDecision({
+      decisionId: this.deps.identifiers.next(),
+      ownerType: 'item_version',
+      ownerVersionId: command.itemVersionId,
+      reviewer: context.principal,
+      outcome: command.outcome,
+      ...(command.justification === undefined ? {} : { justification: command.justification }),
+      decidedAt: this.deps.clock.now().toISOString(),
+      ...(command.reasonCode === undefined ? {} : { reasonCode: command.reasonCode }),
+      ...(command.duplicateOfItemId === undefined ? {} : { duplicateOfItemId: command.duplicateOfItemId }),
+      candidatesShownIds: command.candidatesShownIds,
+    });
+    if (!decision.ok) return err(fromContent(decision.error));
+
+    // The domain decides the transition's validity here, in memory, before
+    // any write — an item in the wrong state is refused without ever
+    // opening the transaction below.
     const moved = transitionItem(item, { transition: transitionFor(command.outcome) });
     if (!moved.ok) return err(fromContent(moved.error));
 
-    const saved = await this.deps.items.save(moved.value);
-    if (!saved.ok) return err(fromContent(saved.error));
+    // One transaction (M4-28): the decision, its candidate rows and the
+    // assignment's transition to `decided` (all three inside `reviews.record`,
+    // M4-19) commit together with the item's lifecycle transition, or none of
+    // it does. A publication-precondition-shaped refusal cannot occur here —
+    // that check belongs to `PublishItemVersionHandler` — but any other
+    // refusal from either write rolls back the whole transaction and reaches
+    // the caller with its own code, message and location, never re-worded.
+    const written = await this.deps.transactions.run(async (tx) => {
+      const recorded = await this.deps.reviews.record(decision.value, command.assignmentId, tx);
+      if (!recorded.ok) return recorded;
+      return this.deps.items.save(moved.value, [], tx);
+    });
+    if (!written.ok) return err(fromContent(written.error));
 
     await this.writeAudit(context, this.name, 'ItemVersion', command.itemVersionId, command.justification);
-    return ok(saved.value);
+    return ok(written.value);
   }
 }
 

@@ -24,13 +24,36 @@ import type { Stimulus, StimulusVersion } from './stimulus.js';
 
 export type RepositoryError = ContentError<'CONFLICT' | 'NOT_FOUND' | 'PERSISTENCE_REJECTED'>;
 
+/**
+ * Opaque handle to an in-flight Postgres transaction, threaded through
+ * repository writes that must commit or roll back together (M4-28).
+ *
+ * Domain declares only this marker shape — no `pg` import, so F2 holds —
+ * and constructs nothing: `infrastructure/transaction-runner.ts` is the one
+ * place a `TransactionContext` is ever created or unwrapped. A repository
+ * method that accepts one is opting into an externally managed transaction;
+ * omitting it keeps that method's own self-contained connect/BEGIN/COMMIT,
+ * exactly as before this existed.
+ */
+export interface TransactionContext {
+  readonly kind: 'TransactionContext';
+}
+
 export interface ItemRepository {
   /**
    * One aggregate, one transaction (§10): the item, every version, and each
    * version's options, matching members and pairs, numeric specification,
    * tags, provenance and licensing.
+   *
+   * `tx`, when supplied, threads an externally managed transaction through
+   * instead of opening this method's own (M4-28) — the caller owns commit
+   * and rollback, and this call neither connects nor releases a client.
    */
-  save(item: Item, events?: readonly ContentEvent[]): Promise<Result<Item, RepositoryError>>;
+  save(
+    item: Item,
+    events?: readonly ContentEvent[],
+    tx?: TransactionContext,
+  ): Promise<Result<Item, RepositoryError>>;
 
   findById(itemId: string): Promise<Result<Item, RepositoryError>>;
 
@@ -103,10 +126,18 @@ export interface ReviewDecisionRepository {
    * optional because not every reviewed owner type has a claim behind it yet
    * (M4-18's claim exists for items only); omitting it writes the decision
    * and its candidate rows with no assignment side effect.
+   *
+   * `tx`, when supplied, threads an externally managed transaction through
+   * instead of opening this method's own (M4-28) — same discipline as
+   * `ItemRepository.save`'s `tx` parameter, and for the same reason: the
+   * decision, its candidate rows, the assignment's transition and the
+   * lifecycle transition this decision drives all commit together or none
+   * does.
    */
   record(
     decision: ReviewDecision,
     claimedAssignmentId?: string,
+    tx?: TransactionContext,
   ): Promise<Result<ReviewDecision, RepositoryError>>;
 
   /** Every decision against an item version, most recent first — `findAllFor('item_version', …)` under a name M4-33 reads more easily. */

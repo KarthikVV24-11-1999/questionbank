@@ -492,6 +492,11 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/infrastructure/outbox-emitter.ts',
   'src/contexts/content/infrastructure/render-validator.adapter.ts',
   'src/contexts/content/infrastructure/review-decision.repository.ts',
+  // M4-28. The shared transaction a decision, its candidate rows, the
+  // assignment's transition and the item's lifecycle transition commit
+  // through together — a gap here is the one-transaction guarantee silently
+  // losing atomicity.
+  'src/contexts/content/infrastructure/transaction-runner.ts',
   'src/contexts/content/infrastructure/review/fingerprint.repository.ts',
   'src/contexts/content/infrastructure/review/review-assignment.repository.ts',
   'src/contexts/content/infrastructure/review/review-candidate-shown.repository.ts',

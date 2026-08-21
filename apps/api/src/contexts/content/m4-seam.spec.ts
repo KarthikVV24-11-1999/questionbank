@@ -53,6 +53,7 @@ describe('M4 can construct the commands it drives', () => {
       itemVersionId: 'version-1',
       outcome: 'request_changes',
       justification: 'the stem does not say the ramp is frictionless',
+      candidatesShownIds: [],
     };
     expect(decision.outcome).toBe('request_changes');
   });

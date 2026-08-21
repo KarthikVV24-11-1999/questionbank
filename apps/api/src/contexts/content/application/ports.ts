@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import type { PrincipalRef } from '@questionbank/domain-types';
 import type { ItemVersion } from '../domain/item-version.js';
 import type { RenderVerdict } from '../domain/publication-preconditions.js';
+import type { RepositoryError, TransactionContext } from '../domain/repository-ports.js';
+import type { Result } from '../domain/result.js';
 import type { AuthorizationContext } from './authorization.js';
 
 export interface ApplicationContext extends AuthorizationContext {
@@ -117,6 +119,33 @@ export interface MediaStore {
  */
 export interface RenderValidator {
   validate(version: ItemVersion): Promise<RenderVerdict>;
+}
+
+/**
+ * Opens one Postgres transaction, threads its `TransactionContext` through
+ * `fn`, and commits or rolls back on the `Result` `fn` returns (M4-28) — the
+ * same commit-on-`ok` discipline every repository's own single-method
+ * transaction already follows (M4-19's `record`, M4-27's `assign`). A
+ * thrown error inside `fn` rolls back too, then is reported the same way
+ * every repository reports an infrastructure fault: as a `PERSISTENCE_REJECTED`
+ * value, never a throw that reaches the handler.
+ *
+ * **Not a general-purpose unit of work.** `run` exists for handlers that
+ * must write through more than one repository as one transaction — M4-28,
+ * M4-29 and M4-31 — and nowhere else in this milestone. Ten repositories
+ * still open their own transactions by hand for their own single-aggregate
+ * saves; that is unchanged and deliberately so. `claimNext` (M4-18) in
+ * particular is a **named exception**, not an oversight: its hand-rolled
+ * `SELECT … FOR UPDATE SKIP LOCKED` plus `INSERT` holds a row lock across
+ * two statements inside one connection to make the claim atomic, which is
+ * exactly the discipline `run`'s generic callback shape cannot add anything
+ * to. A later refactor that routes `claimNext` through `TransactionRunner`
+ * for consistency's sake would not be a cleanup — the lock's atomicity does
+ * not need it, and the indirection would only make the one place this
+ * codebase depends on statement-order-within-a-lock harder to read.
+ */
+export interface TransactionRunner {
+  run<T>(fn: (tx: TransactionContext) => Promise<Result<T, RepositoryError>>): Promise<Result<T, RepositoryError>>;
 }
 
 /**

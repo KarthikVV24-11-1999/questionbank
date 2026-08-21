@@ -1,8 +1,13 @@
 import type { Pool, PoolClient } from 'pg';
 import { err, ok, type Result } from '../domain/result.js';
 import { conflictError, notFoundError, validationError } from '../domain/content-error.js';
-import type { ReviewDecisionRepository, RepositoryError } from '../domain/repository-ports.js';
+import type {
+  ReviewDecisionRepository,
+  RepositoryError,
+  TransactionContext,
+} from '../domain/repository-ports.js';
 import type { ReviewDecision, ReviewedOwnerType, ReviewOutcome } from '../domain/review-decision.js';
+import { clientOf } from './transaction-runner.js';
 
 /**
  * The review record, written once and never updated (FR-QM-03).
@@ -55,7 +60,15 @@ export class PostgresReviewDecisionRepository implements ReviewDecisionRepositor
   async record(
     decision: ReviewDecision,
     claimedAssignmentId?: string,
+    tx?: TransactionContext,
   ): Promise<Result<ReviewDecision, RepositoryError>> {
+    // `tx` supplied: the caller owns the transaction (M4-28) — no connect,
+    // BEGIN, COMMIT, ROLLBACK or release here; the error propagates as a
+    // `Result`, exactly as `#recordWithin` already returns one.
+    if (tx !== undefined) {
+      return this.#recordWithin(clientOf(tx), decision, claimedAssignmentId);
+    }
+
     const client = await this.#pool.connect();
     let outcome: Result<ReviewDecision, RepositoryError>;
 

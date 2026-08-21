@@ -19,6 +19,7 @@ import { PostgresSolutionRepository } from '../infrastructure/solution.repositor
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
 import { PostgresReviewAssignmentRepository } from '../infrastructure/review/review-assignment.repository.js';
+import { PostgresTransactionRunner } from '../infrastructure/transaction-runner.js';
 import { createReviewPolicy, type ReviewPolicy } from '../domain/review/review-policy.js';
 import {
   CreateItemDraftHandler,
@@ -164,6 +165,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
   const assets = new PostgresMediaAssetRepository(deps.pool);
   const reviews = new PostgresReviewDecisionRepository(deps.pool);
   const reviewAssignments = new PostgresReviewAssignmentRepository(deps.pool);
+  const transactions = new PostgresTransactionRunner(deps.pool);
   const reviewProgress = new InMemoryReviewProgress();
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
@@ -196,6 +198,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     idempotency: deps.idempotency,
     assignments: reviewAssignments,
     reviewPolicy,
+    transactions,
   };
 
   const handlers = [

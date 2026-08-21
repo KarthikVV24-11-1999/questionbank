@@ -17,6 +17,7 @@ import type { CreateResponseSpecificationProps } from '../domain/response-specif
 import { PostgresItemRepository } from '../infrastructure/item.repository.js';
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
+import { PostgresTransactionRunner } from '../infrastructure/transaction-runner.js';
 import { PostgresSolutionRepository } from '../infrastructure/solution.repository.js';
 import { PostgresStimulusRepository } from '../infrastructure/stimulus.repository.js';
 import type { ApplicationError } from './authorization.js';
@@ -172,6 +173,7 @@ const lifecycle = (): LifecycleDependencies => ({
   reviews,
   renderer: passingRenderer,
   reviewProgress: new InMemoryReviewProgress(),
+  transactions: new PostgresTransactionRunner(database.pool),
   clock,
   identifiers,
   audit: new InMemoryAuditRecorder(),
@@ -289,7 +291,7 @@ async function publishItem(item: Item): Promise<Item> {
   expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
   expectValue(
     await new RecordItemReviewDecisionHandler(deps).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve', candidatesShownIds: [] },
       as(reviewer),
     ),
   );
@@ -909,7 +911,14 @@ async function driveToState(item: Item, state: LifecycleState): Promise<Item> {
       await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
       return expectValue(
         await new RecordItemReviewDecisionHandler(deps).handle(
-          { itemId: item.itemId, itemVersionId: versionId, outcome: 'request_changes', justification: 'unclear' },
+          {
+            itemId: item.itemId,
+            itemVersionId: versionId,
+            outcome: 'request_changes',
+            justification: 'unclear',
+            reasonCode: 'FACTUALLY_INCORRECT',
+            candidatesShownIds: [],
+          },
           as(reviewer),
         ),
       );
@@ -918,7 +927,7 @@ async function driveToState(item: Item, state: LifecycleState): Promise<Item> {
       await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
       return expectValue(
         await new RecordItemReviewDecisionHandler(deps).handle(
-          { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve' },
+          { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve', candidatesShownIds: [] },
           as(reviewer),
         ),
       );
@@ -927,7 +936,14 @@ async function driveToState(item: Item, state: LifecycleState): Promise<Item> {
       await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
       return expectValue(
         await new RecordItemReviewDecisionHandler(deps).handle(
-          { itemId: item.itemId, itemVersionId: versionId, outcome: 'reject', justification: 'off-syllabus' },
+          {
+            itemId: item.itemId,
+            itemVersionId: versionId,
+            outcome: 'reject',
+            justification: 'off-syllabus',
+            reasonCode: 'OUT_OF_SYLLABUS',
+            candidatesShownIds: [],
+          },
           as(reviewer),
         ),
       );
