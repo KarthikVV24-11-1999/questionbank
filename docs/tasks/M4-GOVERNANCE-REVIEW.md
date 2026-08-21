@@ -894,7 +894,19 @@ file.*
 **Acceptance**
 - `ClaimNextForReview`, `ReleaseAssignment`, `ReassignReview` (Content Ops only), `ExtendLease`
 - Each declares a distinct authorization policy; **every negative path is tested** — 100% on authorization negative paths is a §5 requirement, not a target
-- `ClaimNextForReview` resolves candidates through `ListSubmittedForReview` (M4-16), orders through M4-03, and **re-checks self-review after selection** (M4-04)
+- `ClaimNextForReview` resolves candidates **through `claimNext` (M4-18) directly**, and **re-checks self-review after selection** (M4-04)
+
+  > **Correction, 2026-08-21 (M4-27).** This line originally read "resolves
+  > candidates through `ListSubmittedForReview` (M4-16), orders through M4-03".
+  > That is wrong: `ListSubmittedForReview` runs its own `SELECT` on its own
+  > connection, outside `claimNext`'s transaction — routing candidate
+  > resolution through it would reopen exactly the SELECT-then-INSERT race
+  > M4-18's single locking statement (`SELECT … FOR UPDATE SKIP LOCKED` then
+  > `INSERT`, one transaction) exists to close. Candidate resolution stays
+  > inside `claimNext`, where it already lives. `ListSubmittedForReview`
+  > remains the **read-only** queue listing — the Studio surface and M4-33's
+  > queue-health query, never a review-write path. Original text kept above
+  > rather than rewritten (M0's convention 3).
 - Subject scope uses content's existing `authorizeSubjectScope`: a reviewer holding `subject:physics` cannot claim chemistry; Content Ops can claim across subjects
 - Every command writes an audit record naming principal, action and target (INV-02) — now a chained record
 **Tests** Integration (real Postgres): each command · claim returns the correctly ordered item · out-of-subject claim refused · self-claim refused even after a planted predicate removal (the second check catches it) · each command refused for each unauthorized role · policy-less handler fails boot · 100%

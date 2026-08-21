@@ -335,15 +335,95 @@ describe('review-table immutability & grants (M4-21, F7/F40)', () => {
   });
 
   it('rejects a review_assignment transition its machine does not name', async () => {
+    // released -> claimed: never one of the machine's named transitions, and
+    // unaffected by M4-27's lease-extension carve-out, which applies only to
+    // claimed -> claimed.
     const assignmentId = await seedAssignment();
+    await database.pool.query(
+      `UPDATE content.review_assignment
+          SET state = 'released', released_at = now(), aggregate_version = aggregate_version + 1
+        WHERE assignment_id = $1`,
+      [assignmentId],
+    );
     expect(
       await rejects(
         `UPDATE content.review_assignment
-            SET state = 'claimed', aggregate_version = aggregate_version + 1
+            SET state = 'claimed', released_at = NULL, aggregate_version = aggregate_version + 1
           WHERE assignment_id = $1`,
         [assignmentId],
       ),
     ).toContain('transition_not_permitted');
+  });
+
+  /**
+   * M4-27. `claimed -> claimed` is no longer an unconditionally-unnamed
+   * transition — it is how a lease extension is written. But a
+   * `claimed -> claimed` update that does not actually move the lease
+   * forward is still refused, just with a more specific reason: the machine
+   * distinguishes "not a transition at all" from "an extension that isn't
+   * one," and this is the second.
+   */
+  it('rejects a claimed -> claimed update that does not extend the lease', async () => {
+    const assignmentId = await seedAssignment();
+    expect(
+      await rejects(
+        `UPDATE content.review_assignment SET aggregate_version = aggregate_version + 1 WHERE assignment_id = $1`,
+        [assignmentId],
+      ),
+    ).toContain('lease_extension_must_move_forward');
+  });
+
+  it('permits a claimed -> claimed update that extends the lease forward, and only that', async () => {
+    const assignmentId = await seedAssignment();
+    await database.pool.query(
+      `UPDATE content.review_assignment
+          SET lease_expires_at = lease_expires_at + interval '1 hour', aggregate_version = aggregate_version + 1
+        WHERE assignment_id = $1`,
+      [assignmentId],
+    );
+    const found = await database.pool.query<{ state: string }>(
+      `SELECT state FROM content.review_assignment WHERE assignment_id = $1`,
+      [assignmentId],
+    );
+    expect(found.rows[0]!.state).toBe('claimed');
+  });
+
+  it('rejects a claimed -> claimed update that shortens the lease', async () => {
+    const assignmentId = await seedAssignment();
+    expect(
+      await rejects(
+        `UPDATE content.review_assignment
+            SET lease_expires_at = lease_expires_at - interval '1 minute', aggregate_version = aggregate_version + 1
+          WHERE assignment_id = $1`,
+        [assignmentId],
+      ),
+    ).toContain('lease_extension_must_move_forward');
+  });
+
+  it('rejects a lease extension that also touches a column outside the state machine', async () => {
+    const assignmentId = await seedAssignment();
+    expect(
+      await rejects(
+        `UPDATE content.review_assignment
+            SET lease_expires_at = lease_expires_at + interval '1 hour', subject = 'chemistry',
+                aggregate_version = aggregate_version + 1
+          WHERE assignment_id = $1`,
+        [assignmentId],
+      ),
+    ).toContain('only_the_state_machine_may_change');
+  });
+
+  it('rejects a state transition that also moves the lease', async () => {
+    const assignmentId = await seedAssignment();
+    expect(
+      await rejects(
+        `UPDATE content.review_assignment
+            SET state = 'released', released_at = now(), lease_expires_at = lease_expires_at + interval '1 hour',
+                aggregate_version = aggregate_version + 1
+          WHERE assignment_id = $1`,
+        [assignmentId],
+      ),
+    ).toContain('only_the_state_machine_may_change');
   });
 
   it('rejects a review_assignment update that touches a column outside the state machine', async () => {

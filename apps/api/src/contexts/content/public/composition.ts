@@ -18,6 +18,8 @@ import { PostgresStimulusRepository } from '../infrastructure/stimulus.repositor
 import { PostgresSolutionRepository } from '../infrastructure/solution.repository.js';
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
+import { PostgresReviewAssignmentRepository } from '../infrastructure/review/review-assignment.repository.js';
+import { createReviewPolicy, type ReviewPolicy } from '../domain/review/review-policy.js';
 import {
   CreateItemDraftHandler,
   DeleteItemDraftHandler,
@@ -67,6 +69,12 @@ import {
   GetPublishedSolutionHandler,
   GetPublishedStimulusHandler,
 } from '../application/queries/delivery-queries.js';
+import {
+  ClaimNextForReviewHandler,
+  ExtendLeaseHandler,
+  ReassignReviewHandler,
+  ReleaseAssignmentHandler,
+} from '../application/review/handlers/assignment-handlers.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). `register` composes content's
@@ -108,6 +116,20 @@ export interface ContentCompositionDeps {
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
   readonly principals: PrincipalResolver;
+  /**
+   * The raw numbers, not a constructed `ReviewPolicy` (M4-26). `createReviewPolicy`
+   * lives in `domain/review/review-policy.ts`; `platform/composition/` may
+   * import only `contexts/*\/public/composition.js` (F1's extension, DEC-M0-5
+   * condition 2), so it cannot call that constructor itself — it can only
+   * hand this file the numbers `config.ts` already validated, and this file,
+   * which owns the domain type, is what turns them into one.
+   */
+  readonly reviewPolicy: {
+    readonly warnAfterHours: number;
+    readonly escalateAfterHours: number;
+    readonly leaseHours: number;
+    readonly sampleRate: number;
+  };
 }
 
 /**
@@ -126,6 +148,7 @@ const REQUIRED_DEPS_KEYS = [
   'identifiers',
   'audit',
   'principals',
+  'reviewPolicy',
 ] as const satisfies readonly (keyof ContentCompositionDeps)[];
 
 export function register(deps: ContentCompositionDeps): DynamicModule {
@@ -140,9 +163,19 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
   const solutions = new PostgresSolutionRepository(deps.pool);
   const assets = new PostgresMediaAssetRepository(deps.pool);
   const reviews = new PostgresReviewDecisionRepository(deps.pool);
+  const reviewAssignments = new PostgresReviewAssignmentRepository(deps.pool);
   const reviewProgress = new InMemoryReviewProgress();
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
+
+  // config.ts already validated every field individually and the
+  // escalate-after-warn ordering; a failure here is a wiring bug, not user
+  // input, so it throws the same way REQUIRED_DEPS_KEYS's own check does.
+  const reviewPolicyResult = createReviewPolicy(deps.reviewPolicy);
+  if (!reviewPolicyResult.ok) {
+    throw new Error(`content composition built an invalid ReviewPolicy: ${reviewPolicyResult.error.message}`);
+  }
+  const reviewPolicy: ReviewPolicy = reviewPolicyResult.value;
 
   // Every field every handler's own Dependencies interface names, in one
   // bag — structurally assignable to each narrower interface, so a handler
@@ -161,6 +194,8 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     identifiers: deps.identifiers,
     audit: deps.audit,
     idempotency: deps.idempotency,
+    assignments: reviewAssignments,
+    reviewPolicy,
   };
 
   const handlers = [
@@ -195,6 +230,11 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new SubmitMediaAssetForReviewHandler(bag),
     new RecordMediaAssetReviewDecisionHandler(bag),
     new PublishMediaAssetVersionHandler(bag),
+    // Review assignment
+    new ClaimNextForReviewHandler(bag),
+    new ReleaseAssignmentHandler(bag),
+    new ReassignReviewHandler(bag),
+    new ExtendLeaseHandler(bag),
     // Authoring queries
     new GetItemDraftHandler(bag),
     new ListMyDraftsHandler(bag),

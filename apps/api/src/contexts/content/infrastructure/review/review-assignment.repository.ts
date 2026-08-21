@@ -3,6 +3,7 @@ import type { PrincipalRef } from '@questionbank/domain-types';
 import { err, ok, type Result } from '../../domain/result.js';
 import { conflictError, notFoundError, ruleViolationError, validationError } from '../../domain/content-error.js';
 import type {
+  AssignReview,
   ClaimNextReviewAssignment,
   ReviewAssignmentRepository,
   RepositoryError,
@@ -52,6 +53,9 @@ function toIsoInstant(value: Date): string {
 function persistenceRejected(message: string): RepositoryError {
   return validationError('PERSISTENCE_REJECTED', message, 'reviewAssignment');
 }
+
+/** Postgres' `unique_violation` — the signature of a live claim already existing. */
+const UNIQUE_VIOLATION = '23505';
 
 const ORDER_BY: Record<ClaimNextReviewAssignment['ordering'], string> = {
   escalated_first: `(EXISTS (SELECT 1 FROM content.review_escalation e WHERE e.item_version_id = v.item_version_id)) DESC,
@@ -167,6 +171,107 @@ export class PostgresReviewAssignmentRepository implements ReviewAssignmentRepos
     return ok(this.#hydrate(inserted.rows[0]!));
   }
 
+  async assign(criteria: AssignReview): Promise<Result<ReviewAssignment, RepositoryError>> {
+    const client = await this.#pool.connect();
+    let outcome: Result<ReviewAssignment, RepositoryError>;
+
+    try {
+      await client.query('BEGIN');
+      outcome = await this.#assignWithin(client, criteria);
+      await client.query(outcome.ok ? 'COMMIT' : 'ROLLBACK');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      outcome = err(persistenceRejected((error as Error).message));
+    }
+
+    client.release();
+    return outcome;
+  }
+
+  async #assignWithin(client: PoolClient, criteria: AssignReview): Promise<Result<ReviewAssignment, RepositoryError>> {
+    const found = await client.query<CandidateRow>(
+      `SELECT v.item_version_id, v.item_id, v.authored_by_kind, v.authored_by_id,
+              v.edited_by_kind, v.edited_by_id
+         FROM content.item_version v
+         JOIN content.item i ON i.item_id = v.item_id
+        WHERE v.item_version_id = $1 AND i.lifecycle_state = 'in_review'
+        FOR UPDATE OF v`,
+      [criteria.itemVersionId],
+    );
+    if (found.rowCount === 0) {
+      return err(
+        notFoundError('NOT_FOUND', `no in-review item version ${criteria.itemVersionId}`, 'reviewAssignment'),
+      );
+    }
+
+    // The same re-check `claimNext` runs, on the same terms: reaches
+    // `editedBy`, which naming a reviewer directly does not itself exclude.
+    const candidate = found.rows[0]!;
+    const reassessed = assertAssignable(
+      {
+        authoredBy: freezePrincipal({
+          kind: candidate.authored_by_kind,
+          id: candidate.authored_by_id,
+          roleContext: [],
+        }),
+        ...(candidate.edited_by_id === null
+          ? {}
+          : {
+              editedBy: freezePrincipal({
+                kind: candidate.edited_by_kind!,
+                id: candidate.edited_by_id,
+                roleContext: [],
+              }),
+            }),
+      },
+      criteria.reviewer,
+    );
+    if (!reassessed.ok) {
+      return err(
+        ruleViolationError(
+          'PERSISTENCE_REJECTED',
+          `INV-12: reviewer ${criteria.reviewer.id} is the author or editor of item version ${criteria.itemVersionId}`,
+          'reviewAssignment',
+        ),
+      );
+    }
+
+    try {
+      const inserted = await client.query<AssignmentRow>(
+        `INSERT INTO content.review_assignment
+           (item_id, item_version_id, subject, reviewer_kind, reviewer_id, kind, state, claimed_at, lease_expires_at)
+         VALUES ($1, $2, $3, $4, $5, 'assigned', 'claimed', $6, $7)
+         RETURNING assignment_id, item_id, item_version_id, subject, reviewer_kind, reviewer_id,
+                   kind, state, claimed_at, lease_expires_at, released_at, decided_at, aggregate_version`,
+        [
+          candidate.item_id,
+          criteria.itemVersionId,
+          criteria.subject,
+          criteria.reviewer.kind,
+          criteria.reviewer.id,
+          criteria.now,
+          criteria.leaseExpiresAt,
+        ],
+      );
+      return ok(this.#hydrate(inserted.rows[0]!));
+    } catch (error) {
+      // The same partial unique index `claimNext` relies on — a live claim
+      // already exists. Caught here, not left to the outer `PERSISTENCE_REJECTED`
+      // catch, because "already assigned" is a `Conflict` a caller can act on,
+      // not an opaque write failure.
+      if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+        return err(
+          conflictError(
+            'CONFLICT',
+            `item version ${criteria.itemVersionId} already has a live review assignment`,
+            'reviewAssignment',
+          ),
+        );
+      }
+      throw error;
+    }
+  }
+
   async release(
     assignmentId: string,
     at: string,
@@ -194,6 +299,43 @@ export class PostgresReviewAssignmentRepository implements ReviewAssignmentRepos
         conflictError(
           'CONFLICT',
           `review assignment ${assignmentId} was not at version ${expectedVersion}`,
+          'reviewAssignment',
+        ),
+      );
+    }
+
+    return ok(this.#hydrate(updated.rows[0]!));
+  }
+
+  async extendLease(
+    assignmentId: string,
+    newLeaseExpiresAt: string,
+    expectedVersion: number,
+  ): Promise<Result<ReviewAssignment, RepositoryError>> {
+    let updated;
+    try {
+      updated = await this.#pool.query<AssignmentRow>(
+        `UPDATE content.review_assignment
+            SET lease_expires_at = $1, aggregate_version = aggregate_version + 1
+          WHERE assignment_id = $2 AND aggregate_version = $3 AND state = 'claimed'
+          RETURNING assignment_id, item_id, item_version_id, subject, reviewer_kind, reviewer_id,
+                    kind, state, claimed_at, lease_expires_at, released_at, decided_at, aggregate_version`,
+        [newLeaseExpiresAt, assignmentId, expectedVersion],
+      );
+    } catch (error) {
+      // The M4-21 trigger's own "must move forward" guard lands here too —
+      // a caller that computed a non-advancing expiry gets the same
+      // PERSISTENCE_REJECTED any other malformed write would.
+      return err(persistenceRejected((error as Error).message));
+    }
+
+    if (updated.rowCount === 0) {
+      const found = await this.findById(assignmentId);
+      if (!found.ok) return found;
+      return err(
+        conflictError(
+          'CONFLICT',
+          `review assignment ${assignmentId} is not a live claim at version ${expectedVersion}`,
           'reviewAssignment',
         ),
       );

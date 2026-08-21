@@ -415,3 +415,145 @@ describe('claimNext — an unexpected persistence fault (M4-18)', () => {
     expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
   });
 });
+
+describe('assign — Content Ops’ push path (M4-27, DEC-M4-9)', () => {
+  function assignCriteria(itemVersionId: string, overrides: Partial<Parameters<typeof repository.assign>[0]> = {}) {
+    const now = new Date().toISOString();
+    return {
+      itemVersionId,
+      subject: SUBJECT,
+      reviewer: REVIEWER,
+      now,
+      leaseExpiresAt: new Date(Date.parse(now) + 60 * 60 * 1000).toISOString(),
+      ...overrides,
+    };
+  }
+
+  it('creates a live assignment of kind assigned, distinct from a pulled claim', async () => {
+    const { itemId, itemVersionId } = await seedInReviewItemVersion();
+    const assigned = expectValue(await repository.assign(assignCriteria(itemVersionId)));
+    expect(assigned.itemId).toBe(itemId);
+    expect(assigned.itemVersionId).toBe(itemVersionId);
+    expect(assigned.kind).toBe('assigned');
+    expect(assigned.state).toBe('claimed');
+    expect(assigned.reviewer.id).toBe(REVIEWER.id);
+  });
+
+  it('returns NOT_FOUND for a version that does not exist', async () => {
+    const refused = await repository.assign(assignCriteria(freshUuid()));
+    expect(expectError(refused).code).toBe('NOT_FOUND');
+  });
+
+  it('returns NOT_FOUND for a version whose item is not in_review', async () => {
+    const itemId = freshUuid();
+    const itemVersionId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state, authoring_subject) VALUES ($1, 'SINGLE_CORRECT_MCQ', 'draft', $2)`,
+      [itemId, SUBJECT],
+    );
+    await database.pool.query(
+      `INSERT INTO content.item_version
+         (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text, difficulty_estimate,
+          authored_by_kind, authored_by_id)
+       VALUES ($1, $2, 1, 'SINGLE_CORRECT_MCQ', '{}'::jsonb, 's', 'moderate', 'human', $3)`,
+      [itemVersionId, itemId, freshUuid()],
+    );
+    const refused = await repository.assign(assignCriteria(itemVersionId));
+    expect(expectError(refused).code).toBe('NOT_FOUND');
+  });
+
+  it('refuses assigning the author', async () => {
+    const authorReviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const { itemVersionId } = await seedInReviewItemVersion({ authorId: authorReviewer.id });
+    const refused = await repository.assign(assignCriteria(itemVersionId, { reviewer: authorReviewer }));
+    const error = expectError(refused);
+    expect(error.code).toBe('PERSISTENCE_REJECTED');
+    expect(error.message).toContain('INV-12');
+  });
+
+  it('refuses assigning the editor', async () => {
+    const editorReviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const { itemVersionId } = await seedInReviewItemVersion({ editorId: editorReviewer.id });
+    const refused = await repository.assign(assignCriteria(itemVersionId, { reviewer: editorReviewer }));
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+
+  it('returns CONFLICT when the version already carries a live assignment', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion();
+    expectValue(await repository.assign(assignCriteria(itemVersionId)));
+    const other = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const refused = await repository.assign(assignCriteria(itemVersionId, { reviewer: other }));
+    expect(expectError(refused).code).toBe('CONFLICT');
+  });
+
+  it('permits assigning again once the live claim is released — history accumulates', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion();
+    const first = expectValue(await repository.assign(assignCriteria(itemVersionId)));
+    expectValue(await repository.release(first.assignmentId, new Date().toISOString(), first.aggregateVersion));
+    const other = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const second = expectValue(await repository.assign(assignCriteria(itemVersionId, { reviewer: other })));
+    expect(second.state).toBe('claimed');
+  });
+
+  it('reports an unexpected write failure as PERSISTENCE_REJECTED, not thrown', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion();
+    const refused = await repository.assign(
+      assignCriteria(itemVersionId, { reviewer: { kind: 'not_a_real_kind' as never, id: freshUuid(), roleContext: [] } }),
+    );
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+});
+
+describe('extendLease — pushes the lease forward without a state transition (M4-27)', () => {
+  it('extends a live claim’s lease, advancing aggregate_version', async () => {
+    const subject = `extend-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    const newExpiry = new Date(Date.parse(claimed.leaseExpiresAt) + 60 * 60 * 1000).toISOString();
+
+    const extended = expectValue(
+      await repository.extendLease(claimed.assignmentId, newExpiry, claimed.aggregateVersion),
+    );
+    expect(extended.leaseExpiresAt).toBe(newExpiry);
+    expect(extended.state).toBe('claimed');
+    expect(extended.aggregateVersion).toBe(claimed.aggregateVersion + 1);
+  });
+
+  it('reports NOT_FOUND for an assignment that does not exist', async () => {
+    const refused = await repository.extendLease(freshUuid(), new Date().toISOString(), 1);
+    expect(expectError(refused).code).toBe('NOT_FOUND');
+  });
+
+  it('reports CONFLICT on a stale aggregate_version', async () => {
+    const subject = `extend-stale-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    const newExpiry = new Date(Date.parse(claimed.leaseExpiresAt) + 60 * 60 * 1000).toISOString();
+
+    const refused = await repository.extendLease(claimed.assignmentId, newExpiry, claimed.aggregateVersion + 5);
+    expect(expectError(refused).code).toBe('CONFLICT');
+  });
+
+  it('reports CONFLICT when the assignment is no longer claimed', async () => {
+    const subject = `extend-released-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    const released = expectValue(
+      await repository.release(claimed.assignmentId, new Date().toISOString(), claimed.aggregateVersion),
+    );
+    const newExpiry = new Date(Date.parse(claimed.leaseExpiresAt) + 60 * 60 * 1000).toISOString();
+
+    const refused = await repository.extendLease(claimed.assignmentId, newExpiry, released.aggregateVersion);
+    expect(expectError(refused).code).toBe('CONFLICT');
+  });
+
+  it('reports PERSISTENCE_REJECTED when the new lease does not move forward — the trigger’s own guard', async () => {
+    const subject = `extend-backward-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+
+    const refused = await repository.extendLease(claimed.assignmentId, claimed.leaseExpiresAt, claimed.aggregateVersion);
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+});
+

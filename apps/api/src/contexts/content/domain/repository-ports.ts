@@ -173,6 +173,18 @@ export interface ReviewAssignmentRepository {
    */
   claimNext(criteria: ClaimNextReviewAssignment): Promise<Result<ReviewAssignment, RepositoryError>>;
 
+  /**
+   * Content Ops' push path (M4-27, DEC-M4-9) — the only other way an
+   * assignment is created. Names the reviewer directly rather than selecting
+   * a candidate, but the invariant is the same: `NOT_FOUND` when the version
+   * does not exist, `CONFLICT` when it already carries a live claim (the
+   * partial unique index, the same one `claimNext` relies on), and a
+   * self-review re-check — `assertAssignable` against `authoredBy`/`editedBy`
+   * loaded fresh, on the same terms `claimNext` uses — before the row is
+   * written.
+   */
+  assign(criteria: AssignReview): Promise<Result<ReviewAssignment, RepositoryError>>;
+
   /** Optimistic concurrency on `aggregate_version`; a stale write is `Conflict`. */
   release(
     assignmentId: string,
@@ -180,10 +192,34 @@ export interface ReviewAssignmentRepository {
     expectedVersion: number,
   ): Promise<Result<ReviewAssignment, RepositoryError>>;
 
+  /**
+   * Pushes `leaseExpiresAt` forward on a live claim, in place — the one
+   * update the M4-21 trigger permits without a state transition (M4-27's own
+   * migration). `newLeaseExpiresAt` must be strictly later than the stored
+   * one, or the trigger itself refuses the write as `PERSISTENCE_REJECTED`;
+   * how far forward is a decision `ReviewPolicy` makes at the application
+   * layer, never this method's to compute. Optimistic on `aggregate_version`,
+   * same as `release`; a stale write, or one against an assignment that is no
+   * longer `claimed`, is `Conflict`.
+   */
+  extendLease(
+    assignmentId: string,
+    newLeaseExpiresAt: string,
+    expectedVersion: number,
+  ): Promise<Result<ReviewAssignment, RepositoryError>>;
+
   /** Every lease past expiry, released in one statement. Idempotent: a second run finds nothing left to release. */
   releaseExpired(now: string): Promise<Result<readonly ReviewAssignment[], RepositoryError>>;
 
   findById(assignmentId: string): Promise<Result<ReviewAssignment, RepositoryError>>;
+}
+
+export interface AssignReview {
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly reviewer: PrincipalRef;
+  readonly now: string;
+  readonly leaseExpiresAt: string;
 }
 
 /**

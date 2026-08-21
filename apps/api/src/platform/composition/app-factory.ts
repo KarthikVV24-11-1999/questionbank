@@ -118,7 +118,21 @@ export async function createApplication(
   const curriculumRegister = overrides.curriculumRegister ?? registerCurriculum;
   const scoringRegister = overrides.scoringRegister ?? registerScoring;
 
-  const contentModule = contentRegister({ pool, mediaStore, idempotency, clock, identifiers, audit, principals });
+  const contentModule = contentRegister({
+    pool,
+    mediaStore,
+    idempotency,
+    clock,
+    identifiers,
+    audit,
+    principals,
+    reviewPolicy: {
+      warnAfterHours: config.reviewWarnAfterHours,
+      escalateAfterHours: config.reviewEscalateAfterHours,
+      leaseHours: config.reviewLeaseHours,
+      sampleRate: config.reviewSampleRate,
+    },
+  });
   const curriculumModule = curriculumRegister({ pool, clock, identifiers, audit, principals });
   const scoringModule = scoringRegister({ pool, clock, identifiers, audit, principals });
 

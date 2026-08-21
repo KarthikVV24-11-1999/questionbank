@@ -452,6 +452,10 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   // health — a gap here is a role reaching a capability DEC-M4-9/DEC-M4-1
   // never assigned it.
   'src/contexts/content/application/review/policies.ts',
+  // M4-27. Claim, release, reassign, extend — a gap here is a race the
+  // atomic claim exists to close reopened at the application layer, or a
+  // reviewer holding a claim past its policy cap.
+  'src/contexts/content/application/review/handlers/assignment-handlers.ts',
   'src/contexts/content/application/queries/authoring-queries.ts',
   'src/contexts/content/application/queries/delivery-queries.ts',
   'src/contexts/content/domain/content-body.ts',
@@ -557,14 +561,46 @@ export function checkCoverageThresholds(
  * "meet only at": callable from content's authoring domain the same way any
  * other domain module is, which is what lets `publication-preconditions.ts`
  * call `isSelfReview` (M4-04) without this gate refusing it.
+ *
+ * **Exactly three things outside `domain/` are permitted targets for review
+ * plumbing reaching into authoring plumbing, and no more without a reviewed
+ * reason to add a fourth:**
+ *
+ *   1. `application/authorization.ts` — a context-wide structural contract
+ *      (policies, role checks), specific to neither side.
+ *   2. `application/ports.ts` — the same argument, for `Clock`,
+ *      `AuditRecorder`, `IdentifierFactory`, `ApplicationContext`. On
+ *      extraction, a standalone review context would declare its own copies
+ *      of these — exactly as content, curriculum and scoring each declare
+ *      their own today — never import content's, so this is not an
+ *      extraction-survivability concern the way an authoring-specific module
+ *      would be.
+ *   3. `public/composition.ts` — the composition root, exempt in both
+ *      directions (below).
+ *
+ * Anything authoring-specific — `ListSubmittedForReview`, a lifecycle
+ * command type, a handler class — is reachable only through what
+ * `public/index.ts` exports. If that is not enough for some future task, the
+ * fix is a reviewed addition to what the barrel exports, not a fourth
+ * exemption here.
  */
 const REVIEW_PATH_SEGMENT = /(^|\/)(?:application|infrastructure)\/review\/|(^|\/)review\.controller\.ts$/u;
 
 /** Any module under a `domain/` tree, at any depth — the whole domain layer, F2-pure by construction. */
 const DOMAIN_MODULE = /(^|\/)domain\/.+\.ts$/u;
 
-/** The one named exception outside the domain layer (DEC-M4-7). */
+/** Permitted target 1 of 3 outside `domain/` (DEC-M4-7). */
 const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
+
+/**
+ * Permitted target 2 of 3 outside `domain/` (DEC-M4-7). Exact path, not a
+ * prefix — matching `application/ports.ts` specifically is what stops this
+ * exemption growing into "all of `application/`" by accident. A review
+ * module reaching `application/queries/authoring-queries.ts` or
+ * `application/handlers/lifecycle-handlers.ts` must still fail; both are
+ * planted and proven in `content-rules.spec.ts`.
+ */
+const PORTS_MODULE = /(^|\/)application\/ports\.ts$/u;
 
 /**
  * The composition seam (ADR-0015) — exempt from this gate in both
@@ -617,12 +653,15 @@ export function checkReviewAuthoringSubBoundary(
 
       if (fileIsReview && !targetIsReview) {
         const permitted =
-          DOMAIN_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget) || COMPOSITION_ROOT.test(relTarget);
+          DOMAIN_MODULE.test(relTarget) ||
+          AUTHORIZATION_MODULE.test(relTarget) ||
+          PORTS_MODULE.test(relTarget) ||
+          COMPOSITION_ROOT.test(relTarget);
         if (!permitted) {
           violations.push({
             rule: 'M4_01_REVIEW_REACHES_AUTHORING',
             subject: relFile,
-            detail: `imports ${importPath} (${relTarget}), which is neither a domain aggregate/value object nor application/authorization.ts`,
+            detail: `imports ${importPath} (${relTarget}), which is none of a domain aggregate/value object, application/authorization.ts, or application/ports.ts`,
           });
         }
       }

@@ -24,6 +24,7 @@ function validDeps(overrides: Partial<ContentCompositionDeps> = {}): ContentComp
     identifiers: { next: () => 'id-1' },
     audit: { record: async () => undefined },
     principals: { resolve: () => null },
+    reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
     ...overrides,
   };
 }
