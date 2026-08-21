@@ -563,6 +563,19 @@ const DOMAIN_MODULE = /(^|\/)domain\/.+\.ts$/u;
 const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
 
 /**
+ * The composition seam (ADR-0015) — exempt from this gate in both
+ * directions, and the only file that is. Composing the module is its job:
+ * it wires every layer, review's own handlers included, into the
+ * `DynamicModule` the barrel exports, so it must be able to import
+ * `application/review/**` to instantiate what it wires — the one place
+ * "authoring reaches review" is not a violation but the seam doing its job.
+ * The reverse (something under `application/review/**` importing the
+ * composition root back) has no legitimate use captured here either, so it
+ * is exempted the same way rather than left as an asymmetric special case.
+ */
+const COMPOSITION_ROOT = /(^|\/)public\/composition\.ts$/u;
+
+/**
  * DEC-M4-7's sub-boundary, both directions, by import graph rather than
  * convention — the same discipline `checkAuthoringUnreachableFromDelivery`
  * applies to ADR-0009 condition 3.
@@ -587,6 +600,8 @@ export function checkReviewAuthoringSubBoundary(
 
   for (const file of files) {
     const relFile = relative(root, file).replaceAll('\\', '/');
+    // Exempt as a source in both directions — see COMPOSITION_ROOT's comment.
+    if (COMPOSITION_ROOT.test(relFile)) continue;
     const fileIsReview = REVIEW_PATH_SEGMENT.test(relFile);
 
     for (const importPath of importsOf(readCode(file))) {
@@ -597,7 +612,8 @@ export function checkReviewAuthoringSubBoundary(
       const targetIsReview = REVIEW_PATH_SEGMENT.test(relTarget);
 
       if (fileIsReview && !targetIsReview) {
-        const permitted = DOMAIN_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget);
+        const permitted =
+          DOMAIN_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget) || COMPOSITION_ROOT.test(relTarget);
         if (!permitted) {
           violations.push({
             rule: 'M4_01_REVIEW_REACHES_AUTHORING',

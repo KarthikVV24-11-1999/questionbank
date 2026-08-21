@@ -618,6 +618,36 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
 
     expect(violations).toHaveLength(2);
   });
+
+  it('exempts the composition seam (public/composition.ts) reaching into review plumbing', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('public/composition.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('exempts review plumbing importing the composition seam back, the other direction', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-composition-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('does not exempt an ordinary authoring file reaching into review plumbing — only composition.ts', () => {
+    // authoring-reaches-review.ts already imports application/review/, and it
+    // is not the composition root — the planted violation it proves (above)
+    // must still fire. This test guards the exemption from ever widening past
+    // the one named file.
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.rule === 'M4_01_AUTHORING_REACHES_REVIEW');
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.subject).toContain('authoring-reaches-review.ts');
+    expect(violations[0]?.subject).not.toContain('composition.ts');
+  });
 });
 
 describe('domain/review/ carries no throw and reads no clock (M4-01)', () => {
