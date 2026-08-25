@@ -2,6 +2,7 @@ import { err, ok, type Result } from '../../domain/result.js';
 import type { ContentError } from '../../domain/content-error.js';
 import type {
   ItemRepository,
+  ReviewAssignmentRepository,
   ReviewDecisionRepository,
   SolutionRepository,
   StimulusRepository,
@@ -16,6 +17,7 @@ import {
   type ReviewedOwnerType,
   type ReviewOutcome,
 } from '../../domain/review-decision.js';
+import { assertDecisionEvidenceComplete } from '../../domain/review/decision-evidence.js';
 import {
   latestMediaVersionOf,
   transitionMediaAsset,
@@ -47,7 +49,7 @@ import type {
   IdentifierFactory,
   MediaStore,
   RenderValidator,
-  ReviewProgress,
+  TransactionRunner,
 } from '../ports.js';
 import type {
   PublishMediaAssetVersion,
@@ -112,7 +114,10 @@ export interface LifecycleDependencies {
   readonly solutions: SolutionRepository;
   readonly reviews: ReviewDecisionRepository;
   readonly renderer: RenderValidator;
-  readonly reviewProgress: ReviewProgress;
+  /** M4-30: `WithdrawItemFromReviewHandler`'s `hasLiveClaim` read, inside its own transaction. */
+  readonly assignments: ReviewAssignmentRepository;
+  /** M4-28's one-transaction write — decision, candidates, assignment and lifecycle transition together. */
+  readonly transactions: TransactionRunner;
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
@@ -244,12 +249,33 @@ export class WithdrawItemFromReviewHandler
     const found = await this.deps.items.findById(command.itemId);
     if (!found.ok) return err(fromContent(found.error));
     const item = found.value;
-
-    // FR-TCH-08 rule 2. Withdrawing work a reviewer has already started on
-    // spends their time twice; withdrawing before they pick it up costs
-    // nobody anything.
     const versionId = item.versions[item.versions.length - 1]!.versionId;
-    if (await this.deps.reviewProgress.hasBegun(versionId)) {
+
+    // The domain decides the transition's validity here, in memory, before
+    // any write or any transaction — an item in the wrong state is refused
+    // without ever reaching the claim check below.
+    const withdrawn = transitionItem(item, { transition: 'withdraw' });
+    if (!withdrawn.ok) return err(fromContent(withdrawn.error));
+
+    // FR-TCH-08 rule 2 (M4-30). Withdrawing work a reviewer has already
+    // started on spends their time twice; withdrawing before they pick it
+    // up costs nobody anything. `hasLiveClaim` reads inside this same
+    // transaction and locks the row `claimNext` locks, so a claim and a
+    // withdrawal racing in overlapping transactions resolve to exactly one
+    // winner rather than both succeeding.
+    type WithdrawOutcome = { readonly refused: true } | { readonly refused: false; readonly item: Item };
+    const written = await this.deps.transactions.run<WithdrawOutcome>(async (tx) => {
+      const live = await this.deps.assignments.hasLiveClaim(versionId, this.deps.clock.now().toISOString(), tx);
+      if (!live.ok) return live;
+      if (live.value) return ok({ refused: true });
+
+      const saved = await this.deps.items.save(withdrawn.value, [], tx);
+      if (!saved.ok) return saved;
+      return ok({ refused: false, item: saved.value });
+    });
+    if (!written.ok) return err(fromContent(written.error));
+
+    if (written.value.refused) {
       return err(
         applicationError(
           'PreconditionFailed',
@@ -260,17 +286,38 @@ export class WithdrawItemFromReviewHandler
       );
     }
 
-    const withdrawn = transitionItem(item, { transition: 'withdraw' });
-    if (!withdrawn.ok) return err(fromContent(withdrawn.error));
-
-    const saved = await this.deps.items.save(withdrawn.value);
-    if (!saved.ok) return err(fromContent(saved.error));
-
     await this.writeAudit(context, this.name, 'Item', command.itemId);
-    return ok(saved.value);
+    return ok(written.value.item);
   }
 }
 
+/**
+ * **QC sampling (M4-11, DEC-M4-14) is deliberately not wired in here.**
+ * `isSampled(decisionId, policy)` stays pure and untouched by this handler —
+ * nothing below reads it, so a decision's outcome and timing cannot depend
+ * on whether it lands in the sampled 5%, which is the strongest form of
+ * "never gates" available.
+ *
+ * **The second-review assignment `isSampled` would drive is `Fail — blocked`,**
+ * not merely deferred. `ReviewAssignment` (M4-02) requires a named `reviewer`
+ * and starts at `state: 'claimed'` on every insert; there is no row shape for
+ * "unclaimed, awaiting a second look," and pushing to a *specific* reviewer
+ * needs a roster to pick one from. DEC-M4-5 already documents that no
+ * reviewer pool exists anywhere in M4 — the same missing resource the
+ * 40-items/hour throughput gate is blocked on. This is that gate again, not
+ * a second one; both share the M4-44 successor (build the pool, run three
+ * reviewers).
+ *
+ * **The sampled set is never stored.** `isSampled` is pure and deterministic
+ * on the decision id, so it is re-derivable exactly, at any time, by
+ * scanning approving decisions and re-applying it — a stored flag would be a
+ * cache nothing keeps correct, and an audit record is evidence an action was
+ * taken, not an index of measurements. One caveat, named rather than fixed:
+ * the derivation depends on `policy.sampleRate`, so changing the rate
+ * retroactively redefines which past decisions count as sampled. If that
+ * ever matters, the successor is pinning the rate actually in force onto the
+ * decision row at write time.
+ */
 export class RecordItemReviewDecisionHandler
   extends AuditedHandler
   implements Handler<RecordItemReviewDecision, Item>
@@ -301,37 +348,62 @@ export class RecordItemReviewDecisionHandler
       );
     }
 
-    // INV-12, at the decision as well as at assignment (FR-QM-03). Refused
-    // here rather than recorded and caught later, because a self-approval on
-    // the record is evidence of a hole even if publication then refuses it.
-    if (version.authoredBy.id === context.principal.id) {
-      return err(
-        applicationError(
-          'RuleViolation',
-          'REVIEWER_IS_AUTHOR',
-          'the reviewer is the author of this version; self-review is prohibited (INV-12)',
-          'reviewer',
-        ),
-      );
-    }
-
-    const recorded = await this.recordDecision(
-      context,
-      'item_version',
-      command.itemVersionId,
-      command.outcome,
-      command.justification,
+    // The cheap refusal first (M4-28): self-review (INV-12, via M4-04's one
+    // shared function — the second of its three call sites), the reason code
+    // a non-approving outcome requires (DEC-M4-11), DUPLICATE naming its
+    // target, and the duplicate-check disclosure — all checked before the
+    // transition, or any write, is attempted.
+    const evidence = assertDecisionEvidenceComplete(
+      {
+        outcome: command.outcome,
+        reviewer: context.principal,
+        ...(command.reasonCode === undefined ? {} : { reasonCode: command.reasonCode }),
+        ...(command.duplicateOfItemId === undefined ? {} : { duplicateOfItemId: command.duplicateOfItemId }),
+        candidatesShownIds: command.candidatesShownIds,
+      },
+      {
+        authoredBy: version.authoredBy,
+        ...(version.editedBy === undefined ? {} : { editedBy: version.editedBy }),
+      },
     );
-    if (!recorded.ok) return err(recorded.error);
+    if (!evidence.ok) return err(fromContent(evidence.error));
 
+    const decision = createReviewDecision({
+      decisionId: this.deps.identifiers.next(),
+      ownerType: 'item_version',
+      ownerVersionId: command.itemVersionId,
+      reviewer: context.principal,
+      outcome: command.outcome,
+      ...(command.justification === undefined ? {} : { justification: command.justification }),
+      decidedAt: this.deps.clock.now().toISOString(),
+      ...(command.reasonCode === undefined ? {} : { reasonCode: command.reasonCode }),
+      ...(command.duplicateOfItemId === undefined ? {} : { duplicateOfItemId: command.duplicateOfItemId }),
+      candidatesShownIds: command.candidatesShownIds,
+    });
+    if (!decision.ok) return err(fromContent(decision.error));
+
+    // The domain decides the transition's validity here, in memory, before
+    // any write — an item in the wrong state is refused without ever
+    // opening the transaction below.
     const moved = transitionItem(item, { transition: transitionFor(command.outcome) });
     if (!moved.ok) return err(fromContent(moved.error));
 
-    const saved = await this.deps.items.save(moved.value);
-    if (!saved.ok) return err(fromContent(saved.error));
+    // One transaction (M4-28): the decision, its candidate rows and the
+    // assignment's transition to `decided` (all three inside `reviews.record`,
+    // M4-19) commit together with the item's lifecycle transition, or none of
+    // it does. A publication-precondition-shaped refusal cannot occur here —
+    // that check belongs to `PublishItemVersionHandler` — but any other
+    // refusal from either write rolls back the whole transaction and reaches
+    // the caller with its own code, message and location, never re-worded.
+    const written = await this.deps.transactions.run(async (tx) => {
+      const recorded = await this.deps.reviews.record(decision.value, command.assignmentId, tx);
+      if (!recorded.ok) return recorded;
+      return this.deps.items.save(moved.value, [], tx);
+    });
+    if (!written.ok) return err(fromContent(written.error));
 
     await this.writeAudit(context, this.name, 'ItemVersion', command.itemVersionId, command.justification);
-    return ok(saved.value);
+    return ok(written.value);
   }
 }
 

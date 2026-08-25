@@ -8,18 +8,25 @@ import {
   singleCorrectSpec,
   textBody,
 } from '../../../testing/content-fixtures.js';
-import type { Result } from '../domain/result.js';
+import { err, type Result } from '../domain/result.js';
+import { validationError } from '../domain/content-error.js';
 import { transitionItem, type Item } from '../domain/item.js';
 import type { ItemVersion } from '../domain/item-version.js';
 import { createReviewDecision } from '../domain/review-decision.js';
+import { isSampled } from '../domain/review/qc-sampling.js';
+import { DEC_M4_1_DEFAULT_POLICY } from '../domain/review/review-policy.js';
 import { transitionMediaAsset } from '../domain/media-asset.js';
 import { RegisterMediaAssetHandler } from './handlers/media-handlers.js';
 import { transitionSolution, type Solution } from '../domain/solution.js';
 import { transitionStimulus, type Stimulus } from '../domain/stimulus.js';
 import type { PublicationError } from '../domain/publication-preconditions.js';
+import type { ReviewAssignmentRepository, ReviewDecisionRepository } from '../domain/repository-ports.js';
 import { PostgresItemRepository } from '../infrastructure/item.repository.js';
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
+import { PostgresReviewAssignmentRepository } from '../infrastructure/review/review-assignment.repository.js';
+import { PostgresTransactionRunner } from '../infrastructure/transaction-runner.js';
+import { ApproveWithEditsHandler } from './review/handlers/reviewer-edit-handlers.js';
 import { PostgresSolutionRepository } from '../infrastructure/solution.repository.js';
 import { PostgresStimulusRepository } from '../infrastructure/stimulus.repository.js';
 import type { ApplicationError } from './authorization.js';
@@ -60,7 +67,6 @@ import {
   InMemoryAuditRecorder,
   InMemoryIdempotencyStore,
   InMemoryMediaStore,
-  InMemoryReviewProgress,
   type ApplicationContext,
   type Clock,
   type IdentifierFactory,
@@ -80,6 +86,7 @@ let stimuli: PostgresStimulusRepository;
 let solutions: PostgresSolutionRepository;
 let assets: PostgresMediaAssetRepository;
 let reviews: PostgresReviewDecisionRepository;
+let reviewAssignments: PostgresReviewAssignmentRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
@@ -90,6 +97,7 @@ beforeAll(async () => {
   solutions = new PostgresSolutionRepository(database.pool);
   assets = new PostgresMediaAssetRepository(database.pool);
   reviews = new PostgresReviewDecisionRepository(database.pool);
+  reviewAssignments = new PostgresReviewAssignmentRepository(database.pool);
 });
 
 afterAll(async () => {
@@ -121,7 +129,6 @@ type Refusal = Result<unknown, ApplicationError>;
 const NOW = new Date('2026-08-11T09:00:00.000Z');
 const clock: Clock = { now: () => NOW };
 const identifiers: IdentifierFactory = { next: () => freshUuid() };
-const reviewProgress = new InMemoryReviewProgress();
 const mediaStore = new InMemoryMediaStore();
 
 const passingRenderer: RenderValidator = {
@@ -154,7 +161,8 @@ function lifecycle(renderer: RenderValidator = passingRenderer): LifecycleDepend
     solutions,
     reviews,
     renderer,
-    reviewProgress,
+    assignments: reviewAssignments,
+    transactions: new PostgresTransactionRunner(database.pool),
     clock,
     identifiers,
     audit: new InMemoryAuditRecorder(),
@@ -230,7 +238,7 @@ async function approved(item: Item, deps = lifecycle()): Promise<Item> {
   expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
   return expectValue(
     await new RecordItemReviewDecisionHandler(deps).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve', candidatesShownIds: [] },
       as(reviewer),
     ),
   );
@@ -318,6 +326,8 @@ describe('the whole path from draft to published', () => {
           itemVersionId: item.versions[0]!.versionId,
           outcome: 'request_changes',
           justification: 'the stem does not say the ramp is frictionless',
+          reasonCode: 'FACTUALLY_INCORRECT',
+          candidatesShownIds: [],
         },
         as(reviewer),
       ),
@@ -338,7 +348,7 @@ describe('the whole path from draft to published', () => {
     expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
 
     const refused = await new RecordItemReviewDecisionHandler(deps).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'reject' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'reject', reasonCode: 'FACTUALLY_INCORRECT', candidatesShownIds: [] },
       as(reviewer),
     );
     expect(expectError(refused).code).toBe('JUSTIFICATION_REQUIRED');
@@ -350,10 +360,14 @@ describe('the whole path from draft to published', () => {
     expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
 
     const refused = await new RecordItemReviewDecisionHandler(deps).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve', candidatesShownIds: [] },
       as({ ...author, roleContext: ['reviewer', 'author'] }),
     );
-    expect(expectError(refused).code).toBe('REVIEWER_IS_AUTHOR');
+    // M4-04 consolidates self-review into one shared function
+    // (`assertAssignable`), replacing this handler's old inline
+    // `REVIEWER_IS_AUTHOR` check. Same refusal, same scenario — the code is
+    // now the shared vocabulary's, not a second implementation's.
+    expect(expectError(refused).code).toBe('SELF_REVIEW_PROHIBITED');
   });
 
   it('keeps the decision history rather than overwriting it', async () => {
@@ -363,14 +377,21 @@ describe('the whole path from draft to published', () => {
     expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
     expectValue(
       await new RecordItemReviewDecisionHandler(deps).handle(
-        { itemId: item.itemId, itemVersionId: versionId, outcome: 'request_changes', justification: 'unclear' },
+        {
+          itemId: item.itemId,
+          itemVersionId: versionId,
+          outcome: 'request_changes',
+          justification: 'unclear',
+          reasonCode: 'FACTUALLY_INCORRECT',
+          candidatesShownIds: [],
+        },
         as(reviewer),
       ),
     );
     expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
     expectValue(
       await new RecordItemReviewDecisionHandler(deps).handle(
-        { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve' },
+        { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve', candidatesShownIds: [] },
         as(reviewer),
       ),
     );
@@ -378,6 +399,623 @@ describe('the whole path from draft to published', () => {
     const history = expectValue(await reviews.findAllFor('item_version', versionId));
     expect(history).toHaveLength(2);
     expect(expectValue(await reviews.findApprovalFor('item_version', versionId)).outcome).toBe('approve');
+  });
+});
+
+describe('RecordItemReviewDecisionHandler — one transaction (M4-28)', () => {
+  it('commits the decision, its candidate rows, the assignment transition and the lifecycle transition together', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const claimedAt = clock.now().toISOString();
+    const assignment = expectValue(
+      await reviewAssignments.assign({
+        itemVersionId: versionId,
+        subject: 'physics',
+        reviewer,
+        now: claimedAt,
+        leaseExpiresAt: new Date(clock.now().getTime() + 4 * 60 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    const candidateId = freshUuid();
+    const decided = expectValue(
+      await new RecordItemReviewDecisionHandler(deps).handle(
+        {
+          itemId: item.itemId,
+          itemVersionId: versionId,
+          outcome: 'approve',
+          candidatesShownIds: [candidateId],
+          assignmentId: assignment.assignmentId,
+        },
+        as(reviewer),
+      ),
+    );
+
+    expect(decided.lifecycleState).toBe('approved');
+
+    const decisions = expectValue(await reviews.findAllFor('item_version', versionId));
+    expect(decisions).toHaveLength(1);
+
+    const shown = await database.pool.query<{ candidate_item_id: string }>(
+      `SELECT candidate_item_id FROM content.review_candidate_shown WHERE review_decision_id = $1`,
+      [decisions[0]!.decisionId],
+    );
+    expect(shown.rows.map((row) => row.candidate_item_id)).toEqual([candidateId]);
+
+    const decidedAssignment = expectValue(await reviewAssignments.findById(assignment.assignmentId));
+    expect(decidedAssignment.state).toBe('decided');
+  });
+
+  it('records a DUPLICATE rejection naming its target, in the same transaction as the transition', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const original = await draftItem();
+    const duplicateOfItemId = original.itemId;
+    const decided = expectValue(
+      await new RecordItemReviewDecisionHandler(deps).handle(
+        {
+          itemId: item.itemId,
+          itemVersionId: versionId,
+          outcome: 'reject',
+          justification: 'this duplicates an existing item',
+          reasonCode: 'DUPLICATE',
+          duplicateOfItemId,
+          candidatesShownIds: [],
+        },
+        as(reviewer),
+      ),
+    );
+    expect(decided.lifecycleState).toBe('rejected');
+
+    const decisions = expectValue(await reviews.findAllFor('item_version', versionId));
+    expect(decisions[0]!.reasonCode).toBe('DUPLICATE');
+    expect(decisions[0]!.duplicateOfItemId).toBe(duplicateOfItemId);
+  });
+
+  it('refuses self-review before any write is attempted, not just before the transition', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new RecordItemReviewDecisionHandler(deps).handle(
+      { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve', candidatesShownIds: [] },
+      as({ ...author, roleContext: ['reviewer', 'author'] }),
+    );
+    expect(expectError(refused).code).toBe('SELF_REVIEW_PROHIBITED');
+
+    // Nothing reached storage: the evidence check runs before the item is
+    // even re-fetched for the transition, let alone before the transaction
+    // that would have written it opens.
+    const decisions = expectValue(await reviews.findAllFor('item_version', versionId));
+    expect(decisions).toHaveLength(0);
+    const stillInReview = expectValue(await items.findById(item.itemId));
+    expect(stillInReview.lifecycleState).toBe('in_review');
+  });
+
+  it('rolls back the decision, its candidate rows and the assignment transition when the item write conflicts', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const assignment = expectValue(
+      await reviewAssignments.assign({
+        itemVersionId: versionId,
+        subject: 'physics',
+        reviewer,
+        now: clock.now().toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() + 4 * 60 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    // Wraps the real repository, and — the instant the decision half of the
+    // transaction succeeds — commits a concurrent change to the item's
+    // `aggregate_version` on a separate connection. When the handler then
+    // reaches `items.save` inside the same still-open transaction, its
+    // optimistic-concurrency check sees a version it did not expect and
+    // refuses with `CONFLICT`, forcing the whole transaction to roll back —
+    // a failure genuinely caused by real concurrency, not a mock.
+    const concurrentlyBumped: ReviewDecisionRepository = {
+      record: async (decision, claimedAssignmentId, tx) => {
+        const result = await reviews.record(decision, claimedAssignmentId, tx);
+        if (result.ok) {
+          await database.pool.query(`UPDATE content.item SET aggregate_version = aggregate_version + 1 WHERE item_id = $1`, [
+            item.itemId,
+          ]);
+        }
+        return result;
+      },
+      findApprovalFor: (...args) => reviews.findApprovalFor(...args),
+      findAllFor: (...args) => reviews.findAllFor(...args),
+      findByItemVersion: (...args) => reviews.findByItemVersion(...args),
+      findByReviewer: (...args) => reviews.findByReviewer(...args),
+      findWithinRange: (...args) => reviews.findWithinRange(...args),
+    };
+
+    const candidateId = freshUuid();
+    const refused = await new RecordItemReviewDecisionHandler({ ...deps, reviews: concurrentlyBumped }).handle(
+      {
+        itemId: item.itemId,
+        itemVersionId: versionId,
+        outcome: 'approve',
+        candidatesShownIds: [candidateId],
+        assignmentId: assignment.assignmentId,
+      },
+      as(reviewer),
+    );
+    expect(expectError(refused).code).toBe('CONFLICT');
+
+    const decisions = expectValue(await reviews.findAllFor('item_version', versionId));
+    expect(decisions).toHaveLength(0);
+
+    const shown = await database.pool.query(`SELECT 1 FROM content.review_candidate_shown WHERE candidate_item_id = $1`, [
+      candidateId,
+    ]);
+    expect(shown.rowCount).toBe(0);
+
+    const stillClaimed = expectValue(await reviewAssignments.findById(assignment.assignmentId));
+    expect(stillClaimed.state).toBe('claimed');
+
+    const stillInReview = expectValue(await items.findById(item.itemId));
+    expect(stillInReview.lifecycleState).toBe('in_review');
+  });
+
+  it('proves the shared transaction is what makes the rollback complete — a write issued outside it survives', async () => {
+    const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
+    const deps = lifecycle();
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const found = expectValue(await items.findById(item.itemId));
+    const moved = expectValue(transitionItem(found, { transition: 'approve' }));
+    const decision = expectValue(
+      createReviewDecision({
+        decisionId: freshUuid(),
+        ownerType: 'item_version',
+        ownerVersionId: versionId,
+        reviewer,
+        outcome: 'approve',
+        decidedAt: clock.now().toISOString(),
+        candidatesShownIds: [],
+      }),
+    );
+
+    const runner = new PostgresTransactionRunner(database.pool);
+    const leaky = await runner.run(async (tx) => {
+      const recorded = await reviews.record(decision, undefined, tx);
+      if (!recorded.ok) return recorded;
+      // The bug this test exists to make visible: `items.save` is called
+      // with no `tx`, so it opens and commits its own transaction rather
+      // than joining the caller's — exactly the omission M4-28's guard
+      // requires a committed proof for.
+      const saved = await items.save(moved);
+      if (!saved.ok) return saved;
+      // Force the outer transaction to roll back regardless, so the only
+      // way anything survives is if it escaped the transaction entirely.
+      return err(validationError('PERSISTENCE_REJECTED', 'forced for this test', 'test'));
+    });
+    expect(leaky.ok).toBe(false);
+
+    // The decision, threaded through the real transaction, rolled back —
+    // this is the assertion the real M4-28 handler's rollback test relies
+    // on to prove atomicity.
+    const decisions = expectValue(await reviews.findAllFor('item_version', versionId));
+    expect(decisions).toHaveLength(0);
+
+    // The item's transition, issued without `tx`, did not roll back — it
+    // committed on its own connection the instant `items.save` returned,
+    // regardless of what the outer transaction later decided. This is
+    // exactly what would make the "nothing written" assertion above go red
+    // if the real handler ever omitted `tx` on this call.
+    const leakedItem = expectValue(await items.findById(item.itemId));
+    expect(leakedItem.lifecycleState).toBe('approved');
+  });
+
+  it('never delays or gates a decision because it happens to be sampled for QC (M4-11, DEC-M4-14)', async () => {
+    // Found by brute-force search over sha256(decisionId) against the
+    // default policy's 5% rate — not a special value the handler treats
+    // differently, just a decisionId `isSampled` happens to answer `true`
+    // for, so this test can exercise that branch of the *policy* without
+    // the handler having any branch of its own to exercise.
+    const SAMPLED_DECISION_ID = '00000000-0000-4000-e000-000000000001';
+    const UNSAMPLED_DECISION_ID = '00000000-0000-4000-e000-000000000002';
+    expect(isSampled(SAMPLED_DECISION_ID, DEC_M4_1_DEFAULT_POLICY)).toBe(true);
+    expect(isSampled(UNSAMPLED_DECISION_ID, DEC_M4_1_DEFAULT_POLICY)).toBe(false);
+
+    const outcomeFor = async (decisionId: string) => {
+      const item = await draftItem();
+      const versionId = item.versions[0]!.versionId;
+      const deps = { ...lifecycle(), identifiers: { next: () => decisionId } };
+      expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+      const before = await database.pool.query<{ n: string }>(`SELECT count(*) AS n FROM content.review_assignment`);
+      const decided = expectValue(
+        await new RecordItemReviewDecisionHandler(deps).handle(
+          { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve', candidatesShownIds: [] },
+          as(reviewer),
+        ),
+      );
+      const after = await database.pool.query<{ n: string }>(`SELECT count(*) AS n FROM content.review_assignment`);
+
+      return {
+        lifecycleState: decided.lifecycleState,
+        newAssignmentRows: Number(after.rows[0]!.n) - Number(before.rows[0]!.n),
+      };
+    };
+
+    const sampled = await outcomeFor(SAMPLED_DECISION_ID);
+    const unsampled = await outcomeFor(UNSAMPLED_DECISION_ID);
+
+    // Same shape either way: sampling is not wired into this handler at
+    // all, so there is nothing for the sampled bucket to gate or delay.
+    expect(sampled).toEqual(unsampled);
+    expect(sampled.lifecycleState).toBe('approved');
+    // The blocked half of M4-28 (no reviewer pool — see the module header
+    // and DEC-M4-5): a sampled decision creates no second-review
+    // assignment row, sampled or not.
+    expect(sampled.newAssignmentRows).toBe(0);
+  });
+});
+
+describe('ApproveWithEditsHandler (M4-29, DEC-M4-3, ADR-0018)', () => {
+  it('attaches the edited version, keeps authoredBy, records editedBy, and releases the claim', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const originalVersionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const assignment = expectValue(
+      await reviewAssignments.assign({
+        itemVersionId: originalVersionId,
+        subject: 'physics',
+        reviewer,
+        now: clock.now().toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() + 4 * 60 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    const edited = expectValue(
+      await new ApproveWithEditsHandler(deps).handle(
+        {
+          itemId: item.itemId,
+          itemVersionId: originalVersionId,
+          edits: { difficultyEstimate: 'challenging' },
+          candidatesShownIds: [],
+          assignmentId: assignment.assignmentId,
+        },
+        as(reviewer),
+      ),
+    );
+
+    expect(edited.lifecycleState).toBe('in_review');
+    expect(edited.versions).toHaveLength(2);
+    const addedVersion = edited.versions[1]!;
+    expect(addedVersion.authoredBy.id).toBe(AUTHOR_ID);
+    expect(addedVersion.editedBy?.id).toBe(REVIEWER_ID);
+    expect(addedVersion.difficultyEstimate).toBe('challenging');
+
+    const decidedAssignment = expectValue(await reviewAssignments.findById(assignment.assignmentId));
+    expect(decidedAssignment.state).toBe('decided');
+  });
+
+  it('refuses a key edit, naming request_changes as the correct outcome instead', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      {
+        itemId: item.itemId,
+        itemVersionId: item.versions[0]!.versionId,
+        edits: { responseSpec: singleCorrectSpec() },
+        candidatesShownIds: [],
+      },
+      as(reviewer),
+    );
+    const error = expectError(refused);
+    expect(error.code).toBe('KEY_EDIT_REQUIRES_CHANGES_REQUESTED');
+    expect(error.message).toContain('request_changes');
+  });
+
+  it('refuses self-review on the version being edited (INV-12)', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      {
+        itemId: item.itemId,
+        itemVersionId: item.versions[0]!.versionId,
+        edits: { difficultyEstimate: 'challenging' },
+        candidatesShownIds: [],
+      },
+      as({ ...author, roleContext: ['reviewer', 'author'] }),
+    );
+    expect(expectError(refused).code).toBe('SELF_REVIEW_PROHIBITED');
+  });
+
+  it('the resulting version is publishable by a different reviewer, and refused for the editing reviewer', async () => {
+    // decidedAt ties would leave findApprovalFor's ORDER BY ... DESC LIMIT 1
+    // to pick between two decisions arbitrarily; a strictly-advancing clock,
+    // local to this test, makes "most recent" unambiguous the way it always
+    // is outside a test with a frozen clock.
+    let ticked = NOW.getTime();
+    const advancingClock: Clock = {
+      now: () => {
+        ticked += 1000;
+        return new Date(ticked);
+      },
+    };
+    const deps = { ...lifecycle(), clock: advancingClock };
+    const item = await draftItem();
+    const originalVersionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const edited = expectValue(
+      await new ApproveWithEditsHandler(deps).handle(
+        {
+          itemId: item.itemId,
+          itemVersionId: originalVersionId,
+          edits: { difficultyEstimate: 'challenging' },
+          candidatesShownIds: [],
+        },
+        as(reviewer),
+      ),
+    );
+    const editedVersionId = edited.versions[1]!.versionId;
+
+    // A solution targeting the *edited* version specifically — INV-08's
+    // precondition is keyed on the version, not the item, and the original
+    // version's solution says nothing about this one.
+    const solution = expectValue(
+      await new CreateSolutionDraftHandler(solutionBench()).handle(
+        {
+          itemId: item.itemId,
+          targetItemVersionId: editedVersionId,
+          subject: 'physics',
+          content: {
+            finalAnswerAssertion: { kind: 'OPTION', optionId: 'b' },
+            steps: [{ ordinal: 1, body: textBody('Resolve the weight along the incline.'), conceptRefs: [] }],
+          },
+        },
+        as(author),
+      ),
+    );
+    const solutionDeps = { ...lifecycle(), clock: advancingClock };
+    expectValue(
+      await new SubmitSolutionForReviewHandler(solutionDeps).handle({ solutionId: solution.solutionId }, as(author)),
+    );
+    expectValue(
+      await new RecordSolutionReviewDecisionHandler(solutionDeps).handle(
+        { solutionId: solution.solutionId, solutionVersionId: solution.versions[0]!.versionId, outcome: 'approve' },
+        as(reviewer),
+      ),
+    );
+    expectValue(
+      await new PublishSolutionVersionHandler(solutionDeps).handle(
+        { solutionId: solution.solutionId, solutionVersionId: solution.versions[0]!.versionId },
+        asOps(),
+      ),
+    );
+
+    // The editing reviewer's own decision on the edited version is refused —
+    // it could never stand as the publication signature anyway (INV-12,
+    // checked against editedBy in publication-preconditions.ts).
+    const selfDecision = await new RecordItemReviewDecisionHandler(deps).handle(
+      { itemId: item.itemId, itemVersionId: editedVersionId, outcome: 'approve', candidatesShownIds: [] },
+      as(reviewer),
+    );
+    expect(expectError(selfDecision).code).toBe('SELF_REVIEW_PROHIBITED');
+
+    // A genuinely independent reviewer decides, and only then does it publish.
+    const otherReviewer: PrincipalRef = { kind: 'human', id: freshUuid(), roleContext: ['reviewer', 'subject:physics'] };
+    const decided = expectValue(
+      await new RecordItemReviewDecisionHandler(deps).handle(
+        { itemId: item.itemId, itemVersionId: editedVersionId, outcome: 'approve', candidatesShownIds: [] },
+        as(otherReviewer),
+      ),
+    );
+    expect(decided.lifecycleState).toBe('approved');
+
+    const published = expectValue(
+      await new PublishItemVersionHandler(deps).handle(
+        { itemId: item.itemId, itemVersionId: editedVersionId },
+        asOps(),
+      ),
+    );
+    expect(published.lifecycleState).toBe('published');
+    expect(published.currentPublishedVersionId).toBe(editedVersionId);
+  });
+
+  it('keeps both versions retrievable and distinguishable by editedBy', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const originalVersionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    expectValue(
+      await new ApproveWithEditsHandler(deps).handle(
+        {
+          itemId: item.itemId,
+          itemVersionId: originalVersionId,
+          edits: { difficultyEstimate: 'challenging' },
+          candidatesShownIds: [],
+        },
+        as(reviewer),
+      ),
+    );
+
+    const reloaded = expectValue(await items.findById(item.itemId));
+    expect(reloaded.versions).toHaveLength(2);
+    const original = reloaded.versions.find((v) => v.versionId === originalVersionId)!;
+    const edited = reloaded.versions.find((v) => v.versionId !== originalVersionId)!;
+    expect(original.editedBy).toBeUndefined();
+    expect(edited.editedBy?.id).toBe(REVIEWER_ID);
+    expect(edited.authoredBy.id).toBe(AUTHOR_ID);
+  });
+
+  it('refuses when not authenticated as a reviewer', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, edits: {}, candidatesShownIds: [] },
+      asOps(),
+    );
+    expect(expectError(refused).kind).toBe('Authorization');
+  });
+
+  it('returns NOT_FOUND for an item that does not exist', async () => {
+    const deps = lifecycle();
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      { itemId: freshUuid(), itemVersionId: freshUuid(), edits: {}, candidatesShownIds: [] },
+      as(reviewer),
+    );
+    expect(expectError(refused).kind).toBe('NotFound');
+  });
+
+  it('reports a version the item does not hold', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      { itemId: item.itemId, itemVersionId: 'not-a-version', edits: {}, candidatesShownIds: [] },
+      as(reviewer),
+    );
+    const error = expectError(refused);
+    expect(error.kind).toBe('NotFound');
+    expect(error.code).toBe('VERSION_NOT_FOUND');
+  });
+
+  it('rolls back the edited version and the decision together when the write is forced to fail', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const originalVersionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      {
+        itemId: item.itemId,
+        itemVersionId: originalVersionId,
+        edits: { difficultyEstimate: 'challenging' },
+        candidatesShownIds: [],
+        // Does not exist — reviews.record fails inside the shared
+        // transaction after the version has already been derived, forcing
+        // a rollback of the whole write.
+        assignmentId: freshUuid(),
+      },
+      as(reviewer),
+    );
+    expect(expectError(refused).kind).toBe('NotFound');
+
+    const reloaded = expectValue(await items.findById(item.itemId));
+    expect(reloaded.versions).toHaveLength(1);
+    const decisions = expectValue(await reviews.findAllFor('item_version', originalVersionId));
+    expect(decisions).toHaveLength(0);
+  });
+
+  it('refuses editing a version on an item that is not in_review', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      {
+        itemId: item.itemId,
+        itemVersionId: item.versions[0]!.versionId,
+        edits: { difficultyEstimate: 'challenging' },
+        candidatesShownIds: [],
+      },
+      as(reviewer),
+    );
+    expect(expectError(refused).code).toBe('ITEM_NOT_IN_REVIEW');
+  });
+
+  it('checks self-review against a version already once edited, not only an unedited one', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const originalVersionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const firstEdit = expectValue(
+      await new ApproveWithEditsHandler(deps).handle(
+        {
+          itemId: item.itemId,
+          itemVersionId: originalVersionId,
+          edits: { difficultyEstimate: 'challenging' },
+          candidatesShownIds: [],
+        },
+        as(reviewer),
+      ),
+    );
+    const firstEditedVersionId = firstEdit.versions[1]!.versionId;
+
+    // A third reviewer, editing the already-once-edited version: not the
+    // author and not this version's own editor, so evidence passes and
+    // reaches the second (already-edited) version's editedBy branch.
+    const thirdReviewer: PrincipalRef = { kind: 'human', id: freshUuid(), roleContext: ['reviewer', 'subject:physics'] };
+    const secondEdit = expectValue(
+      await new ApproveWithEditsHandler(deps).handle(
+        {
+          itemId: item.itemId,
+          itemVersionId: firstEditedVersionId,
+          edits: { stem: textBody('An updated stem.') },
+          candidatesShownIds: [],
+        },
+        as(thirdReviewer),
+      ),
+    );
+    expect(secondEdit.versions).toHaveLength(3);
+
+    // The same version's own editor, trying again, is refused — the
+    // editedBy branch of the evidence check catching the case authoredBy
+    // alone could not.
+    const editorAgain = await new ApproveWithEditsHandler(deps).handle(
+      {
+        itemId: item.itemId,
+        itemVersionId: firstEditedVersionId,
+        edits: { difficultyEstimate: 'moderate' },
+        candidatesShownIds: [],
+      },
+      as(reviewer),
+    );
+    expect(expectError(editorAgain).code).toBe('SELF_REVIEW_PROHIBITED');
+  });
+
+  it('reports the domain refusal when the decision it would record is not buildable', async () => {
+    let call = 0;
+    const twoFacedIdentifiers = {
+      next: () => {
+        call += 1;
+        // First call derives the edited version's id (must be real);
+        // second call is the decision's id — blank, forcing createReviewDecision
+        // to refuse after the version has already been derived and attached
+        // in memory, but before either write is attempted.
+        return call === 1 ? freshUuid() : '   ';
+      },
+    };
+    const deps = { ...lifecycle(), identifiers: twoFacedIdentifiers };
+    const item = await draftItem();
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new ApproveWithEditsHandler(deps).handle(
+      {
+        itemId: item.itemId,
+        itemVersionId: item.versions[0]!.versionId,
+        edits: { difficultyEstimate: 'challenging' },
+        candidatesShownIds: [],
+      },
+      as(reviewer),
+    );
+    expect(expectError(refused).code).toBe('DECISION_ID_REQUIRED');
   });
 });
 
@@ -613,6 +1251,24 @@ describe('publication is refused for each unmet precondition', () => {
 });
 
 describe('withdrawal (FR-TCH-08 rule 2)', () => {
+  it('reports the repository error verbatim when hasLiveClaim itself fails', async () => {
+    const item = await draftItem();
+    const failingAssignments: ReviewAssignmentRepository = {
+      hasLiveClaim: async () => err(validationError('PERSISTENCE_REJECTED', 'forced for this test', 'test')),
+      claimNext: (...args) => reviewAssignments.claimNext(...args),
+      assign: (...args) => reviewAssignments.assign(...args),
+      release: (...args) => reviewAssignments.release(...args),
+      extendLease: (...args) => reviewAssignments.extendLease(...args),
+      releaseExpired: (...args) => reviewAssignments.releaseExpired(...args),
+      findById: (...args) => reviewAssignments.findById(...args),
+    };
+    const deps = { ...lifecycle(), assignments: failingAssignments };
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+
+    const refused = await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+
   it('is permitted before a reviewer has started', async () => {
     const deps = lifecycle();
     const item = await draftItem();
@@ -624,14 +1280,46 @@ describe('withdrawal (FR-TCH-08 rule 2)', () => {
     expect(withdrawn.lifecycleState).toBe('draft');
   });
 
-  it('is refused once review has begun', async () => {
+  it('is refused once review has begun (a live claim exists, M4-30)', async () => {
     const deps = lifecycle();
     const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
     expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
-    reviewProgress.claim(item.versions[0]!.versionId);
+    expectValue(
+      await reviewAssignments.assign({
+        itemVersionId: versionId,
+        subject: 'physics',
+        reviewer,
+        now: clock.now().toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() + 4 * 60 * 60 * 1000).toISOString(),
+      }),
+    );
 
     const refused = await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
     expect(expectError(refused).code).toBe('REVIEW_ALREADY_BEGUN');
+  });
+
+  it('is permitted again after the claimed lease has expired — an expired lease is not begun work', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+    expectValue(
+      await reviewAssignments.assign({
+        itemVersionId: versionId,
+        subject: 'physics',
+        reviewer,
+        // Claimed and expired entirely in the past, relative to the fixed
+        // clock every handler in this file reads.
+        now: new Date(clock.now().getTime() - 2 * 60 * 60 * 1000).toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() - 60 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    const withdrawn = expectValue(
+      await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author)),
+    );
+    expect(withdrawn.lifecycleState).toBe('draft');
   });
 
   it('is refused for an item that is not in review at all', async () => {
@@ -639,6 +1327,57 @@ describe('withdrawal (FR-TCH-08 rule 2)', () => {
     const item = await draftItem();
     const refused = await new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
     expect(expectError(refused).code).toBe('TRANSITION_ILLEGAL');
+  });
+
+  it('a claim and a withdrawal racing in overlapping transactions resolve to exactly one winner', async () => {
+    const deps = lifecycle();
+    // A subject unique to this test: claimNext's candidate pool must contain
+    // exactly this one item version, or an unrelated in_review leftover
+    // from an earlier test in this shared-database file could be the one
+    // actually claimed, breaking the race's premise.
+    const raceSubject = `race-${freshUuid()}`;
+    const raceAuthor: PrincipalRef = { kind: 'human', id: freshUuid(), roleContext: ['author', `subject:${raceSubject}`] };
+    const raceReviewer: PrincipalRef = {
+      kind: 'human',
+      id: freshUuid(),
+      roleContext: ['reviewer', `subject:${raceSubject}`],
+    };
+
+    const item = expectValue(
+      await new CreateItemDraftHandler(itemBench()).handle(
+        { itemType: 'SINGLE_CORRECT_MCQ', content: itemContent() },
+        as(raceAuthor),
+      ),
+    );
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(raceAuthor)));
+
+    const [claimResult, withdrawResult] = await Promise.all([
+      reviewAssignments.claimNext({
+        subject: raceSubject,
+        reviewer: raceReviewer,
+        ordering: 'oldest_first',
+        now: clock.now().toISOString(),
+        leaseExpiresAt: new Date(clock.now().getTime() + 4 * 60 * 60 * 1000).toISOString(),
+        escalateAfterHours: 72,
+      }),
+      new WithdrawItemFromReviewHandler(deps).handle({ itemId: item.itemId }, as(raceAuthor)),
+    ]);
+
+    const outcomes = [claimResult.ok, withdrawResult.ok];
+    // Exactly one winner: never both succeed (a claim on an item that just
+    // withdrew, or a withdrawal racing past a live claim), and never both
+    // fail (there is nothing else contending for this one item version).
+    expect(outcomes.filter(Boolean)).toHaveLength(1);
+
+    if (withdrawResult.ok) {
+      expect(withdrawResult.value.lifecycleState).toBe('draft');
+      expect(expectError(claimResult).kind).toBe('NotFound');
+    } else {
+      expect(expectError(withdrawResult).code).toBe('REVIEW_ALREADY_BEGUN');
+      expect(claimResult.ok).toBe(true);
+      expect(claimResult.ok && claimResult.value.itemVersionId).toBe(versionId);
+    }
   });
 });
 
@@ -703,7 +1442,7 @@ describe('suspension and retirement', () => {
       await new SubmitItemForReviewHandler(deps).handle({ itemId: freshUuid() }, as(author)),
       await new WithdrawItemFromReviewHandler(deps).handle({ itemId: freshUuid() }, as(author)),
       await new RecordItemReviewDecisionHandler(deps).handle(
-        { itemId: freshUuid(), itemVersionId: freshUuid(), outcome: 'approve' },
+        { itemId: freshUuid(), itemVersionId: freshUuid(), outcome: 'approve', candidatesShownIds: [] },
         as(reviewer),
       ),
       await new PublishItemVersionHandler(deps).handle(
@@ -1031,7 +1770,7 @@ describe('every transition is permission-gated', () => {
       await new SubmitItemForReviewHandler(deps).handle({ itemId: 'x' }, learnerContext),
       await new WithdrawItemFromReviewHandler(deps).handle({ itemId: 'x' }, learnerContext),
       await new RecordItemReviewDecisionHandler(deps).handle(
-        { itemId: 'x', itemVersionId: 'v', outcome: 'approve' },
+        { itemId: 'x', itemVersionId: 'v', outcome: 'approve', candidatesShownIds: [] },
         learnerContext,
       ),
       await new PublishItemVersionHandler(deps).handle({ itemId: 'x', itemVersionId: 'v' }, learnerContext),
@@ -1067,7 +1806,7 @@ describe('every transition is permission-gated', () => {
     expect(
       expectError(
         await new RecordItemReviewDecisionHandler(deps).handle(
-          { itemId: 'x', itemVersionId: 'v', outcome: 'approve' },
+          { itemId: 'x', itemVersionId: 'v', outcome: 'approve', candidatesShownIds: [] },
           as(author),
         ),
       ).code,

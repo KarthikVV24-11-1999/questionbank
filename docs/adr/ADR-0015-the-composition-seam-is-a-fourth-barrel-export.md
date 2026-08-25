@@ -46,6 +46,24 @@ exists — safe because INV-08 means the delivery solution query never asks it a
 about paid depth). Neither is a shortcut disguised as a wiring detail: both are named, and both are what
 M4's own composition change replaces.
 
+## Amended by M4-30 (2026-08-21)
+
+**`InMemoryReviewProgress` is gone, not replaced by another double.** The paragraph above is superseded for
+`ReviewProgress` only — `InMemoryEntitlements`'s half is unchanged and still current.
+
+M4 landed real claims (`content.review_assignment`, M4-18/M4-27), so W4's question ("has a reviewer started
+on this version") has a real answer to read rather than a port with a hardcoded one. `register` no longer
+constructs `InMemoryReviewProgress` or wires a `reviewProgress` field; `WithdrawItemFromReviewHandler`
+(`application/handlers/lifecycle-handlers.ts`) instead calls `ReviewAssignmentRepository.hasLiveClaim`
+directly, inside its own transaction, using the `assignments` dependency `register` already builds for
+M4-27's handlers. Nothing new is wired here — the change is that one fewer thing is.
+
+The property this closes over is stronger than the port it replaces could ever promise: `hasLiveClaim`
+locks the same `content.item_version` row `claimNext`'s `FOR UPDATE OF v SKIP LOCKED` locks, so a claim and
+a withdrawal racing in overlapping transactions resolve to exactly one winner — a guarantee that depends on
+both operations sharing the database's own row-level locking, which no port interface and no read-only
+projection could have expressed.
+
 ## Consequences
 
 **Makes easy:** a repository or a handler added to a context never touches `platform/composition/` — the

@@ -79,6 +79,11 @@ export class PostgresFingerprintRepository implements FingerprintRepository {
     }
   }
 
+  async findByItemVersionId(itemVersionId: string): Promise<Result<ItemFingerprintRecord | undefined, RepositoryError>> {
+    const found = await this.#pool.query<FingerprintRow>(`${SELECT} WHERE item_version_id = $1`, [itemVersionId]);
+    return ok(found.rows[0] === undefined ? undefined : this.#hydrate(found.rows[0]));
+  }
+
   async findByExactHash(
     subject: string,
     exactHash: string,

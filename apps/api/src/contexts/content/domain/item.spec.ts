@@ -5,10 +5,12 @@ import {
   itemVersionProps,
   numericSpec,
   PROVENANCE_CONTEXT,
+  REVIEWER,
 } from '../../../testing/content-fixtures.js';
-import { createItemVersion, deriveDraft, type ItemVersion } from './item-version.js';
+import { createItemVersion, deriveDraft, deriveReviewerEditedVersion, type ItemVersion } from './item-version.js';
 import { LIFECYCLE_STATES, type LifecycleState } from './item-lifecycle.js';
 import {
+  addReviewerEditedVersion,
   addVersion,
   checkDeletable,
   createItem,
@@ -288,6 +290,96 @@ describe('adding a version', () => {
       }),
     );
     expect(latestVersionOf(outOfOrder).versionNo).toBe(2);
+  });
+});
+
+describe('adding a reviewer-edited version (DEC-M4-3, ADR-0018, M4-29)', () => {
+  function editedVersion(overrides: Partial<ItemVersion> = {}): ItemVersion {
+    return {
+      ...expectValue(
+        deriveReviewerEditedVersion(V1, {
+          versionId: 'version-2',
+          editedBy: REVIEWER,
+          createdAt: '2026-08-10T09:00:00Z',
+          edits: { difficultyEstimate: 'challenging' },
+        }),
+      ),
+      ...overrides,
+    };
+  }
+
+  it('appends and bumps the aggregate version', () => {
+    const item = expectValue(addReviewerEditedVersion(inState('in_review'), editedVersion()));
+    expect(item.versions).toHaveLength(2);
+    expect(item.aggregateVersion).toBe(2);
+  });
+
+  it('leaves the original item untouched', () => {
+    const original = inState('in_review');
+    expectValue(addReviewerEditedVersion(original, editedVersion()));
+    expect(original.versions).toHaveLength(1);
+    expect(original.aggregateVersion).toBe(1);
+  });
+
+  it('carries authoredBy over from the version it derives from, not the editor', () => {
+    const item = expectValue(addReviewerEditedVersion(inState('in_review'), editedVersion()));
+    const added = item.versions[1]!;
+    expect(added.authoredBy.id).toBe(AUTHOR.id);
+    expect(added.editedBy?.id).toBe(REVIEWER.id);
+  });
+
+  it.each([['draft'], ['changes_requested'], ['rejected'], ['approved'], ['published'], ['suspended'], ['retired']] as const)(
+    'refuses while %s — only in_review accepts a reviewer edit',
+    (state) => {
+      const failure = expectError(addReviewerEditedVersion(inState(state), editedVersion()));
+      expect(failure.code).toBe('ITEM_NOT_IN_REVIEW');
+    },
+  );
+
+  // Proves addVersion's own in_review refusal was not quietly widened to
+  // let this sibling's case leak into it.
+  it('addVersion itself still refuses from in_review, unaffected by this sibling existing', () => {
+    expect(expectError(addVersion(inState('in_review'), V2)).code).toBe('VERSION_NOT_EDITABLE');
+  });
+
+  it('refuses a version with no editedBy recorded', () => {
+    const failure = expectError(addReviewerEditedVersion(inState('in_review'), V2));
+    expect(failure.code).toBe('REVIEWER_EDIT_MISSING_EDITED_BY');
+  });
+
+  it('refuses a version whose authoredBy was changed away from the source version\'s author', () => {
+    const failure = expectError(
+      addReviewerEditedVersion(inState('in_review'), editedVersion({ authoredBy: REVIEWER })),
+    );
+    expect(failure.code).toBe('REVIEWER_EDIT_CHANGES_AUTHOR');
+  });
+
+  it('refuses a version whose editedBy equals its own authoredBy', () => {
+    const failure = expectError(addReviewerEditedVersion(inState('in_review'), editedVersion({ editedBy: AUTHOR })));
+    expect(failure.code).toBe('REVIEWER_EDIT_AUTHORED_BY_EDITOR');
+  });
+
+  it('refuses a version typed differently from the item', () => {
+    const numeric = editedVersion({ itemType: 'NUMERIC', responseSpec: numericSpec() });
+    expect(expectError(addReviewerEditedVersion(inState('in_review'), numeric)).code).toBe('VERSION_TYPE_MISMATCH');
+  });
+
+  it('refuses a duplicate version id as a Conflict', () => {
+    const failure = expectError(addReviewerEditedVersion(inState('in_review'), editedVersion({ versionId: V1.versionId })));
+    expect(failure.code).toBe('VERSION_ID_DUPLICATE');
+    expect(failure.kind).toBe('Conflict');
+  });
+
+  it('refuses a version number that skips ahead', () => {
+    const skipped = editedVersion({ versionId: 'version-3', versionNo: 3 });
+    expect(expectError(addReviewerEditedVersion(inState('in_review'), skipped)).code).toBe(
+      'VERSION_NUMBERS_NOT_CONTIGUOUS',
+    );
+  });
+
+  it('records no lifecycle transition — the item stays in_review', () => {
+    const item = expectValue(addReviewerEditedVersion(inState('in_review'), editedVersion()));
+    expect(item.lifecycleState).toBe('in_review');
   });
 });
 

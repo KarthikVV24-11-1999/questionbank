@@ -8,6 +8,7 @@ import type {
   SubmittedForReviewPage,
   MediaAssetRepository,
   RepositoryError,
+  ReviewAssignmentRepository,
   ReviewDecisionRepository,
   SolutionRepository,
   StimulusRepository,
@@ -61,12 +62,12 @@ import {
 } from '../domain/media-asset.js';
 import {
   InMemoryAuditRecorder,
-  InMemoryReviewProgress,
   type ApplicationContext,
   type Clock,
   type IdentifierFactory,
   type MediaStore,
   type RenderValidator,
+  type TransactionRunner,
 } from './ports.js';
 
 /**
@@ -308,6 +309,35 @@ class StubReviews implements ReviewDecisionRepository {
   async findByReviewer(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
     return ok([]);
   }
+  async findWithinRange(): Promise<Result<readonly ReviewDecision[], RepositoryError>> {
+    return ok([]);
+  }
+}
+
+/** Only `hasLiveClaim` is exercised in this file (M4-30); the rest throw if ever reached. */
+class StubAssignments implements ReviewAssignmentRepository {
+  constructor(private readonly onHasLiveClaim: () => Result<boolean, RepositoryError> = () => ok(false)) {}
+  async hasLiveClaim() {
+    return this.onHasLiveClaim();
+  }
+  async claimNext(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async assign(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async release(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async extendLease(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async releaseExpired(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
+  async findById(): Promise<never> {
+    throw new Error('not exercised in this file');
+  }
 }
 
 class StubAssets implements MediaAssetRepository {
@@ -347,6 +377,17 @@ const passingRenderer: RenderValidator = {
   },
 };
 
+/**
+ * A transaction of one: `fn` runs against a dummy `TransactionContext` none
+ * of these stubs ever unwrap, so there is nothing for a real Postgres
+ * transaction to add in a unit test that never opens a connection.
+ */
+const stubTransactions: TransactionRunner = {
+  async run(fn) {
+    return fn({ kind: 'TransactionContext' });
+  },
+};
+
 function deps(over: Partial<LifecycleDependencies> = {}): LifecycleDependencies {
   return {
     items: new StubItems(() => err(missing)),
@@ -356,7 +397,8 @@ function deps(over: Partial<LifecycleDependencies> = {}): LifecycleDependencies 
     solutions: new StubSolutions(() => err(missing)),
     reviews: new StubReviews(),
     renderer: passingRenderer,
-    reviewProgress: new InMemoryReviewProgress(),
+    assignments: new StubAssignments(),
+    transactions: stubTransactions,
     clock,
     identifiers,
     audit: new InMemoryAuditRecorder(),
@@ -385,7 +427,7 @@ describe('a rejected write is reported, never reported as success', () => {
     const item = itemIn('in_review');
     const bench = deps({ items: new StubItems(() => ok(item), refusingSave<Item>()) });
     const refused = await new RecordItemReviewDecisionHandler(bench).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve', candidatesShownIds: [] },
       as(reviewer),
     );
     expect(expectError(refused).code).toBe('CONFLICT');
@@ -509,7 +551,7 @@ describe('a decision the record will not accept stops the transition', () => {
       reviews: new StubReviews(() => err(rejected)),
     });
     const refused = await new RecordItemReviewDecisionHandler(bench).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve', candidatesShownIds: [] },
       as(reviewer),
     );
     expect(expectError(refused).code).toBe('CONFLICT');
@@ -520,7 +562,7 @@ describe('a decision the record will not accept stops the transition', () => {
     const item = itemIn('in_review');
     const bench = deps({ items: new StubItems(() => ok(item)), identifiers: { next: () => '  ' } });
     const refused = await new RecordItemReviewDecisionHandler(bench).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve', candidatesShownIds: [] },
       as(reviewer),
     );
     expect(expectError(refused).code).toBe('DECISION_ID_REQUIRED');
@@ -536,6 +578,8 @@ describe('a decision the record will not accept stops the transition', () => {
           itemVersionId: item.versions[0]!.versionId,
           outcome: 'reject',
           justification: 'the key is wrong',
+          reasonCode: 'KEY_WRONG',
+          candidatesShownIds: [],
         },
         as(reviewer),
       ),
@@ -543,11 +587,24 @@ describe('a decision the record will not accept stops the transition', () => {
     expect(moved.lifecycleState).toBe('rejected');
   });
 
+  it('refuses the version\'s editor too, not only its author (INV-12, M4-04)', async () => {
+    const editor: PrincipalRef = { kind: 'human', id: 'editor-1', roleContext: ['reviewer', 'subject:physics'] };
+    const editedVersion = { ...itemVersion(), editedBy: editor };
+    const item = itemIn('in_review', editedVersion);
+    const bench = deps({ items: new StubItems(() => ok(item)) });
+
+    const refused = await new RecordItemReviewDecisionHandler(bench).handle(
+      { itemId: item.itemId, itemVersionId: editedVersion.versionId, outcome: 'approve', candidatesShownIds: [] },
+      as(editor),
+    );
+    expect(expectError(refused).code).toBe('SELF_REVIEW_PROHIBITED');
+  });
+
   it('reports an item version the item does not hold', async () => {
     const item = itemIn('in_review');
     const bench = deps({ items: new StubItems(() => ok(item)) });
     const refused = await new RecordItemReviewDecisionHandler(bench).handle(
-      { itemId: item.itemId, itemVersionId: 'not-a-version', outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: 'not-a-version', outcome: 'approve', candidatesShownIds: [] },
       as(reviewer),
     );
     const error = expectError(refused);
@@ -721,7 +778,7 @@ describe('an illegal transition is refused wherever it is attempted', () => {
     const item = itemIn('draft');
     const bench = deps({ items: new StubItems(() => ok(item)) });
     const refused = await new RecordItemReviewDecisionHandler(bench).handle(
-      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve' },
+      { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, outcome: 'approve', candidatesShownIds: [] },
       as(reviewer),
     );
     expect(expectError(refused).code).toBe('TRANSITION_ILLEGAL');

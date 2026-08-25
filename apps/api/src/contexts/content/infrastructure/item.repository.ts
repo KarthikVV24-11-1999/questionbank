@@ -8,7 +8,9 @@ import type {
   RepositoryError,
   SubmittedForReviewCriteria,
   SubmittedForReviewPage,
+  TransactionContext,
 } from '../domain/repository-ports.js';
+import { clientOf } from './transaction-runner.js';
 import { reconstituteItem, type Item } from '../domain/item.js';
 import type { ItemVersion } from '../domain/item-version.js';
 import type { LifecycleState } from '../domain/item-lifecycle.js';
@@ -171,7 +173,21 @@ export class PostgresItemRepository implements ItemRepository {
   async save(
     item: Item,
     events: readonly ContentEvent[] = [],
+    tx?: TransactionContext,
   ): Promise<Result<Item, RepositoryError>> {
+    // `tx` supplied: the caller owns the transaction (M4-28) — this call
+    // neither connects, begins, commits, rolls back nor releases. Any error
+    // propagates as a `Result`, exactly as `#saveWithin` already returns one;
+    // there is nothing here for a `try`/`catch` to add.
+    if (tx !== undefined) {
+      const client = clientOf(tx);
+      const outcome = await this.#saveWithin(client, item);
+      if (outcome.ok) {
+        for (const event of events) await this.#outbox.emit(client, event);
+      }
+      return outcome;
+    }
+
     const client = await this.#pool.connect();
     let outcome: Result<Item, RepositoryError>;
 

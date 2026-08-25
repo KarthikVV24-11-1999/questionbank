@@ -89,7 +89,11 @@ export type ItemErrorCode =
   | 'ITEM_NOT_DELETABLE'
   | 'VERSION_NOT_EDITABLE'
   | 'STATE_ENTERED_AT_NOT_A_TIMESTAMP'
-  | 'AUTHORING_SUBJECT_BLANK';
+  | 'AUTHORING_SUBJECT_BLANK'
+  | 'ITEM_NOT_IN_REVIEW'
+  | 'REVIEWER_EDIT_MISSING_EDITED_BY'
+  | 'REVIEWER_EDIT_CHANGES_AUTHOR'
+  | 'REVIEWER_EDIT_AUTHORED_BY_EDITOR';
 
 export type ItemError = ContentError<ItemErrorCode>;
 
@@ -300,6 +304,105 @@ export function addVersion(item: Item, version: ItemVersion): Result<Item, ItemE
       ruleViolationError(
         'VERSION_NOT_EDITABLE',
         `an item that is ${item.lifecycleState} does not accept a new version`,
+        'versions',
+      ),
+    );
+  }
+  if (version.itemType !== item.itemType) {
+    return err(
+      validationError(
+        'VERSION_TYPE_MISMATCH',
+        `the item is typed ${item.itemType} but the new version is ${version.itemType}`,
+        'versions',
+      ),
+    );
+  }
+  if (item.versions.some((existing) => existing.versionId === version.versionId)) {
+    return err(conflictError('VERSION_ID_DUPLICATE', `version ${version.versionId} already exists`, 'versions'));
+  }
+  if (version.versionNo !== item.versions.length + 1) {
+    return err(
+      validationError(
+        'VERSION_NUMBERS_NOT_CONTIGUOUS',
+        `the next version is ${item.versions.length + 1}, got ${version.versionNo}`,
+        'versions',
+      ),
+    );
+  }
+
+  return ok(
+    Object.freeze({
+      ...item,
+      versions: Object.freeze([...item.versions, version]),
+      aggregateVersion: item.aggregateVersion + 1,
+    }),
+  );
+}
+
+/**
+ * Attaches a reviewer-edited version to an item **under review** (DEC-M4-3,
+ * ADR-0018) — the approve-with-edits path M4-29 drives.
+ *
+ * **This is not `addVersion`.** `addVersion` refuses from `in_review` on
+ * purpose (FR-TCH-08 rule 1): a version added there would change what the
+ * reviewer is looking at, mid-review, out from under them. A reviewer's own
+ * bounded edit is the one exception to that rule, not a hole in it — so it
+ * gets its own function rather than a widened condition on `addVersion`,
+ * the same way `replaceDraftVersion` earned its own rather than reusing
+ * `addVersion` for autosave.
+ *
+ * **ADR-0018's rules are enforced here, not trusted from the caller.** A
+ * version that reaches this function without `editedBy` set, whose
+ * `authoredBy` differs from the version it derives from, or whose
+ * `editedBy` equals its `authoredBy`, is refused — the same discipline
+ * `checkPublishable` gives INV-07, at the aggregate that can actually make
+ * each one impossible rather than merely likely:
+ *  - `authoredBy` **must** carry over unchanged — the author stays the
+ *    author (ADR-0018's core rule), never the editing reviewer
+ *  - `editedBy` **must** differ from `authoredBy` — a reviewer can never be
+ *    reviewing their own item (INV-12, checked twice already at claim and
+ *    at decision), so this can never legitimately fail; asserting it here
+ *    makes "the reviewer became the author" structurally unreachable
+ *    rather than merely absent from every path anyone has thought of yet
+ *
+ * **No lifecycle transition happens here.** Attaching the version and
+ * moving the item are two separate facts a caller sequences; this function
+ * states only "the item now holds one more version," the same restraint
+ * `addVersion` already keeps.
+ */
+export function addReviewerEditedVersion(item: Item, version: ItemVersion): Result<Item, ItemError> {
+  if (item.lifecycleState !== 'in_review') {
+    return err(
+      ruleViolationError(
+        'ITEM_NOT_IN_REVIEW',
+        `an item that is ${item.lifecycleState} cannot receive a reviewer-edited version`,
+        'lifecycleState',
+      ),
+    );
+  }
+  if (version.editedBy === undefined) {
+    return err(
+      ruleViolationError(
+        'REVIEWER_EDIT_MISSING_EDITED_BY',
+        'a version attached through approve-with-edits must record who edited it',
+        'versions',
+      ),
+    );
+  }
+  if (version.authoredBy.id !== item.versions[item.versions.length - 1]!.authoredBy.id) {
+    return err(
+      ruleViolationError(
+        'REVIEWER_EDIT_CHANGES_AUTHOR',
+        'the author stays the author on a reviewer edit (ADR-0018); authoredBy must carry over unchanged',
+        'versions',
+      ),
+    );
+  }
+  if (version.editedBy.id === version.authoredBy.id) {
+    return err(
+      ruleViolationError(
+        'REVIEWER_EDIT_AUTHORED_BY_EDITOR',
+        'the editing reviewer cannot be the version\'s own author (INV-12)',
         'versions',
       ),
     );

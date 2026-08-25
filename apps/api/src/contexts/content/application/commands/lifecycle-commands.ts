@@ -26,6 +26,25 @@ export interface RecordItemReviewDecision {
   readonly outcome: ReviewOutcome;
   /** Required on anything that sends work back (FR-QM-03). */
   readonly justification?: string;
+  /**
+   * The governance fields M4-07/M4-28 add. `candidatesShownIds` is
+   * **required, and may be empty** — absent-vs-empty is exactly the
+   * distinction `assertDecisionEvidenceComplete` (M4-04, DEC-M4-2) exists
+   * to keep from collapsing: a caller that never ran the duplicate check
+   * must say so by omitting the field entirely, never by sending `[]`.
+   * `reasonCode`/`duplicateOfItemId` are DEC-M4-11's taxonomy, required on
+   * non-approving outcomes by the same evidence check.
+   */
+  readonly candidatesShownIds: readonly string[];
+  readonly reasonCode?: string;
+  readonly duplicateOfItemId?: string;
+  /**
+   * The claimed assignment this decision resolves (M4-18/M4-27). Optional:
+   * a decision recorded with no claim behind it writes with no assignment
+   * side effect, the same fallback `ReviewDecisionRepository.record`
+   * already documents for `claimedAssignmentId`.
+   */
+  readonly assignmentId?: string;
 }
 
 export interface PublishItemVersion {

@@ -344,6 +344,56 @@ describe('tamper class 4 — a forged tail appended after a sealed anchor', () =
   });
 });
 
+describe('sealDay refuses to seal a chain that does not verify (M4-34)', () => {
+  /**
+   * `sealDay` opens its own connection (`pool.connect()`), so unlike
+   * `verifyChain`'s own tamper tests above, the tamper here must be a real,
+   * committed write — a rolled-back one, visible only on the client that
+   * wrote it, would be invisible to `sealDay`'s own connection. Every other
+   * test in this file resets the whole chain with `freshChain` before it
+   * runs, which is what makes a genuinely committed tamper here safe to
+   * leave behind.
+   */
+  it('reports the divergent seq and reason rather than sealing over it, and seals nothing', async () => {
+    const DAY = '2026-11-06';
+    await freshChain(0);
+    await insertAuditRecord(`${DAY}T09:00:00.000000Z`);
+    await insertAuditRecord(`${DAY}T10:00:00.000000Z`);
+    await insertAuditRecord(`${DAY}T11:00:00.000000Z`);
+
+    const client = await database.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`ALTER TABLE platform.audit_record DISABLE TRIGGER audit_record_append_only`);
+      await client.query(
+        `UPDATE platform.audit_record SET action = 'ForgedAction' WHERE occurred_at = $1::timestamptz`,
+        [`${DAY}T10:00:00.000000Z`],
+      );
+      await client.query(`ALTER TABLE platform.audit_record ENABLE TRIGGER audit_record_append_only`);
+      await client.query('COMMIT');
+    } finally {
+      client.release();
+    }
+
+    const outcome = await sealDay(database.pool, ANCHOR_KEY, DAY, `${DAY}T23:59:59.000000Z`);
+    expect(outcome.kind).toBe('verification_failed');
+    if (outcome.kind !== 'verification_failed') return;
+    expect(outcome.firstDivergentSeq).toBe(2);
+    expect(outcome.reason).toBe('record_hash_mismatch');
+
+    expect(await findAnchor(database.pool, DAY)).toBeNull();
+  });
+
+  it('seals normally once the chain verifies', async () => {
+    const DAY = '2026-11-07';
+    await freshChain(0);
+    await insertAuditRecord(`${DAY}T09:00:00.000000Z`);
+
+    const outcome = await sealDay(database.pool, ANCHOR_KEY, DAY, `${DAY}T23:59:59.000000Z`);
+    expect(outcome.kind).toBe('sealed');
+  });
+});
+
 describe('F41 — the audit hash chain verifies over the last 24 hours', () => {
   /**
    * **The gate as registered, plus the assertion that keeps it honest.** A

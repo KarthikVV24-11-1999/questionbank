@@ -321,6 +321,40 @@ describe('findByItemVersion / findByReviewer (M4-19, M4-33’s source)', () => {
     expect(found.map((d) => d.decidedAt)).toEqual(['2026-08-01T09:00:00.000Z', '2026-08-10T09:00:00.000Z']);
     expect(found.every((d) => d.reviewer.id === scopedReviewerId)).toBe(true);
   });
+
+  it('findWithinRange scopes by instant range only, across every reviewer, oldest first', async () => {
+    const rangeSubject = freshUuid();
+    const reviewerA = { ...REVIEWER, id: freshUuid() };
+    const reviewerB = { ...REVIEWER, id: freshUuid() };
+    expectValue(
+      await repository.record(
+        decision({ ownerVersionId: rangeSubject, reviewer: reviewerA, decidedAt: '2026-08-02T09:00:00.000Z' }),
+      ),
+    );
+    expectValue(
+      await repository.record(
+        decision({ ownerVersionId: rangeSubject, reviewer: reviewerB, decidedAt: '2026-08-01T09:00:00.000Z' }),
+      ),
+    );
+    // Outside the range — must not appear.
+    expectValue(
+      await repository.record(
+        decision({ ownerVersionId: rangeSubject, reviewer: reviewerA, decidedAt: '2026-09-01T09:00:00.000Z' }),
+      ),
+    );
+
+    const found = expectValue(
+      await repository.findWithinRange({ from: '2026-08-01T00:00:00.000Z', to: '2026-08-31T23:59:59.999Z' }),
+    );
+    const inRangeForThisFixture = found.filter((d) => d.ownerVersionId === rangeSubject);
+    expect(inRangeForThisFixture.map((d) => d.decidedAt)).toEqual([
+      '2026-08-01T09:00:00.000Z',
+      '2026-08-02T09:00:00.000Z',
+    ]);
+    expect(new Set(inRangeForThisFixture.map((d) => d.reviewer.id))).toEqual(
+      new Set([reviewerA.id, reviewerB.id]),
+    );
+  });
 });
 
 describe('the assignment side effect is transactional (M4-19)', () => {

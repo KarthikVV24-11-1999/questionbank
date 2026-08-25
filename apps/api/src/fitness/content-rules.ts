@@ -448,6 +448,30 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/application/handlers/stimulus-handlers.ts',
   'src/contexts/content/application/import/import-batch.ts',
   'src/contexts/content/application/ports.ts',
+  // M4-26. Decides who may claim, decide, edit, reassign, sweep or read queue
+  // health — a gap here is a role reaching a capability DEC-M4-9/DEC-M4-1
+  // never assigned it.
+  'src/contexts/content/application/review/policies.ts',
+  // M4-27. Claim, release, reassign, extend — a gap here is a race the
+  // atomic claim exists to close reopened at the application layer, or a
+  // reviewer holding a claim past its policy cap.
+  'src/contexts/content/application/review/handlers/assignment-handlers.ts',
+  // M4-29. Approve-with-edits — a gap here lets an edited version publish
+  // under its own editor's signature, or lets the author's name slip off a
+  // reviewer edit.
+  'src/contexts/content/application/review/handlers/reviewer-edit-handlers.ts',
+  // M4-31. The ageing sweep — a gap here silently leaves an ageing item
+  // unescalated, or emits the escalation twice.
+  'src/contexts/content/application/review/handlers/ageing-handlers.ts',
+  // M4-32. Duplicate detection's write half — a gap here either misses a
+  // planted duplicate pair or reports one that never existed.
+  'src/contexts/content/application/review/handlers/fingerprint-handlers.ts',
+  // M4-32. Duplicate detection's read half — a gap here merges the three
+  // labelled groups, or reports evaluated when nothing has run yet.
+  'src/contexts/content/application/review/queries/duplicate-queries.ts',
+  // M4-33. A gap here derives "overdue" wrong, mislabels a notification as
+  // an overdue verdict, or lets a reviewer read another's throughput.
+  'src/contexts/content/application/review/queries/queue-queries.ts',
   'src/contexts/content/application/queries/authoring-queries.ts',
   'src/contexts/content/application/queries/delivery-queries.ts',
   'src/contexts/content/domain/content-body.ts',
@@ -484,9 +508,15 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/infrastructure/outbox-emitter.ts',
   'src/contexts/content/infrastructure/render-validator.adapter.ts',
   'src/contexts/content/infrastructure/review-decision.repository.ts',
+  // M4-28. The shared transaction a decision, its candidate rows, the
+  // assignment's transition and the item's lifecycle transition commit
+  // through together — a gap here is the one-transaction guarantee silently
+  // losing atomicity.
+  'src/contexts/content/infrastructure/transaction-runner.ts',
   'src/contexts/content/infrastructure/review/fingerprint.repository.ts',
   'src/contexts/content/infrastructure/review/review-assignment.repository.ts',
   'src/contexts/content/infrastructure/review/review-candidate-shown.repository.ts',
+  'src/contexts/content/infrastructure/review/review-escalation.repository.ts',
   'src/contexts/content/infrastructure/solution.repository.ts',
   'src/contexts/content/infrastructure/stimulus.repository.ts',
 ] as const;
@@ -553,14 +583,88 @@ export function checkCoverageThresholds(
  * "meet only at": callable from content's authoring domain the same way any
  * other domain module is, which is what lets `publication-preconditions.ts`
  * call `isSelfReview` (M4-04) without this gate refusing it.
+ *
+ * **A third category exists alongside "review" and "authoring", named here
+ * rather than granted case by case: context-wide shared contracts.** A
+ * module qualifies only if it is used by both sides, specific to neither,
+ * and carries no authoring or review business logic of its own — the same
+ * test applied each time a member was added. Exactly four today, and a
+ * fifth requires **stopping and asking**, not matching the pattern; an
+ * exemption list that grows by resemblance is not a boundary:
+ *
+ *   1. `application/authorization.ts` — policies, role checks.
+ *   2. `application/ports.ts` — `Clock`, `AuditRecorder`, `IdentifierFactory`,
+ *      `ApplicationContext`, `TransactionRunner`.
+ *   3. `infrastructure/transaction-runner.ts` — `TransactionContext`'s one
+ *      concrete implementation and `clientOf`, its downcast (M4-28). Three
+ *      repositories call `clientOf` in shipped code today —
+ *      `item.repository.ts`, `review-decision.repository.ts` (both
+ *      authoring-side) and `review-assignment.repository.ts`'s
+ *      `hasLiveClaim` (review-side, M4-30) — so this is the established
+ *      mechanism for joining a caller's shared transaction, not a new one
+ *      invented to pass this gate.
+ *   4. `public/composition.ts` — the composition root, exempt in both
+ *      directions (below).
+ *
+ * On extraction, a standalone review context would declare its own copies
+ * of 1–3 — exactly as content, curriculum and scoring each declare their
+ * own `Clock`/`AuditRecorder`/`IdentifierFactory` today — never import
+ * content's, so none of the four is an extraction-survivability concern
+ * the way an authoring-specific module would be.
+ *
+ * Anything authoring-specific — `ListSubmittedForReview`, a lifecycle
+ * command type, a handler class, `item.repository.ts` itself — is reachable
+ * only through what `public/index.ts` exports. If that is not enough for
+ * some future task, the fix is a reviewed addition to what the barrel
+ * exports, not a fifth exemption here.
+ *
+ * **Debt, named with its trigger.** The four members above are scattered
+ * across `application/` and `infrastructure/` by historical accident, not
+ * by a shared physical location — membership is enforced by this list, not
+ * by path. Moving them under one `shared/`-shaped directory would let this
+ * gate check a path prefix instead of an enumeration, which is more robust
+ * against a future addition slipping in unreviewed. Not attempted now: it
+ * touches every import site of all four, and M4-28/M4-29/M4-30 already
+ * shipped against the current layout. Trigger: the fifth member.
  */
 const REVIEW_PATH_SEGMENT = /(^|\/)(?:application|infrastructure)\/review\/|(^|\/)review\.controller\.ts$/u;
 
 /** Any module under a `domain/` tree, at any depth — the whole domain layer, F2-pure by construction. */
 const DOMAIN_MODULE = /(^|\/)domain\/.+\.ts$/u;
 
-/** The one named exception outside the domain layer (DEC-M4-7). */
+/** Shared-contract member 1 of 4 (DEC-M4-7). */
 const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
+
+/**
+ * Shared-contract member 2 of 4 (DEC-M4-7). Exact path, not a prefix —
+ * matching `application/ports.ts` specifically is what stops this exemption
+ * growing into "all of `application/`" by accident. A review module
+ * reaching `application/queries/authoring-queries.ts` or
+ * `application/handlers/lifecycle-handlers.ts` must still fail; both are
+ * planted and proven in `content-rules.spec.ts`.
+ */
+const PORTS_MODULE = /(^|\/)application\/ports\.ts$/u;
+
+/**
+ * Shared-contract member 3 of 4 (M4-28/M4-30). Exact path, same reasoning
+ * as `PORTS_MODULE`: a review module reaching `infrastructure/item.repository.ts`
+ * or any other authoring-specific infrastructure module must still fail,
+ * planted and proven in `content-rules.spec.ts`.
+ */
+const TRANSACTION_RUNNER_MODULE = /(^|\/)infrastructure\/transaction-runner\.ts$/u;
+
+/**
+ * The composition seam (ADR-0015) — exempt from this gate in both
+ * directions, and the only file that is. Composing the module is its job:
+ * it wires every layer, review's own handlers included, into the
+ * `DynamicModule` the barrel exports, so it must be able to import
+ * `application/review/**` to instantiate what it wires — the one place
+ * "authoring reaches review" is not a violation but the seam doing its job.
+ * The reverse (something under `application/review/**` importing the
+ * composition root back) has no legitimate use captured here either, so it
+ * is exempted the same way rather than left as an asymmetric special case.
+ */
+const COMPOSITION_ROOT = /(^|\/)public\/composition\.ts$/u;
 
 /**
  * DEC-M4-7's sub-boundary, both directions, by import graph rather than
@@ -587,6 +691,8 @@ export function checkReviewAuthoringSubBoundary(
 
   for (const file of files) {
     const relFile = relative(root, file).replaceAll('\\', '/');
+    // Exempt as a source in both directions — see COMPOSITION_ROOT's comment.
+    if (COMPOSITION_ROOT.test(relFile)) continue;
     const fileIsReview = REVIEW_PATH_SEGMENT.test(relFile);
 
     for (const importPath of importsOf(readCode(file))) {
@@ -597,12 +703,17 @@ export function checkReviewAuthoringSubBoundary(
       const targetIsReview = REVIEW_PATH_SEGMENT.test(relTarget);
 
       if (fileIsReview && !targetIsReview) {
-        const permitted = DOMAIN_MODULE.test(relTarget) || AUTHORIZATION_MODULE.test(relTarget);
+        const permitted =
+          DOMAIN_MODULE.test(relTarget) ||
+          AUTHORIZATION_MODULE.test(relTarget) ||
+          PORTS_MODULE.test(relTarget) ||
+          TRANSACTION_RUNNER_MODULE.test(relTarget) ||
+          COMPOSITION_ROOT.test(relTarget);
         if (!permitted) {
           violations.push({
             rule: 'M4_01_REVIEW_REACHES_AUTHORING',
             subject: relFile,
-            detail: `imports ${importPath} (${relTarget}), which is neither a domain aggregate/value object nor application/authorization.ts`,
+            detail: `imports ${importPath} (${relTarget}), which is none of a domain aggregate/value object, application/authorization.ts, application/ports.ts, or infrastructure/transaction-runner.ts`,
           });
         }
       }

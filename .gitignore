@@ -9,3 +9,4 @@ coverage/
 *.pgpass
 docs/HANDOFF*.md
 docs/tasks/*-PROGRESS.md
+docs/SESSION-BRIEF.md

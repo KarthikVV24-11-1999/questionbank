@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { stripComments } from './source-scan.js';
+import { filesMatching, stripComments } from './source-scan.js';
 
 /**
  * Fitness functions for `apps/api/src/platform/` and the process-boundary
@@ -127,6 +127,46 @@ export function checkNoTsxFiles(
     .filter((file) => !excludes.some((pattern) => pattern.test(file)));
 
   return files.filter((file) => file.endsWith('.tsx')).map((file) => ({ rule: 'API_NO_TSX' as const, file }));
+}
+
+export interface SealDayReachabilityViolation {
+  readonly rule: 'SEAL_DAY_REACHABLE_FROM_PRODUCTION_CODE';
+  readonly file: string;
+}
+
+const SEAL_DAY_IMPORT_PATTERN = /from\s+['"][^'"]*\/persistence\/audit-anchor(\.js)?['"]/u;
+
+/** `audit-anchor.ts`'s own module, and every place a test or a fixture is allowed to import it. */
+const DEFAULT_SEAL_DAY_EXCLUDES = [
+  /\.spec\.ts$/u,
+  /^src\/fitness-fixtures\//u,
+  /^src\/fitness\//u,
+  /^src\/platform\/persistence\/audit-anchor\.ts$/u,
+];
+
+/**
+ * M4-34. `sealDay` is a plain function, not a handler — there is no
+ * `HandlerRegistry`, no `authorize()` and no `ApplicationContext` in its call
+ * path, so nothing in the shipped authorization model could refuse an
+ * unprivileged caller if one ever reached it. **This check is what stands in
+ * for that authorization**: no controller, no route, no composition wiring —
+ * no production code anywhere — imports `audit-anchor.ts`. The only callers
+ * are this file's own tests today, and the Tier-3 scheduled invocation once
+ * one exists (D36); a violation here is the first sign that boundary was
+ * crossed without the authorization model growing to meet it.
+ */
+export function checkSealDayUnreachableFromProductionCode(
+  root: string,
+  options: { readonly include?: readonly string[]; readonly excludePatterns?: readonly RegExp[] } = {},
+): SealDayReachabilityViolation[] {
+  const includes = options.include ?? ['src'];
+  const excludes = options.excludePatterns ?? DEFAULT_SEAL_DAY_EXCLUDES;
+
+  return includes
+    .flatMap((directory) => filesMatching(join(root, directory), SEAL_DAY_IMPORT_PATTERN))
+    .map((file) => relative(root, file).replaceAll('\\', '/'))
+    .filter((file) => !excludes.some((pattern) => pattern.test(file)))
+    .map((file) => ({ rule: 'SEAL_DAY_REACHABLE_FROM_PRODUCTION_CODE' as const, file }));
 }
 
 /**

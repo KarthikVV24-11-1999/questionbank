@@ -86,6 +86,22 @@ describe('save / findByExactHash / findBySkeletonHash (M4-20)', () => {
     expect(expectValue(await repository.findByExactHash(SUBJECT, 'never-recorded'))).toEqual([]);
     expect(expectValue(await repository.findBySkeletonHash(SUBJECT, 'never-recorded'))).toEqual([]);
   });
+});
+
+describe('findByItemVersionId (M4-32) — the "is there one already" check the claimed-item read makes', () => {
+  it('finds the one record for this item version', async () => {
+    const { itemId, itemVersionId } = await seedItemVersion();
+    const fp = record({ itemId, itemVersionId });
+    expectValue(await repository.save(fp));
+
+    const found = expectValue(await repository.findByItemVersionId(itemVersionId));
+    expect(found).toMatchObject({ itemVersionId, exactHash: fp.exactHash });
+  });
+
+  it('is undefined, not an error, for an item version with no fingerprint yet', async () => {
+    const { itemVersionId } = await seedItemVersion();
+    expect(expectValue(await repository.findByItemVersionId(itemVersionId))).toBeUndefined();
+  });
 
   it('reports a write it cannot make, rather than throwing', async () => {
     const refused = await repository.save(

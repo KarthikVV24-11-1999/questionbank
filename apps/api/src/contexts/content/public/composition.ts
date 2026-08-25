@@ -3,7 +3,6 @@ import type { DynamicModule } from '@nestjs/common';
 import type { Handler } from '../application/handler-registry.js';
 import {
   InMemoryEntitlements,
-  InMemoryReviewProgress,
   type AuditRecorder,
   type Clock,
   type IdentifierFactory,
@@ -18,6 +17,11 @@ import { PostgresStimulusRepository } from '../infrastructure/stimulus.repositor
 import { PostgresSolutionRepository } from '../infrastructure/solution.repository.js';
 import { PostgresMediaAssetRepository } from '../infrastructure/media-asset.repository.js';
 import { PostgresReviewDecisionRepository } from '../infrastructure/review-decision.repository.js';
+import { PostgresReviewAssignmentRepository } from '../infrastructure/review/review-assignment.repository.js';
+import { PostgresReviewEscalationRepository } from '../infrastructure/review/review-escalation.repository.js';
+import { PostgresFingerprintRepository } from '../infrastructure/review/fingerprint.repository.js';
+import { PostgresTransactionRunner } from '../infrastructure/transaction-runner.js';
+import { createReviewPolicy, type ReviewPolicy } from '../domain/review/review-policy.js';
 import {
   CreateItemDraftHandler,
   DeleteItemDraftHandler,
@@ -67,6 +71,14 @@ import {
   GetPublishedSolutionHandler,
   GetPublishedStimulusHandler,
 } from '../application/queries/delivery-queries.js';
+import {
+  ClaimNextForReviewHandler,
+  ExtendLeaseHandler,
+  ReassignReviewHandler,
+  ReleaseAssignmentHandler,
+} from '../application/review/handlers/assignment-handlers.js';
+import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer-edit-handlers.js';
+import { SweepReviewAgeingHandler } from '../application/review/handlers/ageing-handlers.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). `register` composes content's
@@ -89,16 +101,18 @@ import {
  * exists to refuse. Constructing it here, one line below, keeps that import
  * inside the context that owns it.
  *
- * **`ReviewProgress` and `Entitlements` are the in-memory doubles, wired as
- * the production choice, not a shortcut.** `InMemoryReviewProgress` starts
- * with nothing claimed — `hasBegun` is `false` until M4 supplies an adapter
- * that can be true, which is exactly the behaviour W4 already documents:
- * nothing claims a version, so withdrawal while `in_review` is always
- * permitted. `InMemoryEntitlements` starts with nothing granted — `allows`
- * is `false` until an entitlement service exists, and INV-08 is what makes
- * that safe: the delivery solution query never asks it about basic
- * correctness, only about paid depth, so an absent entitlement service
- * cannot withhold the correct answer.
+ * **`ReviewProgress` is gone (M4-30, 2026-08-21), not replaced by another
+ * double.** `WithdrawItemFromReviewHandler` now reads `content.review_assignment`
+ * directly through `ReviewAssignmentRepository.hasLiveClaim`, already wired
+ * below as `assignments` for M4-27 — there is nothing left for a port or an
+ * in-memory double to stand in for. See ADR-0015's amendment.
+ *
+ * **`Entitlements` is still the in-memory double, wired as the production
+ * choice, not a shortcut.** `InMemoryEntitlements` starts with nothing
+ * granted — `allows` is `false` until an entitlement service exists, and
+ * INV-08 is what makes that safe: the delivery solution query never asks
+ * it about basic correctness, only about paid depth, so an absent
+ * entitlement service cannot withhold the correct answer.
  */
 export interface ContentCompositionDeps {
   readonly pool: Pool;
@@ -108,6 +122,20 @@ export interface ContentCompositionDeps {
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
   readonly principals: PrincipalResolver;
+  /**
+   * The raw numbers, not a constructed `ReviewPolicy` (M4-26). `createReviewPolicy`
+   * lives in `domain/review/review-policy.ts`; `platform/composition/` may
+   * import only `contexts/*\/public/composition.js` (F1's extension, DEC-M0-5
+   * condition 2), so it cannot call that constructor itself — it can only
+   * hand this file the numbers `config.ts` already validated, and this file,
+   * which owns the domain type, is what turns them into one.
+   */
+  readonly reviewPolicy: {
+    readonly warnAfterHours: number;
+    readonly escalateAfterHours: number;
+    readonly leaseHours: number;
+    readonly sampleRate: number;
+  };
 }
 
 /**
@@ -126,6 +154,7 @@ const REQUIRED_DEPS_KEYS = [
   'identifiers',
   'audit',
   'principals',
+  'reviewPolicy',
 ] as const satisfies readonly (keyof ContentCompositionDeps)[];
 
 export function register(deps: ContentCompositionDeps): DynamicModule {
@@ -140,9 +169,21 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
   const solutions = new PostgresSolutionRepository(deps.pool);
   const assets = new PostgresMediaAssetRepository(deps.pool);
   const reviews = new PostgresReviewDecisionRepository(deps.pool);
-  const reviewProgress = new InMemoryReviewProgress();
+  const reviewAssignments = new PostgresReviewAssignmentRepository(deps.pool);
+  const reviewEscalations = new PostgresReviewEscalationRepository(deps.pool);
+  const fingerprints = new PostgresFingerprintRepository(deps.pool);
+  const transactions = new PostgresTransactionRunner(deps.pool);
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
+
+  // config.ts already validated every field individually and the
+  // escalate-after-warn ordering; a failure here is a wiring bug, not user
+  // input, so it throws the same way REQUIRED_DEPS_KEYS's own check does.
+  const reviewPolicyResult = createReviewPolicy(deps.reviewPolicy);
+  if (!reviewPolicyResult.ok) {
+    throw new Error(`content composition built an invalid ReviewPolicy: ${reviewPolicyResult.error.message}`);
+  }
+  const reviewPolicy: ReviewPolicy = reviewPolicyResult.value;
 
   // Every field every handler's own Dependencies interface names, in one
   // bag — structurally assignable to each narrower interface, so a handler
@@ -155,12 +196,16 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     reviews,
     store: deps.mediaStore,
     renderer,
-    reviewProgress,
     entitlements,
     clock: deps.clock,
     identifiers: deps.identifiers,
     audit: deps.audit,
     idempotency: deps.idempotency,
+    assignments: reviewAssignments,
+    escalations: reviewEscalations,
+    fingerprints,
+    reviewPolicy,
+    transactions,
   };
 
   const handlers = [
@@ -195,6 +240,13 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new SubmitMediaAssetForReviewHandler(bag),
     new RecordMediaAssetReviewDecisionHandler(bag),
     new PublishMediaAssetVersionHandler(bag),
+    // Review assignment
+    new ClaimNextForReviewHandler(bag),
+    new ReleaseAssignmentHandler(bag),
+    new ReassignReviewHandler(bag),
+    new ExtendLeaseHandler(bag),
+    new ApproveWithEditsHandler(bag),
+    new SweepReviewAgeingHandler(bag),
     // Authoring queries
     new GetItemDraftHandler(bag),
     new ListMyDraftsHandler(bag),

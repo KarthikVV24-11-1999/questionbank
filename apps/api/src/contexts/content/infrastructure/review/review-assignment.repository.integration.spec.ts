@@ -3,16 +3,20 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, DATABASE_URL, type TestDatabase } from '../../../../testing/database.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
 import type { ClaimNextReviewAssignment } from '../../domain/repository-ports.js';
-import { PostgresReviewAssignmentRepository } from './review-assignment.repository.js';
+import { ESCALATED_FIRST_QUERY, PostgresReviewAssignmentRepository } from './review-assignment.repository.js';
+import { PostgresTransactionRunner } from '../transaction-runner.js';
+import { orderCandidates, type QueueOrderingCandidate } from '../../domain/review/queue-ordering.js';
 
 let database: TestDatabase;
 let repository: PostgresReviewAssignmentRepository;
+let runner: PostgresTransactionRunner;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
   repository = new PostgresReviewAssignmentRepository(database.pool);
+  runner = new PostgresTransactionRunner(database.pool);
 });
 
 afterAll(async () => {
@@ -70,6 +74,7 @@ function claimCriteria(overrides: Partial<ClaimNextReviewAssignment> = {}): Clai
     ordering: 'oldest_first',
     now,
     leaseExpiresAt: new Date(Date.parse(now) + 60 * 60 * 1000).toISOString(),
+    escalateAfterHours: 72,
     ...overrides,
   };
 }
@@ -125,20 +130,79 @@ describe('claimNext — the atomic claim (M4-18)', () => {
     expect(error.message).toContain('INV-12');
   });
 
-  it('orders by escalation first when asked', async () => {
+  it('orders by escalation first when asked — derived from stateEnteredAt, never from content.review_escalation (M4-46)', async () => {
     const subject = `escalation-${freshUuid()}`;
-    await seedInReviewItemVersion({ subject, stateEnteredAt: new Date(Date.now() - 100_000) });
-    const escalated = await seedInReviewItemVersion({ subject, stateEnteredAt: new Date() });
+    const now = new Date();
+    await seedInReviewItemVersion({ subject, stateEnteredAt: new Date(now.getTime() - 1_000) });
+    const overdue = await seedInReviewItemVersion({
+      subject,
+      stateEnteredAt: new Date(now.getTime() - 73 * 60 * 60 * 1000),
+    });
+
+    const claimed = expectValue(
+      await repository.claimNext(
+        claimCriteria({ subject, ordering: 'escalated_first', now: now.toISOString(), escalateAfterHours: 72 }),
+      ),
+    );
+    expect(claimed.itemVersionId).toBe(overdue.itemVersionId);
+
+    // The assertion that fails before M4-46: content.review_escalation is
+    // never written to here, and the old ordering read exactly this table —
+    // which only the unscheduled sweep (M4-31) ever populates.
+    const escalationRows = await database.pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM content.review_escalation WHERE item_version_id = $1`,
+      [overdue.itemVersionId],
+    );
+    expect(Number(escalationRows.rows[0]!.n)).toBe(0);
+  });
+
+  it('concept-batches: the reviewer’s last-decided concept outranks a chronologically older item outside it (M4-46)', async () => {
+    const subject = `batch-${freshUuid()}`;
+    const now = new Date();
+    const reviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const batchConcept = freshUuid();
+    const otherConcept = freshUuid();
+    const taxonomyVersionId = freshUuid();
+
+    // The reviewer's most recent decision, on a version tagged with the
+    // "batch" concept — seeded directly, decision recording is another
+    // task's concern here.
+    const decidedVersion = await seedInReviewItemVersion({ subject });
     await database.pool.query(
-      `INSERT INTO content.review_escalation (item_id, item_version_id, reason, escalated_at)
-       VALUES ($1, $2, 'aged_out', now())`,
-      [escalated.itemId, escalated.itemVersionId],
+      `INSERT INTO content.item_taxonomy_tag (item_version_id, concept_identity_id, taxonomy_version_id, weight, is_primary)
+       VALUES ($1, $2, $3, 1, true)`,
+      [decidedVersion.itemVersionId, batchConcept, taxonomyVersionId],
+    );
+    await database.pool.query(
+      `INSERT INTO content.review_decision
+         (review_decision_id, owner_type, owner_version_id, reviewer_kind, reviewer_id, outcome, decided_at)
+       VALUES ($1, 'item_version', $2, 'human', $3, 'approve', $4::timestamptz)`,
+      [freshUuid(), decidedVersion.itemVersionId, reviewer.id, now.toISOString()],
+    );
+
+    // An older candidate outside the batch concept, and a younger one inside
+    // it. Pure oldest-first would claim the older one; concept-batch (which
+    // this ordering checks before age) must claim the younger, matching
+    // concept instead.
+    const older = await seedInReviewItemVersion({ subject, stateEnteredAt: new Date(now.getTime() - 10_000) });
+    await database.pool.query(
+      `INSERT INTO content.item_taxonomy_tag (item_version_id, concept_identity_id, taxonomy_version_id, weight, is_primary)
+       VALUES ($1, $2, $3, 1, true)`,
+      [older.itemVersionId, otherConcept, taxonomyVersionId],
+    );
+    const younger = await seedInReviewItemVersion({ subject, stateEnteredAt: new Date(now.getTime() - 5_000) });
+    await database.pool.query(
+      `INSERT INTO content.item_taxonomy_tag (item_version_id, concept_identity_id, taxonomy_version_id, weight, is_primary)
+       VALUES ($1, $2, $3, 1, true)`,
+      [younger.itemVersionId, batchConcept, taxonomyVersionId],
     );
 
     const claimed = expectValue(
-      await repository.claimNext(claimCriteria({ subject, ordering: 'escalated_first' })),
+      await repository.claimNext(
+        claimCriteria({ subject, reviewer, ordering: 'escalated_first', now: now.toISOString(), escalateAfterHours: 72 }),
+      ),
     );
-    expect(claimed.itemVersionId).toBe(escalated.itemVersionId);
+    expect(claimed.itemVersionId).toBe(younger.itemVersionId);
   });
 
   it('two overlapping transactions on two separate connections claim two different items', async () => {
@@ -288,6 +352,257 @@ describe('claimNext — the atomic claim (M4-18)', () => {
   });
 });
 
+/**
+ * The M4-23 pattern applied to M4-46: run the same candidate set through the
+ * SQL ordering (`ESCALATED_FIRST_QUERY`, with its `LIMIT 1 FOR UPDATE …`
+ * tail stripped so every eligible row comes back at once, in order) and
+ * through `domain/review/queue-ordering.ts`'s `orderCandidates` — the
+ * declared TypeScript specification for exactly the three terms this SQL
+ * implements (confidence stays `Fail — blocked`, so every fixture's
+ * `blockingCount`/`warningCount`/`duplicateCandidateCount` is 0, tying that
+ * term out so it never breaks a comparison the SQL cannot make anyway).
+ *
+ * The two "planted violation" tests below do not touch the production
+ * query — they run a locally mutated copy of it and show the parity
+ * assertion is capable of catching exactly the class of bug it exists to
+ * catch, per SESSION-BRIEF's "every rule is a test proven able to fail."
+ */
+describe('the SQL ordering agrees with the TypeScript specification (M4-46, M4-23’s pattern)', () => {
+  const ALL_ROWS_IN_ORDER_QUERY = ESCALATED_FIRST_QUERY.replace(
+    /\n\s*LIMIT 1\n\s*FOR UPDATE OF v SKIP LOCKED\s*$/u,
+    '',
+  );
+
+  async function tagPrimaryConcept(itemVersionId: string, conceptId: string, taxonomyVersionId: string): Promise<void> {
+    await database.pool.query(
+      `INSERT INTO content.item_taxonomy_tag (item_version_id, concept_identity_id, taxonomy_version_id, weight, is_primary)
+       VALUES ($1, $2, $3, 1, true)`,
+      [itemVersionId, conceptId, taxonomyVersionId],
+    );
+  }
+
+  it('agrees on the full ordering over a fixture corpus mixing escalation and concept batching', async () => {
+    const subject = `parity-${freshUuid()}`;
+    const now = new Date();
+    const reviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const conceptX = freshUuid();
+    const conceptY = freshUuid();
+    const taxonomyVersionId = freshUuid();
+
+    const decided = await seedInReviewItemVersion({ subject });
+    await tagPrimaryConcept(decided.itemVersionId, conceptX, taxonomyVersionId);
+    await database.pool.query(
+      `INSERT INTO content.review_decision
+         (review_decision_id, owner_type, owner_version_id, reviewer_kind, reviewer_id, outcome, decided_at)
+       VALUES ($1, 'item_version', $2, 'human', $3, 'approve', $4::timestamptz)`,
+      [freshUuid(), decided.itemVersionId, reviewer.id, now.toISOString()],
+    );
+
+    const escalatedNoMatch = await seedInReviewItemVersion({
+      subject,
+      stateEnteredAt: new Date(now.getTime() - 80 * 60 * 60 * 1000),
+    });
+    await tagPrimaryConcept(escalatedNoMatch.itemVersionId, conceptY, taxonomyVersionId);
+
+    const freshMatch = await seedInReviewItemVersion({
+      subject,
+      stateEnteredAt: new Date(now.getTime() - 5 * 60 * 60 * 1000),
+    });
+    await tagPrimaryConcept(freshMatch.itemVersionId, conceptX, taxonomyVersionId);
+
+    const freshNoMatch = await seedInReviewItemVersion({
+      subject,
+      stateEnteredAt: new Date(now.getTime() - 1 * 60 * 60 * 1000),
+    });
+    await tagPrimaryConcept(freshNoMatch.itemVersionId, conceptY, taxonomyVersionId);
+
+    const fixtures = [decided, escalatedNoMatch, freshMatch, freshNoMatch];
+    const conceptById = new Map([
+      [decided.itemVersionId, conceptX],
+      [escalatedNoMatch.itemVersionId, conceptY],
+      [freshMatch.itemVersionId, conceptX],
+      [freshNoMatch.itemVersionId, conceptY],
+    ]);
+    const stateEnteredAtById = new Map([
+      [decided.itemVersionId, now],
+      [escalatedNoMatch.itemVersionId, new Date(now.getTime() - 80 * 60 * 60 * 1000)],
+      [freshMatch.itemVersionId, new Date(now.getTime() - 5 * 60 * 60 * 1000)],
+      [freshNoMatch.itemVersionId, new Date(now.getTime() - 1 * 60 * 60 * 1000)],
+    ]);
+    const escalateAfterHours = 72;
+
+    const sqlOrder = await database.pool.query<{ item_version_id: string }>(ALL_ROWS_IN_ORDER_QUERY, [
+      subject,
+      reviewer.id,
+      reviewer.id,
+      now.toISOString(),
+      escalateAfterHours,
+    ]);
+    const sqlOrderIds = sqlOrder.rows.map((row) => row.item_version_id);
+
+    const candidates: QueueOrderingCandidate[] = fixtures.map((f) => {
+      const stateEnteredAt = stateEnteredAtById.get(f.itemVersionId)!;
+      const ageHours = (now.getTime() - stateEnteredAt.getTime()) / (60 * 60 * 1000);
+      return {
+        itemVersionId: f.itemVersionId,
+        primaryConceptId: conceptById.get(f.itemVersionId)!,
+        escalated: ageHours >= escalateAfterHours,
+        blockingCount: 0,
+        warningCount: 0,
+        duplicateCandidateCount: 0,
+        stateEnteredAt: stateEnteredAt.toISOString(),
+      };
+    });
+    const specOrderIds = orderCandidates(candidates, { lastDecidedConcept: conceptX }).map((c) => c.itemVersionId);
+
+    expect(sqlOrderIds).toEqual(specOrderIds);
+  });
+
+  it('is red on a planted off-by-one in the escalation threshold', async () => {
+    const subject = `parity-threshold-${freshUuid()}`;
+    const now = new Date();
+    const reviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const conceptX = freshUuid();
+    const conceptY = freshUuid();
+    const taxonomyVersionId = freshUuid();
+
+    // Seeded under its own subject so it never itself competes as a
+    // candidate for `subject` — only the two ordering fixtures below do.
+    const decided = await seedInReviewItemVersion({ subject: `${subject}-decided` });
+    await tagPrimaryConcept(decided.itemVersionId, conceptX, taxonomyVersionId);
+    await database.pool.query(
+      `INSERT INTO content.review_decision
+         (review_decision_id, owner_type, owner_version_id, reviewer_kind, reviewer_id, outcome, decided_at)
+       VALUES ($1, 'item_version', $2, 'human', $3, 'approve', $4::timestamptz)`,
+      [freshUuid(), decided.itemVersionId, reviewer.id, now.toISOString()],
+    );
+
+    // Truly escalated (80h, past the real 72h threshold), concept Y — no match.
+    const trulyEscalated = await seedInReviewItemVersion({
+      subject,
+      stateEnteredAt: new Date(now.getTime() - 80 * 60 * 60 * 1000),
+    });
+    await tagPrimaryConcept(trulyEscalated.itemVersionId, conceptY, taxonomyVersionId);
+
+    // 71.5h old — correctly NOT escalated under a 72h threshold, concept X
+    // (matches). A threshold off by even one hour (71h) misclassifies it as
+    // escalated, which — because concept-match is compared next, inside the
+    // escalated bucket — jumps it ahead of trulyEscalated in the broken
+    // ordering, even though the correct ordering puts trulyEscalated first.
+    const boundary = await seedInReviewItemVersion({
+      subject,
+      stateEnteredAt: new Date(now.getTime() - 71.5 * 60 * 60 * 1000),
+    });
+    await tagPrimaryConcept(boundary.itemVersionId, conceptX, taxonomyVersionId);
+
+    const correctOrder = await database.pool.query<{ item_version_id: string }>(ALL_ROWS_IN_ORDER_QUERY, [
+      subject,
+      reviewer.id,
+      reviewer.id,
+      now.toISOString(),
+      72,
+    ]);
+    expect(correctOrder.rows.map((r) => r.item_version_id)).toEqual([
+      trulyEscalated.itemVersionId,
+      boundary.itemVersionId,
+    ]);
+
+    const brokenQuery = ALL_ROWS_IN_ORDER_QUERY.replace(
+      "($5 * interval '1 hour')",
+      "(($5 - 1) * interval '1 hour')",
+    );
+    const brokenOrder = await database.pool.query<{ item_version_id: string }>(brokenQuery, [
+      subject,
+      reviewer.id,
+      reviewer.id,
+      now.toISOString(),
+      72,
+    ]);
+    expect(brokenOrder.rows.map((r) => r.item_version_id)).toEqual([
+      boundary.itemVersionId,
+      trulyEscalated.itemVersionId,
+    ]);
+    expect(brokenOrder.rows.map((r) => r.item_version_id)).not.toEqual(
+      correctOrder.rows.map((r) => r.item_version_id),
+    );
+  });
+
+  it('is red on a planted wrong-join in the concept-batch term', async () => {
+    const subject = `parity-join-${freshUuid()}`;
+    const now = new Date();
+    const reviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const conceptX = freshUuid();
+    const conceptY = freshUuid();
+    const taxonomyVersionId = freshUuid();
+
+    const decided = await seedInReviewItemVersion({ subject });
+    await tagPrimaryConcept(decided.itemVersionId, conceptX, taxonomyVersionId);
+    await database.pool.query(
+      `INSERT INTO content.review_decision
+         (review_decision_id, owner_type, owner_version_id, reviewer_kind, reviewer_id, outcome, decided_at)
+       VALUES ($1, 'item_version', $2, 'human', $3, 'approve', $4::timestamptz)`,
+      [freshUuid(), decided.itemVersionId, reviewer.id, now.toISOString()],
+    );
+
+    // A candidate whose PRIMARY concept is Y (no match) but which also
+    // carries a non-primary tag of X (matches). The correct join keys off
+    // `vt.is_primary`, so this candidate must not match and must appear
+    // exactly once.
+    const candidate = await seedInReviewItemVersion({
+      subject,
+      stateEnteredAt: new Date(now.getTime() - 10 * 60 * 60 * 1000),
+    });
+    await tagPrimaryConcept(candidate.itemVersionId, conceptY, taxonomyVersionId);
+    await database.pool.query(
+      `INSERT INTO content.item_taxonomy_tag (item_version_id, concept_identity_id, taxonomy_version_id, weight, is_primary)
+       VALUES ($1, $2, $3, 1, false)`,
+      [candidate.itemVersionId, conceptX, taxonomyVersionId],
+    );
+
+    const correctOrder = await database.pool.query<{ item_version_id: string }>(ALL_ROWS_IN_ORDER_QUERY, [
+      subject,
+      reviewer.id,
+      reviewer.id,
+      now.toISOString(),
+      72,
+    ]);
+    expect(correctOrder.rows.map((r) => r.item_version_id)).toEqual([
+      decided.itemVersionId,
+      candidate.itemVersionId,
+    ]);
+
+    const brokenQuery = ALL_ROWS_IN_ORDER_QUERY.replace(
+      'ON vt.item_version_id = v.item_version_id AND vt.is_primary',
+      'ON vt.item_version_id = v.item_version_id',
+    );
+    const brokenOrder = await database.pool.query<{ item_version_id: string }>(brokenQuery, [
+      subject,
+      reviewer.id,
+      reviewer.id,
+      now.toISOString(),
+      72,
+    ]);
+    // The candidate's non-primary tag now also joins, duplicating its row —
+    // a shape the TypeScript specification (one candidate in, one candidate
+    // out) can never produce, so the parity assertion catches it as a count
+    // mismatch as surely as it would catch a wrong order.
+    expect(brokenOrder.rows.length).not.toBe(correctOrder.rows.length);
+    expect(brokenOrder.rows.map((r) => r.item_version_id)).not.toEqual(
+      correctOrder.rows.map((r) => r.item_version_id),
+    );
+  });
+
+  it('leaves the atomic-claim race test (M4-18) unaffected — one locking statement, unchanged', async () => {
+    // Not a repeat of the M4-18 race tests above; this documents that this
+    // describe block never calls claimNext with a lock — every query here is
+    // the LIMIT/FOR-UPDATE-stripped read variant, so it cannot interfere
+    // with or substitute for the real atomic claim under test elsewhere in
+    // this file.
+    expect(ESCALATED_FIRST_QUERY).toContain('FOR UPDATE OF v SKIP LOCKED');
+    expect(ESCALATED_FIRST_QUERY).toContain('LIMIT 1');
+  });
+});
+
 describe('releaseExpired — every lease past expiry, idempotent (M4-18)', () => {
   it('releases a claim whose lease has passed and leaves a live one untouched', async () => {
     const subject = `expiry-${freshUuid()}`;
@@ -406,12 +721,205 @@ describe('claimNext — an unexpected persistence fault (M4-18)', () => {
   it('is reported as PERSISTENCE_REJECTED, not thrown', async () => {
     const subject = `fault-${freshUuid()}`;
     await seedInReviewItemVersion({ subject });
-    // An ordering key ORDER_BY does not recognize breaks the SQL statement
-    // itself — the same path a genuine connection fault would take, without
-    // needing to fail the database out from under the pool.
+    // A `now` that is not a real instant breaks the `$4::timestamptz` cast
+    // inside the escalated_first query itself (M4-46) — the same path a
+    // genuine connection fault would take, without needing to fail the
+    // database out from under the pool.
     const refused = await repository.claimNext(
-      claimCriteria({ subject, ordering: 'not_a_real_ordering' as unknown as ClaimNextReviewAssignment['ordering'] }),
+      claimCriteria({ subject, ordering: 'escalated_first', now: 'not-a-timestamp' }),
     );
     expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
   });
 });
+
+describe('assign — Content Ops’ push path (M4-27, DEC-M4-9)', () => {
+  function assignCriteria(itemVersionId: string, overrides: Partial<Parameters<typeof repository.assign>[0]> = {}) {
+    const now = new Date().toISOString();
+    return {
+      itemVersionId,
+      subject: SUBJECT,
+      reviewer: REVIEWER,
+      now,
+      leaseExpiresAt: new Date(Date.parse(now) + 60 * 60 * 1000).toISOString(),
+      ...overrides,
+    };
+  }
+
+  it('creates a live assignment of kind assigned, distinct from a pulled claim', async () => {
+    const { itemId, itemVersionId } = await seedInReviewItemVersion();
+    const assigned = expectValue(await repository.assign(assignCriteria(itemVersionId)));
+    expect(assigned.itemId).toBe(itemId);
+    expect(assigned.itemVersionId).toBe(itemVersionId);
+    expect(assigned.kind).toBe('assigned');
+    expect(assigned.state).toBe('claimed');
+    expect(assigned.reviewer.id).toBe(REVIEWER.id);
+  });
+
+  it('returns NOT_FOUND for a version that does not exist', async () => {
+    const refused = await repository.assign(assignCriteria(freshUuid()));
+    expect(expectError(refused).code).toBe('NOT_FOUND');
+  });
+
+  it('returns NOT_FOUND for a version whose item is not in_review', async () => {
+    const itemId = freshUuid();
+    const itemVersionId = freshUuid();
+    await database.pool.query(
+      `INSERT INTO content.item (item_id, item_type, lifecycle_state, authoring_subject) VALUES ($1, 'SINGLE_CORRECT_MCQ', 'draft', $2)`,
+      [itemId, SUBJECT],
+    );
+    await database.pool.query(
+      `INSERT INTO content.item_version
+         (item_version_id, item_id, version_no, item_type, stem_body, stem_plain_text, difficulty_estimate,
+          authored_by_kind, authored_by_id)
+       VALUES ($1, $2, 1, 'SINGLE_CORRECT_MCQ', '{}'::jsonb, 's', 'moderate', 'human', $3)`,
+      [itemVersionId, itemId, freshUuid()],
+    );
+    const refused = await repository.assign(assignCriteria(itemVersionId));
+    expect(expectError(refused).code).toBe('NOT_FOUND');
+  });
+
+  it('refuses assigning the author', async () => {
+    const authorReviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const { itemVersionId } = await seedInReviewItemVersion({ authorId: authorReviewer.id });
+    const refused = await repository.assign(assignCriteria(itemVersionId, { reviewer: authorReviewer }));
+    const error = expectError(refused);
+    expect(error.code).toBe('PERSISTENCE_REJECTED');
+    expect(error.message).toContain('INV-12');
+  });
+
+  it('refuses assigning the editor', async () => {
+    const editorReviewer = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const { itemVersionId } = await seedInReviewItemVersion({ editorId: editorReviewer.id });
+    const refused = await repository.assign(assignCriteria(itemVersionId, { reviewer: editorReviewer }));
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+
+  it('returns CONFLICT when the version already carries a live assignment', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion();
+    expectValue(await repository.assign(assignCriteria(itemVersionId)));
+    const other = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const refused = await repository.assign(assignCriteria(itemVersionId, { reviewer: other }));
+    expect(expectError(refused).code).toBe('CONFLICT');
+  });
+
+  it('permits assigning again once the live claim is released — history accumulates', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion();
+    const first = expectValue(await repository.assign(assignCriteria(itemVersionId)));
+    expectValue(await repository.release(first.assignmentId, new Date().toISOString(), first.aggregateVersion));
+    const other = { kind: 'human' as const, id: freshUuid(), roleContext: ['reviewer'] };
+    const second = expectValue(await repository.assign(assignCriteria(itemVersionId, { reviewer: other })));
+    expect(second.state).toBe('claimed');
+  });
+
+  it('reports an unexpected write failure as PERSISTENCE_REJECTED, not thrown', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion();
+    const refused = await repository.assign(
+      assignCriteria(itemVersionId, { reviewer: { kind: 'not_a_real_kind' as never, id: freshUuid(), roleContext: [] } }),
+    );
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+});
+
+describe('extendLease — pushes the lease forward without a state transition (M4-27)', () => {
+  it('extends a live claim’s lease, advancing aggregate_version', async () => {
+    const subject = `extend-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    const newExpiry = new Date(Date.parse(claimed.leaseExpiresAt) + 60 * 60 * 1000).toISOString();
+
+    const extended = expectValue(
+      await repository.extendLease(claimed.assignmentId, newExpiry, claimed.aggregateVersion),
+    );
+    expect(extended.leaseExpiresAt).toBe(newExpiry);
+    expect(extended.state).toBe('claimed');
+    expect(extended.aggregateVersion).toBe(claimed.aggregateVersion + 1);
+  });
+
+  it('reports NOT_FOUND for an assignment that does not exist', async () => {
+    const refused = await repository.extendLease(freshUuid(), new Date().toISOString(), 1);
+    expect(expectError(refused).code).toBe('NOT_FOUND');
+  });
+
+  it('reports CONFLICT on a stale aggregate_version', async () => {
+    const subject = `extend-stale-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    const newExpiry = new Date(Date.parse(claimed.leaseExpiresAt) + 60 * 60 * 1000).toISOString();
+
+    const refused = await repository.extendLease(claimed.assignmentId, newExpiry, claimed.aggregateVersion + 5);
+    expect(expectError(refused).code).toBe('CONFLICT');
+  });
+
+  it('reports CONFLICT when the assignment is no longer claimed', async () => {
+    const subject = `extend-released-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    const released = expectValue(
+      await repository.release(claimed.assignmentId, new Date().toISOString(), claimed.aggregateVersion),
+    );
+    const newExpiry = new Date(Date.parse(claimed.leaseExpiresAt) + 60 * 60 * 1000).toISOString();
+
+    const refused = await repository.extendLease(claimed.assignmentId, newExpiry, released.aggregateVersion);
+    expect(expectError(refused).code).toBe('CONFLICT');
+  });
+
+  it('reports PERSISTENCE_REJECTED when the new lease does not move forward — the trigger’s own guard', async () => {
+    const subject = `extend-backward-${freshUuid()}`;
+    await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+
+    const refused = await repository.extendLease(claimed.assignmentId, claimed.leaseExpiresAt, claimed.aggregateVersion);
+    expect(expectError(refused).code).toBe('PERSISTENCE_REJECTED');
+  });
+});
+
+describe('hasLiveClaim — the withdrawal read, inside a shared transaction (M4-30)', () => {
+  it('is false with no claim at all', async () => {
+    const { itemVersionId } = await seedInReviewItemVersion({ subject: `live-${freshUuid()}` });
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, new Date().toISOString(), tx));
+    expect(expectValue(result)).toBe(false);
+  });
+
+  it('is true for a claim that is live', async () => {
+    const subject = `live-${freshUuid()}`;
+    const { itemVersionId } = await seedInReviewItemVersion({ subject });
+    expectValue(await repository.claimNext(claimCriteria({ subject })));
+
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, new Date().toISOString(), tx));
+    expect(expectValue(result)).toBe(true);
+  });
+
+  it('is false once the claim’s lease has expired — an expired lease is not begun work', async () => {
+    const subject = `live-${freshUuid()}`;
+    const { itemVersionId } = await seedInReviewItemVersion({ subject });
+    const now = new Date();
+    expectValue(
+      await repository.claimNext(
+        claimCriteria({
+          subject,
+          now: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+          leaseExpiresAt: new Date(now.getTime() - 60 * 60 * 1000).toISOString(),
+        }),
+      ),
+    );
+
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, now.toISOString(), tx));
+    expect(expectValue(result)).toBe(false);
+  });
+
+  it('is false once the claim has been released', async () => {
+    const subject = `live-${freshUuid()}`;
+    const { itemVersionId } = await seedInReviewItemVersion({ subject });
+    const claimed = expectValue(await repository.claimNext(claimCriteria({ subject })));
+    expectValue(await repository.release(claimed.assignmentId, new Date().toISOString(), claimed.aggregateVersion));
+
+    const result = await runner.run(async (tx) => repository.hasLiveClaim(itemVersionId, new Date().toISOString(), tx));
+    expect(expectValue(result)).toBe(false);
+  });
+
+  it('reports a malformed read as PERSISTENCE_REJECTED, not thrown', async () => {
+    const result = await runner.run(async (tx) => repository.hasLiveClaim('not-a-uuid', 'not-a-timestamp', tx));
+    expect(expectError(result).code).toBe('PERSISTENCE_REJECTED');
+  });
+});
+

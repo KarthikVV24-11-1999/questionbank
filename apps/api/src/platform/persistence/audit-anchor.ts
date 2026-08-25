@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
+import { verifyChain, type DivergenceReason } from './audit-chain-verify.js';
 
 /**
  * The daily audit anchor (M4-24, DEC-M4-4 → ADR-0020).
@@ -70,7 +71,23 @@ export type SealOutcome =
    * artifact F41's non-zero-count assertion exists to reject, and storing one
    * would let a verifier report a signed, meaningless day as healthy.
    */
-  | { readonly kind: 'no_records'; readonly day: string };
+  | { readonly kind: 'no_records'; readonly day: string }
+  /**
+   * M4-34's one real behaviour: `sealDay` verifies the day's own range with
+   * `verifyChain` (M4-25) **before** the insert, inside the same transaction,
+   * and refuses to seal a chain that does not verify — an anchor over a chain
+   * that does not verify would certify a lie. `firstDivergentSeq` and `reason`
+   * are `verifyChain`'s own, passed through unflattened, so a caller acts on
+   * the same named link and cause `audit-chain.integration.spec.ts` already
+   * proves rather than a re-worded summary.
+   */
+  | {
+      readonly kind: 'verification_failed';
+      readonly day: string;
+      readonly firstDivergentSeq: number;
+      readonly reason: DivergenceReason;
+      readonly detail: string;
+    };
 
 export class AuditAnchorError extends Error {
   constructor(message: string) {
@@ -236,60 +253,79 @@ export async function sealDay(
     await client.query('BEGIN');
 
     /*
-     * A plain `INSERT`, not `ON CONFLICT DO NOTHING`. `DO NOTHING` does not
-     * block on a *uncommitted* conflicting row — it skips it — so the re-read
-     * that follows could miss a winner still in flight and see nothing at all.
-     * A plain insert blocks until that transaction commits or aborts, so by
-     * the time the unique violation is raised the winner is committed and
-     * visible. The difference only shows under a real race, which is where it
-     * matters.
+     * Verify before sealing, inside this same transaction, over exactly the
+     * range about to be anchored — the one behavioural gap this task closes.
+     * An anchor over a chain that does not verify certifies a lie, so a
+     * divergence here refuses the seal outright: no row, no signature, no
+     * event — `ROLLBACK`, the same tail every other outcome shares below.
      */
-    const inserted = await client.query<AnchorRow>(
-      `INSERT INTO platform.audit_anchor
-         (day, first_seq, last_seq, head_hash, record_count, sealed_at, signature)
-       VALUES ($1::date, $2, $3, $4, $5, $6::timestamptz, $7)
-       RETURNING ${SELECT_ANCHOR}`,
-      [
+    const verified = await verifyChain(client, unsigned.firstSeq, unsigned.lastSeq);
+    if (!verified.ok) {
+      await client.query('ROLLBACK');
+      outcome = {
+        kind: 'verification_failed',
         day,
-        unsigned.firstSeq,
-        unsigned.lastSeq,
-        unsigned.headHash,
-        unsigned.recordCount,
-        sealedAt,
-        signature,
-      ],
-    );
+        firstDivergentSeq: verified.firstDivergentSeq,
+        reason: verified.reason,
+        detail: verified.detail,
+      };
+    } else {
+      /*
+       * A plain `INSERT`, not `ON CONFLICT DO NOTHING`. `DO NOTHING` does not
+       * block on a *uncommitted* conflicting row — it skips it — so the re-read
+       * that follows could miss a winner still in flight and see nothing at all.
+       * A plain insert blocks until that transaction commits or aborts, so by
+       * the time the unique violation is raised the winner is committed and
+       * visible. The difference only shows under a real race, which is where it
+       * matters.
+       */
+      const inserted = await client.query<AnchorRow>(
+        `INSERT INTO platform.audit_anchor
+           (day, first_seq, last_seq, head_hash, record_count, sealed_at, signature)
+         VALUES ($1::date, $2, $3, $4, $5, $6::timestamptz, $7)
+         RETURNING ${SELECT_ANCHOR}`,
+        [
+          day,
+          unsigned.firstSeq,
+          unsigned.lastSeq,
+          unsigned.headHash,
+          unsigned.recordCount,
+          sealedAt,
+          signature,
+        ],
+      );
 
-    const anchor = toAnchor(inserted.rows[0]!);
+      const anchor = toAnchor(inserted.rows[0]!);
 
-    await client.query(
-      `INSERT INTO platform.outbox_message
-         (event_type, schema_version, aggregate_type, aggregate_id, payload, payload_schema_version,
-          principal_kind, principal_id, correlation_id, occurred_at)
-       VALUES ($1, $2, 'AuditAnchor', $3, $4, 1, 'system', $5, $6, $7::timestamptz)`,
-      [
-        AUDIT_ANCHOR_SEALED_EVENT,
-        AUDIT_ANCHOR_EVENT_SCHEMA_VERSION,
-        anchor.anchorId,
-        // Identifiers and the head hash only — an outbox drains to analytics
-        // (P4/D17), and the signature is not something a consumer needs to
-        // hold in order to fetch and witness a head.
-        JSON.stringify({
-          anchorId: anchor.anchorId,
-          day: anchor.day,
-          firstSeq: anchor.firstSeq,
-          lastSeq: anchor.lastSeq,
-          headHash: anchor.headHash.toString('hex'),
-          recordCount: anchor.recordCount,
-        }),
-        SYSTEM_PRINCIPAL_ID,
-        `audit-anchor-${day}`,
-        sealedAt,
-      ],
-    );
+      await client.query(
+        `INSERT INTO platform.outbox_message
+           (event_type, schema_version, aggregate_type, aggregate_id, payload, payload_schema_version,
+            principal_kind, principal_id, correlation_id, occurred_at)
+         VALUES ($1, $2, 'AuditAnchor', $3, $4, 1, 'system', $5, $6, $7::timestamptz)`,
+        [
+          AUDIT_ANCHOR_SEALED_EVENT,
+          AUDIT_ANCHOR_EVENT_SCHEMA_VERSION,
+          anchor.anchorId,
+          // Identifiers and the head hash only — an outbox drains to analytics
+          // (P4/D17), and the signature is not something a consumer needs to
+          // hold in order to fetch and witness a head.
+          JSON.stringify({
+            anchorId: anchor.anchorId,
+            day: anchor.day,
+            firstSeq: anchor.firstSeq,
+            lastSeq: anchor.lastSeq,
+            headHash: anchor.headHash.toString('hex'),
+            recordCount: anchor.recordCount,
+          }),
+          SYSTEM_PRINCIPAL_ID,
+          `audit-anchor-${day}`,
+          sealedAt,
+        ],
+      );
 
-    await client.query('COMMIT');
-    outcome = { kind: 'sealed', anchor };
+      await client.query('COMMIT');
+      outcome = { kind: 'sealed', anchor };
+    }
   } catch (error) {
     await client.query('ROLLBACK');
 

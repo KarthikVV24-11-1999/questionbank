@@ -16,7 +16,9 @@ import { createItemVersion, deriveDraft, deriveReviewerEditedVersion, type ItemV
 import { addVersion, createItem, publishVersion, transitionItem, type Item } from '../domain/item.js';
 import { createContentBody, type Block } from '../domain/content-body.js';
 import { projectContentBody } from '../domain/content-body-projections.js';
+import type { ItemSuspended } from '../domain/events/content-events.js';
 import { PostgresItemRepository } from './item.repository.js';
+import { PostgresTransactionRunner } from './transaction-runner.js';
 
 let database: TestDatabase;
 let repository: PostgresItemRepository;
@@ -1098,5 +1100,33 @@ describe('editedBy', () => {
     const editedVersion = loaded.versions.find((version) => version.versionId === edited.versionId);
     expect(editedVersion?.editedBy?.id).toBe(DB_REVIEWER.id);
     expect(editedVersion?.authoredBy.id).toBe(AUTHOR_ID);
+  });
+});
+
+describe('save with an externally managed transaction (M4-28)', () => {
+  it('joins the caller\'s transaction and still emits events through the same client', async () => {
+    const item = draftItem();
+    expectValue(await repository.save(item));
+    const inReview = expectValue(transitionItem(item, { transition: 'submit_for_review' }));
+
+    const event: ItemSuspended = {
+      eventId: freshUuid(),
+      eventType: 'ItemSuspended',
+      schemaVersion: 1,
+      occurredAt: new Date('2026-08-21T09:00:00.000Z'),
+      principal: { ...AUTHOR, id: AUTHOR_ID },
+      correlationId: 'corr-tx',
+      payload: { itemId: item.itemId, itemVersionId: item.versions[0]!.versionId, reason: 'x' },
+    };
+
+    const runner = new PostgresTransactionRunner(database.pool);
+    const result = await runner.run((tx) => repository.save(inReview, [event], tx));
+    expect(result.ok).toBe(true);
+
+    const outboxed = await database.pool.query<{ event_type: string }>(
+      `SELECT event_type FROM platform.outbox_message WHERE aggregate_id = $1 AND event_type = 'ItemSuspended'`,
+      [item.itemId],
+    );
+    expect(outboxed.rowCount).toBe(1);
   });
 });

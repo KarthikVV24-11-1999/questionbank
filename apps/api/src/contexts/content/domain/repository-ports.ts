@@ -4,7 +4,7 @@ import type { ContentError } from './content-error.js';
 import type { Item } from './item.js';
 import type { ItemVersion } from './item-version.js';
 import type { MediaAsset, MediaAssetVersion } from './media-asset.js';
-import type { ContentEvent } from './events/content-events.js';
+import type { ContentEvent, ItemReviewEscalated } from './events/content-events.js';
 import type { ReviewDecision, ReviewedOwnerType } from './review-decision.js';
 import type { ReviewAssignment } from './review/review-assignment.js';
 import type { Solution, SolutionVersion } from './solution.js';
@@ -24,13 +24,36 @@ import type { Stimulus, StimulusVersion } from './stimulus.js';
 
 export type RepositoryError = ContentError<'CONFLICT' | 'NOT_FOUND' | 'PERSISTENCE_REJECTED'>;
 
+/**
+ * Opaque handle to an in-flight Postgres transaction, threaded through
+ * repository writes that must commit or roll back together (M4-28).
+ *
+ * Domain declares only this marker shape — no `pg` import, so F2 holds —
+ * and constructs nothing: `infrastructure/transaction-runner.ts` is the one
+ * place a `TransactionContext` is ever created or unwrapped. A repository
+ * method that accepts one is opting into an externally managed transaction;
+ * omitting it keeps that method's own self-contained connect/BEGIN/COMMIT,
+ * exactly as before this existed.
+ */
+export interface TransactionContext {
+  readonly kind: 'TransactionContext';
+}
+
 export interface ItemRepository {
   /**
    * One aggregate, one transaction (§10): the item, every version, and each
    * version's options, matching members and pairs, numeric specification,
    * tags, provenance and licensing.
+   *
+   * `tx`, when supplied, threads an externally managed transaction through
+   * instead of opening this method's own (M4-28) — the caller owns commit
+   * and rollback, and this call neither connects nor releases a client.
    */
-  save(item: Item, events?: readonly ContentEvent[]): Promise<Result<Item, RepositoryError>>;
+  save(
+    item: Item,
+    events?: readonly ContentEvent[],
+    tx?: TransactionContext,
+  ): Promise<Result<Item, RepositoryError>>;
 
   findById(itemId: string): Promise<Result<Item, RepositoryError>>;
 
@@ -103,10 +126,18 @@ export interface ReviewDecisionRepository {
    * optional because not every reviewed owner type has a claim behind it yet
    * (M4-18's claim exists for items only); omitting it writes the decision
    * and its candidate rows with no assignment side effect.
+   *
+   * `tx`, when supplied, threads an externally managed transaction through
+   * instead of opening this method's own (M4-28) — same discipline as
+   * `ItemRepository.save`'s `tx` parameter, and for the same reason: the
+   * decision, its candidate rows, the assignment's transition and the
+   * lifecycle transition this decision drives all commit together or none
+   * does.
    */
   record(
     decision: ReviewDecision,
     claimedAssignmentId?: string,
+    tx?: TransactionContext,
   ): Promise<Result<ReviewDecision, RepositoryError>>;
 
   /** Every decision against an item version, most recent first — `findAllFor('item_version', …)` under a name M4-33 reads more easily. */
@@ -115,6 +146,11 @@ export interface ReviewDecisionRepository {
   /** A reviewer's decisions within an instant range, oldest first — the throughput instrument's source (M4-33). */
   findByReviewer(
     reviewerId: string,
+    range: { readonly from: string; readonly to: string },
+  ): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
+
+  /** Every decision within an instant range, across every reviewer, oldest first — the throughput instrument's aggregate source (M4-33). */
+  findWithinRange(
     range: { readonly from: string; readonly to: string },
   ): Promise<Result<readonly ReviewDecision[], RepositoryError>>;
 
@@ -138,10 +174,23 @@ export interface ReviewDecisionRepository {
 }
 
 /**
- * Column-derived priority within the candidate set (M4-18). Not M4-03's full
- * `orderCandidates` — that needs confidence, which comes from M3 validation
- * this repository has no access to — just the two signals SQL already has:
- * whether an escalation exists, and how long the item has waited.
+ * Column-derived priority within the candidate set (M4-18, reconciled M4-46).
+ * `domain/review/queue-ordering.ts` (M4-03) is the **specification** three of
+ * these four terms are checked against — escalated, concept batch and
+ * oldest, in that precedence. Not the fourth: **confidence is `Fail —
+ * blocked`**, since M3's validation findings are never persisted and
+ * `duplicateCandidateCount` depends on a fingerprint that (M4-32) does not
+ * exist until after the claim commits. Computing confidence in the
+ * application layer before the claim would mean a second connection
+ * deciding order ahead of `claimNext`'s own locking statement — exactly the
+ * SELECT-then-INSERT race M4-18 exists to close.
+ *
+ * `'escalated_first'` is **derived** from `state_entered_at` and
+ * `escalateAfterHours` — never read from `content.review_escalation`, which
+ * only the unscheduled sweep (M4-31) populates and would silently degrade
+ * this to `'oldest_first'` in any real deployment. `review_escalation`
+ * remains the record of "Content Ops was notified", not "this item is
+ * overdue" (DEC-M4-1).
  */
 export type ReviewClaimOrdering = 'escalated_first' | 'oldest_first';
 
@@ -151,6 +200,12 @@ export interface ClaimNextReviewAssignment {
   readonly ordering: ReviewClaimOrdering;
   readonly now: string;
   readonly leaseExpiresAt: string;
+  /**
+   * `ReviewPolicy.escalateAfterHours`, supplied by the caller — thresholds
+   * live in typed config (F16), never as a SQL literal. Read only when
+   * `ordering === 'escalated_first'`.
+   */
+  readonly escalateAfterHours: number;
 }
 
 export interface ReviewAssignmentRepository {
@@ -173,6 +228,18 @@ export interface ReviewAssignmentRepository {
    */
   claimNext(criteria: ClaimNextReviewAssignment): Promise<Result<ReviewAssignment, RepositoryError>>;
 
+  /**
+   * Content Ops' push path (M4-27, DEC-M4-9) — the only other way an
+   * assignment is created. Names the reviewer directly rather than selecting
+   * a candidate, but the invariant is the same: `NOT_FOUND` when the version
+   * does not exist, `CONFLICT` when it already carries a live claim (the
+   * partial unique index, the same one `claimNext` relies on), and a
+   * self-review re-check — `assertAssignable` against `authoredBy`/`editedBy`
+   * loaded fresh, on the same terms `claimNext` uses — before the row is
+   * written.
+   */
+  assign(criteria: AssignReview): Promise<Result<ReviewAssignment, RepositoryError>>;
+
   /** Optimistic concurrency on `aggregate_version`; a stale write is `Conflict`. */
   release(
     assignmentId: string,
@@ -180,10 +247,50 @@ export interface ReviewAssignmentRepository {
     expectedVersion: number,
   ): Promise<Result<ReviewAssignment, RepositoryError>>;
 
+  /**
+   * Pushes `leaseExpiresAt` forward on a live claim, in place — the one
+   * update the M4-21 trigger permits without a state transition (M4-27's own
+   * migration). `newLeaseExpiresAt` must be strictly later than the stored
+   * one, or the trigger itself refuses the write as `PERSISTENCE_REJECTED`;
+   * how far forward is a decision `ReviewPolicy` makes at the application
+   * layer, never this method's to compute. Optimistic on `aggregate_version`,
+   * same as `release`; a stale write, or one against an assignment that is no
+   * longer `claimed`, is `Conflict`.
+   */
+  extendLease(
+    assignmentId: string,
+    newLeaseExpiresAt: string,
+    expectedVersion: number,
+  ): Promise<Result<ReviewAssignment, RepositoryError>>;
+
   /** Every lease past expiry, released in one statement. Idempotent: a second run finds nothing left to release. */
   releaseExpired(now: string): Promise<Result<readonly ReviewAssignment[], RepositoryError>>;
 
   findById(assignmentId: string): Promise<Result<ReviewAssignment, RepositoryError>>;
+
+  /**
+   * Whether a **live** claim exists for this item version, as of `now` — an
+   * expired lease is not begun work (FR-TCH-08 rule 2, M4-30).
+   *
+   * `tx` is not optional, unlike `save`/`record`'s. This read is meaningless
+   * outside a transaction: it locks the same `content.item_version` row
+   * `claimNext`'s own `FOR UPDATE OF v SKIP LOCKED` locks, **without**
+   * `SKIP LOCKED`, so a concurrent claim and a concurrent call to this
+   * method block behind each other rather than racing past — whichever
+   * transaction reaches the row first decides the other's answer. That is
+   * the property that makes a claim and a withdrawal in overlapping
+   * transactions resolve to exactly one winner, which neither a port
+   * nor a read-only projection could promise on its own (W4, superseded).
+   */
+  hasLiveClaim(itemVersionId: string, now: string, tx: TransactionContext): Promise<Result<boolean, RepositoryError>>;
+}
+
+export interface AssignReview {
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly reviewer: PrincipalRef;
+  readonly now: string;
+  readonly leaseExpiresAt: string;
 }
 
 /**
@@ -202,6 +309,15 @@ export interface ItemFingerprintRecord {
 
 export interface FingerprintRepository {
   save(fingerprint: ItemFingerprintRecord): Promise<Result<true, RepositoryError>>;
+
+  /**
+   * Whether this item version already has a fingerprint on record — the
+   * check the claimed item's payload-building read (M4-32,
+   * `ClaimNextForReviewHandler`) makes before computing one, so an
+   * already-fingerprinted version is never re-hashed on every claim.
+   * `undefined`, not an error, when there is none yet.
+   */
+  findByItemVersionId(itemVersionId: string): Promise<Result<ItemFingerprintRecord | undefined, RepositoryError>>;
 
   /** Exact-match, B-tree backed — authoritative, never touches the trigram index. */
   findByExactHash(subject: string, exactHash: string): Promise<Result<readonly ItemFingerprintRecord[], RepositoryError>>;
@@ -277,4 +393,44 @@ export interface StimulusRepository {
 
   /** The version an item authored today would pin, or `NotFound`. */
   findPublishedVersion(stimulusId: string): Promise<Result<StimulusVersion, RepositoryError>>;
+}
+
+/** M4-31's sweep — the facts a new `review_escalation` row and its event need. */
+export interface EscalateReviewVersion {
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly subject: string;
+  readonly reason: string;
+  readonly escalatedAt: string;
+}
+
+export interface ReviewEscalationRepository {
+  /**
+   * Writes one `review_escalation` row and the `ItemReviewEscalated` event
+   * it produces together, inside `tx` — both or neither (M4-31, same
+   * discipline as `ReviewDecisionRepository.record`'s candidate rows).
+   *
+   * **Idempotent by construction, not by the caller's discipline.** When a
+   * row for this item version already exists, nothing is written and this
+   * returns `false`; a genuinely new escalation returns `true`. That
+   * boolean is the only signal `SweepReviewAgeingHandler` needs to decide
+   * whether anything just happened — a second sweep at the same instant
+   * finds every already-escalated item answers `false` and emits nothing.
+   */
+  escalateIfNew(
+    criteria: EscalateReviewVersion,
+    event: ItemReviewEscalated,
+    tx: TransactionContext,
+  ): Promise<Result<boolean, RepositoryError>>;
+
+  /**
+   * When Content Ops was notified for each of these item versions — Tier-3-
+   * dependent (M4-33): a version absent from the returned map has not
+   * necessarily gone unnoticed, only that nothing has swept it yet (D36).
+   * Never the answer to "is this item overdue" — `GetQueueHealth`'s overdue
+   * list is derived from `ageState`, not from this.
+   */
+  findNotifiedAt(
+    itemVersionIds: readonly string[],
+  ): Promise<Result<ReadonlyMap<string, string>, RepositoryError>>;
 }

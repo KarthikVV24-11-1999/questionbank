@@ -184,6 +184,37 @@ describe('ADR-0009 condition 3 — no authoring module is reachable from deliver
 });
 
 /* ------------------------------------------------------------------ *
+ * M4-32, DEC-M4-2 — advisory, never blocking
+ * ------------------------------------------------------------------ */
+
+describe('M4-32 — GetDuplicateCandidates is reachable from no transition handler', () => {
+  const TRANSITION_HANDLER_ENTRIES = [
+    join(API_ROOT, 'src/contexts/content/application/handlers/lifecycle-handlers.ts'),
+    join(API_ROOT, 'src/contexts/content/application/review/handlers/assignment-handlers.ts'),
+    join(API_ROOT, 'src/contexts/content/application/review/handlers/reviewer-edit-handlers.ts'),
+  ];
+  const ADVISORY_MODULES = [
+    join(API_ROOT, 'src/contexts/content/application/review/queries/duplicate-queries.ts'),
+  ];
+
+  it('holds transitively from every transition handler — the duplicate signal cannot block a transition', () => {
+    expect(checkAuthoringUnreachableFromDelivery(TRANSITION_HANDLER_ENTRIES, ADVISORY_MODULES)).toEqual([]);
+  });
+
+  // The same generic checker ADR-0009 condition 3 uses, proven capable of
+  // firing here too — reusing `duplicate-queries.ts`'s own real reach into
+  // `repository-ports.ts` rather than a planted fixture, since the whole
+  // point of this module is that nothing reaches *it*.
+  it('is capable of firing, over a reachability relationship duplicate-queries.ts genuinely has', () => {
+    const violations = checkAuthoringUnreachableFromDelivery(
+      [join(API_ROOT, 'src/contexts/content/application/review/queries/duplicate-queries.ts')],
+      [join(API_ROOT, 'src/contexts/content/domain/repository-ports.ts')],
+    );
+    expect(violations.length).toBeGreaterThan(0);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * F20
  * ------------------------------------------------------------------ */
 
@@ -476,6 +507,9 @@ describe('ADR-0008 — every correctness-bearing content module carries a 100% t
     'src/contexts/content/application/commands/media-commands.ts',
     'src/contexts/content/application/commands/solution-commands.ts',
     'src/contexts/content/application/commands/stimulus-commands.ts',
+    'src/contexts/content/application/review/commands/assignment-commands.ts',
+    'src/contexts/content/application/review/commands/reviewer-edit-commands.ts',
+    'src/contexts/content/application/review/commands/ageing-commands.ts',
     'src/contexts/content/infrastructure/content-media-ref.ts',
     'src/contexts/content/infrastructure/schema.ts',
     // A barrel re-exporting content's existing Result/ContentError; decides
@@ -574,8 +608,16 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     }).filter((violation) => violation.rule === 'M4_01_REVIEW_REACHES_AUTHORING');
 
-    expect(violations).toHaveLength(1);
-    expect(violations[0]?.subject).toContain('planted-reaches-authoring.ts');
+    // Four planted: the original generic authoring file, the two that prove
+    // the M4-27 ports.ts exemption did not widen into "all of application/",
+    // and the one that proves the M4-28/M4-30 transaction-runner.ts
+    // exemption did not widen into "all of infrastructure/".
+    expect(violations).toHaveLength(4);
+    const subjects = violations.map((v) => v.subject);
+    expect(subjects.some((s) => s.includes('planted-reaches-authoring.ts'))).toBe(true);
+    expect(subjects.some((s) => s.includes('planted-reaches-authoring-queries.ts'))).toBe(true);
+    expect(subjects.some((s) => s.includes('planted-reaches-lifecycle-handlers.ts'))).toBe(true);
+    expect(subjects.some((s) => s.includes('planted-reaches-item-repository.ts'))).toBe(true);
   });
 
   it('catches authoring plumbing reaching into review plumbing, the other direction', () => {
@@ -603,6 +645,46 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
+  it('permits review plumbing to import application/ports.ts (M4-27)', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-ports-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('permits review plumbing to import infrastructure/transaction-runner.ts (M4-28/M4-30)', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-transaction-runner-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('does not widen the ports.ts exemption into all of application/ — authoring-queries.ts and lifecycle-handlers.ts still fail', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    });
+
+    const authoringQueries = violations.filter((v) => v.subject.includes('planted-reaches-authoring-queries.ts'));
+    const lifecycleHandlers = violations.filter((v) =>
+      v.subject.includes('planted-reaches-lifecycle-handlers.ts'),
+    );
+    expect(authoringQueries).toHaveLength(1);
+    expect(authoringQueries[0]?.rule).toBe('M4_01_REVIEW_REACHES_AUTHORING');
+    expect(lifecycleHandlers).toHaveLength(1);
+    expect(lifecycleHandlers[0]?.rule).toBe('M4_01_REVIEW_REACHES_AUTHORING');
+  });
+
+  it('does not widen the transaction-runner.ts exemption into all of infrastructure/ — item.repository.ts still fails', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((v) => v.subject.includes('planted-reaches-item-repository.ts'));
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.rule).toBe('M4_01_REVIEW_REACHES_AUTHORING');
+  });
+
   it('permits an authoring-side domain module to import a domain/review/ aggregate (M4-04)', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
@@ -611,12 +693,45 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('reports exactly the two planted violations over the fixture directory, no more', () => {
+  it('reports exactly the five planted violations over the fixture directory, no more', () => {
+    // 4 M4_01_REVIEW_REACHES_AUTHORING (the original, the two M4-27
+    // narrowness proofs, and the M4-28/M4-30 transaction-runner.ts
+    // narrowness proof) + 1 M4_01_AUTHORING_REACHES_REVIEW.
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     });
 
-    expect(violations).toHaveLength(2);
+    expect(violations).toHaveLength(5);
+  });
+
+  it('exempts the composition seam (public/composition.ts) reaching into review plumbing', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('public/composition.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('exempts review plumbing importing the composition seam back, the other direction', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-composition-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('does not exempt an ordinary authoring file reaching into review plumbing — only composition.ts', () => {
+    // authoring-reaches-review.ts already imports application/review/, and it
+    // is not the composition root — the planted violation it proves (above)
+    // must still fire. This test guards the exemption from ever widening past
+    // the one named file.
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.rule === 'M4_01_AUTHORING_REACHES_REVIEW');
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.subject).toContain('authoring-reaches-review.ts');
+    expect(violations[0]?.subject).not.toContain('composition.ts');
   });
 });
 
@@ -646,5 +761,32 @@ describe('domain/review/ carries no throw and reads no clock (M4-01)', () => {
 
   it('catches a planted clock read', () => {
     expect(clockReadsIn(PLANTED_DIR)).toHaveLength(1);
+  });
+});
+
+describe('ReviewProgress exists nowhere in the tree (M4-30)', () => {
+  const REVIEW_PROGRESS_PLANTED_DIR = fileURLToPath(
+    new URL('../fitness-fixtures/as-content-review-progress-deleted/', import.meta.url),
+  );
+
+  function reviewProgressIn(directory: string, exclude: readonly string[] = []): string[] {
+    // `readCode` (via `filesMatching`) strips comments first, so a prose
+    // mention like "`ReviewProgress` is gone" in a doc comment does not
+    // trip this — only a real identifier in executable code does.
+    return filesMatching(directory, /\bReviewProgress\b/u, { exclude });
+  }
+
+  it('is absent from the whole apps/api source tree', () => {
+    // The planted fixture below lives under this same tree on purpose
+    // (fitness-fixtures/), and is the one file this check must not be blind
+    // to — excluded here only because it exists to be found by the second
+    // test, not because this check cannot see it.
+    expect(reviewProgressIn(API_ROOT, ['/fitness-fixtures/as-content-review-progress-deleted/planted-review-progress.ts'])).toEqual(
+      [],
+    );
+  });
+
+  it('catches a planted ReviewProgress declaration, so the check above is not silently vacuous', () => {
+    expect(reviewProgressIn(REVIEW_PROGRESS_PLANTED_DIR)).toHaveLength(1);
   });
 });

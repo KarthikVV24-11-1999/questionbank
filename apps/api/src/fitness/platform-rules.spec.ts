@@ -6,6 +6,7 @@ import { checkCoverageThresholds } from './content-rules.js';
 import {
   checkNoTsxFiles,
   checkNoUntypedConfigReads,
+  checkSealDayUnreachableFromProductionCode,
   CORRECTNESS_BEARING_PLATFORM_MODULES,
   ENV_READ_ALLOWLIST,
 } from './platform-rules.js';
@@ -98,6 +99,37 @@ describe('API_NO_TSX — the API type-checks the renderer, it does not author JS
       excludePatterns: [],
     });
     expect(violations).toEqual([]);
+  });
+});
+
+describe('sealDay is unreachable from production code (M4-34)', () => {
+  it('finds no violation on the real source tree', () => {
+    expect(checkSealDayUnreachableFromProductionCode(API_ROOT)).toEqual([]);
+  });
+
+  it('fires on the planted fixture, naming the file', () => {
+    const violations = checkSealDayUnreachableFromProductionCode(API_ROOT, {
+      include: ['src/fitness-fixtures/as-platform-sealday-reachable'],
+      excludePatterns: [],
+    });
+    expect(violations).toEqual([
+      {
+        rule: 'SEAL_DAY_REACHABLE_FROM_PRODUCTION_CODE',
+        file: 'src/fitness-fixtures/as-platform-sealday-reachable/planted-controller.ts',
+      },
+    ]);
+  });
+
+  it('does not fire on the fixture directory under its default exclusion', () => {
+    const violations = checkSealDayUnreachableFromProductionCode(API_ROOT);
+    expect(violations.some((v) => v.file.includes('as-platform-sealday-reachable'))).toBe(false);
+  });
+
+  it('the scan is not vacuous — with the default exclusion cleared, the full src/ walk finds the checked-in fixture', () => {
+    const violations = checkSealDayUnreachableFromProductionCode(API_ROOT, { excludePatterns: [] });
+    expect(violations.map((v) => v.file)).toContain(
+      'src/fitness-fixtures/as-platform-sealday-reachable/planted-controller.ts',
+    );
   });
 });
 
