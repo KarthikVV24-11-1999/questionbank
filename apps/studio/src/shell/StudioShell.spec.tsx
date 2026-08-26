@@ -72,9 +72,9 @@ describe('the sidebar (FRONTEND §2)', () => {
   // appearing is not.
   it('announces a pending destination as disabled, with the reason', () => {
     renderShell();
-    const pending = screen.getByRole('button', { name: 'Review Queue' });
+    const pending = screen.getByRole('button', { name: 'Content Health' });
     expect(pending).toHaveAttribute('aria-disabled', 'true');
-    expect(pending).toHaveAccessibleDescription('Arrives with the review workspace');
+    expect(pending).toHaveAccessibleDescription('Arrives with content statistics');
   });
 
   it('marks the active destination as the current page', () => {
@@ -112,9 +112,13 @@ describe('the sidebar (FRONTEND §2)', () => {
     expect(screen.getByRole('button', { name: 'Dashboard' })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole('button', { name: 'Authoring' })).toHaveFocus();
-
     await user.tab();
     expect(screen.getByRole('button', { name: 'Review Queue' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Queue Management' })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Content Health' })).toHaveFocus();
     await user.keyboard('{Enter}');
     expect(onNavigate).not.toHaveBeenCalled();
   });

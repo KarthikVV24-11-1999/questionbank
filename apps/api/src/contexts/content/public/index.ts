@@ -64,6 +64,20 @@ export type {
 
 export type { ImportItemBatch } from '../application/handlers/import-handlers.js';
 
+// ── Review commands (M4-27, M4-29, M4-31, M4-32, DEC-M4-7) ─────────────────
+export type {
+  ClaimNextForReview,
+  ExtendLease,
+  ReassignReview,
+  ReleaseAssignment,
+} from '../application/review/commands/assignment-commands.js';
+
+export type { ApproveWithEdits } from '../application/review/commands/reviewer-edit-commands.js';
+
+export type { SweepReviewAgeing } from '../application/review/commands/ageing-commands.js';
+
+export type { RefreshFingerprints } from '../application/review/handlers/fingerprint-handlers.js';
+
 // ── Queries ─────────────────────────────────────────────────────────────────
 export type {
   AuthoringItemVersionView,
@@ -93,6 +107,30 @@ export type {
   GetPublishedStimulus,
 } from '../application/queries/delivery-queries.js';
 
+// ── Review queries (M4-32, M4-33, DEC-M4-2, DEC-M4-13) ──────────────────────
+export type {
+  DuplicateCandidate,
+  DuplicateCandidatesResult,
+  DuplicateEvaluationState,
+  GetDuplicateCandidates,
+} from '../application/review/queries/duplicate-queries.js';
+
+export type {
+  AgeHistogramBucket,
+  GetQueueHealth,
+  GetReviewerThroughput,
+  OverdueQueueItem,
+  QueueDepth,
+  QueueHealthResult,
+  ReviewerThroughputResult,
+  ThroughputAggregate,
+  ThroughputByReviewer,
+} from '../application/review/queries/queue-queries.js';
+
+// ── The rejection taxonomy — how M5 classifies a returned candidate ────────
+export type { RejectionReason, RejectionReasonCode } from '../domain/review/rejection-taxonomy.js';
+export { DUPLICATE_REASON_CODE, REJECTION_REASONS } from '../domain/review/rejection-taxonomy.js';
+
 // ── Events ──────────────────────────────────────────────────────────────────
 export type {
   ContentEvent,
@@ -101,6 +139,8 @@ export type {
   ItemPublishedPayload,
   ItemRetired,
   ItemRetiredPayload,
+  ItemReviewEscalated,
+  ItemReviewEscalatedPayload,
   ItemSuspended,
   ItemSuspendedPayload,
   MediaAssetPublished,

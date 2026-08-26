@@ -41,6 +41,7 @@ export const CONTENT_RULES = [
   'ADR0008_THRESHOLD_NAMES_A_DELETED_MODULE',
   'M4_01_REVIEW_REACHES_AUTHORING',
   'M4_01_AUTHORING_REACHES_REVIEW',
+  'M4_01_INTERNAL_MODULE_IMPORTS_BARREL',
 ] as const;
 export type ContentRule = (typeof CONTENT_RULES)[number];
 
@@ -568,8 +569,33 @@ export function checkCoverageThresholds(
 
 /**
  * A module belongs to the **restricted review layer** when it is
- * `application/review/**`, `infrastructure/review/**`, or
- * `api/review.controller.ts` — the write-path plumbing DEC-M4-7 walls off.
+ * `application/review/**` or `infrastructure/review/**` — the write-path
+ * plumbing DEC-M4-7 walls off.
+ *
+ * **`api/review.controller.ts` is deliberately not matched here (amended
+ * 2026-08-26, M4-37).** It originally was, alongside the two write-path
+ * trees — an M4-01 acceptance line, not a conclusion DEC-M4-7's own
+ * reasoning forced. Wiring the controller to real routes needed
+ * `api/http-runner.ts` (`runOperation`, the two DI tokens), which is neither
+ * review nor authoring: `authoring.controller.ts` and `content.controller.ts`
+ * already depend on it and were never classified as either side. Two
+ * choices existed — add `http-runner.ts` as a fourth context-wide contract
+ * (category 2 below), or stop treating the HTTP edge as inside DEC-M4-7's
+ * write-path boundary at all. The second is the one taken: **this gate
+ * governs `application/` and `infrastructure/`, never `api/`.** The
+ * asymmetry the old classification created — one controller walled off,
+ * the other two never subject to the wall — was itself a sign the line was
+ * drawn in the wrong place, and it would have kept generating exemption
+ * requests: `http-runner.ts` today, the next DTO schema or authoring query
+ * type the review screen needs tomorrow. Extraction-survivability, which is
+ * what this whole gate protects, lives in `application/`/`infrastructure/`
+ * coupling — a controller translating HTTP to a command and a `Result` back
+ * to a status code carries no coupling of that kind to lose. The load-bearing
+ * half is unchanged: `application/review/**` and `infrastructure/review/**`
+ * still cannot reach authoring's queries, handlers or repositories, and
+ * authoring still cannot reach either, in both directions, exactly as
+ * before — proven by the same four planted violations this gate has always
+ * asserted red, none of which named the controller.
  *
  * **`domain/review/*.ts` is deliberately not matched here.** F2 (`domain/`
  * imports nothing but itself and the shared kernel) already keeps every
@@ -584,13 +610,46 @@ export function checkCoverageThresholds(
  * other domain module is, which is what lets `publication-preconditions.ts`
  * call `isSelfReview` (M4-04) without this gate refusing it.
  *
- * **A third category exists alongside "review" and "authoring", named here
- * rather than granted case by case: context-wide shared contracts.** A
- * module qualifies only if it is used by both sides, specific to neither,
- * and carries no authoring or review business logic of its own — the same
- * test applied each time a member was added. Exactly four today, and a
- * fifth requires **stopping and asking**, not matching the pattern; an
- * exemption list that grows by resemblance is not a boundary:
+ * **Two categories exist alongside "review" and "authoring", named here
+ * rather than granted case by case — and deliberately not one list, because
+ * they grow under different rules.**
+ *
+ * **Category 1: seam files.** A file whose entire job is to span the
+ * context — not to hold review or authoring business logic of its own, but
+ * to be the place every layer meets. Membership test: does this file exist
+ * *because* something has to cross every internal sub-boundary to reach the
+ * outside world? Exactly two, and the category is **closed at two** — not
+ * capped-with-a-process like category 2 below, closed: `public/` contains
+ * exactly these files, so a third would mean a third `public/` seam
+ * existing at all, which is itself the reviewable event, not an addition to
+ * this list.
+ *
+ *   1. `public/composition.ts` — the composition root (ADR-0015). Composing
+ *      the module is its job: it wires every layer, review's own handlers
+ *      included, into the `DynamicModule` the barrel exports, so it must be
+ *      able to import `application/review/**` to instantiate what it wires.
+ *   2. `public/index.ts` — the barrel (M4-35). Its job is exporting the
+ *      whole context's public surface, and since M4-27 that surface
+ *      includes review's commands, queries and events — DEC-M4-7 treats
+ *      review as ordinary content plumbing behind *one* barrel, never a
+ *      second context with its own. A barrel that could not name what half
+ *      of its own context does would not be a barrel.
+ *
+ * Both are exempt from this gate **as a source**, in both directions —
+ * `public/composition.ts` importing `application/review/**` is the seam
+ * doing its job; a review module importing either seam file back has no
+ * legitimate use captured here, so it is exempted the same way rather than
+ * left an asymmetric special case. Neither is exempt **as a target** for
+ * anything else: see `M4_01_INTERNAL_MODULE_IMPORTS_BARREL` below, which
+ * closes the path a seam-as-target would otherwise open.
+ *
+ * **Category 2: context-wide contracts.** A module used by both sides,
+ * specific to neither, carrying no authoring or review business logic of
+ * its own — the same test applied each time a member was added. Exactly
+ * three today, and this is the category where the stop-and-ask cap lives:
+ * membership by *resemblance* ("it's used by both sides too") is exactly
+ * how a boundary erodes, because nearly anything shared-looking can be
+ * argued into it. A fourth contract requires **stopping and asking**:
  *
  *   1. `application/authorization.ts` — policies, role checks.
  *   2. `application/ports.ts` — `Clock`, `AuditRecorder`, `IdentifierFactory`,
@@ -603,40 +662,45 @@ export function checkCoverageThresholds(
  *      `hasLiveClaim` (review-side, M4-30) — so this is the established
  *      mechanism for joining a caller's shared transaction, not a new one
  *      invented to pass this gate.
- *   4. `public/composition.ts` — the composition root, exempt in both
- *      directions (below).
  *
  * On extraction, a standalone review context would declare its own copies
- * of 1–3 — exactly as content, curriculum and scoring each declare their
- * own `Clock`/`AuditRecorder`/`IdentifierFactory` today — never import
- * content's, so none of the four is an extraction-survivability concern
- * the way an authoring-specific module would be.
+ * of these three — exactly as content, curriculum and scoring each declare
+ * their own `Clock`/`AuditRecorder`/`IdentifierFactory` today — never
+ * import content's, so none of the three is an extraction-survivability
+ * concern the way an authoring-specific module would be. The seam files
+ * have no such story — a barrel and a composition root are exactly what an
+ * extracted context would still need of its own — which is the structural
+ * reason they sit in a different, closed category rather than growing the
+ * capped one.
  *
  * Anything authoring-specific — `ListSubmittedForReview`, a lifecycle
  * command type, a handler class, `item.repository.ts` itself — is reachable
- * only through what `public/index.ts` exports. If that is not enough for
- * some future task, the fix is a reviewed addition to what the barrel
- * exports, not a fifth exemption here.
+ * only through what `public/index.ts` exports, and only by importing the
+ * barrel itself, never by reaching past it into `application/review/**`
+ * directly. If a future task needs something the barrel does not carry,
+ * the fix is a reviewed addition to what it exports, never a new exemption
+ * here.
  *
- * **Debt, named with its trigger.** The four members above are scattered
- * across `application/` and `infrastructure/` by historical accident, not
- * by a shared physical location — membership is enforced by this list, not
- * by path. Moving them under one `shared/`-shaped directory would let this
- * gate check a path prefix instead of an enumeration, which is more robust
- * against a future addition slipping in unreviewed. Not attempted now: it
- * touches every import site of all four, and M4-28/M4-29/M4-30 already
- * shipped against the current layout. Trigger: the fifth member.
+ * **Debt, named with its trigger.** The three context-wide contracts are
+ * scattered across `application/` and `infrastructure/` by historical
+ * accident, not by a shared physical location — membership is enforced by
+ * this list, not by path. Moving them under one `shared/`-shaped directory
+ * would let this gate check a path prefix instead of an enumeration, which
+ * is more robust against a future addition slipping in unreviewed. Not
+ * attempted now: it touches every import site of all three, and
+ * M4-28/M4-29/M4-30 already shipped against the current layout. Trigger:
+ * the fourth contract.
  */
-const REVIEW_PATH_SEGMENT = /(^|\/)(?:application|infrastructure)\/review\/|(^|\/)review\.controller\.ts$/u;
+const REVIEW_PATH_SEGMENT = /(^|\/)(?:application|infrastructure)\/review\//u;
 
 /** Any module under a `domain/` tree, at any depth — the whole domain layer, F2-pure by construction. */
 const DOMAIN_MODULE = /(^|\/)domain\/.+\.ts$/u;
 
-/** Shared-contract member 1 of 4 (DEC-M4-7). */
+/** Context-wide contract 1 of 3 (DEC-M4-7). */
 const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
 
 /**
- * Shared-contract member 2 of 4 (DEC-M4-7). Exact path, not a prefix —
+ * Context-wide contract 2 of 3 (DEC-M4-7). Exact path, not a prefix —
  * matching `application/ports.ts` specifically is what stops this exemption
  * growing into "all of `application/`" by accident. A review module
  * reaching `application/queries/authoring-queries.ts` or
@@ -646,7 +710,7 @@ const AUTHORIZATION_MODULE = /(^|\/)application\/authorization\.ts$/u;
 const PORTS_MODULE = /(^|\/)application\/ports\.ts$/u;
 
 /**
- * Shared-contract member 3 of 4 (M4-28/M4-30). Exact path, same reasoning
+ * Context-wide contract 3 of 3 (M4-28/M4-30). Exact path, same reasoning
  * as `PORTS_MODULE`: a review module reaching `infrastructure/item.repository.ts`
  * or any other authoring-specific infrastructure module must still fail,
  * planted and proven in `content-rules.spec.ts`.
@@ -654,17 +718,28 @@ const PORTS_MODULE = /(^|\/)application\/ports\.ts$/u;
 const TRANSACTION_RUNNER_MODULE = /(^|\/)infrastructure\/transaction-runner\.ts$/u;
 
 /**
- * The composition seam (ADR-0015) — exempt from this gate in both
- * directions, and the only file that is. Composing the module is its job:
- * it wires every layer, review's own handlers included, into the
- * `DynamicModule` the barrel exports, so it must be able to import
- * `application/review/**` to instantiate what it wires — the one place
- * "authoring reaches review" is not a violation but the seam doing its job.
- * The reverse (something under `application/review/**` importing the
- * composition root back) has no legitimate use captured here either, so it
- * is exempted the same way rather than left as an asymmetric special case.
+ * Seam-file membership (M4-35) is relative to whichever tree is being
+ * scanned — `<includeRoot>/public/composition.ts` and `<includeRoot>/public/index.ts`
+ * — never a bare `public/index.ts` filename match. A content module
+ * legitimately imports **other contexts'** barrels (`answer-key-projection.ts`
+ * reaches `contexts/scoring/public/index.ts` for `AnswerKeyData`, by the
+ * barrel's own header note) — a filename-only pattern would misclassify
+ * every one of those as this content's own barrel and fire
+ * `M4_01_INTERNAL_MODULE_IMPORTS_BARREL` on a completely unrelated context.
+ * Scoping to the actual include roots is also what lets the same function
+ * run against a fixture tree shaped like content's (`as-content-review-subboundary/`)
+ * without a second, fixture-specific pattern.
  */
-const COMPOSITION_ROOT = /(^|\/)public\/composition\.ts$/u;
+function isSeamModule(relPath: string, includeRoots: readonly string[]): boolean {
+  return includeRoots.some(
+    (dir) => relPath === `${dir}/public/composition.ts` || relPath === `${dir}/public/index.ts`,
+  );
+}
+
+/** The barrel specifically, of the two seam files — the one target `M4_01_INTERNAL_MODULE_IMPORTS_BARREL` names. */
+function isBarrelModule(relPath: string, includeRoots: readonly string[]): boolean {
+  return includeRoots.some((dir) => relPath === `${dir}/public/index.ts`);
+}
 
 /**
  * DEC-M4-7's sub-boundary, both directions, by import graph rather than
@@ -676,6 +751,21 @@ const COMPOSITION_ROOT = /(^|\/)public\/composition\.ts$/u;
  * like one (`as-content-review-subboundary/`): the rule does not care which
  * context it is scanning, only whether a review-plumbing module reaches an
  * authoring-plumbing one it should not, or vice versa.
+ *
+ * **Three rules, not two, since M4-35.** The barrel joining the seam-file
+ * category opened a path the original two rules cannot see: `public/index.ts`
+ * is classified as neither review nor authoring, so a plain authoring module
+ * importing it — reaching review's re-exported command/query types without
+ * ever naming `application/review/**` directly — trips neither
+ * `M4_01_REVIEW_REACHES_AUTHORING` nor `M4_01_AUTHORING_REACHES_REVIEW`.
+ * `M4_01_INTERNAL_MODULE_IMPORTS_BARREL` closes it: checked first, for every
+ * file, regardless of which side it is on, so a review module importing its
+ * own barrel back is caught here too rather than falling through to a less
+ * specific message. The two seam files never reach this check themselves —
+ * they are exempted **as a source** above the loop — and the seam specs
+ * (`m4-seam.spec.ts`, `m5-seam.spec.ts`) that import the barrel on purpose
+ * are `.spec.ts` files, already outside `files` under this function's
+ * default `exclude`.
  */
 export function checkReviewAuthoringSubBoundary(
   root: string,
@@ -691,8 +781,8 @@ export function checkReviewAuthoringSubBoundary(
 
   for (const file of files) {
     const relFile = relative(root, file).replaceAll('\\', '/');
-    // Exempt as a source in both directions — see COMPOSITION_ROOT's comment.
-    if (COMPOSITION_ROOT.test(relFile)) continue;
+    // Exempt as a source in both directions — see the seam-file category doc above.
+    if (isSeamModule(relFile, includes)) continue;
     const fileIsReview = REVIEW_PATH_SEGMENT.test(relFile);
 
     for (const importPath of importsOf(readCode(file))) {
@@ -700,6 +790,16 @@ export function checkReviewAuthoringSubBoundary(
       const resolved = resolve(dirname(file), importPath).replace(/\.js$/u, '.ts');
       if (!existsSync(resolved)) continue;
       const relTarget = relative(root, resolved).replaceAll('\\', '/');
+
+      if (isBarrelModule(relTarget, includes)) {
+        violations.push({
+          rule: 'M4_01_INTERNAL_MODULE_IMPORTS_BARREL',
+          subject: relFile,
+          detail: `imports ${importPath} (${relTarget}); no module inside contexts/content/ may import its own public/index.ts — that is the path by which an authoring module could reach review's types (or a review module, authoring's) around this gate`,
+        });
+        continue;
+      }
+
       const targetIsReview = REVIEW_PATH_SEGMENT.test(relTarget);
 
       if (fileIsReview && !targetIsReview) {
@@ -708,7 +808,9 @@ export function checkReviewAuthoringSubBoundary(
           AUTHORIZATION_MODULE.test(relTarget) ||
           PORTS_MODULE.test(relTarget) ||
           TRANSACTION_RUNNER_MODULE.test(relTarget) ||
-          COMPOSITION_ROOT.test(relTarget);
+          // Only public/composition.ts reaches this line — public/index.ts
+          // (the barrel) is intercepted above, before this check ever runs.
+          isSeamModule(relTarget, includes);
         if (!permitted) {
           violations.push({
             rule: 'M4_01_REVIEW_REACHES_AUTHORING',

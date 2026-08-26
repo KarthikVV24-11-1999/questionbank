@@ -28,13 +28,8 @@ export interface Destination {
 export const DESTINATIONS: readonly Destination[] = Object.freeze([
   { id: 'dashboard', label: 'Dashboard', path: '/', enabled: false, pendingReason: 'Arrives with author metrics' },
   { id: 'authoring', label: 'Authoring', path: '/authoring', enabled: true },
-  {
-    id: 'review-queue',
-    label: 'Review Queue',
-    path: '/review',
-    enabled: false,
-    pendingReason: 'Arrives with the review workspace',
-  },
+  { id: 'review-queue', label: 'Review Queue', path: '/review', enabled: true },
+  { id: 'queue-management', label: 'Queue Management', path: '/review/queue-management', enabled: true },
   {
     id: 'content-health',
     label: 'Content Health',

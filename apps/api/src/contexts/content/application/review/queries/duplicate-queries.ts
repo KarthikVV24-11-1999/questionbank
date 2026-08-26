@@ -41,10 +41,17 @@ export interface DuplicateCandidate {
   readonly similarity?: number;
 }
 
-export type DuplicateCheckState = 'evaluated' | 'not_evaluated';
+/**
+ * Not `DuplicateCheckState` (`domain/pre-submission-validation.ts`) — that
+ * type answers "what did the check find" (`none_found`/`candidates_found`);
+ * this one answers "did this query have anything to compare against at
+ * all". Same barrel, different question; a shared name here would be the
+ * collision the barrel's own export-set test exists to catch.
+ */
+export type DuplicateEvaluationState = 'evaluated' | 'not_evaluated';
 
 export interface DuplicateCandidatesResult {
-  readonly state: DuplicateCheckState;
+  readonly state: DuplicateEvaluationState;
   readonly exactMatches: readonly DuplicateCandidate[];
   readonly skeletonMatches: readonly DuplicateCandidate[];
   readonly trigramMatches: readonly DuplicateCandidate[];

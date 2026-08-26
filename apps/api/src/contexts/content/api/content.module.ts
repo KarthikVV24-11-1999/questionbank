@@ -2,6 +2,7 @@ import { Module, type DynamicModule } from '@nestjs/common';
 import { HandlerRegistry, type Handler } from '../application/handler-registry.js';
 import { AuthoringController } from './authoring.controller.js';
 import { ContentController } from './content.controller.js';
+import { ReviewController } from './review.controller.js';
 import { CONTENT_PRINCIPAL_RESOLVER, CONTENT_REGISTRY, type PrincipalResolver } from './http-runner.js';
 
 export interface ContentModuleOptions {
@@ -22,7 +23,7 @@ export class ContentModule {
 
     return {
       module: ContentModule,
-      controllers: [AuthoringController, ContentController],
+      controllers: [AuthoringController, ContentController, ReviewController],
       providers: [
         { provide: CONTENT_REGISTRY, useValue: registry },
         { provide: CONTENT_PRINCIPAL_RESOLVER, useValue: options.principals },

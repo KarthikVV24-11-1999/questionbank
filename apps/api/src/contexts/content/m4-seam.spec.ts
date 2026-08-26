@@ -3,18 +3,25 @@ import type { PrincipalRef } from '@questionbank/domain-types';
 import * as content from './public/index.js';
 
 /**
- * The M3 → M4 seam, written against `content/public/` **and nothing else**.
+ * The Studio/contracts seam, written against `content/public/` **and nothing
+ * else**.
  *
- * M4 builds the review workspace: assignment routing, ageing, the rejection
- * taxonomy, the decision screen. It needs to name what it is routing, show what
- * a reviewer is looking at, and drive the transitions Content owns. Every one
- * of those needs a shape from this barrel.
+ * **Retargeted, 2026-08-25 (M4-35) — not deleted.** This file's original job
+ * was catching a missing export before a fourth context (M4) reached past
+ * the barrel into `content/domain`. M4 landed inside content itself — DEC-M4-7
+ * — so that fourth context never arrived, and the gap this file exists to
+ * catch moved rather than closed: what the review workspace (Studio) needs
+ * from Content now has to reach it through `packages/contracts` and this
+ * barrel, the same way M3's authoring surface always has. The test bodies
+ * below are unchanged from the original M3→M4 seam and remain true; the
+ * section further down (added M4-35) proves the same thing for review's own
+ * commands, queries and vocabulary.
  *
  * The point of the file is the import above: it names the barrel, so a missing
- * export is a compile failure here rather than something M4 discovers by
+ * export is a compile failure here rather than something Studio discovers by
  * reaching past the barrel into `content/domain`. The M2→M3 seam found a real
  * gap that way — content had no vocabulary to compare against scoring's — and
- * this is the same instrument pointed at the next milestone.
+ * this is the same instrument, pointed at the surface that now needs it.
  */
 
 const reviewer: PrincipalRef = { kind: 'human', id: 'reviewer-1', roleContext: ['reviewer'] };
@@ -173,6 +180,47 @@ describe('M4 can subscribe to what Content publishes', () => {
   });
 });
 
+describe('the review workspace can drive every review command from barrel types alone (M4-35)', () => {
+  it('builds the pull, release, push and lease commands', () => {
+    const claim: content.ClaimNextForReview = { subject: 'physics' };
+    const release: content.ReleaseAssignment = { assignmentId: 'assignment-1' };
+    const reassign: content.ReassignReview = {
+      itemVersionId: 'version-1',
+      subject: 'physics',
+      reviewerId: 'reviewer-2',
+    };
+    const extend: content.ExtendLease = { assignmentId: 'assignment-1' };
+    expect([claim.subject, release.assignmentId, reassign.reviewerId, extend.assignmentId]).toHaveLength(4);
+  });
+
+  it('builds an approve-with-edits command', () => {
+    const command: Pick<content.ApproveWithEdits, 'itemId' | 'itemVersionId' | 'candidatesShownIds'> = {
+      itemId: 'item-1',
+      itemVersionId: 'version-1',
+      candidatesShownIds: [],
+    };
+    expect(command.candidatesShownIds).toEqual([]);
+  });
+
+  it('builds the ageing sweep and the fingerprint refresh — both DEC-M4-15, `now`/`since` supplied, never read from a clock', () => {
+    const sweep: content.SweepReviewAgeing = { now: '2026-08-25T09:00:00.000Z' };
+    const refresh: content.RefreshFingerprints = { since: '2026-08-20T00:00:00.000Z', now: '2026-08-25T09:00:00.000Z' };
+    expect([sweep.now, refresh.since]).toHaveLength(2);
+  });
+
+  it('builds the duplicate-candidates and queue-health queries', () => {
+    const duplicates: content.GetDuplicateCandidates = { itemVersionId: 'version-1' };
+    const health: content.GetQueueHealth = { now: '2026-08-25T09:00:00.000Z' };
+    const throughput: content.GetReviewerThroughput = { from: '2026-08-20T00:00:00.000Z', to: '2026-08-25T00:00:00.000Z' };
+    expect([duplicates.itemVersionId, health.now, throughput.from]).toHaveLength(3);
+  });
+
+  it('classifies a rejection by a stable code from the taxonomy, not by message text', () => {
+    const codes: readonly content.RejectionReasonCode[] = content.REJECTION_REASONS.map((r) => r.code);
+    expect(codes).toContain(content.DUPLICATE_REASON_CODE);
+  });
+});
+
 describe('the barrel exports no aggregate, repository or infrastructure type', () => {
   it('exposes only the value-level symbols it means to', () => {
     expect(Object.keys(content).sort()).toEqual([
@@ -183,12 +231,14 @@ describe('the barrel exports no aggregate, repository or infrastructure type', (
       'CONTENT_ERROR_KINDS',
       'CONTENT_EVENT_TYPES',
       'DIFFICULTY_BANDS',
+      'DUPLICATE_REASON_CODE',
       'INLINE_KINDS',
       'ITEM_TYPES',
       'LIFECYCLE_STATES',
       'LIFECYCLE_TRANSITIONS',
       'MEDIA_SIZE_HINTS',
       'PRECONDITION_CODES',
+      'REJECTION_REASONS',
       'REVIEW_OUTCOMES',
       'STIMULUS_TYPES',
       'TEXT_MARKS',

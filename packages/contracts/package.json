@@ -7,7 +7,8 @@
     "./openapi/curriculum.yaml": "./openapi/curriculum.yaml",
     "./openapi/content.yaml": "./openapi/content.yaml",
     "./content-schemas": "./src/content-schemas.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./review-taxonomy": "./src/review-taxonomy.ts"
   },
   "scripts": {
     "generate": "openapi-typescript openapi/curriculum.yaml --output src/curriculum.ts",

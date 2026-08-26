@@ -184,6 +184,28 @@ describe('ADR-0009 condition 3 — no authoring module is reachable from deliver
 });
 
 /* ------------------------------------------------------------------ *
+ * M4-35 — the barrel's own graph walker resolves all four import forms
+ * ------------------------------------------------------------------ */
+
+describe('M4-35 — the review sub-boundary and barrel checks resolve every ADR-0002 import form', () => {
+  // `modulesReachableFrom` — the instrument both `checkReviewAuthoringSubBoundary`
+  // (F1 across the review/authoring sub-boundary) and the M4-32 advisory-reach
+  // check above are built on — walks the graph through `importsOf`
+  // (`source-scan.ts`), never a second, review-specific import parser.
+  // `boundary-rules.spec.ts` already proves `importsOf` resolves static
+  // `import`/`export … from`, bare side-effect `import 'x'`, dynamic
+  // `import()` and `require()` (ADR-0002's four forms) — this test proves
+  // content's own graph walker is that same function, not a parallel one
+  // that could drift out of parity with it.
+  it('imports importsOf from source-scan.ts rather than declaring a parallel import parser', () => {
+    const source = readFileSync(join(API_ROOT, 'src/fitness/content-rules.ts'), 'utf8');
+    expect(source).toMatch(/import \{[^}]*\bimportsOf\b[^}]*\} from '\.\/source-scan\.js';/u);
+    // No second regex-based import scanner declared alongside it.
+    expect(source).not.toMatch(/function importsOf\(/u);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * M4-32, DEC-M4-2 — advisory, never blocking
  * ------------------------------------------------------------------ */
 
@@ -515,8 +537,10 @@ describe('ADR-0008 — every correctness-bearing content module carries a 100% t
     // A barrel re-exporting content's existing Result/ContentError; decides
     // nothing itself (M4-01).
     'src/contexts/content/domain/review/index.ts',
-    // Empty and unregistered until M4-37 wires it to a handler.
+    // Translation only, no business rule — the same class as
+    // authoring.controller.ts/content.controller.ts (M4-37).
     'src/contexts/content/api/review.controller.ts',
+    'src/contexts/content/api/dto/review-schemas.ts',
   ];
 
   it('classifies every content module, so a new one cannot arrive unclassified', () => {
@@ -580,7 +604,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
   });
 
   it('declares every rule this module can report', () => {
-    expect(CONTENT_RULES).toHaveLength(14);
+    expect(CONTENT_RULES).toHaveLength(15);
     expect(new Set(CONTENT_RULES).size).toBe(CONTENT_RULES.length);
   });
 });
@@ -693,15 +717,37 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('reports exactly the five planted violations over the fixture directory, no more', () => {
+  it('reports exactly the six planted violations over the fixture directory, no more', () => {
     // 4 M4_01_REVIEW_REACHES_AUTHORING (the original, the two M4-27
     // narrowness proofs, and the M4-28/M4-30 transaction-runner.ts
-    // narrowness proof) + 1 M4_01_AUTHORING_REACHES_REVIEW.
+    // narrowness proof) + 1 M4_01_AUTHORING_REACHES_REVIEW + 1
+    // M4_01_INTERNAL_MODULE_IMPORTS_BARREL (M4-35).
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     });
 
-    expect(violations).toHaveLength(5);
+    expect(violations).toHaveLength(6);
+  });
+
+  it('catches an authoring module importing its own public/index.ts (M4-35)', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.rule === 'M4_01_INTERNAL_MODULE_IMPORTS_BARREL');
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.subject).toContain('authoring-imports-own-barrel.ts');
+  });
+
+  it('does not misclassify a content module importing another context’s barrel as reaching its own', () => {
+    // answer-key-projection.ts imports contexts/scoring/public/index.ts by
+    // its own documented design (AnswerKeyData crosses there) — scoping the
+    // barrel check to the include root is what keeps that legitimate,
+    // cross-context import from firing M4_01_INTERNAL_MODULE_IMPORTS_BARREL.
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT).filter(
+      (violation) => violation.rule === 'M4_01_INTERNAL_MODULE_IMPORTS_BARREL',
+    );
+
+    expect(violations).toEqual([]);
   });
 
   it('exempts the composition seam (public/composition.ts) reaching into review plumbing', () => {

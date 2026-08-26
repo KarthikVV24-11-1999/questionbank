@@ -183,7 +183,8 @@ export interface ReviewerThroughputResult {
 }
 
 export interface ThroughputDependencies {
-  readonly decisions: ReviewDecisionRepository;
+  /** Named `reviews`, matching the bag key every other handler over `ReviewDecisionRepository` already uses. */
+  readonly reviews: ReviewDecisionRepository;
 }
 
 function ratePerHour(count: number, hours: number): number {
@@ -207,8 +208,8 @@ export class GetReviewerThroughputHandler {
     const isOversight = context.principal.roleContext.some((role) => DRAFT_OVERSIGHT_ROLES.includes(role));
 
     const decisions = isOversight
-      ? await this.deps.decisions.findWithinRange({ from: query.from, to: query.to })
-      : await this.deps.decisions.findByReviewer(context.principal.id, { from: query.from, to: query.to });
+      ? await this.deps.reviews.findWithinRange({ from: query.from, to: query.to })
+      : await this.deps.reviews.findByReviewer(context.principal.id, { from: query.from, to: query.to });
     if (!decisions.ok) return err(fromContent(decisions.error));
 
     const byReviewer = new Map<string, number>();

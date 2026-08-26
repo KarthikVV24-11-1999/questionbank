@@ -56,11 +56,20 @@ x-authoring-routes:
   - /v1/authoring/media-assets/{assetId}/publication
   - /v1/authoring/media-assets/{assetId}/retirement
   - /v1/authoring/import-batches
+  - /v1/authoring/review/assignments
+  - /v1/authoring/review/assignments/{assignmentId}/release
+  - /v1/authoring/review/assignments/{assignmentId}/lease-extensions
+  - /v1/authoring/review/item-versions/{itemVersionId}/assignment
+  - /v1/authoring/review/item-versions/{itemVersionId}/duplicate-candidates
+  - /v1/authoring/review/items/{itemId}/versions/{itemVersionId}/approval-with-edits
+  - /v1/authoring/review/queue-health
+  - /v1/authoring/review/reviewer-throughput
 
 tags:
   - name: authoring
   - name: lifecycle
   - name: delivery
+  - name: review
 
 paths:
   /v1/authoring/items:
@@ -769,6 +778,188 @@ paths:
         '400': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
 
+  # ── Review (DEC-M4-7, DEC-M4-12) ────────────────────────────────────────
+  #
+  # Mounted under /v1/authoring/review/** — the enumerated, key-bearing
+  # prefix ADR-0009 condition 1 already closes over /v1/authoring/**, so a
+  # review screen showing an answer key needs no amendment to that
+  # enumeration. Every path here is added to x-authoring-routes above.
+
+  /v1/authoring/review/assignments:
+    post:
+      operationId: claimNextForReview
+      x-handler: ClaimNextForReview
+      summary: Claim the next eligible item version for review (the pull path, DEC-M4-9)
+      tags: [review]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimNextForReviewRequest' }
+      responses:
+        '201':
+          description: The claimed assignment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewAssignment' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/review/assignments/{assignmentId}/release:
+    post:
+      operationId: releaseAssignment
+      x-handler: ReleaseAssignment
+      summary: Release a held claim, before or after starting it
+      tags: [review]
+      parameters:
+        [
+          { $ref: '#/components/parameters/AssignmentId' },
+          { $ref: '#/components/parameters/CorrelationId' },
+        ]
+      responses:
+        '200':
+          description: The released assignment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewAssignment' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/review/assignments/{assignmentId}/lease-extensions:
+    post:
+      operationId: extendLease
+      x-handler: ExtendLease
+      summary: Push a held claim's lease forward before it expires
+      tags: [review]
+      parameters:
+        [
+          { $ref: '#/components/parameters/AssignmentId' },
+          { $ref: '#/components/parameters/CorrelationId' },
+        ]
+      responses:
+        '200':
+          description: The assignment with its lease extended.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewAssignment' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/review/item-versions/{itemVersionId}/assignment:
+    post:
+      operationId: reassignReview
+      x-handler: ReassignReview
+      summary: Content Ops assigns a specific reviewer — the escalation push path (DEC-M4-9)
+      tags: [review]
+      parameters:
+        [
+          { $ref: '#/components/parameters/ItemVersionId' },
+          { $ref: '#/components/parameters/CorrelationId' },
+        ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReassignReviewRequest' }
+      responses:
+        '201':
+          description: The pushed assignment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewAssignment' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/review/item-versions/{itemVersionId}/duplicate-candidates:
+    get:
+      operationId: getDuplicateCandidates
+      x-handler: GetDuplicateCandidates
+      summary: The three labelled duplicate-candidate groups for a claimed item (DEC-M4-2)
+      tags: [review]
+      parameters:
+        [
+          { $ref: '#/components/parameters/ItemVersionId' },
+          { $ref: '#/components/parameters/CorrelationId' },
+        ]
+      responses:
+        '200':
+          description: Exact, skeleton and trigram matches, never merged, with staleness.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DuplicateCandidatesResult' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/review/items/{itemId}/versions/{itemVersionId}/approval-with-edits:
+    post:
+      operationId: approveWithEdits
+      x-handler: ApproveWithEdits
+      summary: Approve a version with a bounded reviewer edit (M4-15, ADR-0018)
+      tags: [review]
+      parameters:
+        [
+          { $ref: '#/components/parameters/ItemId' },
+          { $ref: '#/components/parameters/ItemVersionId' },
+          { $ref: '#/components/parameters/CorrelationId' },
+        ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApproveWithEditsRequest' }
+      responses:
+        '200':
+          description: The item, with the edited version applied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthoringItem' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/review/queue-health:
+    get:
+      operationId: getQueueHealth
+      x-handler: GetQueueHealth
+      summary: Queue depth, an age histogram, and the overdue list — capacity planning, never ranking (DEC-M4-13)
+      tags: [review]
+      parameters: [{ $ref: '#/components/parameters/CorrelationId' }]
+      responses:
+        '200':
+          description: Depth by subject, the M4-05 age bands, and the overdue list, derived — never read from a notification table.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueHealthResult' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/review/reviewer-throughput:
+    get:
+      operationId: getReviewerThroughput
+      x-handler: GetReviewerThroughput
+      summary: Decisions per hour over a range — self-scoped for a reviewer, every reviewer for Content Ops
+      tags: [review]
+      parameters:
+        [
+          { $ref: '#/components/parameters/ReviewFrom' },
+          { $ref: '#/components/parameters/ReviewTo' },
+          { $ref: '#/components/parameters/CorrelationId' },
+        ]
+      responses:
+        '200':
+          description: Per-reviewer breakdown and the aggregate over the same decisions — the timing instrument, not a claim about a real reviewer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewerThroughputResult' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+
   /v1/items/{itemId}:
     get:
       operationId: getPublishedItem
@@ -864,6 +1055,21 @@ components:
       in: query
       required: true
       schema: { type: string, enum: [basic, full] }
+    AssignmentId:
+      name: assignmentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ReviewFrom:
+      name: from
+      in: query
+      required: true
+      schema: { type: string }
+    ReviewTo:
+      name: to
+      in: query
+      required: true
+      schema: { type: string }
     CorrelationId:
       name: X-Correlation-Id
       in: header
@@ -1164,11 +1370,22 @@ components:
     AuthoringReviewDecisionRequest:
       type: object
       additionalProperties: false
-      required: [itemVersionId, outcome]
+      required: [itemVersionId, outcome, candidatesShownIds]
       properties:
         itemVersionId: { type: string, format: uuid }
         outcome: { $ref: '#/components/schemas/ReviewOutcome' }
         justification: { type: string }
+        # M4-07/M4-28's governance fields — required and may be empty
+        # (candidatesShownIds; absent-vs-empty is the distinction
+        # assertDecisionEvidenceComplete keeps from collapsing), the rest
+        # optional. Added 2026-08-26 (M4-36): the handler has required
+        # candidatesShownIds since M4-04/M4-28 shipped; this schema had
+        # drifted behind it, and no HTTP caller could satisfy the handler
+        # until now.
+        candidatesShownIds: { type: array, items: { type: string, format: uuid } }
+        reasonCode: { type: string }
+        duplicateOfItemId: { type: string, format: uuid }
+        assignmentId: { type: string, format: uuid }
 
     AuthoringStimulusReviewDecisionRequest:
       type: object
@@ -1606,3 +1823,200 @@ components:
               label: { type: string }
               steps: { type: array, items: { $ref: '#/components/schemas/DeliverySolutionStep' } }
               applicabilityNote: { type: string }
+
+    # ── Review (M4-36, DEC-M4-7, DEC-M4-9, DEC-M4-2, DEC-M4-13) ────────────
+    #
+    # Every field name here mirrors the application layer's own command and
+    # result interfaces exactly (application/review/**) — a schema is not a
+    # second description of a shape that already has one. `reviewerId`
+    # flattens `PrincipalRef` to an id, the same convention `authoredById`
+    # already uses on AuthoringItemVersion/AuthoringStimulusVersion/
+    # AuthoringSolutionVersion.
+
+    ReviewAssignmentKind:
+      type: string
+      enum: [claimed, assigned, second_review]
+
+    ReviewAssignmentState:
+      type: string
+      enum: [claimed, decided, released, expired]
+
+    ReviewAssignment:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          assignmentId,
+          itemId,
+          itemVersionId,
+          subject,
+          reviewerId,
+          kind,
+          state,
+          claimedAt,
+          leaseExpiresAt,
+          aggregateVersion,
+        ]
+      properties:
+        assignmentId: { type: string, format: uuid }
+        itemId: { type: string, format: uuid }
+        itemVersionId: { type: string, format: uuid }
+        subject: { type: string }
+        reviewerId: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/ReviewAssignmentKind' }
+        state: { $ref: '#/components/schemas/ReviewAssignmentState' }
+        claimedAt: { type: string }
+        leaseExpiresAt: { type: string }
+        releasedAt: { type: string }
+        decidedAt: { type: string }
+        aggregateVersion: { type: integer }
+
+    ClaimNextForReviewRequest:
+      type: object
+      additionalProperties: false
+      required: [subject]
+      properties:
+        subject: { type: string }
+
+    ReassignReviewRequest:
+      type: object
+      additionalProperties: false
+      required: [subject, reviewerId]
+      properties:
+        subject: { type: string }
+        reviewerId: { type: string, format: uuid }
+
+    ReviewerEdits:
+      type: object
+      additionalProperties: false
+      description: |
+        Every field optional (a reviewer may edit none, some, or all of
+        them). `responseSpec` is accepted, not rejected at the boundary —
+        the domain refuses it by name (never actually applied to a
+        published answer key), which is a clearer failure than a generic
+        "unrecognized field" would be.
+      properties:
+        stem: { $ref: '#/components/schemas/ContentBody' }
+        taxonomyTags: { type: array, items: { $ref: '#/components/schemas/TaxonomyTag' } }
+        difficultyEstimate: { $ref: '#/components/schemas/DifficultyBand' }
+        responseSpec: { $ref: '#/components/schemas/AuthoringResponseSpec' }
+
+    ApproveWithEditsRequest:
+      type: object
+      additionalProperties: false
+      required: [edits, candidatesShownIds]
+      properties:
+        edits: { $ref: '#/components/schemas/ReviewerEdits' }
+        candidatesShownIds: { type: array, items: { type: string, format: uuid } }
+        assignmentId: { type: string, format: uuid }
+
+    DuplicateEvaluationState:
+      type: string
+      enum: [evaluated, not_evaluated]
+
+    DuplicateCandidate:
+      type: object
+      additionalProperties: false
+      required: [itemId, itemVersionId, subject]
+      properties:
+        itemId: { type: string, format: uuid }
+        itemVersionId: { type: string, format: uuid }
+        subject: { type: string }
+        # Present only in the trigram group — exact/skeleton membership is
+        # binary, not ranked.
+        similarity: { type: number }
+
+    DuplicateCandidatesResult:
+      type: object
+      additionalProperties: false
+      required: [state, exactMatches, skeletonMatches, trigramMatches, asOf]
+      properties:
+        state: { $ref: '#/components/schemas/DuplicateEvaluationState' }
+        exactMatches: { type: array, items: { $ref: '#/components/schemas/DuplicateCandidate' } }
+        skeletonMatches: { type: array, items: { $ref: '#/components/schemas/DuplicateCandidate' } }
+        trigramMatches: { type: array, items: { $ref: '#/components/schemas/DuplicateCandidate' } }
+        # Absent when state is not_evaluated.
+        computedAt: { type: string }
+        asOf: { type: string }
+
+    AgeBand:
+      type: string
+      enum: [fresh, warn, escalated]
+
+    QueueDepth:
+      type: object
+      additionalProperties: false
+      required: [subject, depth]
+      properties:
+        subject: { type: string }
+        depth: { type: integer }
+
+    AgeHistogramBucket:
+      type: object
+      additionalProperties: false
+      required: [band, count]
+      properties:
+        band: { $ref: '#/components/schemas/AgeBand' }
+        count: { type: integer }
+
+    OverdueQueueItem:
+      type: object
+      additionalProperties: false
+      required: [itemId, itemVersionId, subject, stateEnteredAt]
+      description: |
+        `notifiedAt` is Tier-3-dependent (D36) and answers a different
+        question than this item's presence on the list — absent means only
+        that nothing has swept a notification yet, never "not overdue"
+        (DEC-M4-1). No reviewer justification text is ever returned here;
+        this is a list endpoint.
+      properties:
+        itemId: { type: string, format: uuid }
+        itemVersionId: { type: string, format: uuid }
+        subject: { type: string }
+        stateEnteredAt: { type: string }
+        notifiedAt: { type: string }
+
+    QueueHealthResult:
+      type: object
+      additionalProperties: false
+      required: [depthBySubject, ageHistogram, overdue, asOf]
+      properties:
+        depthBySubject: { type: array, items: { $ref: '#/components/schemas/QueueDepth' } }
+        ageHistogram: { type: array, items: { $ref: '#/components/schemas/AgeHistogramBucket' } }
+        overdue: { type: array, items: { $ref: '#/components/schemas/OverdueQueueItem' } }
+        asOf: { type: string }
+
+    ThroughputByReviewer:
+      type: object
+      additionalProperties: false
+      required: [reviewerId, decisionCount, decisionsPerHour]
+      properties:
+        reviewerId: { type: string, format: uuid }
+        decisionCount: { type: integer }
+        decisionsPerHour: { type: number }
+
+    ThroughputAggregate:
+      type: object
+      additionalProperties: false
+      required: [decisionCount, decisionsPerHour]
+      properties:
+        decisionCount: { type: integer }
+        decisionsPerHour: { type: number }
+
+    ReviewerThroughputResult:
+      type: object
+      additionalProperties: false
+      required: [from, to, hours, perReviewer, aggregate]
+      description: |
+        `perReviewer` carries every reviewer's breakdown only for a
+        Content Ops caller; a reviewer principal's own request is
+        self-scoped by the handler to at most one entry (their own) — DEC-
+        M4-13's ban on ranking, enforced server-side rather than trusted to
+        the client to respect. No per-reviewer ordering is meaningful here:
+        this is capacity planning, never a leaderboard.
+      properties:
+        from: { type: string }
+        to: { type: string }
+        hours: { type: number }
+        perReviewer: { type: array, items: { $ref: '#/components/schemas/ThroughputByReviewer' } }
+        aggregate: { $ref: '#/components/schemas/ThroughputAggregate' }

@@ -65,7 +65,7 @@ function queueHealthDeps(): QueueHealthDependencies {
   return { items, escalations, reviewPolicy: POLICY };
 }
 function throughputDeps(): ThroughputDependencies {
-  return { decisions };
+  return { reviews: decisions };
 }
 
 async function inReviewItem(stateEnteredAt: string, subject = `queue-${freshUuid()}`): Promise<Item> {

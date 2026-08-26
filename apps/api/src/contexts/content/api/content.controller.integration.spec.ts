@@ -194,7 +194,10 @@ describe('every authoring route reaches its handler', () => {
   it('routes every lifecycle transition', async () => {
     const transitions: readonly [string, object][] = [
       [`/v1/authoring/items/${ITEM_ID}/review-submission`, {}],
-      [`/v1/authoring/items/${ITEM_ID}/review-decisions`, { itemVersionId: VERSION_ID, outcome: 'approve' }],
+      [
+        `/v1/authoring/items/${ITEM_ID}/review-decisions`,
+        { itemVersionId: VERSION_ID, outcome: 'approve', candidatesShownIds: [] },
+      ],
       [`/v1/authoring/items/${ITEM_ID}/publication`, { itemVersionId: VERSION_ID }],
       [`/v1/authoring/items/${ITEM_ID}/suspension`, { justification: 'defect' }],
       [`/v1/authoring/items/${ITEM_ID}/retirement`, { retirementReason: 'out of syllabus' }],

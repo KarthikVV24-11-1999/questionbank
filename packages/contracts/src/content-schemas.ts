@@ -231,6 +231,10 @@ export const AuthoringReviewDecisionRequestSchema = z.object({
   "itemVersionId": z.string(),
   "outcome": ReviewOutcomeSchema,
   "justification": z.string().optional(),
+  "candidatesShownIds": z.array(z.string()),
+  "reasonCode": z.string().optional(),
+  "duplicateOfItemId": z.string().optional(),
+  "assignmentId": z.string().optional(),
 }).strict();
 
 export type AuthoringReviewDecisionRequest = z.infer<typeof AuthoringReviewDecisionRequestSchema>;
@@ -585,3 +589,144 @@ export const DeliverySolutionSchema = z.object({
 }).strict();
 
 export type DeliverySolution = z.infer<typeof DeliverySolutionSchema>;
+
+export const ReviewAssignmentKindSchema = z.enum(["claimed", "assigned", "second_review"]);
+
+export type ReviewAssignmentKind = z.infer<typeof ReviewAssignmentKindSchema>;
+
+export const ReviewAssignmentStateSchema = z.enum(["claimed", "decided", "released", "expired"]);
+
+export type ReviewAssignmentState = z.infer<typeof ReviewAssignmentStateSchema>;
+
+export const ReviewAssignmentSchema = z.object({
+  "assignmentId": z.string(),
+  "itemId": z.string(),
+  "itemVersionId": z.string(),
+  "subject": z.string(),
+  "reviewerId": z.string(),
+  "kind": ReviewAssignmentKindSchema,
+  "state": ReviewAssignmentStateSchema,
+  "claimedAt": z.string(),
+  "leaseExpiresAt": z.string(),
+  "releasedAt": z.string().optional(),
+  "decidedAt": z.string().optional(),
+  "aggregateVersion": z.number().int(),
+}).strict();
+
+export type ReviewAssignment = z.infer<typeof ReviewAssignmentSchema>;
+
+export const ClaimNextForReviewRequestSchema = z.object({
+  "subject": z.string(),
+}).strict();
+
+export type ClaimNextForReviewRequest = z.infer<typeof ClaimNextForReviewRequestSchema>;
+
+export const ReassignReviewRequestSchema = z.object({
+  "subject": z.string(),
+  "reviewerId": z.string(),
+}).strict();
+
+export type ReassignReviewRequest = z.infer<typeof ReassignReviewRequestSchema>;
+
+export const ReviewerEditsSchema = z.object({
+  "stem": ContentBodySchema.optional(),
+  "taxonomyTags": z.array(TaxonomyTagSchema).optional(),
+  "difficultyEstimate": DifficultyBandSchema.optional(),
+  "responseSpec": AuthoringResponseSpecSchema.optional(),
+}).strict();
+
+export type ReviewerEdits = z.infer<typeof ReviewerEditsSchema>;
+
+export const ApproveWithEditsRequestSchema = z.object({
+  "edits": ReviewerEditsSchema,
+  "candidatesShownIds": z.array(z.string()),
+  "assignmentId": z.string().optional(),
+}).strict();
+
+export type ApproveWithEditsRequest = z.infer<typeof ApproveWithEditsRequestSchema>;
+
+export const DuplicateEvaluationStateSchema = z.enum(["evaluated", "not_evaluated"]);
+
+export type DuplicateEvaluationState = z.infer<typeof DuplicateEvaluationStateSchema>;
+
+export const DuplicateCandidateSchema = z.object({
+  "itemId": z.string(),
+  "itemVersionId": z.string(),
+  "subject": z.string(),
+  "similarity": z.number().optional(),
+}).strict();
+
+export type DuplicateCandidate = z.infer<typeof DuplicateCandidateSchema>;
+
+export const DuplicateCandidatesResultSchema = z.object({
+  "state": DuplicateEvaluationStateSchema,
+  "exactMatches": z.array(DuplicateCandidateSchema),
+  "skeletonMatches": z.array(DuplicateCandidateSchema),
+  "trigramMatches": z.array(DuplicateCandidateSchema),
+  "computedAt": z.string().optional(),
+  "asOf": z.string(),
+}).strict();
+
+export type DuplicateCandidatesResult = z.infer<typeof DuplicateCandidatesResultSchema>;
+
+export const AgeBandSchema = z.enum(["fresh", "warn", "escalated"]);
+
+export type AgeBand = z.infer<typeof AgeBandSchema>;
+
+export const QueueDepthSchema = z.object({
+  "subject": z.string(),
+  "depth": z.number().int(),
+}).strict();
+
+export type QueueDepth = z.infer<typeof QueueDepthSchema>;
+
+export const AgeHistogramBucketSchema = z.object({
+  "band": AgeBandSchema,
+  "count": z.number().int(),
+}).strict();
+
+export type AgeHistogramBucket = z.infer<typeof AgeHistogramBucketSchema>;
+
+export const OverdueQueueItemSchema = z.object({
+  "itemId": z.string(),
+  "itemVersionId": z.string(),
+  "subject": z.string(),
+  "stateEnteredAt": z.string(),
+  "notifiedAt": z.string().optional(),
+}).strict();
+
+export type OverdueQueueItem = z.infer<typeof OverdueQueueItemSchema>;
+
+export const QueueHealthResultSchema = z.object({
+  "depthBySubject": z.array(QueueDepthSchema),
+  "ageHistogram": z.array(AgeHistogramBucketSchema),
+  "overdue": z.array(OverdueQueueItemSchema),
+  "asOf": z.string(),
+}).strict();
+
+export type QueueHealthResult = z.infer<typeof QueueHealthResultSchema>;
+
+export const ThroughputByReviewerSchema = z.object({
+  "reviewerId": z.string(),
+  "decisionCount": z.number().int(),
+  "decisionsPerHour": z.number(),
+}).strict();
+
+export type ThroughputByReviewer = z.infer<typeof ThroughputByReviewerSchema>;
+
+export const ThroughputAggregateSchema = z.object({
+  "decisionCount": z.number().int(),
+  "decisionsPerHour": z.number(),
+}).strict();
+
+export type ThroughputAggregate = z.infer<typeof ThroughputAggregateSchema>;
+
+export const ReviewerThroughputResultSchema = z.object({
+  "from": z.string(),
+  "to": z.string(),
+  "hours": z.number(),
+  "perReviewer": z.array(ThroughputByReviewerSchema),
+  "aggregate": ThroughputAggregateSchema,
+}).strict();
+
+export type ReviewerThroughputResult = z.infer<typeof ReviewerThroughputResultSchema>;

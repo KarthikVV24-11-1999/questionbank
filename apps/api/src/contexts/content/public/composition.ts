@@ -79,6 +79,9 @@ import {
 } from '../application/review/handlers/assignment-handlers.js';
 import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer-edit-handlers.js';
 import { SweepReviewAgeingHandler } from '../application/review/handlers/ageing-handlers.js';
+import { RefreshFingerprintsHandler } from '../application/review/handlers/fingerprint-handlers.js';
+import { GetDuplicateCandidatesHandler } from '../application/review/queries/duplicate-queries.js';
+import { GetQueueHealthHandler, GetReviewerThroughputHandler } from '../application/review/queries/queue-queries.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). `register` composes content's
@@ -247,6 +250,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new ExtendLeaseHandler(bag),
     new ApproveWithEditsHandler(bag),
     new SweepReviewAgeingHandler(bag),
+    new RefreshFingerprintsHandler(bag),
     // Authoring queries
     new GetItemDraftHandler(bag),
     new ListMyDraftsHandler(bag),
@@ -258,6 +262,10 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new GetPublishedItemHandler(bag),
     new GetPublishedStimulusHandler(bag),
     new GetPublishedSolutionHandler(bag),
+    // Review queries (M4-32, M4-33)
+    new GetDuplicateCandidatesHandler(bag),
+    new GetQueueHealthHandler(bag),
+    new GetReviewerThroughputHandler(bag),
   ] as unknown as readonly Handler<never, unknown>[];
 
   return ContentModule.register({ handlers, principals: deps.principals });
