@@ -586,6 +586,16 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
     F46: ['src/contexts/curriculum/domain/value-objects/marking-rule-set.spec.ts', 'ALWAYS'],
     F47: ['src/fitness/scoring-rules.spec.ts', 'F47'],
     F48: ['src/fitness/scoring-rules.spec.ts', 'F48'],
+    /**
+     * M4-42's four outstanding rows. Each is an existing gate whose *subject*
+     * M4 widened — a review handler, a review route, a review workspace
+     * component — and each names the spec that plants a violation in that new
+     * subject rather than relying on the older proof covering it by accident.
+     */
+    F36_REVIEW: ['src/contexts/content/application/review/review-registration.spec.ts', 'F36'],
+    F6_F35_REVIEW_ROUTE: ['src/contracts/content-contract.spec.ts', '/v1/review/assignments'],
+    F15_REVIEW_WORKSPACE: ['src/fitness/frontend-rules.spec.ts', 'planted-review-fetch.tsx'],
+    F24_DECISION_BAR: ['src/fitness/frontend-rules.spec.ts', 'planted-decision-bar-color.tsx'],
   };
 
   it('names a spec that exists and actually runs each gate', () => {
@@ -594,7 +604,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
       return !existsSync(path) || !readFileSync(path, 'utf8').includes(phrase);
     });
     expect(wrong).toEqual([]);
-    expect(Object.keys(GATES)).toHaveLength(13);
+    expect(Object.keys(GATES)).toHaveLength(17);
   });
 
   // The phrase check is shown to fail, or it is a second existence check.

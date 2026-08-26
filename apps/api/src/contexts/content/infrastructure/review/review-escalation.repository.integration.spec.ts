@@ -1,3 +1,4 @@
+import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../../testing/database.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
@@ -154,5 +155,49 @@ describe('findNotifiedAt — the Tier-3-dependent notification read (M4-33)', ()
 
   it('is an empty map, not an error, for an empty input', async () => {
     expect(expectValue(await repository.findNotifiedAt([]))).toEqual(new Map());
+  });
+});
+
+/**
+ * **The pool-failure arm (M4-42).**
+ *
+ * `findNotifiedAt` wraps its query in try/catch and returns a
+ * `PERSISTENCE_REJECTED` result rather than letting the rejection escape as a
+ * thrown error — the discipline every repository in this context follows, so
+ * a handler's `if (!result.ok)` is the single place failure is handled. A real
+ * Postgres cannot be asked to fail one query on demand, so the arm is proven
+ * against a pool stub that throws. Without this, an exception escaping here
+ * would surface as a 500 from the queue-health screen instead of the mapped
+ * problem response.
+ */
+describe('findNotifiedAt maps a pool failure to a result, never a throw (M4-42)', () => {
+  it('returns PERSISTENCE_REJECTED when the query rejects', async () => {
+    const throwingPool = {
+      async query() {
+        throw new Error('connection terminated unexpectedly');
+      },
+    } as unknown as Pool;
+
+    const repository = new PostgresReviewEscalationRepository(throwingPool);
+    const result = await repository.findNotifiedAt(['00000000-0000-4000-8000-000000000001']);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.code).toBe('PERSISTENCE_REJECTED');
+    expect(result.error.message).toContain('connection terminated unexpectedly');
+  });
+
+  // The short-circuit above the try block: no ids means no query at all.
+  it('answers an empty id list without touching the pool', async () => {
+    const forbiddenPool = {
+      async query() {
+        throw new Error('the pool must not be queried for an empty id list');
+      },
+    } as unknown as Pool;
+
+    const result = await new PostgresReviewEscalationRepository(forbiddenPool).findNotifiedAt([]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.value.size).toBe(0);
   });
 });

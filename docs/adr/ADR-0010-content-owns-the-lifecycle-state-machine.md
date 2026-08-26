@@ -66,6 +66,14 @@ call: `transitionItem` refuses `publish` outright and directs the caller to
 already exists and is exhaustively tested, instead of designing the machine
 under the time pressure of also hitting 40 items/hour.
 
+> **Correction note, 2026-08-26 (M4-44).** The sentence above is unchanged and
+> still describes the decision correctly. Recording alongside it what M4
+> established: that rate is **`Fail — blocked`** — no reviewer pool exists
+> (DEC-M4-5), so the time pressure this ADR anticipated never materialised in
+> the form it expected. The phrase is left in place rather than edited,
+> because the ADR is a record of what was decided and why, not of what later
+> turned out to be measurable.
+
 **The exhaustive matrix is the proof.** `item-lifecycle.spec.ts` sweeps all
 8 × 9 = 72 state/transition pairs against a legal-transition list written out
 independently of the implementation table. Thirteen are permitted; the other

@@ -126,22 +126,42 @@
 **Goal** Unblock the content workstream — the true critical path.
 
 **Deliverables**
-- Lifecycle state machine (FR-QM-01) with all transitions permission-gated
+- ~~Lifecycle state machine (FR-QM-01) with all transitions permission-gated~~ — **delivered by M3,
+  not M4 (D20, [ADR-0010](adr/ADR-0010-content-owns-the-lifecycle-state-machine.md))**. The machine
+  lives in content's domain with an exhaustive 72-pair matrix; M4 built the workspace *against* it.
+  *Amendment added 2026-08-26 at M4-45; D20 has been open since M3 and is closed by this line.*
 - `ReviewAssignment` queue: subject-scoped, self-review prohibited, ageing escalation
 - Review workspace: single screen, keyboard-driven, batched by concept, auto-advance
 - `ReviewDecision` with fixed rejection taxonomy; approve-with-edits records both versions
 - Duplicate detection: normalized hash + trigram + placeholder-normalized numbers
-- `ItemDefect` intake and triage
-- Audit hash chain with daily anchor
+- ~~`ItemDefect` intake and triage~~ — **deferred to M5
+  ([ADR-0022](adr/ADR-0022-item-defect-and-answer-key-challenge-move-to-m5.md))**. Trigger: the first
+  published item a reviewer or author needs to report against. `AnswerKeyChallenge`, assigned to M4
+  by M3's scope table, is deferred with it — trigger: the first disputed key on a published item, or
+  M9's learner-facing surface, whichever comes first. *Amendment added 2026-08-26 at M4-45; the ADR
+  is the decision, this edit is its consequence.*
+- Audit hash chain with daily anchor — **sealed and HMAC-signed locally; not externally witnessed,
+  and never described as notarization** ([ADR-0020](adr/ADR-0020-the-audit-chain-is-database-enforced-and-locally-anchored.md))
 
 **Acceptance**
 - **A reviewer sustains ≥ 40 items/hour on seeded content** (60 is the target; 40 is the gate)
+  > **Status, added 2026-08-26 (M4-44, DEC-M4-5): `Fail — blocked` — no reviewer pool exists.**
+  > Nothing in M4 measures human throughput. The interaction-cost, machine-time and
+  > instrument figures M4 reports are evidence that the workspace does not itself
+  > prevent the rate; they are not a measurement of it. The session that would settle
+  > this is specified in `docs/tasks/M4-REVIEW-TIMING-PROTOCOL.md`.
 - Self-review is impossible at both assignment and decision
 - Every published item carries a reviewer signature
 - Audit chain verification detects a planted tampering
 - Duplicate detection catches same-question-different-constants
 
-**Testing** Timed reviewer session with 3 real reviewers · state machine exhaustive transition tests · audit chain verification (F41) · authorization negative-path 100%
+**Testing** ~~Timed reviewer session with 3 real reviewers~~ — **`Fail — blocked`, no reviewer pool
+exists**; the session is specified in [M4-REVIEW-TIMING-PROTOCOL.md](tasks/M4-REVIEW-TIMING-PROTOCOL.md)
+and has not been run · state machine exhaustive transition tests · audit chain verification (F41) ·
+authorization negative-path 100%
+
+**Closed out** [M4-CLOSEOUT.md](tasks/M4-CLOSEOUT.md) · [M4-TRACEABILITY.md](tasks/M4-TRACEABILITY.md)
+— 46 of 46 tasks merged, 34 criteria: 21 pass, 2 partial, 6 blocked, 2 deferred, 3 carried.
 
 **Depends on** M3
 **Unblocks** ⚠️ **Human content authoring begins here and runs continuously**

@@ -94,7 +94,11 @@ export class GetQueueHealthHandler {
     if (!permitted.ok) return err(permitted.error);
 
     const depthBySubject = new Map<string, number>();
-    const histogram = new Map<AgeState, number>(AGE_STATES.map((band) => [band, 0]));
+    // A total record, not a Map: every `AgeState` is seeded, so there is no
+    // "missing band" case to fall back from. A `Map` forced a `?? 0` on
+    // every read — a branch that could never be taken, and so could never
+    // be tested (M4-42). The type now says what was already true.
+    const histogram = Object.fromEntries(AGE_STATES.map((band) => [band, 0])) as Record<AgeState, number>;
     const overdueCandidates: OverdueQueueItem[] = [];
 
     let cursor: string | undefined;
@@ -118,7 +122,7 @@ export class GetQueueHealthHandler {
         // from the histogram and the overdue list, exactly as
         // `SweepReviewAgeingHandler` skips it from escalation.
         if (!age.ok) continue;
-        histogram.set(age.value, (histogram.get(age.value) ?? 0) + 1);
+        histogram[age.value] += 1;
 
         if (age.value === 'escalated') {
           const version = item.versions[item.versions.length - 1]!;
@@ -144,7 +148,7 @@ export class GetQueueHealthHandler {
       depthBySubject: [...depthBySubject.entries()]
         .map(([subject, depth]) => ({ subject, depth }))
         .sort((a, b) => a.subject.localeCompare(b.subject)),
-      ageHistogram: AGE_STATES.map((band) => ({ band, count: histogram.get(band) ?? 0 })),
+      ageHistogram: AGE_STATES.map((band) => ({ band, count: histogram[band] })),
       overdue,
       asOf: query.now,
     });

@@ -1,4 +1,5 @@
-import { dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
@@ -59,6 +60,55 @@ describe('F15 — no hand-written fetch call outside the generated client (M0-17
   });
 });
 
+/**
+ * **M4-42's F15 row: the rule's subject now includes the review workspace.**
+ *
+ * F15 was proven in M0 against a generic Studio component. M4-38 added a
+ * feature that talks to the API on the hottest path this product has — claim,
+ * decide, advance, hundreds of times an hour — so "does the scan actually
+ * reach `features/review-workspace/`?" is a question worth answering with a
+ * fixture rather than by reading `DEFAULT_INCLUDES` and assuming.
+ */
+describe('F15 — the scan covers the review workspace (M4-42)', () => {
+  it('scans the real review workspace and queue management surfaces', () => {
+    const { violations, scannedFiles } = checkNoHandwrittenFetch(REPO_ROOT, {
+      include: ['apps/studio/src/features/review-workspace', 'apps/studio/src/features/queue-management'],
+    });
+    expect(violations).toEqual([]);
+    // Non-vacuous: both feature directories exist and were actually read.
+    expect(scannedFiles).toBeGreaterThan(6);
+  });
+
+  it('fires on a planted fetch in a review workspace component', () => {
+    const { violations, scannedFiles } = checkNoHandwrittenFetch(REPO_ROOT, {
+      include: ['apps/api/src/fitness-fixtures/as-review-workspace'],
+      excludePatterns: [],
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.file).toContain('planted-review-fetch.tsx');
+    expect(scannedFiles).toBeGreaterThan(0);
+  });
+
+  /**
+   * The review workspace reaches the API through `createLiveReviewWorkspaceApi`
+   * and `createLiveQueueManagementApi`, which build on `createClient` — F15's
+   * whole point is that this is the only route. Asserting the adapters exist
+   * and name the client keeps the row above from being satisfied by a feature
+   * that simply never calls the network at all.
+   */
+  it('the workspace reaches the API through the typed client, not by not calling it', () => {
+    const adapters = [
+      'apps/studio/src/features/review-workspace/review-workspace-api.ts',
+      'apps/studio/src/features/queue-management/queue-management-api.ts',
+    ];
+    for (const adapter of adapters) {
+      const source = readFileSync(join(REPO_ROOT, adapter), 'utf8');
+      expect(source, adapter).toContain('@questionbank/contracts/client');
+      expect(source, adapter).toContain('createClient');
+    }
+  });
+});
+
 describe('F24 — no colour literal outside the token layer (§9 rule 16, M0-18)', () => {
   it('finds no violation in the real frontend source', () => {
     const { violations, scannedFiles } = checkNoColorLiterals(REPO_ROOT);
@@ -106,6 +156,31 @@ describe('F24 — no colour literal outside the token layer (§9 rule 16, M0-18)
       excludePatterns: [/planted-.*\.tsx$/u],
     });
     expect(violations).toEqual([]);
+  });
+});
+
+/**
+ * **M4-42's F24 row: the decision bar is where this rule is most tempting to
+ * break.** Approve/reject wants green/red, and a hand-picked green is a
+ * contrast ratio nobody checked — on the one control a reviewer touches
+ * hundreds of times an hour.
+ */
+describe('F24 — the scan covers the decision bar (M4-42)', () => {
+  it('finds no colour literal in the real review workspace or queue management', () => {
+    const { violations, scannedFiles } = checkNoColorLiterals(REPO_ROOT, {
+      include: ['apps/studio/src/features/review-workspace', 'apps/studio/src/features/queue-management'],
+    });
+    expect(violations).toEqual([]);
+    expect(scannedFiles).toBeGreaterThan(6);
+  });
+
+  it('fires on a planted hex colour in a decision-bar component', () => {
+    const { violations } = checkNoColorLiterals(REPO_ROOT, {
+      include: ['apps/api/src/fitness-fixtures/as-review-workspace'],
+      excludePatterns: [/planted-review-fetch\.tsx$/u],
+    });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.file).toContain('planted-decision-bar-color.tsx');
   });
 });
 
