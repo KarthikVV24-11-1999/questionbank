@@ -19,9 +19,9 @@ import { expectValue } from '../expect-result.js';
  * This is M0-25's formulation, used here in the same words and for the same
  * reason. `GetReviewerThroughput` (M4-33) computes items/hour from
  * `review_decision.decided_at`; this spec proves the arithmetic is right.
- * **It does not measure a reviewer.** There are no reviewers — see
- * `docs/tasks/M4-REVIEW-TIMING-PROTOCOL.md` for the session that would need
- * to be run, and DEC-M4-5 for why it cannot be.
+ * **It does not measure a reviewer.** There are no reviewers, so the
+ * throughput target itself stays `Fail — blocked`; this proves only that the
+ * instrument that would measure it is correct.
  *
  * ## What this file's numbers may and may not be used for
  *

@@ -356,9 +356,9 @@ CI already checked formatting, lint, types, coverage, budgets, and fitness funct
 
 ## 11. Day One
 
-Two paths. **The first is the one someone has actually taken**, this session, on this machine — every
-command below was run for real while M0-27 wrote this section, not copied from a plan. The second is
-authored and has never been booted; ADR-0004 names exactly what verifying it requires.
+Two paths. **The first is the one someone has actually taken** — every command below was run for real
+while M0-27 wrote this section, not copied from a plan. The second is authored and has never been
+booted; ADR-0004 names exactly what verifying it requires.
 
 ### The supported path (verified, M0-27)
 

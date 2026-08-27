@@ -9,7 +9,7 @@ Date: 2026-08-13
 depends on it. `PrincipalResolver` is declared in three places — `content/api/http-runner.ts` and the
 curriculum and scoring equivalents — and until M0 was implemented only in integration specs. M0 needs a
 real implementation to serve one authenticated request end to end
-([M0-WALKING-SKELETON.md, DEC-M0-7](../tasks/M0-WALKING-SKELETON.md#dec-m0-7--the-auth-stub-issues-and-verifies-a-principal-never-an-identity-adr-0014)).
+(M0 DEC-M0-7).
 
 Identity — users, credentials, sessions, role assignment — is M8's, per ROADMAP. M0 is three weeks and
 does not own it. The question this ADR answers is what the narrowest thing is that makes "authenticated

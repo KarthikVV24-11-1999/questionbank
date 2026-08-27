@@ -5,7 +5,7 @@ Date: 2026-08-14
 ## Context
 
 Track D (M0-20 through M0-23) authors Compose, CI and Terraform on a machine with no Docker, no CI
-provider, and no Terraform provider plugins available offline. [M0-WALKING-SKELETON.md, DEC-M0-1](../tasks/M0-WALKING-SKELETON.md)
+provider, and no Terraform provider plugins available offline. M0 DEC-M0-1
 already named the three-tier split this milestone works under; this ADR is that decision's permanent
 home, so a future milestone cites it rather than re-deriving the same argument the next time it authors
 something it cannot run.

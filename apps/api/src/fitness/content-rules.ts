@@ -646,10 +646,11 @@ export function checkCoverageThresholds(
  * **Category 2: context-wide contracts.** A module used by both sides,
  * specific to neither, carrying no authoring or review business logic of
  * its own — the same test applied each time a member was added. Exactly
- * three today, and this is the category where the stop-and-ask cap lives:
- * membership by *resemblance* ("it's used by both sides too") is exactly
- * how a boundary erodes, because nearly anything shared-looking can be
- * argued into it. A fourth contract requires **stopping and asking**:
+ * three today, and this is the category that is capped: membership by
+ * *resemblance* ("it's used by both sides too") is exactly how a boundary
+ * erodes, because nearly anything shared-looking can be argued into it. A
+ * fourth contract is a deliberate decision, not a judgement call made in
+ * passing:
  *
  *   1. `application/authorization.ts` — policies, role checks.
  *   2. `application/ports.ts` — `Clock`, `AuditRecorder`, `IdentifierFactory`,

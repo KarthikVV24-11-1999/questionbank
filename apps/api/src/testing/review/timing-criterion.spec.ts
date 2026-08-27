@@ -36,11 +36,10 @@ const REQUIRED_STATUS = ['Fail — blocked', 'Fail - blocked', 'Fail—blocked']
  * **Everything git would keep, and nothing it would not.** `--cached`
  * catches tracked files; `--others --exclude-standard` catches files that
  * are new but not ignored, so a mention introduced in this very commit is
- * caught now rather than one commit later. What both exclude is the
- * gitignored working notes — `docs/HANDOFF-*.md`, `docs/tasks/M*-PROGRESS.md`
- * — which are not part of the repository a reader clones, and holding a
- * private scratch file to the close-out's wording rule would be rigour aimed
- * at the wrong document.
+ * caught now rather than one commit later. Ignored files are excluded on
+ * purpose: they are not part of the repository a reader clones, and holding
+ * a local scratch file to this wording rule would be rigour aimed at the
+ * wrong document.
  */
 const TEXT_EXTENSIONS = ['.md', '.ts', '.tsx', '.yaml', '.yml', '.json', '.sql'];
 

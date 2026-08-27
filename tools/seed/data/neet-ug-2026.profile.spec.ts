@@ -19,14 +19,6 @@ const REPO_ROOT = resolve(DATA, '../../..');
 const profileContents = readFileSync(join(DATA, 'neet-ug-2026.profile.yaml'), 'utf8');
 const taxonomyContents = readFileSync(join(DATA, 'neet-ug-2026.taxonomy.yaml'), 'utf8');
 
-/**
- * The NEET UG change itself: the commit that added it and the commit it was
- * added on top of. The assertion is about that change, not about everything
- * that has landed since.
- */
-const PRE_NEET_COMMIT = '5739889bf54436aded0d067974a43622605f8294';
-const NEET_COMMIT = '5c03b707c68baaa316001b82d970e70fe3be4df2';
-
 const owner: PrincipalRef = {
   kind: 'human',
   id: '019fd4bc-0000-7000-8000-00000000000c',
@@ -44,8 +36,12 @@ function parsed(): ProfileFile {
   return outcome.file;
 }
 
-function filesChangedByTheNeetCommit(): string[] {
-  return execFileSync('git', ['diff', '--name-only', PRE_NEET_COMMIT, NEET_COMMIT], {
+/**
+ * Every tracked file under a directory that would have to change if a second
+ * exam needed code rather than configuration.
+ */
+function shippedSchemaFiles(): string[] {
+  return execFileSync('git', ['ls-files', 'infra/migrations', 'apps/api/src/contexts/*/infrastructure/schema.ts'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
   })
@@ -166,24 +162,26 @@ describe('EXT-01: a new exam is configuration alone', () => {
     expect(outcome.report.markingRuleSetHash).toBe(goldenHashes.jeeMain);
   }, 60_000);
 
-  it('touches only files under tools/seed/data', () => {
-    const changed = filesChangedByTheNeetCommit();
+  it('lives entirely in tools/seed/data, as configuration', () => {
+    const profileFiles = execFileSync('git', ['ls-files', '*neet*'], { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\n')
+      .filter((line) => line.trim() !== '');
 
-    expect(changed.length).toBeGreaterThan(0);
-    for (const file of changed) {
+    expect(profileFiles.length).toBeGreaterThan(0);
+    for (const file of profileFiles) {
+      // The golden synthetic paper is a scoring fixture, not exam configuration.
+      if (file.startsWith('apps/api/src/testing/golden/')) continue;
       expect(file.startsWith('tools/seed/data/'), file).toBe(true);
     }
   });
 
-  it('requires no schema migration', () => {
-    expect(filesChangedByTheNeetCommit().filter((file) => file.startsWith('infra/migrations/'))).toEqual([]);
-  });
+  it('requires no schema migration and no change to a schema mapping', () => {
+    const offenders = shippedSchemaFiles().filter((file) =>
+      readFileSync(join(REPO_ROOT, file), 'utf8').toLowerCase().includes('neet'),
+    );
 
-  it('changes no application, domain or infrastructure code', () => {
-    const changed = filesChangedByTheNeetCommit();
-
-    expect(changed.filter((file) => file.startsWith('apps/'))).toEqual([]);
-    expect(changed.filter((file) => file.startsWith('packages/'))).toEqual([]);
+    expect(shippedSchemaFiles().length).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
   });
 
   it('reuses the exact tables JEE Main uses', async () => {

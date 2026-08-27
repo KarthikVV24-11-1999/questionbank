@@ -63,24 +63,3 @@ export function checkHandbookReferences(
 
   return violations;
 }
-
-/**
- * Every checklist line (`- [ ]` / `- [x]`, including a wrapped continuation
- * indented under it) strictly between a line equal to `sectionHeading` and
- * the next line equal to `nextHeading` (or end of file, when omitted).
- * Counted, not text-compared — the two documents describe the same
- * criterion in different voices (a ratified plan vs. a completed record),
- * so a count is what stays honestly comparable between them. Used to prove
- * M0-CLOSEOUT.md's Definition of Done carries the same **number** of
- * criteria M0-WALKING-SKELETON.md's does in each tier — a criterion cannot
- * be quietly dropped between the two (M0-27).
- */
-export function checklistItemsUnder(markdown: string, sectionHeading: string, nextHeading?: string): readonly string[] {
-  const lines = markdown.split('\n');
-  const startIndex = lines.findIndex((line) => line.trim() === sectionHeading);
-  if (startIndex === -1) return [];
-  const endIndex = nextHeading === undefined ? lines.length : lines.findIndex((line, i) => i > startIndex && line.trim() === nextHeading);
-  const slice = endIndex === -1 ? lines.slice(startIndex + 1) : lines.slice(startIndex + 1, endIndex);
-
-  return slice.filter((line) => /^-\s\[[ x]\]\s/u.test(line.trim()));
-}

@@ -8,5 +8,5 @@ coverage/
 .env.*.local
 *.pgpass
 docs/HANDOFF*.md
-docs/tasks/*-PROGRESS.md
+docs/tasks/
 docs/SESSION-BRIEF.md

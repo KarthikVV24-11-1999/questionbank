@@ -10,7 +10,7 @@ API means running a React render inside the Node service."* `render-validation.t
 same point independently: `renderFor` calls `ContentRenderer(...)`, a component defined in
 `content-renderer.tsx`.
 
-[M0-WALKING-SKELETON.md's M0-09 entry](../tasks/M0-WALKING-SKELETON.md) mis-stated this. It claimed *"`renderFor`
+M0's plan M0-09 entry mis-stated this. It claimed *"`renderFor`
 uses `renderToStaticMarkup`, so no JSX transform is needed in the API build."* That is false, and the
 falseness was concrete rather than theoretical: `apps/api`'s own `tsc --noEmit`, with no `jsx` compiler
 option set, failed the moment `render-validator.adapter.ts` imported `render-validation.ts` — not because

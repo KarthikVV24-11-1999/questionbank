@@ -27,8 +27,8 @@ mapper) never read `exam_profile_version_id`/`taxonomy_version_id` off the row, 
 the assertion was real, but the criterion it claimed to prove ("save → load deep-equal") was not fully
 checked. This is the same shape of gap `renderer-seam.spec.ts` had for `MediaBlock.caption`: an instrument
 that compares two things missing the same thing agrees with itself, not with the world. See
-[M2-TRACEABILITY.md finding F-7](../tasks/M2-TRACEABILITY.md) and the correction recorded in
-[M2-CLOSEOUT.md](../tasks/M2-CLOSEOUT.md).
+M2's traceability record finding F-7 and the correction recorded in
+M2's close-out.
 
 ## Decision
 

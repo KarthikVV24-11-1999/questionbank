@@ -6,18 +6,30 @@ and the learner-facing product come later, once there is a corpus worth deliveri
 
 ## Current state
 
-- **4 of 11 milestones closed** — M0 (walking skeleton), M1 (curriculum spine), M2 (scoring engine), M3
-  (content model & authoring). M4 (governance & review workspace) is broken down and ratified, not started.
+- **5 of 11 milestones closed** — the walking skeleton, the curriculum spine, the scoring engine, the
+  content model and authoring, and the governance and review workspace. AI generation is next.
 - The application boots and serves an authenticated request against real Postgres:
   `corepack pnpm --filter @questionbank/api start`, then an authenticated `GET /v1/exams` — see
   [How to run it](#how-to-run-it) for the full sequence.
-- **4,011 tests** across 5 workspace projects. Coverage floors are enforced in the test run — ≥80%
+- **4,857 tests** across 6 workspace projects. Coverage floors are enforced in the test run — ≥80%
   line/≥70% branch overall, **100% on every correctness-bearing module** (scoring, publication
-  preconditions, the answer-key projection).
-- Deliberately not done: no CI has ever run (the workflow is authored, unexecuted); no Compose stack has
-  booted (authored, parsed, unrun); no cloud deploy exists; the golden scoring set is validated against
-  zero real exam papers (blocked on a licensing decision, [B1](docs/tasks/M3-CLOSEOUT.md)); there is no
-  learner-facing application yet.
+  preconditions, the answer-key projection, the audit chain).
+
+### Known gaps, stated plainly
+
+These are real and deliberately not papered over:
+
+- **The golden scoring set is validated against zero real exam papers.** Four synthetic fixtures, so the
+  regression gate runs on every commit and proves very little. Blocked on a content licensing and IP
+  decision that needs legal input, not engineering.
+- **No CI has ever run.** The workflow is authored and its job graph asserted by parsing; nothing has
+  executed it.
+- **No Compose stack has ever booted**, and no cloud deploy exists. Both are authored and checked by
+  parsing only — see [ADR-0013](docs/adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md) for
+  what that does and does not entitle either to claim.
+- **Reviewer throughput is `Fail — blocked`.** The review workspace is built and its interaction cost is
+  measured, but the ≥ 40 items/hour target needs real reviewers, of which there are none.
+- **There is no learner-facing application yet** — by design. Content first.
 
 ---
 
@@ -236,14 +248,7 @@ it answers. In this order, without opening everything:
    version of.
 2. **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — *what are the pieces, and how do they compose?* See
    also the [Architecture](#architecture) section above for the current, as-built shape.
-3. **The close-out documents, in milestone order** — *what actually got built, and what didn't?* Each
-   states its milestone's Definition of Done verdict honestly, including what is blocked and why:
-   - [`docs/tasks/M0-CLOSEOUT.md`](docs/tasks/M0-CLOSEOUT.md) — the walking skeleton: a real request reaching a real database
-   - [`docs/tasks/M1-CLOSEOUT.md`](docs/tasks/M1-CLOSEOUT.md) — the curriculum spine: taxonomy and exam profiles
-   - [`docs/tasks/M2-CLOSEOUT.md`](docs/tasks/M2-CLOSEOUT.md) — the scoring engine and its golden-set regression gate
-   - [`docs/tasks/M3-CLOSEOUT.md`](docs/tasks/M3-CLOSEOUT.md) — the content model and Studio authoring
-   - [`docs/tasks/M4-GOVERNANCE-REVIEW.md`](docs/tasks/M4-GOVERNANCE-REVIEW.md) — the ratified breakdown for what's next; M4 has no close-out yet, because it hasn't started
-4. **The ADRs, under [`docs/adr/`](docs/adr/)** — *why does this specific divergence from the obvious design
+3. **The ADRs, under [`docs/adr/`](docs/adr/)** — *why does this specific divergence from the obvious design
    exist?* Each records one decision, its consequences, and the alternatives that were rejected and why. Not
    meant to be read start to finish — consult one when the code does something that looks like it contradicts
    an approved document, because it usually means an ADR explains the gap.
@@ -257,7 +262,7 @@ is `unresolved` by default, what "correctness-bearing" means for coverage — se
 ## How work is done here
 
 **The unit of work is a task**, and a task is done when it is merged with its own tests green — not when the
-code compiles, not when it "looks right." Each milestone's breakdown (`docs/tasks/M*-*.md`) names a task's
+code compiles, not when it "looks right." Each milestone is broken down before it starts, naming every task's
 files, its acceptance criteria, and the tests that prove each criterion; the task is scoped narrowly enough
 that "done" is a fact you can check, not a judgement call. Cross-context work goes through a `public/` barrel
 only — never by reaching into another context's `domain/` or `infrastructure/` — and that boundary is itself

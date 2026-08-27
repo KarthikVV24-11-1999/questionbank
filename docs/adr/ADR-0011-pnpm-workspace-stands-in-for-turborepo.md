@@ -26,7 +26,7 @@ Remote caching skips re-running a task whose inputs haven't changed *between CI 
 parallelism speeds up a build *on a machine running many cores against many independent projects*.
 Change detection scopes a CI job to *the projects a PR actually touched*. All three pay off against a CI
 wall clock — a resource that does not exist in this environment (M0 authors the workflow file at Tier 2;
-see [M0-WALKING-SKELETON.md, DEC-M0-1](../tasks/M0-WALKING-SKELETON.md#dec-m0-1--what-done-means-for-a-deliverable-that-cannot-be-executed-here)
+see M0 DEC-M0-1
 and DEC-M0-3). Adopting Turborepo now would add a configuration surface — `turbo.json`, task pipelines,
 cache key tuning — that no test in this repository can exercise, in exchange for a benefit no test in
 this repository can observe.

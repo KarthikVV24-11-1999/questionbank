@@ -4,7 +4,7 @@ Date: 2026-08-13
 
 ## Context
 
-[M0-WALKING-SKELETON.md, DEC-M0-5](../tasks/M0-WALKING-SKELETON.md#dec-m0-5--the-composition-root-lives-in-platform-and-reaches-contexts-through-a-fourth-barrel-export-adr-0015)
+M0 DEC-M0-5
 poses the seam question the composition root needs answered: `platform/composition/app-factory.ts` (M0-12)
 must be able to build each context's `DynamicModule` — resolving its repositories, its platform-port
 adapters, and its full handler population — without importing a context's `application/` or

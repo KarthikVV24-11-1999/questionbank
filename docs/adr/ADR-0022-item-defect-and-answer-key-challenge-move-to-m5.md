@@ -12,7 +12,7 @@ silently. A task breakdown that quietly drops an approved deliverable is how the
 learns the roadmap cannot be trusted — the same reasoning [ADR-0010](./ADR-0010-content-owns-the-lifecycle-state-machine.md)
 applied when the lifecycle machine moved from M4 to M3.
 
-The decision itself was taken at ratification (DEC-M4-6, `M4-GOVERNANCE-REVIEW.md`), before any
+The decision itself was taken at ratification (DEC-M4-6, `M4's plan`), before any
 M4 code was written. This ADR is that decision's permanent record.
 
 ## Decision

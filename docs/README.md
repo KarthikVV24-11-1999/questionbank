@@ -31,14 +31,3 @@ One line per document: the question it answers, not what it contains.
 
 - [DECISIONS.md](DECISIONS.md) — what open product/business questions were closed, and how?
 - [adr/](adr/) — for each divergence from an approved document: what changed, and why.
-
-## Milestones
-
-Breakdowns (ratified before code; task-by-task, with acceptance criteria):
-- [tasks/M0-WALKING-SKELETON.md](tasks/M0-WALKING-SKELETON.md) · [tasks/M1-CURRICULUM-SPINE.md](tasks/M1-CURRICULUM-SPINE.md) · [tasks/M2-SCORING-ENGINE.md](tasks/M2-SCORING-ENGINE.md) · [tasks/M3-CONTENT-MODEL.md](tasks/M3-CONTENT-MODEL.md) · [tasks/M4-GOVERNANCE-REVIEW.md](tasks/M4-GOVERNANCE-REVIEW.md)
-
-Close-outs (what actually shipped, verdict against the breakdown, honestly reported gaps):
-- [tasks/M0-CLOSEOUT.md](tasks/M0-CLOSEOUT.md) · [tasks/M1-CLOSEOUT.md](tasks/M1-CLOSEOUT.md) · [tasks/M2-CLOSEOUT.md](tasks/M2-CLOSEOUT.md) · [tasks/M3-CLOSEOUT.md](tasks/M3-CLOSEOUT.md)
-
-Traceability (every acceptance criterion mapped to the test that proves it):
-- [tasks/M0-TRACEABILITY.md](tasks/M0-TRACEABILITY.md) · [tasks/M1-TRACEABILITY.md](tasks/M1-TRACEABILITY.md) · [tasks/M2-TRACEABILITY.md](tasks/M2-TRACEABILITY.md) · [tasks/M3-TRACEABILITY.md](tasks/M3-TRACEABILITY.md)

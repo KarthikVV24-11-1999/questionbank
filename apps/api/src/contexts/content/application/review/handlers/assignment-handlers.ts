@@ -30,8 +30,7 @@ import type { ClaimNextForReview, ExtendLease, ReassignReview, ReleaseAssignment
  * separate query.** `ListSubmittedForReview` (M4-16) runs its own `SELECT` on
  * its own connection; routing a claim through it would reopen the
  * SELECT-then-INSERT race `claimNext`'s single locking statement exists to
- * close. See the dated correction on M4-27's entry in
- * `docs/tasks/M4-GOVERNANCE-REVIEW.md`.
+ * close.
  *
  * **Ordering is `'escalated_first'`, always** — `claimNext`'s two supported
  * orderings, escalated-then-oldest. DEC-M4-9's full precedence also names

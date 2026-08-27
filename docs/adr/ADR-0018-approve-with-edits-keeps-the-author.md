@@ -10,7 +10,7 @@ approves in the same action, rather than sending the item back for a second roun
 the author. M3's lifecycle machine and `ReviewDecision` (M3-11) already support the outcome as a
 name; nothing yet produces the version it approves.
 
-The obvious implementation is wrong, and DEC-M4-3 (`M4-GOVERNANCE-REVIEW.md`) already worked out
+The obvious implementation is wrong, and DEC-M4-3 (`M4's plan`) already worked out
 why, before this task: M3's `checkPublishable` refuses publication when
 `signature.reviewer === version.authoredBy` (INV-12). If `approve_with_edits` produced a new
 `ItemVersion` **authored by the reviewer** — the obvious reading of "the reviewer wrote this

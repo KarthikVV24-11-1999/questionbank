@@ -1,11 +1,11 @@
 {
-  "measuredAt": "2026-08-26T19:13:00.906Z",
+  "measuredAt": "2026-08-27T16:53:28.448Z",
   "cycles": 40,
   "subject": "physics",
   "corpusSize": 40,
-  "p50Ms": 1.56,
-  "p95Ms": 1.8,
-  "maxMs": 3.95,
+  "p50Ms": 1.32,
+  "p95Ms": 1.64,
+  "maxMs": 2.68,
   "budgetMs": 300,
   "measures": "claim -> payload read -> decide, against real Postgres",
   "doesNotMeasure": "human review throughput; that gate is Fail - blocked, no reviewer pool exists"

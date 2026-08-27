@@ -141,7 +141,7 @@ a migration.
 
 ## Correction to DEC-M4-4
 
-`docs/tasks/M4-GOVERNANCE-REVIEW.md` DEC-M4-4 states the link as
+M4's DEC-M4-4 states the link as
 `record_hash = sha256(canonical(row) ‖ prev_hash)`, and M4-22's own acceptance criterion states the
 opposite order, `SHA-256 over prevHash ‖ canonical`. The two lines contradict each other. **M4-22's
 order governs** and is normative above; DEC-M4-4's line carries a dated correction note pointing

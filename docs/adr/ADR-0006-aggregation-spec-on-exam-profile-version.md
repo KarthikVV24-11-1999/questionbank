@@ -1,7 +1,7 @@
 # ADR-0006 — `AggregationSpec` lives on `ExamProfileVersion`, not `MarkingRuleSet`
 Status: Accepted
 Date: 2026-08-06
-Relates to: [tasks/M2-SCORING-ENGINE.md](../tasks/M2-SCORING-ENGINE.md) DEC-1, [tasks/M1-CLOSEOUT.md](../tasks/M1-CLOSEOUT.md) C-1
+Relates to: M2 DEC-1, M1 close-out C-1
 
 ## Context
 
@@ -17,7 +17,7 @@ MarkingRuleSet {
 
 `AggregationSpec` is named there once and defined nowhere else in the document
 set. M1 shipped `MarkingRuleSet` without it and recorded the divergence as
-[C-1](../tasks/M1-CLOSEOUT.md#part-3--cross-document-consistency), on the
+C-1, on the
 grounds that M2 owns aggregation. M2 now has to define it, and defining it
 raises two questions the document does not answer: what it contains, and where
 it lives.
