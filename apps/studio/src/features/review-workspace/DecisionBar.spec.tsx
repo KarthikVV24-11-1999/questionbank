@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { accessibilityViolations } from '../../testing/accessibility.js';
 import { DecisionBar } from './DecisionBar.js';
@@ -127,55 +127,107 @@ describe('DUPLICATE cannot be submitted without a selected candidate (M4-39)', (
   });
 });
 
+/**
+ * The undo window is the one behaviour here made of wall-clock time, so it is
+ * the one place these tests drive the clock instead of racing it.
+ *
+ * The earlier shape — a 20 ms window, an `await user.click(Undo)`, then a
+ * 40 ms sleep — asserted the right thing on a machine that happened to be fast
+ * enough. It is not a valid assertion: nothing bounds how long `user.click`
+ * takes, and on a loaded CI runner the window elapsed *between* the commit
+ * click and the undo meant to cancel it, so the commit that arrived was
+ * correct behaviour reported as a failure.
+ *
+ * Fake timers remove the race and strengthen the claim in the same move. Where
+ * the old test waited 40 ms past a 20 ms window, these advance a full minute
+ * past a 5 s one — "undo cancels the send" now means cancelled for good, not
+ * merely not-yet-sent.
+ */
 describe('the undo window (DEC-M4-10)', () => {
-  it('sends nothing while the window is counting down', async () => {
+  /**
+   * Half a minute, and nothing here waits it out.
+   *
+   * `shouldAdvanceTime` keeps the fake clock moving in step with the real one,
+   * so `userEvent`'s own delays still resolve — a click costs the window the
+   * few milliseconds it actually took, out of thirty thousand. Elapsing the
+   * rest is instant, which is what buys the margin: a click would have to hang
+   * for a full second to eat 1/30th of the window.
+   */
+  const WINDOW_MS = 30_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function setup(overrides: Partial<Parameters<typeof DecisionBar>[0]> = {}) {
     const user = userEvent.setup();
-    const { commits } = renderBar();
+    return { user, ...renderBar({ undoWindowMs: WINDOW_MS, ...overrides }) };
+  }
+
+  function elapse(ms: number): void {
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+  }
+
+  it('sends nothing while the window is counting down', async () => {
+    const { user, commits } = setup();
     await user.keyboard('g');
     await user.click(screen.getByRole('button', { name: 'Commit decision (Enter)' }));
     expect(screen.getByRole('status')).toHaveTextContent(/sending in/u);
     expect(commits).toHaveLength(0);
+
+    elapse(WINDOW_MS - 1_000); // Deep into the window, still short of sending.
+    expect(commits).toHaveLength(0);
   });
 
   it('undo inside the window sends nothing, asserted at the client boundary', async () => {
-    const user = userEvent.setup();
-    const { commits } = renderBar();
+    const { user, commits } = setup();
     await user.keyboard('g');
     await user.click(screen.getByRole('button', { name: 'Commit decision (Enter)' }));
+
+    elapse(WINDOW_MS - 1_000);
     await user.click(screen.getByRole('button', { name: 'Undo (Z)' }));
 
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // Long past where the send would have fired: cancelled, not merely pending.
+    elapse(WINDOW_MS * 10);
     expect(commits).toHaveLength(0);
     // Back to a fresh draft — no outcome pre-selected.
     expect(screen.getByRole('button', { name: 'Approve (G)' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('undo by the Z key works too — keyboard parity with the Undo button', async () => {
-    const user = userEvent.setup();
-    const { commits } = renderBar();
+    const { user, commits } = setup();
     await user.keyboard('g');
     await user.click(screen.getByRole('button', { name: 'Commit decision (Enter)' }));
+
+    elapse(WINDOW_MS - 1_000);
     await user.keyboard('z');
 
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    elapse(WINDOW_MS * 10);
     expect(commits).toHaveLength(0);
   });
 
   it('elapsing the window sends exactly one request', async () => {
-    const user = userEvent.setup();
-    const { commits } = renderBar();
+    const { user, commits } = setup();
     await user.keyboard('g');
     await user.click(screen.getByRole('button', { name: 'Commit decision (Enter)' }));
 
-    await waitFor(() => expect(commits).toHaveLength(1));
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    elapse(WINDOW_MS);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.outcome).toBe('approve');
+
+    // Exactly one: the interval driving the countdown must not re-fire it.
+    elapse(WINDOW_MS * 10);
+    expect(commits).toHaveLength(1);
   });
 
   it('the countdown is visible while it runs', async () => {
-    const user = userEvent.setup();
-    renderBar({ undoWindowMs: 500 });
+    const { user } = setup({ undoWindowMs: 500 });
     await user.keyboard('g');
     await user.click(screen.getByRole('button', { name: 'Commit decision (Enter)' }));
     expect(screen.getByRole('status').textContent).toMatch(/sending in \ds/u);

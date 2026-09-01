@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { filesMatching, importsOf, stripComments, tsFilesUnder } from '../../../fitness/source-scan.js';
@@ -178,6 +179,26 @@ describe('the guards read code, not prose', () => {
     expect(importsOf(`/* a comment mentioning from "nowhere" */\nimport { a } from './real.js';\n`)).toEqual([
       './real.js',
     ]);
+  });
+});
+
+describe('the guards read this repository, not its dependencies', () => {
+  const API_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
+
+  it('has an installed node_modules to be tested against, so the check is not vacuous', () => {
+    expect(existsSync(join(API_ROOT, 'node_modules'))).toBe(true);
+  });
+
+  it('stops at node_modules rather than following pnpm symlinks into the store', () => {
+    // `statSync` follows symlinks and pnpm's node_modules is nothing but
+    // symlinks, so a walk without `NOT_SOURCE` read every installed package.
+    // The cost was the smaller half of the problem: a dependency declaring an
+    // identifier a rule here forbids would have failed that rule, naming a
+    // file nobody in this repository can edit.
+    const files = tsFilesUnder(API_ROOT);
+    expect(files.filter((file) => file.includes(`${sep}node_modules${sep}`))).toEqual([]);
+    // Not narrowed into uselessness: the walk still reaches our own source.
+    expect(files).toContain(join(API_ROOT, 'src/contexts/content/domain/content-error.ts'));
   });
 });
 

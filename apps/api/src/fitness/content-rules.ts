@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { importsOf, readCode, tsFilesUnder } from './source-scan.js';
+import { NOT_SOURCE, importsOf, readCode, tsFilesUnder } from './source-scan.js';
 
 /**
  * The fitness functions M3 adds and amends.
@@ -217,9 +217,6 @@ export function checkAuthoringUnreachableFromDelivery(
  * ------------------------------------------------------------------ */
 
 const RENDERER_DECLARATION = /export (?:function|const|class) ContentRenderer\b/u;
-
-/** Directories that are not source: dependencies, build output, coverage. */
-const NOT_SOURCE = ['node_modules', 'dist', 'build', 'coverage', '.turbo'];
 
 /**
  * Every `.ts`/`.tsx` source file under a root.

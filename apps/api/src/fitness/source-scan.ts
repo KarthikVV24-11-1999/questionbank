@@ -67,9 +67,31 @@ export function stripComments(source: string): string {
   return out.join('');
 }
 
+/**
+ * Directories that hold no source of ours: dependencies, build output,
+ * coverage reports, task caches.
+ *
+ * This is a correctness rule before it is a speed one. `statSync` follows
+ * symlinks and pnpm fills `node_modules` with links into its content-addressed
+ * store, so a walk rooted at `apps/` that did not stop here descended into
+ * every installed package: 5,206 files and 60 MB of mostly `.d.ts` for a scan
+ * whose actual subject is 453. Two things follow from that, and the second is
+ * the one that matters — a rule about *this* repository's code would be failed
+ * by an identifier appearing in somebody else's, and the report would name a
+ * file no one here can edit.
+ */
+export const NOT_SOURCE: readonly string[] = [
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+  '.turbo',
+];
+
 /** Every non-spec TypeScript file under a directory, recursively. */
 export function tsFilesUnder(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
+    if (NOT_SOURCE.includes(entry)) return [];
     const path = join(directory, entry);
     if (statSync(path).isDirectory()) return tsFilesUnder(path);
     return path.endsWith('.ts') && !path.endsWith('.spec.ts') ? [path] : [];

@@ -170,11 +170,13 @@ describe('the next item is prefetched — no request between decisions (M4-38)',
     renderWorkspace(api);
     await screen.findByRole('button', { name: 'Approve (G)' });
 
-    // Give the background prefetch (kicked off alongside the first claim)
-    // time to resolve before deciding — exactly what "reads the current one"
-    // buys in production.
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    expect(claims.length).toBeGreaterThanOrEqual(2);
+    // Let the background prefetch (kicked off alongside the first claim)
+    // resolve before deciding — exactly what "reads the current one" buys in
+    // production. Waited on as a condition rather than a fixed sleep: the
+    // 80 ms delay above is a lower bound on how long this takes, never an
+    // upper one, and a machine slower than the sleep would fail a test whose
+    // subject is prefetching rather than speed.
+    await waitFor(() => expect(claims.length).toBeGreaterThanOrEqual(2));
 
     await approve(user);
     // The undo window elapses (20ms) and the swap happens — assert no
