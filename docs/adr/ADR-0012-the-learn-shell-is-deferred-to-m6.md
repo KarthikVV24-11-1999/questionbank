@@ -6,8 +6,7 @@ Date: 2026-08-14
 
 ROADMAP names "Learn and Studio app shells" under M0. There is no `apps/learn` in this repository, and
 M0 DEC-M0-6 recorded the recommendation to defer it
-when the milestone's task breakdown was ratified. This ADR is that decision's permanent record, written at
-M0-27 close-out per DEC-M0-6's own instruction.
+when M0 was planned. This ADR is that decision's permanent record, written as DEC-M0-6 itself instructed.
 
 ## Decision
 

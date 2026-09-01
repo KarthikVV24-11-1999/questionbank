@@ -18,7 +18,7 @@ const WORKFLOW_PATH = resolve(REPO_ROOT, '.github/workflows/ci.yml');
 describe('the real CI workflow', () => {
   const workflow = parseWorkflow(WORKFLOW_PATH);
 
-  it('has never been executed by a CI provider — this spec proves the file parses, nothing more', () => {
+  it('parses, which is all this spec proves — the run itself is evidence this spec cannot supply', () => {
     expect(Object.keys(workflow.jobs ?? {}).length).toBeGreaterThan(0);
   });
 

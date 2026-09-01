@@ -160,7 +160,7 @@ export interface FrameworkImportViolation {
  * ROADMAP M0 lists F26 — the offline attempt engine (`packages/attempt-engine`,
  * M6's) imports no framework. **The package does not exist yet.** The honest
  * options were "report blocked" or "a gate that catches the package the
- * instant it appears"; this is the second. Recorded in the close-out as
+ * instant it appears"; this is the second. Its status is
  * `Pass (rule proven) / no subject` — not a plain pass, because a rule that
  * has never seen a violation of the shipped tree is not proven by the
  * shipped tree being clean.

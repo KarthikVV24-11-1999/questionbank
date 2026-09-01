@@ -25,5 +25,6 @@ corepack pnpm test   # vitest + jsdom, with coverage
 ```
 
 Every test here runs in jsdom — there is no Playwright or other browser-driven E2E suite in this repository
-yet (deferred; see debt item D2 in the milestone close-out documents). Component tests are written against
+yet. That is deliberate and scheduled rather than overlooked: ROADMAP M8 is where full E2E journeys land,
+and until a deployed environment exists there is nothing for them to drive. Component tests are written against
 `@testing-library/react`; accessibility is checked with `axe-core` as part of the same suite, not separately.

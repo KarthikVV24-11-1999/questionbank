@@ -22,11 +22,11 @@ These are real and deliberately not papered over:
 - **The golden scoring set is validated against zero real exam papers.** Four synthetic fixtures, so the
   regression gate runs on every commit and proves very little. Blocked on a content licensing and IP
   decision that needs legal input, not engineering.
-- **No CI has ever run.** The workflow is authored and its job graph asserted by parsing; nothing has
-  executed it.
 - **No Compose stack has ever booted**, and no cloud deploy exists. Both are authored and checked by
   parsing only — see [ADR-0013](docs/adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md) for
-  what that does and does not entitle either to claim.
+  what that does and does not entitle either to claim. CI is the one piece of this that has since been
+  executed for real ([ADR-0023](docs/adr/ADR-0023-the-ci-workflow-is-executed-and-leaves-tier-2.md));
+  its first red build was two tests that had only ever passed because this machine is fast.
 - **Reviewer throughput is `Fail — blocked`.** The review workspace is built and its interaction cost is
   measured, but the ≥ 40 items/hour target needs real reviewers, of which there are none.
 - **There is no learner-facing application yet** — by design. Content first.
@@ -277,8 +277,8 @@ prove the check actually catches something rather than passing vacuously. Covera
 the module they cover, not retrofitted, and are verified failing before they're made to pass.
 
 **A test must be able to fail, and an infrastructure claim must be honest about what it can prove.** Where
-something genuinely cannot be verified on this machine — no container runtime, no CI provider, no cloud
-account — the answer is not to skip the check quietly or write one that can't fail; it's to say so explicitly.
+something genuinely cannot be verified — no container runtime, no cloud account — the answer is not to skip
+the check quietly or write one that can't fail; it's to say so explicitly.
 [`docs/adr/ADR-0013`](docs/adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md) sets three tiers
 for exactly this: what runs and is proven here, what is authored and whose *semantics* are checked by parsing
 it (never claiming it *works*, only that it's well-formed), and what is recorded `Fail — blocked` with the

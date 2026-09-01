@@ -30,7 +30,7 @@ reported as ordinary test failures with file and specifier.
 
 Makes hard: the checker understands the four import forms above and nothing else. It does not resolve
 `tsconfig` path aliases (the repo uses none) and does not follow re-export chains transitively.
-Both are recorded as debt in M1's close-out.
+Both limitations are stated here rather than tracked separately, and neither has changed since M1.
 
 Forecloses: nothing. If dependency-cruiser becomes runnable, its config can replace this checker,
 and the planted fixtures will validate the replacement.

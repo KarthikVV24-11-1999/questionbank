@@ -148,20 +148,20 @@
   > **Status, added 2026-08-26 (M4-44, DEC-M4-5): `Fail — blocked` — no reviewer pool exists.**
   > Nothing in M4 measures human throughput. The interaction-cost, machine-time and
   > instrument figures M4 reports are evidence that the workspace does not itself
-  > prevent the rate; they are not a measurement of it. The session that would settle
-  > this is specified in the review timing protocol.
+  > prevent the rate; they are not a measurement of it. What M4 does measure, and how
+  > the wording of this gate is held to its status, is
+  > `apps/api/src/testing/review/timing-criterion.spec.ts`.
 - Self-review is impossible at both assignment and decision
 - Every published item carries a reviewer signature
 - Audit chain verification detects a planted tampering
 - Duplicate detection catches same-question-different-constants
 
 **Testing** ~~Timed reviewer session with 3 real reviewers~~ — **`Fail — blocked`, no reviewer pool
-exists**; the session is specified in the review timing protocol
-and has not been run · state machine exhaustive transition tests · audit chain verification (F41) ·
-authorization negative-path 100%
+exists**, and no such session has been run · state machine exhaustive transition tests · audit chain
+verification (F41) · authorization negative-path 100%
 
-**Closed out** M4's close-out · M4's traceability record
-— 46 of 46 tasks merged, 34 criteria: 21 pass, 2 partial, 6 blocked, 2 deferred, 3 carried.
+**Closed out** 46 of 46 tasks merged, 34 criteria: 21 pass, 2 partial, 6 blocked, 2 deferred,
+3 carried. The blocked and carried lines are in [DEBT.md](DEBT.md).
 
 **Depends on** M3
 **Unblocks** ⚠️ **Human content authoring begins here and runs continuously**

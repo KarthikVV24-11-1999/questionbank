@@ -193,6 +193,14 @@ refactor(scoring): extract rule executor from score service
 - Never mock what you own. Mock only third parties, and prefer a fixture.
 - Flaky test = broken test. Quarantine within 24 h, fix within a week, never re-run to green.
 - The Attempt Engine is tested without a DOM. If it needs one, it has been contaminated.
+- **Every architectural rule is proven able to fail.** A fitness function ships alongside a committed
+  violation it is shown to catch — see `apps/api/src/fitness-fixtures/`. A gate that has only ever been
+  run against a clean tree has not been shown to work; it has been shown to agree with itself.
+- **Where one rule must exist in two places, a test asserts the two agree** — over the whole surface,
+  never a sample. Two implementations of one rule drift, and the drift is silent until something
+  downstream is already wrong. This has cost this project three separate defects.
+- **A test asserts a condition, never a duration.** Wait for the thing to become true; do not sleep for
+  however long it took once on the machine you happened to write it on.
 
 ---
 

@@ -26,9 +26,8 @@ mapper) never read `exam_profile_version_id`/`taxonomy_version_id` off the row, 
 `expect(loaded).toEqual(record)` — passed because neither `loaded` nor `record` ever carried the fields;
 the assertion was real, but the criterion it claimed to prove ("save → load deep-equal") was not fully
 checked. This is the same shape of gap `renderer-seam.spec.ts` had for `MediaBlock.caption`: an instrument
-that compares two things missing the same thing agrees with itself, not with the world. See
-M2's traceability record finding F-7 and the correction recorded in
-M2's close-out.
+that compares two things missing the same thing agrees with itself, not with the world. The round-trip
+test now asserts the two pinned fields by name, so the same instrument can no longer pass by omission.
 
 ## Decision
 

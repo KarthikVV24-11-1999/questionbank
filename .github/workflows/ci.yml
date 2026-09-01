@@ -3,8 +3,8 @@ name: CI
 # DEC-M0-3: this file is a thin caller and contains zero assertions of its
 # own. Every gate lives in apps/api/src/fitness/, run here by name; what this
 # workflow's own shape must be true is asserted by ci-rules.spec.ts, which
-# parses this file — this workflow has never been executed by a CI provider
-# (Tier 2, ADR-0013).
+# parses this file. That parse was the only evidence for five milestones;
+# the workflow is now executed by GitHub Actions as well (Tier 1, ADR-0023).
 
 on:
   push:

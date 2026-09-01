@@ -1,7 +1,7 @@
 # ADR-0006 — `AggregationSpec` lives on `ExamProfileVersion`, not `MarkingRuleSet`
 Status: Accepted
 Date: 2026-08-06
-Relates to: M2 DEC-1, M1 close-out C-1
+Relates to: M2 DEC-1
 
 ## Context
 

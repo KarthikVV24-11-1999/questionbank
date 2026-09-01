@@ -10,8 +10,8 @@ import { ALLOWED_ATTRIBUTE_KEYS, filterAllowlisted } from './serializer.js';
  * exporter and does not pretend to be one — writing an exporter against an
  * SDK this repository cannot compile against would produce a file that has
  * never been type-checked against the API it claims to implement, which is
- * worse than its absence. Recorded as debt **D31**, trigger: the OTel SDK
- * becoming installable (M0-WALKING-SKELETON.md, DEC-M0-10).
+ * worse than its absence. Recorded as debt **D31** ([docs/DEBT.md](../../../../../docs/DEBT.md)),
+ * trigger: the OTel SDK becoming installable.
  *
  * The correlation id `http-runner.ts` already echoes on every response
  * (§8) *is* the trace id here — not a second identifier invented alongside

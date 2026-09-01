@@ -17,7 +17,7 @@ process this machine cannot execute:
 
 | Tier | Definition | Done means | May claim |
 |---|---|---|---|
-| **1 · Executable** | Runs here, against Node 22 and the local Postgres | Merged with tests green | Everything it proves |
+| **1 · Executable** | Runs in an environment whose result is observable and reproducible — this machine against Node 22 and the local Postgres, or the CI runner ([ADR-0023](ADR-0023-the-ci-workflow-is-executed-and-leaves-tier-2.md) widened this from "here" once a runner existed) | Merged with tests green | Everything it proves |
 | **2 · Authored & asserted** | A committed artifact whose *semantics* a test can parse and check | The artifact exists, parses, and every assertion over it is shown to fail on a planted mutation of the artifact itself | Only what the parse proves. **Never a runtime property** |
 | **3 · Unverifiable here** | Needs a machine, an account or a network this environment does not have | Recorded `Fail — blocked`, naming the missing resource and the exact command that will run when it exists | Nothing |
 

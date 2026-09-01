@@ -35,9 +35,11 @@ across every constructor and operation.
 **No hash moved.** `hashMarkingRuleSet` (M1-08) is computed over the marking
 rule set, whose marks are plain `number`s, and it imports only `node:crypto`
 and curriculum value objects. `Rational` lives in the scoring domain, which
-Curriculum cannot reach — `domain/` imports nothing. Verified: `git diff` of
-`marking-rule-set-hashes.json` against the M1 close-out commit is empty, and
-both shipped profiles still publish under `4fe24605…7a91` and `048dabf4…1ae6`.
+Curriculum cannot reach — `domain/` imports nothing. Verified structurally
+rather than against a commit that a later rebase could invalidate:
+`marking-rule-set-hashes.json` is the committed fixture, and
+`marking-rule-set-hash.spec.ts` and both profile specs recompute against it,
+so a change to canonicalisation fails the build rather than a diff.
 
 **No persisted row carries a pre-canonical value.** Marks persist as decimal
 text through `rationalToDecimalString`, which renders the value rather than the

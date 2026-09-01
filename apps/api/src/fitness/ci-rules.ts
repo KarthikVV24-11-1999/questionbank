@@ -3,9 +3,12 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 
 /**
- * Tier 2 (ADR-0013): every assertion here is over the **parsed** workflow
- * file. This workflow has never been executed by a CI provider — nothing
- * here claims it has, or that a job would pass.
+ * Every assertion here is over the **parsed** workflow file, and that is
+ * still all this module can offer: nothing here knows whether a job passed.
+ * The workflow is executed by GitHub Actions now (Tier 1, ADR-0023), which
+ * is evidence from the run itself rather than from this scan — a distinction
+ * ADR-0013 draws for exactly this reason, and one the first red build made
+ * concrete.
  */
 
 export interface CiViolation {

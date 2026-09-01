@@ -365,7 +365,8 @@ describe('claimNext — the atomic claim (M4-18)', () => {
  * The two "planted violation" tests below do not touch the production
  * query — they run a locally mutated copy of it and show the parity
  * assertion is capable of catching exactly the class of bug it exists to
- * catch, per SESSION-BRIEF's "every rule is a test proven able to fail."
+ * catch, per ENGINEERING-HANDBOOK §5: every architectural rule is proven
+ * able to fail.
  */
 describe('the SQL ordering agrees with the TypeScript specification (M4-46, M4-23’s pattern)', () => {
   const ALL_ROWS_IN_ORDER_QUERY = ESCALATED_FIRST_QUERY.replace(

@@ -21,7 +21,7 @@ network (`corepack pnpm install --offline` resolves from the store only). Adopti
 churn-versus-benefit question; it is not possible at any price until a developer with network access adds
 it.
 
-**Its entire value is realised in CI, and this repository has no CI runner to realise it against.**
+**Its entire value is realised in CI, and at M0 this repository had no CI runner to realise it against.**
 Remote caching skips re-running a task whose inputs haven't changed *between CI runs*. Task-graph
 parallelism speeds up a build *on a machine running many cores against many independent projects*.
 Change detection scopes a CI job to *the projects a PR actually touched*. All three pay off against a CI
@@ -47,8 +47,10 @@ migrating later is additive configuration, not a rewrite.
 
 **Named trigger, not an open-ended "later":** adopt Turborepo at whichever comes first —
 
-1. the first CI run (once a provider is connected, per M0-21) where `corepack pnpm -r test` exceeds the
-   10-minute feedback budget ([TECH-STACK](../TECH-STACK.md) §2), or
+1. a CI run where `corepack pnpm -r test` exceeds the 10-minute feedback budget
+   ([TECH-STACK](../TECH-STACK.md) §2). *Armed 2026-09-01: a provider is now connected and the workflow
+   is executed ([ADR-0023](ADR-0023-the-ci-workflow-is-executed-and-leaves-tier-2.md)). First
+   measurement — 2 m 44 s. Not met.*, or
 2. the workspace reaching a sixth *application or package* project (`tools/` entries do not count — they
    are not part of the deployable surface Turborepo's caching is meant to speed up).
 

@@ -72,8 +72,8 @@ its consequence.
 **M4's scope shrank by four tasks**, which is part of how a 51-task first draft became 46.
 
 **M5 inherits two deliverables it did not plan for**, and inherits them with their triggers
-already stated, which is the difference between deferred work and forgotten work. `HANDOFF-M5.md`
-names both.
+already stated, which is the difference between deferred work and forgotten work. Both are carried
+in [DEBT.md](../DEBT.md) with the triggers this ADR's table sets out.
 
 **Nothing in the shipped tree references either aggregate.** There is no stub, no table, no
 enum member and no TODO — so there is nothing to mistake for a partial implementation.

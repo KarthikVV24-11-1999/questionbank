@@ -15,8 +15,8 @@
  * **Kept from drifting by `content-contract.spec.ts`'s own parity test**
  * (`apps/api/src/contracts/content-contract.spec.ts`), which imports both
  * this file and the domain module and asserts them deep-equal — the same
- * discipline SESSION-BRIEF names for every place two implementations of one
- * rule must exist (bitten three times already).
+ * discipline ENGINEERING-HANDBOOK §5 requires wherever two implementations
+ * of one rule must exist (this project has been bitten three times).
  */
 
 export const REVIEW_OUTCOMES_TAKING_A_REASON = ['reject', 'request_changes'] as const;

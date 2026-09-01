@@ -553,9 +553,9 @@ describe('D18 — the Zod schemas are generated, not hand-written', () => {
  * `apps/api`'s own domain declaration, and a mirror in
  * `packages/contracts/src/review-taxonomy.ts` Studio actually imports (an
  * `apps/api`-internal barrel is not a package the frontend can depend on).
- * SESSION-BRIEF's own rule for exactly this shape — two implementations of
- * one rule will drift — is a test asserting they agree, over the whole
- * table rather than a sample.
+ * ENGINEERING-HANDBOOK §5 has a rule for exactly this shape — two
+ * implementations of one rule will drift — and it is a test asserting they
+ * agree, over the whole table rather than a sample.
  */
 describe('M4-39 — the rejection taxonomy mirror agrees with its domain declaration', () => {
   it('is byte-for-byte the same table, in the same order', () => {
