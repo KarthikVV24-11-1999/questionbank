@@ -3,9 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   checkGenerationIsDownstreamOnly,
-  checkGenerationReachesContentOnlyAsBarrelTypes,
+  checkGenerationReachesUpstreamOnlyAsBarrelTypes,
   checkGenerationTouchesNoContentTable,
   checkEventsCarryNoContent,
+  checkProviderIsolation,
+  PROVIDER_ADAPTER_DIRECTORY,
   checkHandlersInventNoEnvelope,
   EVENT_FORBIDDEN_FIELDS,
   generationFiles,
@@ -70,11 +72,11 @@ describe('the rule, run against a planted violation', () => {
   });
 });
 
-describe('generation reaches content only through its barrel, and only for types (ADR-0025, SEC-20)', () => {
+describe('generation reaches every upstream context only through its barrel, and only for types (ADR-0025, SEC-20)', () => {
   const PLANTED_TO_CONTENT = 'src/fitness-fixtures/as-generation-application/planted-content-imports.ts';
 
   it('holds across every file generation has — specs included', () => {
-    expect(checkGenerationReachesContentOnlyAsBarrelTypes(API_ROOT)).toEqual([]);
+    expect(checkGenerationReachesUpstreamOnlyAsBarrelTypes(API_ROOT)).toEqual([]);
   });
 
   it('scanned a real tree, and one that really does import content’s barrel', () => {
@@ -85,15 +87,19 @@ describe('generation reaches content only through its barrel, and only for types
   });
 
   it('is red on a deep import and on a runtime import of the barrel, and silent on the permitted type import', () => {
-    const violations = checkGenerationReachesContentOnlyAsBarrelTypes(API_ROOT, { files: [PLANTED_TO_CONTENT] });
+    const violations = checkGenerationReachesUpstreamOnlyAsBarrelTypes(API_ROOT, { files: [PLANTED_TO_CONTENT] });
 
     expect(violations.every((violation) => violation.rule === 'GENERATION_REACHES_CONTENT_ONLY_AS_BARREL_TYPES')).toBe(true);
     expect(violations.map((violation) => violation.importPath).sort()).toEqual([
       '../../contexts/content/domain/provenance.js',
       '../../contexts/content/public/index.js',
+      '../../contexts/curriculum/domain/taxonomy-version.js',
+      '../../contexts/curriculum/public/index.js',
     ]);
     expect(violations.find((violation) => violation.importPath.endsWith('provenance.js'))?.message).toContain('past content');
     expect(violations.find((violation) => violation.importPath.endsWith('public/index.js'))?.message).toContain('as a value');
+    expect(violations.find((violation) => violation.importPath.endsWith('taxonomy-version.js'))?.message).toContain('past curriculum');
+    expect(violations.find((violation) => violation.importPath.includes('curriculum') && violation.importPath.endsWith('public/index.js'))?.message).toContain('curriculum\'s barrel as a value');
     expect(violations.every((violation) => violation.message.includes('ADR-0025'))).toBe(true);
   });
 
@@ -157,7 +163,9 @@ describe('M5-20 — no handler invents a principal or a correlation id', () => {
       (file) => file.includes('/application/handlers/') && !file.endsWith('.spec.ts'),
     );
     expect(handlers.map((file) => file.split('/').pop()).sort()).toEqual([
+      'battery-handlers.ts',
       'decision-handlers.ts',
+      'propose-handlers.ts',
       'run-handlers.ts',
       'verdict-handlers.ts',
     ]);
@@ -167,5 +175,39 @@ describe('M5-20 — no handler invents a principal or a correlation id', () => {
   it('is red on a handler that mints a UUID, a system principal and a literal correlation id', () => {
     const violations = checkHandlersInventNoEnvelope(API_ROOT, [PLANTED_HANDLER]);
     expect(violations.map((violation) => violation.rule)).toEqual(['M5_20_HANDLER_INVENTS_ENVELOPE']);
+  });
+});
+
+describe('EXT-05 — the provider is the adapter’s, and nobody else’s', () => {
+  const PLANTED_LEAKS = 'src/fitness-fixtures/as-generation-application/planted-provider-leaks.ts';
+
+  it('holds across every non-spec file generation has outside the adapter directory', () => {
+    expect(checkProviderIsolation(API_ROOT)).toEqual([]);
+  });
+
+  it('scanned the port itself, so the rule reaches the file most likely to leak', () => {
+    const governed = generationFiles(API_ROOT).filter((file) => !file.startsWith(PROVIDER_ADAPTER_DIRECTORY));
+    expect(governed).toContain('src/contexts/generation/application/ports.ts');
+    expect(governed.some((file) => file.startsWith('src/contexts/generation/domain/'))).toBe(true);
+    expect(PROVIDER_ADAPTER_DIRECTORY).toBe('src/contexts/generation/infrastructure/provider/');
+  });
+
+  it('is red on an SDK, an HTTP client, a network call, an API-key read and a model-name literal', () => {
+    const violations = checkProviderIsolation(API_ROOT, { files: [PLANTED_LEAKS] });
+    expect(violations.every((violation) => violation.rule === 'EXT05_PROVIDER_LEAKS_OUT_OF_ITS_ADAPTER')).toBe(true);
+    expect(violations.map((violation) => violation.message.replace(`${PLANTED_LEAKS} `, '').split(';')[0])).toEqual([
+      'imports node:https',
+      'imports @anthropic-ai/sdk',
+      'makes a network call',
+      'reads an API-key-shaped environment variable',
+      'names a model as a string literal',
+    ]);
+  });
+
+  it('exempts the adapter directory and nothing else', () => {
+    const adapterFile = `${PROVIDER_ADAPTER_DIRECTORY}recorded-provider.ts`;
+    expect(generationFiles(API_ROOT).filter((file) => file.startsWith(PROVIDER_ADAPTER_DIRECTORY)).every((file) => file.startsWith(PROVIDER_ADAPTER_DIRECTORY))).toBe(true);
+    expect(adapterFile.startsWith(PROVIDER_ADAPTER_DIRECTORY)).toBe(true);
+    expect('src/contexts/generation/infrastructure/generation-run.repository.ts'.startsWith(PROVIDER_ADAPTER_DIRECTORY)).toBe(false);
   });
 });

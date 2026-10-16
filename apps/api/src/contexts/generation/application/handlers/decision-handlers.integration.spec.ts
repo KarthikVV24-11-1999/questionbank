@@ -3,12 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { CreateItemDraft, SubmitItemForReview } from '../../../content/public/index.js';
 import { connectTestDatabase, type TestDatabase } from '../../../../testing/database.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
-import { aCandidate, aRun } from '../../../../testing/generation-fixtures.js';
+import { aCandidate, aRun, registering } from '../../../../testing/generation-fixtures.js';
 import { FIXED_NOW, RecordingAudit, contextFor, fixedClock, principalWith } from '../../../../testing/generation-context.js';
 import { PostgresGenerationCandidateRepository } from '../../infrastructure/generation-candidate.repository.js';
-import { PostgresGenerationRunRepository } from '../../infrastructure/generation-run.repository.js';
 import { recordVerdict, type GenerationCandidate } from '../../domain/generation-candidate.js';
-import type { GenerationCandidateRepository } from '../../domain/repository-ports.js';
+import type { GenerationCandidateRepository, GenerationRunRepository } from '../../domain/repository-ports.js';
 import { BLOCKING_PRECHECKS } from '../../domain/precheck-vocabulary.js';
 import { err, ok } from '../../domain/result.js';
 import { applicationError, type ApplicationError } from '../authorization.js';
@@ -21,14 +20,14 @@ import { AcceptCandidateHandler, RejectCandidateHandler } from './decision-handl
  * and here a scripted implementation lets each failure on that side be forced.
  */
 let database: TestDatabase;
-let runs: PostgresGenerationRunRepository;
+let runs: GenerationRunRepository;
 let candidates: PostgresGenerationCandidateRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  runs = new PostgresGenerationRunRepository(database.pool);
+  runs = registering(database.pool);
   candidates = new PostgresGenerationCandidateRepository(database.pool);
 });
 

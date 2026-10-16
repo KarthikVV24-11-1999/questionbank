@@ -11,8 +11,10 @@
 // ── Commands ────────────────────────────────────────────────────────────────
 export type {
   AcceptCandidate,
+  ProposeCandidate,
   RecordPrecheckVerdict,
   RejectCandidate,
+  RunPrecheckBattery,
   StartGenerationRun,
 } from '../application/commands/generation-commands.js';
 

@@ -29,7 +29,9 @@ import { importsOf, readCode } from './source-scan.js';
 export interface GenerationViolation {
   readonly rule: 'GENERATION_IS_DOWNSTREAM_ONLY' | 'GENERATION_REACHES_CONTENT_ONLY_AS_BARREL_TYPES' | 'F27_GENERATION_TOUCHES_CONTENT_TABLES'
     | 'M5_20_EVENT_CARRIES_CONTENT'
-    | 'M5_20_HANDLER_INVENTS_ENVELOPE';
+    | 'M5_20_HANDLER_INVENTS_ENVELOPE'
+    | 'EXT05_PROVIDER_LEAKS_OUT_OF_ITS_ADAPTER'
+    | 'EXT05_API_KEY_READ_IN_REPOSITORY';
   readonly file: string;
   readonly importPath: string;
   readonly message: string;
@@ -100,8 +102,6 @@ export function checkGenerationIsDownstreamOnly(
   return violations;
 }
 
-const CONTENT_BARREL = 'src/contexts/content/public/index';
-
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
@@ -112,7 +112,7 @@ export function generationFiles(root: string): string[] {
 }
 
 /**
- * **The other half of ADR-0025: what generation may take from content.**
+ * **The other half of ADR-0025: what generation may take from the contexts upstream of it.**
  *
  * `checkGenerationIsDownstreamOnly` stops content pointing at generation. This
  * stops generation reaching further into content than the one door content
@@ -126,7 +126,7 @@ export function generationFiles(root: string): string[] {
  *     the AI service has no capability to write a content aggregate because
  *     there is no content code in it to write with.
  */
-export function checkGenerationReachesContentOnlyAsBarrelTypes(
+export function checkGenerationReachesUpstreamOnlyAsBarrelTypes(
   root: string,
   options: { readonly files?: readonly string[] } = {},
 ): GenerationViolation[] {
@@ -137,14 +137,15 @@ export function checkGenerationReachesContentOnlyAsBarrelTypes(
     const code = readCode(join(root, file));
     for (const importPath of importsOf(code)) {
       const resolved = resolveImport(file, importPath, root);
-      if (resolved === null || contextOf(resolved) !== 'content') continue;
+      const target = resolved === null ? null : contextOf(resolved);
+      if (resolved === null || target === null || target === GENERATION_CONTEXT) continue;
 
-      if (resolved.replace(/\.[jt]sx?$/u, '') !== CONTENT_BARREL) {
+      if (resolved.replace(/\.[jt]sx?$/u, '') !== `src/contexts/${target}/public/index`) {
         violations.push({
           rule: 'GENERATION_REACHES_CONTENT_ONLY_AS_BARREL_TYPES',
           file,
           importPath,
-          message: `${file} imports ${importPath}, past content's barrel; generation may reach content only through content/public/ (ADR-0025)`,
+          message: `${file} imports ${importPath}, past ${target}'s barrel; generation may reach ${target} only through ${target}/public/ (ADR-0025)`,
         });
         continue;
       }
@@ -162,7 +163,7 @@ export function checkGenerationReachesContentOnlyAsBarrelTypes(
           rule: 'GENERATION_REACHES_CONTENT_ONLY_AS_BARREL_TYPES',
           file,
           importPath,
-          message: `${file} imports content's barrel as a value; generation may take only types from it, and the composition root runs content (ADR-0025, SEC-20)`,
+          message: `${file} imports ${target}'s barrel as a value; generation may take only types from it, and the composition root runs ${target} (ADR-0025, SEC-20)`,
         });
       }
     }
@@ -265,6 +266,85 @@ export function checkHandlersInventNoEnvelope(
       file,
       importPath: '',
       message: `${file} builds a principal or a correlation id itself; both must come from the application context (M5-20)`,
+    }));
+}
+
+/**
+ * **EXT-05: the provider is the adapter's, and nobody else's.** Substituting a
+ * provider must be a change to one directory. So outside `infrastructure/provider/`
+ * nothing in generation may import a provider SDK or an HTTP client, call the
+ * network, read an API-key-shaped environment variable, or name a model as a
+ * string — the model is a registry row the pin references.
+ */
+export const PROVIDER_ADAPTER_DIRECTORY = 'src/contexts/generation/infrastructure/provider/';
+
+/** Packages and built-ins that reach a provider, or any network, directly. */
+const PROVIDER_IMPORT =
+  /^(?:@anthropic-ai\/|@google\/generative-ai|openai$|axios$|got$|node-fetch$|undici$|ky$|superagent$|(?:node:)?https?$|(?:node:)?net$|(?:node:)?tls$|(?:node:)?http2$)/u;
+const NETWORK_CALL = /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b/u;
+const API_KEY_READ = /process\.env\b[^;\n]*(?:API[_-]?KEY|ANTHROPIC|OPENAI|SECRET[_-]?KEY|AUTH[_-]?TOKEN)|\b(?:ANTHROPIC|OPENAI)_[A-Z_]+\b/iu;
+/** A string that names a model: `claude-…`, `gpt-…`, or one of the tier names. */
+const MODEL_NAME_LITERAL = /(['"`])[^'"`\n]*\b(?:claude|gpt|gemini|llama|haiku|sonnet|opus)\b[^'"`\n]*\1/iu;
+
+export function checkProviderIsolation(
+  root: string,
+  options: { readonly files?: readonly string[] } = {},
+): GenerationViolation[] {
+  const files =
+    options.files ??
+    generationFiles(root).filter((file) => !file.startsWith(PROVIDER_ADAPTER_DIRECTORY) && !file.endsWith('.spec.ts'));
+  const violations: GenerationViolation[] = [];
+
+  const flag = (file: string, what: string, importPath = ''): void => {
+    violations.push({
+      rule: 'EXT05_PROVIDER_LEAKS_OUT_OF_ITS_ADAPTER',
+      file,
+      importPath,
+      message: `${file} ${what}; the provider belongs to infrastructure/provider/ alone, so that substituting one touches one directory (EXT-05)`,
+    });
+  };
+
+  for (const file of files) {
+    const code = readCode(join(root, file));
+    for (const importPath of importsOf(code)) {
+      if (PROVIDER_IMPORT.test(importPath)) flag(file, `imports ${importPath}`, importPath);
+    }
+    if (NETWORK_CALL.test(code)) flag(file, 'makes a network call');
+    if (API_KEY_READ.test(code)) flag(file, 'reads an API-key-shaped environment variable');
+    if (MODEL_NAME_LITERAL.test(code)) flag(file, 'names a model as a string literal');
+  }
+  return violations;
+}
+
+/** Where application source lives, relative to the repository root. */
+const REPOSITORY_SOURCE_ROOTS = ['apps/api/src', 'apps/studio/src', 'packages/contracts/src', 'packages/content-renderer/src', 'packages/domain-types/src', 'tools/seed'];
+
+/**
+ * **No API key is read anywhere in this repository.** The isolation rule above
+ * governs where a provider may live; this one is stricter about the one thing
+ * that must live nowhere: a credential. The recorded adapter replays files, and
+ * a live adapter, when there is one, takes its credential from the deployment,
+ * never from a read in source that a test could trigger.
+ *
+ * The fitness rules and their planted fixtures are exempt, because they must
+ * name what they forbid.
+ */
+export function checkNoApiKeyReadAnywhere(
+  repositoryRoot: string,
+  options: { readonly files?: readonly string[] } = {},
+): GenerationViolation[] {
+  const files =
+    options.files ??
+    REPOSITORY_SOURCE_ROOTS.flatMap((directory) => tsFilesUnder(repositoryRoot, directory)).filter(
+      (file) => !file.includes('/fitness/') && !file.includes('/fitness-fixtures/') && !file.includes('/node_modules/'),
+    );
+  return files
+    .filter((file) => API_KEY_READ.test(readCode(join(repositoryRoot, file))))
+    .map((file) => ({
+      rule: 'EXT05_API_KEY_READ_IN_REPOSITORY' as const,
+      file,
+      importPath: '',
+      message: `${file} reads an API-key-shaped environment variable; no credential is read anywhere in this repository (EXT-05)`,
     }));
 }
 

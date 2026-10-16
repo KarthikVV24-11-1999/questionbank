@@ -20,7 +20,7 @@ import { BLOCKING_PRECHECKS, type PrecheckId } from './precheck-vocabulary.js';
 
 const PROPS: CreateGenerationCandidateProps = {
   candidateId: 'cand-1',
-  pin: { modelVersionId: 'model-v3', promptVersionId: 'prompt-v7', runId: 'run-42' },
+  pin: { modelVersionId: '00000000-0000-4000-8000-0000000a0003', promptVersionId: '00000000-0000-4000-8000-0000000b0007', runId: '00000000-0000-4000-8000-0000000c0042' },
   content: { itemType: 'SINGLE_CORRECT_MCQ', body: { stem: 'A block slides down a ramp.', options: ['a', 'b'] } },
   confidence: 0.85,
   verdicts: [
@@ -114,9 +114,9 @@ describe('construction', () => {
     const candidate = proposed();
     expect(candidate.state).toBe('proposed');
     expect(candidate.candidateId).toBe('cand-1');
-    expect(candidate.pin.modelVersionId).toBe('model-v3');
-    expect(candidate.pin.promptVersionId).toBe('prompt-v7');
-    expect(candidate.pin.runId).toBe('run-42');
+    expect(candidate.pin.modelVersionId).toBe('00000000-0000-4000-8000-0000000a0003');
+    expect(candidate.pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
+    expect(candidate.pin.runId).toBe('00000000-0000-4000-8000-0000000c0042');
     expect(candidate.content.itemType).toBe('SINGLE_CORRECT_MCQ');
     expect(candidate.verdicts.map((verdict) => verdict.check)).toEqual(['schema_validity', 'duplicate_detection']);
   });
@@ -419,9 +419,9 @@ describe('restoring a candidate from storage', () => {
       const candidate = expectValue(restoreGenerationCandidate({ ...RESTORE, state }));
       expect(candidate.state).toBe(state);
       expect(candidate.candidateId).toBe(PROPS.candidateId);
-      expect(candidate.pin.modelVersionId).toBe('model-v3');
-      expect(candidate.pin.promptVersionId).toBe('prompt-v7');
-      expect(candidate.pin.runId).toBe('run-42');
+      expect(candidate.pin.modelVersionId).toBe('00000000-0000-4000-8000-0000000a0003');
+      expect(candidate.pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
+      expect(candidate.pin.runId).toBe('00000000-0000-4000-8000-0000000c0042');
       expect(candidate.content.itemType).toBe('SINGLE_CORRECT_MCQ');
       expect(candidate.verdicts).toHaveLength(2);
       expect(candidate.confidence).toBe(0.85);

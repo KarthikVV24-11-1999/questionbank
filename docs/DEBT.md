@@ -212,6 +212,46 @@ second generation surface, or any deserialized command. Fixing it means defensiv
 content's own constructors and a guard that can see a raise rather than a keyword.
 **Cited** `apps/api/src/contexts/generation/application/handlers/decision-handlers.ts`
 
+### D42 — Content exposes no validation over a proposed item
+
+Pre-checks 1 (schema), 2 (renderability), 4 (numeric specification) and 8 (duplicates), and the
+prior check 9 needs, are content's logic, and content applies it only to its own aggregate or to
+stored versions. A candidate is in no content table until it is accepted, so generation cannot ask.
+Creating a draft per candidate would write into content for items it never wanted and widen D40's
+orphan window; a second implementation in generation would drift. They are therefore declared
+blocked, record no verdict, and — because three of them are blocking — leave no candidate
+acceptable through the battery. Nothing unsafe reaches content regardless: the anti-corruption layer
+refuses what content's domain will not take, at accept rather than at pre-check.
+
+**Trigger** Content exposing a pure validator over proposed content, and a duplicate check that
+accepts proposed content rather than a stored version.
+**Cited** `apps/api/src/contexts/generation/application/prechecks/index.ts`
+
+### D43 — Curriculum's read policy does not admit the generation pipeline
+
+Check 5 reads concept membership through curriculum's own `GetTaxonomyVersion`, which curriculum
+authorizes for learners, curators, Content Ops and exam owners. The pipeline's principal holds none,
+so under its own identity the read is refused and the check reports that it could not run. It runs
+for a principal that also holds one of those roles, which is proved, but that is a workaround and not
+a wiring.
+
+**Trigger** Curriculum admitting a machine read role to its taxonomy query, or the composition root
+deciding on a delegated read context — a decision that touches curriculum's policy and is not
+generation's to take.
+**Cited** `apps/api/src/contexts/generation/infrastructure/curriculum-syllabus-reader.ts`
+
+### D44 — A verdict does not record which model and prompt produced it
+
+A candidate pins the model and prompt that *generated* it (F28). A pre-check verdict records its
+check, outcome and reasoning, but not the registry rows of the judged check that produced it, so
+"which verdicts did verification prompt v20 give?" cannot be answered by a query, only by reading
+configuration at the time. Judged checks run under prompt versions of their own, so the information
+exists when the verdict is written and is then discarded.
+
+**Trigger** The first need to audit or recall verdicts by the prompt behind them, or a prompt defect
+found in a judged check.
+**Cited** `apps/api/src/contexts/generation/application/handlers/battery-handlers.ts`
+
 ---
 
 ## Closed

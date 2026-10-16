@@ -3,7 +3,7 @@ import { expectError, expectValue } from '../../../testing/expect-result.js';
 import { createGenerationRun, type CreateGenerationRunProps } from './generation-run.js';
 
 const PROPS: CreateGenerationRunProps = {
-  pin: { modelVersionId: 'model-v3', promptVersionId: 'prompt-v7', runId: 'run-42' },
+  pin: { modelVersionId: '00000000-0000-4000-8000-0000000a0003', promptVersionId: '00000000-0000-4000-8000-0000000b0007', runId: '00000000-0000-4000-8000-0000000c0042' },
   requestedAt: '2026-10-16T09:30:00.000Z',
   request: { band: 'medium', count: 5, nested: { topic: 'kinematics' } },
 };
@@ -11,9 +11,9 @@ const PROPS: CreateGenerationRunProps = {
 describe('createGenerationRun', () => {
   it('records the pin, the time and the request, field by field', () => {
     const run = expectValue(createGenerationRun(PROPS));
-    expect(run.pin.modelVersionId).toBe('model-v3');
-    expect(run.pin.promptVersionId).toBe('prompt-v7');
-    expect(run.pin.runId).toBe('run-42');
+    expect(run.pin.modelVersionId).toBe('00000000-0000-4000-8000-0000000a0003');
+    expect(run.pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
+    expect(run.pin.runId).toBe('00000000-0000-4000-8000-0000000c0042');
     expect(run.requestedAt).toBe('2026-10-16T09:30:00.000Z');
     expect(run.request['band']).toBe('medium');
     expect(run.request['count']).toBe(5);

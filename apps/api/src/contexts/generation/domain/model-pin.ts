@@ -1,5 +1,6 @@
 import { err, ok, type Result } from './result.js';
 import { validationError, type GenerationError } from './generation-error.js';
+import { isUuid } from './uuid.js';
 
 /**
  * The pin F28 requires on every generated artifact: which model, which prompt,
@@ -10,7 +11,9 @@ import { validationError, type GenerationError } from './generation-error.js';
  * one query, and a nullable column cannot answer it: an artifact with a null
  * prompt version is affected by an unknown set of defects.
  *
- * Model and prompt versions are **pinned data, carried on the artifact**, never
+ * Each member is a reference: the model and prompt versions are rows of the
+ * version registry (AI-ARCHITECTURE §15), and the run is a run. Model and prompt
+ * versions are **pinned data, carried on the artifact**, never
  * configuration constants read at the moment of use (ARCHITECTURE §8,
  * AI-ARCHITECTURE §15). A constant would silently re-label every earlier
  * artifact the day it changed.
@@ -30,7 +33,13 @@ export interface ModelPin {
 
 export type ModelPinProps = ModelPin;
 
-export type ModelPinErrorCode = 'MODEL_VERSION_ID_REQUIRED' | 'PROMPT_VERSION_ID_REQUIRED' | 'RUN_ID_REQUIRED';
+export type ModelPinErrorCode =
+  | 'MODEL_VERSION_ID_REQUIRED'
+  | 'PROMPT_VERSION_ID_REQUIRED'
+  | 'RUN_ID_REQUIRED'
+  | 'MODEL_VERSION_ID_NOT_A_UUID'
+  | 'PROMPT_VERSION_ID_NOT_A_UUID'
+  | 'RUN_ID_NOT_A_UUID';
 
 export type ModelPinError = GenerationError<ModelPinErrorCode>;
 
@@ -38,6 +47,12 @@ const REQUIRED_CODE: Readonly<Record<ModelPinField, ModelPinErrorCode>> = Object
   modelVersionId: 'MODEL_VERSION_ID_REQUIRED',
   promptVersionId: 'PROMPT_VERSION_ID_REQUIRED',
   runId: 'RUN_ID_REQUIRED',
+});
+
+const NOT_A_UUID_CODE: Readonly<Record<ModelPinField, ModelPinErrorCode>> = Object.freeze({
+  modelVersionId: 'MODEL_VERSION_ID_NOT_A_UUID',
+  promptVersionId: 'PROMPT_VERSION_ID_NOT_A_UUID',
+  runId: 'RUN_ID_NOT_A_UUID',
 });
 
 /** Blank means absent, whitespace-only, or not a string at all — a pin read back from storage is untrusted. */
@@ -49,6 +64,15 @@ export function createModelPin(props: ModelPinProps): Result<ModelPin, ModelPinE
   for (const field of MODEL_PIN_FIELDS) {
     if (isBlank(props[field])) {
       return err(validationError(REQUIRED_CODE[field], `${field} is required — an unpinned artifact cannot be traced`, field));
+    }
+    // A pin member is a reference — to a registry row, or to a run — never a
+    // label. The database refuses a reference to nothing; this refuses one that
+    // could not be a reference, so the database is the backstop and not the
+    // only check.
+    if (!isUuid(props[field])) {
+      return err(
+        validationError(NOT_A_UUID_CODE[field], `${field} must be a UUID reference, got "${String(props[field])}"`, field),
+      );
     }
   }
 

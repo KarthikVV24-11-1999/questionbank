@@ -1,3 +1,5 @@
+import type { GroundingExcerpt } from '../ports.js';
+
 /**
  * What the generation context can be told to do. Imperative verb phrases (§2),
  * one per consequential act.
@@ -38,5 +40,23 @@ export interface AcceptCandidate {
 }
 
 export interface RejectCandidate {
+  readonly candidateId: string;
+}
+
+/**
+ * Asks the provider for a proposal against a run and stores it as a candidate.
+ * The pin is the run's, never the caller's: a candidate's pin is the run it was
+ * produced under, and a command that could name another would let a candidate
+ * claim a model that did not write it.
+ */
+export interface ProposeCandidate {
+  readonly runId: string;
+  readonly grounding: readonly GroundingExcerpt[];
+  /** What to produce — the item type, subject and band. The provider's recording is keyed on it. */
+  readonly task: Readonly<Record<string, unknown>>;
+}
+
+/** Runs every pre-check that can run against a proposed candidate and records what ran. */
+export interface RunPrecheckBattery {
   readonly candidateId: string;
 }

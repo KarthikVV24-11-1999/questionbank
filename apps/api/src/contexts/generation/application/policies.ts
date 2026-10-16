@@ -27,6 +27,12 @@ export const START_GENERATION_RUN_POLICY: AuthorizationPolicy = policy('StartGen
   CONTENT_OPS_ROLE,
 ]);
 
+/** Only the pipeline proposes: a human typing a candidate in would be a human authoring through the AI's door, which is content's own. */
+export const PROPOSE_CANDIDATE_POLICY: AuthorizationPolicy = policy('ProposeCandidate', [GENERATION_PIPELINE_ROLE]);
+
+/** The battery is the machine's: the verdicts it writes are the audit trail a human decision rests on. */
+export const RUN_PRECHECK_BATTERY_POLICY: AuthorizationPolicy = policy('RunPrecheckBattery', [GENERATION_PIPELINE_ROLE]);
+
 export const RECORD_PRECHECK_VERDICT_POLICY: AuthorizationPolicy = policy('RecordPrecheckVerdict', [
   GENERATION_PIPELINE_ROLE,
 ]);
@@ -42,6 +48,8 @@ export const LIST_RUN_CANDIDATES_POLICY: AuthorizationPolicy = policy('ListRunCa
 /** Every policy this module declares — what the specs walk, so a policy cannot be added unseen. */
 export const GENERATION_POLICIES: readonly AuthorizationPolicy[] = Object.freeze([
   START_GENERATION_RUN_POLICY,
+  PROPOSE_CANDIDATE_POLICY,
+  RUN_PRECHECK_BATTERY_POLICY,
   RECORD_PRECHECK_VERDICT_POLICY,
   ACCEPT_CANDIDATE_POLICY,
   REJECT_CANDIDATE_POLICY,

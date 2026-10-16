@@ -1,0 +1,136 @@
+{
+  "request": {
+    "pin": {
+      "modelVersionId": "00000000-0000-4000-8000-0000000a0003",
+      "promptVersionId": "00000000-0000-4000-8000-0000000b0007"
+    },
+    "grounding": [
+      {
+        "sourceId": "exemplar-lens-1",
+        "text": "A convex lens forms a real image of an object placed beyond its focal length."
+      }
+    ],
+    "task": {
+      "itemType": "SINGLE_CORRECT_MCQ",
+      "subject": "physics",
+      "concept": "optics",
+      "band": "easy"
+    }
+  },
+  "response": {
+    "itemType": "SINGLE_CORRECT_MCQ",
+    "body": {
+      "stem": {
+        "schemaVersion": 1,
+        "blocks": [
+          {
+            "kind": "PARAGRAPH",
+            "inlines": [
+              {
+                "kind": "TEXT",
+                "value": "Where must an object be placed for a convex lens to form a real, magnified image?",
+                "marks": []
+              }
+            ]
+          }
+        ]
+      },
+      "responseSpec": {
+        "itemType": "SINGLE_CORRECT_MCQ",
+        "options": [
+          {
+            "optionId": "a",
+            "ordinal": 1,
+            "body": {
+              "schemaVersion": 1,
+              "blocks": [
+                {
+                  "kind": "PARAGRAPH",
+                  "inlines": [
+                    {
+                      "kind": "TEXT",
+                      "value": "option a",
+                      "marks": []
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "optionId": "b",
+            "ordinal": 2,
+            "body": {
+              "schemaVersion": 1,
+              "blocks": [
+                {
+                  "kind": "PARAGRAPH",
+                  "inlines": [
+                    {
+                      "kind": "TEXT",
+                      "value": "option b",
+                      "marks": []
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "optionId": "c",
+            "ordinal": 3,
+            "body": {
+              "schemaVersion": 1,
+              "blocks": [
+                {
+                  "kind": "PARAGRAPH",
+                  "inlines": [
+                    {
+                      "kind": "TEXT",
+                      "value": "option c",
+                      "marks": []
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "optionId": "d",
+            "ordinal": 4,
+            "body": {
+              "schemaVersion": 1,
+              "blocks": [
+                {
+                  "kind": "PARAGRAPH",
+                  "inlines": [
+                    {
+                      "kind": "TEXT",
+                      "value": "option d",
+                      "marks": []
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "correctOptionId": "b"
+      },
+      "taxonomyTags": [
+        {
+          "conceptIdentityId": "00000000-0000-4000-8000-00000000c020",
+          "taxonomyVersionId": "00000000-0000-4000-8000-00000000d001",
+          "weight": 1,
+          "isPrimary": true
+        }
+      ],
+      "difficultyEstimate": "easy",
+      "subject": "physics",
+      "licensing": {
+        "status": "owned"
+      }
+    },
+    "confidence": 0.62
+  }
+}

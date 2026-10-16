@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import type { GenerationRunRepository } from '../domain/repository-ports.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { aCandidate, aRun } from '../../../testing/generation-fixtures.js';
+import { aCandidate, aRun, registering } from '../../../testing/generation-fixtures.js';
 import { RecordingAudit, contextFor, fixedClock, principalWith, uuidFactory } from '../../../testing/generation-context.js';
 import { PostgresGenerationCandidateRepository } from '../infrastructure/generation-candidate.repository.js';
-import { PostgresGenerationRunRepository } from '../infrastructure/generation-run.repository.js';
 import { composeGenerationHandlers } from './compose-handlers.js';
 import { GENERATION_POLICIES } from './policies.js';
 import type { GenerationCandidate } from '../domain/generation-candidate.js';
@@ -19,14 +19,14 @@ import type { Handler } from './handler-registry.js';
  * would not.
  */
 let database: TestDatabase;
-let runs: PostgresGenerationRunRepository;
+let runs: GenerationRunRepository;
 let candidates: PostgresGenerationCandidateRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  runs = new PostgresGenerationRunRepository(database.pool);
+  runs = registering(database.pool);
   candidates = new PostgresGenerationCandidateRepository(database.pool);
 });
 
@@ -36,7 +36,7 @@ afterAll(async () => {
 });
 
 function registry() {
-  return composeGenerationHandlers({ runs, candidates, clock: fixedClock, identifiers: uuidFactory, audit: new RecordingAudit(), content: {} as never });
+  return composeGenerationHandlers({ runs, candidates, clock: fixedClock, identifiers: uuidFactory, audit: new RecordingAudit(), content: {} as never, provider: {} as never, runners: [], blocked: [] });
 }
 
 describe('every handler the context declares is registered, through the real composed factory', () => {
@@ -45,7 +45,7 @@ describe('every handler the context declares is registered, through the real com
     const expected = GENERATION_POLICIES.map((entry) => entry.name);
 
     expect([...composed.names].sort()).toEqual([...expected].sort());
-    expect(expected).toHaveLength(6);
+    expect(expected).toHaveLength(8);
     for (const entry of GENERATION_POLICIES.filter((declared) => expected.includes(declared.name))) {
       expect(composed.get(entry.name)?.policy, entry.name).toBe(entry);
     }

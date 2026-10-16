@@ -1,11 +1,52 @@
 import { randomUUID } from 'node:crypto';
+import type { Pool } from 'pg';
+import type { GenerationRunRepository } from '../contexts/generation/domain/repository-ports.js';
+import { PostgresGenerationRunRepository } from '../contexts/generation/infrastructure/generation-run.repository.js';
 import { createGenerationCandidate, type GenerationCandidate } from '../contexts/generation/domain/generation-candidate.js';
 import { createGenerationRun, type GenerationRun } from '../contexts/generation/domain/generation-run.js';
 import type { CandidateAccepted, CandidateRejected } from '../contexts/generation/domain/events/generation-events.js';
 import { expectValue } from './expect-result.js';
 
-export const MODEL_VERSION = 'model-v3';
-export const PROMPT_VERSION = 'prompt-v7';
+/** Stable registry identifiers, so a spec can say which version it means without minting a new one each time. */
+export function versionId(kind: 'model' | 'prompt' | 'run', n: number): string {
+  const tag = { model: 'a', prompt: 'b', run: 'c' }[kind];
+  return `00000000-0000-4000-8000-0000000${tag}${String(n).padStart(4, '0')}`;
+}
+
+export const MODEL_VERSION = versionId('model', 3);
+export const PROMPT_VERSION = versionId('prompt', 7);
+
+/**
+ * Publishes a model and a prompt version into the registry if they are not there
+ * yet. Versions are rows (AI-ARCHITECTURE §15), so a run naming one the registry
+ * lacks is refused by the database — a spec that wants a run must first publish
+ * what it pins. Idempotent, because the registry is append-only and shared by
+ * every spec in a file.
+ */
+export async function ensureVersions(pool: Pool, pin: { modelVersionId: string; promptVersionId: string }): Promise<void> {
+  await pool.query(
+    `INSERT INTO ai.model_version (model_version_id, provider_model_id, automatic_upgrades_prohibited)
+     VALUES ($1, $2, true) ON CONFLICT DO NOTHING`,
+    [pin.modelVersionId, `provider-model-${pin.modelVersionId}`],
+  );
+  await pool.query(
+    `INSERT INTO ai.prompt_version (prompt_version_id, source_file, content_sha256)
+     VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+    [pin.promptVersionId, `prompts/${pin.promptVersionId}.md`, '0'.repeat(64)],
+  );
+}
+
+/** The real run repository, publishing the versions a run pins before saving it. */
+export function registering(pool: Pool): GenerationRunRepository {
+  const runs = new PostgresGenerationRunRepository(pool);
+  return {
+    save: async (run) => {
+      await ensureVersions(pool, run.pin);
+      return runs.save(run);
+    },
+    findById: (id) => runs.findById(id),
+  };
+}
 
 /** A run with fresh identifiers, so specs never depend on each other's rows. */
 export function aRun(overrides: { modelVersionId?: string; promptVersionId?: string; request?: Record<string, unknown> } = {}): GenerationRun {

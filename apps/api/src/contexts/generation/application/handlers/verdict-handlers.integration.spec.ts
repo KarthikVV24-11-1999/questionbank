@@ -2,25 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../../testing/database.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
-import { aCandidate, aRun } from '../../../../testing/generation-fixtures.js';
+import { aCandidate, aRun, registering } from '../../../../testing/generation-fixtures.js';
 import { FIXED_NOW, RecordingAudit, contextFor, fixedClock, principalWith } from '../../../../testing/generation-context.js';
 import { PostgresGenerationCandidateRepository } from '../../infrastructure/generation-candidate.repository.js';
-import { PostgresGenerationRunRepository } from '../../infrastructure/generation-run.repository.js';
 import { acceptCandidate, recordVerdict, rejectCandidate, type GenerationCandidate } from '../../domain/generation-candidate.js';
-import type { GenerationCandidateRepository } from '../../domain/repository-ports.js';
+import type { GenerationCandidateRepository, GenerationRunRepository } from '../../domain/repository-ports.js';
 import { BLOCKING_PRECHECKS, PRECHECK_IDS } from '../../domain/precheck-vocabulary.js';
 import { RecordPrecheckVerdictHandler } from './verdict-handlers.js';
 
 /** Real Postgres, never a double (ENGINEERING-HANDBOOK §5). */
 let database: TestDatabase;
-let runs: PostgresGenerationRunRepository;
+let runs: GenerationRunRepository;
 let candidates: PostgresGenerationCandidateRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  runs = new PostgresGenerationRunRepository(database.pool);
+  runs = registering(database.pool);
   candidates = new PostgresGenerationCandidateRepository(database.pool);
 });
 

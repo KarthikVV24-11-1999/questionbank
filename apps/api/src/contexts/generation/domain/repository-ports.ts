@@ -2,6 +2,7 @@ import type { Result } from './result.js';
 import type { GenerationError } from './generation-error.js';
 import type { GenerationCandidate } from './generation-candidate.js';
 import type { GenerationRun } from './generation-run.js';
+import type { ModelVersion, PromptVersion } from './version-registry.js';
 import type { GenerationEvent } from './events/generation-events.js';
 
 /**
@@ -53,4 +54,17 @@ export interface GenerationCandidateRepository {
    * a prompt version, whatever its state.
    */
   findByPromptVersion(promptVersionId: string): Promise<Result<readonly GenerationCandidate[], RepositoryError>>;
+}
+
+/**
+ * Where published versions are written and read. A version is written once —
+ * the table refuses an UPDATE from every role — so a second write of a version
+ * already there is a `CONFLICT`, including the same model or prompt file under a
+ * new id: two ids for one version is the very thing the registry prevents.
+ */
+export interface VersionRegistry {
+  registerModelVersion(version: ModelVersion): Promise<Result<ModelVersion, RepositoryError>>;
+  registerPromptVersion(version: PromptVersion): Promise<Result<PromptVersion, RepositoryError>>;
+  findModelVersion(modelVersionId: string): Promise<Result<ModelVersion, RepositoryError>>;
+  findPromptVersion(promptVersionId: string): Promise<Result<PromptVersion, RepositoryError>>;
 }

@@ -9,13 +9,15 @@ import { fileURLToPath } from 'node:url';
  * fails here rather than in whichever context first imports it.
  */
 describe('the barrel exposes commands, vocabulary and events', () => {
-  it('builds all four commands', () => {
+  it('builds every command', () => {
     const accept: generation.AcceptCandidate = { candidateId: 'c-1' };
     const reject: generation.RejectCandidate = { candidateId: 'c-1' };
     const start: generation.StartGenerationRun = { modelVersionId: 'm', promptVersionId: 'p', request: { count: 1 } };
     const verdict: generation.RecordPrecheckVerdict = { candidateId: 'c-1', check: 'renderability', outcome: 'pass' };
     expect([accept.candidateId, reject.candidateId, verdict.candidateId]).toEqual(['c-1', 'c-1', 'c-1']);
+    const propose: generation.ProposeCandidate = { runId: 'r-1', grounding: [{ sourceId: 's', text: 't' }], task: { band: 'easy' } };
     expect(start.request).toEqual({ count: 1 });
+    expect(propose.grounding).toHaveLength(1);
   });
 
   it('builds both queries', () => {

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkNoWriteGrantOnAppendOnlyTable, type GrantRow } from '../../../fitness/content-rules.js';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
+import { MODEL_VERSION, PROMPT_VERSION, ensureVersions } from '../../../testing/generation-fixtures.js';
 
 /**
  * §9 rule 11 for the `ai` schema, proven by issuing the mutation and reading
@@ -14,7 +15,14 @@ import { connectTestDatabase, type TestDatabase } from '../../../testing/databas
 let database: TestDatabase;
 
 const APP_ROLE = 'questionbank_app';
-const AI_TABLES = ['candidate_decision', 'candidate_verdict', 'generation_candidate', 'generation_run'];
+const AI_TABLES = [
+  'candidate_decision',
+  'candidate_verdict',
+  'generation_candidate',
+  'generation_run',
+  'model_version',
+  'prompt_version',
+];
 
 beforeAll(async () => {
   database = await connectTestDatabase();
@@ -70,13 +78,14 @@ interface Seeded {
 }
 
 async function seed(): Promise<Seeded> {
+  await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
   const [run] = await rows<{ run_id: string }>(
     `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-     VALUES ('model-v3', 'prompt-v7', '2026-10-16T09:30:00Z', '{"count": 5}') RETURNING run_id`,
+     VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', '2026-10-16T09:30:00Z', '{"count": 5}') RETURNING run_id`,
   );
   const [candidate] = await rows<{ candidate_id: string }>(
     `INSERT INTO ai.generation_candidate (run_id, model_version_id, prompt_version_id, item_type, body, confidence)
-     VALUES ($1, 'model-v3', 'prompt-v7', 'SINGLE_CORRECT_MCQ', '{"stem": "x"}', 0.5) RETURNING candidate_id`,
+     VALUES ($1, '00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', 'SINGLE_CORRECT_MCQ', '{"stem": "x"}', 0.5) RETURNING candidate_id`,
     [run!.run_id],
   );
   await database.pool.query(
@@ -92,10 +101,12 @@ async function seed(): Promise<Seeded> {
 
 describe('the row triggers refuse a rewrite, from every role including the owner', () => {
   const MUTATIONS: readonly (readonly [string, string, string])[] = [
-    ['generation_run', 'UPDATE ai.generation_run SET model_version_id = \'model-v9\'', 'DELETE FROM ai.generation_run'],
+    ['generation_run', 'UPDATE ai.generation_run SET model_version_id = \'00000000-0000-4000-8000-0000000a0009\'', 'DELETE FROM ai.generation_run'],
     ['generation_candidate', 'UPDATE ai.generation_candidate SET item_type = \'OTHER\'', 'DELETE FROM ai.generation_candidate'],
     ['candidate_verdict', 'UPDATE ai.candidate_verdict SET outcome = \'pass\'', 'DELETE FROM ai.candidate_verdict'],
     ['candidate_decision', 'UPDATE ai.candidate_decision SET decision = \'accepted\'', 'DELETE FROM ai.candidate_decision'],
+    ['model_version', 'UPDATE ai.model_version SET provider_model_id = \'some-other-model\'', 'DELETE FROM ai.model_version'],
+    ['prompt_version', 'UPDATE ai.prompt_version SET source_file = \'prompts/other.md\'', 'DELETE FROM ai.prompt_version'],
   ];
 
   it('covers every table the schema holds', async () => {
@@ -131,7 +142,7 @@ describe('the row triggers refuse a rewrite, from every role including the owner
 
   it('cannot rewrite the pin or the proposal a candidate was recorded with', async () => {
     const { candidateId } = await seed();
-    expect(await rejects(`UPDATE ai.generation_candidate SET prompt_version_id = 'prompt-v8' WHERE candidate_id = $1`, [candidateId]))
+    expect(await rejects(`UPDATE ai.generation_candidate SET prompt_version_id = '00000000-0000-4000-8000-0000000b0008' WHERE candidate_id = $1`, [candidateId]))
       .toContain('append-only');
     expect(await rejects(`UPDATE ai.generation_candidate SET body = '{}' WHERE candidate_id = $1`, [candidateId]))
       .toContain('append-only');
@@ -152,6 +163,8 @@ describe('the application role holds no privilege to try', () => {
     candidate_verdict: 'candidate_id',
     generation_candidate: 'candidate_id',
     generation_run: 'run_id',
+    model_version: 'model_version_id',
+    prompt_version: 'prompt_version_id',
   };
 
   for (const table of AI_TABLES) {
@@ -165,10 +178,11 @@ describe('the application role holds no privilege to try', () => {
   }
 
   it('can still read and append — the repositories’ whole job', async () => {
+    await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
     const run = await asAppRole(async (query) => {
       const inserted = (await query(
         `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-         VALUES ('model-v3', 'prompt-v7', now(), '{}') RETURNING run_id`,
+         VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', now(), '{}') RETURNING run_id`,
       )) as { run_id: string }[];
       const read = await query(`SELECT run_id FROM ai.generation_run WHERE run_id = $1`, [inserted[0]!.run_id]);
       return { inserted: inserted.length, read: read.length };

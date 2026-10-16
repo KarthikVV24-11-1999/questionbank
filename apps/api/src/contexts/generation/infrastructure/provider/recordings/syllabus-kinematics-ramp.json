@@ -1,0 +1,37 @@
+{
+  "kind": "judge",
+  "request": {
+    "modelVersionId": "00000000-0000-4000-8000-0000000a0005",
+    "promptVersionId": "00000000-0000-4000-8000-0000000b0025",
+    "input": {
+      "itemType": "SINGLE_CORRECT_MCQ",
+      "stem": {
+        "schemaVersion": 1,
+        "blocks": [
+          {
+            "kind": "PARAGRAPH",
+            "inlines": [
+              {
+                "kind": "TEXT",
+                "value": "A block slides from rest down a frictionless ramp. What is its acceleration along the ramp?",
+                "marks": []
+              }
+            ]
+          }
+        ]
+      },
+      "concepts": [
+        {
+          "conceptIdentityId": "00000000-0000-4000-8000-00000000c010",
+          "displayName": "Kinematics"
+        }
+      ]
+    }
+  },
+  "response": {
+    "output": {
+      "outcome": "pass",
+      "rationale": "A block on a frictionless incline is resolution of forces along a plane — squarely within Kinematics as the syllabus defines it."
+    }
+  }
+}

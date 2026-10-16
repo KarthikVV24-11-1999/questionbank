@@ -173,6 +173,7 @@ describe('every error kind the domain declares has a producer that is not a test
       'domain/generation-candidate.ts',
       'domain/generation-run.ts',
       'domain/model-pin.ts',
+      'domain/version-registry.ts',
       'infrastructure/repository-errors.ts',
     ]);
     expect(callSites('preconditionFailedError')).toEqual([

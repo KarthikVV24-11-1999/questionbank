@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import type { GenerationRunRepository } from '../../domain/repository-ports.js';
+import { registering } from '../../../../testing/generation-fixtures.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../../testing/database.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
@@ -9,19 +11,18 @@ import {
   fixedClock,
   principalWith,
 } from '../../../../testing/generation-context.js';
-import { PostgresGenerationRunRepository } from '../../infrastructure/generation-run.repository.js';
 import { createGenerationRun } from '../../domain/generation-run.js';
 import { StartGenerationRunHandler } from './run-handlers.js';
 
 /** Real Postgres, never a double (ENGINEERING-HANDBOOK §5). */
 let database: TestDatabase;
-let runs: PostgresGenerationRunRepository;
+let runs: GenerationRunRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  runs = new PostgresGenerationRunRepository(database.pool);
+  runs = registering(database.pool);
 });
 
 afterAll(async () => {
@@ -32,8 +33,8 @@ afterAll(async () => {
 const pipeline = principalWith(['generation_pipeline'], 'system');
 const ops = principalWith(['content_ops']);
 const COMMAND = {
-  modelVersionId: 'model-v3',
-  promptVersionId: 'prompt-v7',
+  modelVersionId: '00000000-0000-4000-8000-0000000a0003',
+  promptVersionId: '00000000-0000-4000-8000-0000000b0007',
   request: { band: 'medium', count: 5, filters: { topics: ['kinematics'] } },
 };
 
@@ -57,8 +58,8 @@ describe('StartGenerationRun', () => {
 
     const stored = expectValue(await runs.findById(started.pin.runId));
     expect(stored.pin.runId).toBe(started.pin.runId);
-    expect(stored.pin.modelVersionId).toBe('model-v3');
-    expect(stored.pin.promptVersionId).toBe('prompt-v7');
+    expect(stored.pin.modelVersionId).toBe('00000000-0000-4000-8000-0000000a0003');
+    expect(stored.pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
     expect(stored.requestedAt).toBe(FIXED_NOW.toISOString());
     expect(stored.request['band']).toBe('medium');
     expect(stored.request['count']).toBe(5);
@@ -70,8 +71,8 @@ describe('StartGenerationRun', () => {
   it('records the pin each run was started with, whatever the versions are', async () => {
     const { handler: start } = handler();
     const pins = [
-      ['model-v1', 'prompt-v1'],
-      ['model-v4', 'prompt-v9'],
+      ['00000000-0000-4000-8000-0000000a0001', '00000000-0000-4000-8000-0000000b0001'],
+      ['00000000-0000-4000-8000-0000000a0004', '00000000-0000-4000-8000-0000000b0009'],
     ] as const;
     for (const [modelVersionId, promptVersionId] of pins) {
       const started = expectValue(await start.handle({ ...COMMAND, modelVersionId, promptVersionId }, contextFor(pipeline)));
@@ -91,7 +92,7 @@ describe('StartGenerationRun', () => {
 
   it('audits the act under the caller’s principal and correlation id, naming the run and nothing of the request', async () => {
     const { handler: start, audit } = handler();
-    const context = contextFor(pipeline, 'corr-run-1');
+    const context = contextFor(pipeline, 'corr-00000000-0000-4000-8000-0000000c0001');
     const started = expectValue(await start.handle(COMMAND, context));
 
     expect(audit.entries).toHaveLength(1);
@@ -101,7 +102,7 @@ describe('StartGenerationRun', () => {
     expect(entry.targetType).toBe('GenerationRun');
     expect(entry.targetId).toBe(started.pin.runId);
     expect(entry.principal).toBe(pipeline);
-    expect(entry.correlationId).toBe('corr-run-1');
+    expect(entry.correlationId).toBe('corr-00000000-0000-4000-8000-0000000c0001');
     expect(entry.occurredAt).toBe(FIXED_NOW);
     expect(JSON.stringify(entry)).not.toContain('kinematics');
   });
@@ -146,10 +147,10 @@ describe('StartGenerationRun', () => {
       const { handler: start } = handler({ next: () => id });
       expectValue(await start.handle(COMMAND, contextFor(pipeline)));
       const { handler: again, audit } = handler({ next: () => id });
-      const failure = expectError(await again.handle({ ...COMMAND, promptVersionId: 'prompt-v8' }, contextFor(pipeline)));
+      const failure = expectError(await again.handle({ ...COMMAND, promptVersionId: '00000000-0000-4000-8000-0000000b0008' }, contextFor(pipeline)));
       expect(failure.kind).toBe('Conflict');
       expect(audit.entries).toEqual([]);
-      expect(expectValue(await runs.findById(id)).pin.promptVersionId).toBe('prompt-v7');
+      expect(expectValue(await runs.findById(id)).pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
     });
   });
 
@@ -165,21 +166,21 @@ describe('StartGenerationRun', () => {
       const run = await started();
       const rewritten = expectValue(
         createGenerationRun({
-          pin: { ...run.pin, promptVersionId: 'prompt-v99' },
+          pin: { ...run.pin, promptVersionId: '00000000-0000-4000-8000-0000000b0099' },
           requestedAt: run.requestedAt,
           request: run.request,
         }),
       );
       expect(expectError(await runs.save(rewritten)).kind).toBe('Conflict');
-      expect(expectValue(await runs.findById(run.pin.runId)).pin.promptVersionId).toBe('prompt-v7');
+      expect(expectValue(await runs.findById(run.pin.runId)).pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
     });
 
     it('not by an UPDATE, which the table refuses from every role', async () => {
       const run = await started();
       await expect(
-        database.pool.query(`UPDATE ai.generation_run SET prompt_version_id = 'prompt-v99' WHERE run_id = $1`, [run.pin.runId]),
+        database.pool.query(`UPDATE ai.generation_run SET prompt_version_id = '00000000-0000-4000-8000-0000000b0099' WHERE run_id = $1`, [run.pin.runId]),
       ).rejects.toThrow(/append-only/u);
-      expect(expectValue(await runs.findById(run.pin.runId)).pin.promptVersionId).toBe('prompt-v7');
+      expect(expectValue(await runs.findById(run.pin.runId)).pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
     });
 
     it('not by the application role, which holds no UPDATE', async () => {
@@ -188,7 +189,7 @@ describe('StartGenerationRun', () => {
       try {
         await client.query('SET ROLE questionbank_app');
         await expect(
-          client.query(`UPDATE ai.generation_run SET model_version_id = 'model-v99' WHERE run_id = $1`, [run.pin.runId]),
+          client.query(`UPDATE ai.generation_run SET model_version_id = '00000000-0000-4000-8000-0000000a0099' WHERE run_id = $1`, [run.pin.runId]),
         ).rejects.toThrow(/permission denied/u);
       } finally {
         await client.query('RESET ROLE');

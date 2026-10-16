@@ -9,6 +9,7 @@ import {
 import type { GenerationEvent } from '../domain/events/generation-events.js';
 import type { GenerationCandidateRepository, RepositoryError } from '../domain/repository-ports.js';
 import { GenerationOutboxEmitter } from './outbox-emitter.js';
+import { canonicalJson } from '../domain/canonical-json.js';
 import { conflict, fromDatabaseError, notFound, persistenceRejected } from './repository-errors.js';
 
 interface CandidateRow {
@@ -35,16 +36,6 @@ interface DecisionRow {
 }
 
 const CANDIDATE_COLUMNS = 'candidate_id, run_id, model_version_id, prompt_version_id, item_type, body, confidence';
-
-/** Key order is not meaning: `jsonb` normalises it, so equality must not depend on it either. */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (typeof value === 'object' && value !== null) {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1));
-    return `{${entries.map(([key, inner]) => `${JSON.stringify(key)}:${canonicalJson(inner)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
 
 /**
  * A candidate is stored as four append-only tables: the proposal with its pin,

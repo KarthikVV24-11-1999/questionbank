@@ -3,6 +3,7 @@ import { err, ok, type Result } from '../domain/result.js';
 import { preconditionFailedError, validationError, type GenerationError } from '../domain/generation-error.js';
 import type { GenerationCandidate } from '../domain/generation-candidate.js';
 import type { ModelPinField } from '../domain/model-pin.js';
+import { isUuid } from '../domain/uuid.js';
 
 /**
  * The anti-corruption layer from an accepted candidate to a content draft
@@ -63,8 +64,6 @@ export type AclErrorCode =
 
 export type AclError = GenerationError<AclErrorCode>;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-
 /**
  * Content stores confidence as `numeric(4, 3)`, so it keeps three decimal
  * places and silently rounds the rest. Rounding it here instead means the value
@@ -98,7 +97,7 @@ export function toAiProvenance(candidate: GenerationCandidate): Result<Provenanc
     // Content keeps all three as UUIDs, and a model or prompt version that is a
     // label rather than an identifier is stored nowhere: generation's own schema
     // takes either, so this is where the difference is caught.
-    if (!UUID.test(candidate.pin[member])) {
+    if (!isUuid(candidate.pin[member])) {
       return err(
         preconditionFailedError(
           'PROVENANCE_FIELD_NOT_A_UUID',
@@ -138,12 +137,14 @@ export function toAiProvenance(candidate: GenerationCandidate): Result<Provenanc
   } as ProvenanceFields);
 }
 
-/** The command that puts the candidate in front of a human author's queue as a draft. */
-export function toContentDraft(candidate: GenerationCandidate): Result<CreateItemDraft, AclError | GenerationError> {
-  const provenance = toAiProvenance(candidate);
-  if (!provenance.ok) return provenance;
-
-  const body = candidate.content.body;
+/**
+ * The proposal's shape, judged once and used twice: when a proposal is made, so
+ * a candidate that could never become a draft is refused before it exists, and
+ * when it is accepted, which also covers a candidate stored before the rule
+ * tightened. Presence of the keys content needs, and a subject that says
+ * something — nothing about whether any of it is valid *content*.
+ */
+export function checkProposalBody(body: Readonly<Record<string, unknown>>): Result<true, GenerationError> {
   for (const key of PROPOSAL_REQUIRED_KEYS) {
     if (body[key] === undefined) {
       return err(
@@ -154,6 +155,17 @@ export function toContentDraft(candidate: GenerationCandidate): Result<CreateIte
   if (isBlank(body['subject'])) {
     return err(validationError('PROPOSAL_FIELD_MISSING', 'the proposal names no subject', 'content.body.subject'));
   }
+  return ok(true);
+}
+
+/** The command that puts the candidate in front of a human author's queue as a draft. */
+export function toContentDraft(candidate: GenerationCandidate): Result<CreateItemDraft, AclError | GenerationError> {
+  const provenance = toAiProvenance(candidate);
+  if (!provenance.ok) return provenance;
+
+  const body = candidate.content.body;
+  const shaped = checkProposalBody(body);
+  if (!shaped.ok) return shaped;
 
   const content: AuthoredItemContent = {
     stem: body['stem'] as AuthoredItemContent['stem'],

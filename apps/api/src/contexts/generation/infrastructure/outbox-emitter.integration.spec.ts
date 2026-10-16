@@ -31,7 +31,7 @@ function event(eventType: (typeof GENERATION_EVENT_TYPES)[number], candidateId: 
     principal: PRINCIPAL,
     correlationId: 'corr-9',
     candidateId,
-    pin: { modelVersionId: 'model-v3', promptVersionId: 'prompt-v7', runId: 'run-1' },
+    pin: { modelVersionId: '00000000-0000-4000-8000-0000000a0003', promptVersionId: '00000000-0000-4000-8000-0000000b0007', runId: '00000000-0000-4000-8000-0000000c0001' },
   };
   return eventType === 'CandidateAccepted'
     ? { ...envelope, eventType, contentItemId: '00000000-0000-4000-8000-0000000000aa' }

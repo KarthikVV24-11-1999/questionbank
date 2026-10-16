@@ -653,6 +653,102 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        'src/contexts/generation/domain/uuid.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/domain/version-registry.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/infrastructure/version-registry.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/domain/canonical-json.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/infrastructure/provider/recorded-provider.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/handlers/propose-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/infrastructure/content-command-authoring.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/handlers/battery-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/provenance-check.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/judge.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/solve-input.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/verification-check.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/judgement-checks.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/syllabus-check.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/infrastructure/curriculum-syllabus-reader.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/index.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/content/domain/content-error.ts': {
           branches: 100,
           lines: 100,
@@ -897,6 +993,26 @@ export default defineConfig({
           globals: true,
           environment: 'node',
           include: ['src/**/*.integration.spec.ts'],
+          /**
+           * **Thirty seconds, not vitest's five.** Thirty-four tests here run a
+           * full `revertMigrations`/`applyMigrations` cycle inside the test
+           * body, and the migration count grows with every milestone — 25 and
+           * counting. Five seconds is a unit-test default; against a real
+           * database doing real DDL it is a clock these tests race, and the
+           * race gets tighter each track.
+           *
+           * This was not theoretical: `content-schema.integration.spec.ts`'s
+           * up-down-up test timed out on a CI runner at `ae67899`, passed on
+           * the commit before and the commit after, and nothing about it had
+           * changed. A correct test reported as a failure because the machine
+           * was slower is the same defect class ENGINEERING-HANDBOOK §5's
+           * condition-not-duration rule exists to prevent.
+           *
+           * A test that genuinely hangs now takes 30s to say so. That is the
+           * trade, and it is the right one: this suite already runs in minutes,
+           * and a false red costs more than a slow true one.
+           */
+          testTimeout: 30_000,
           // Integration specs share one database and reshape its schema, so
           // they run one file at a time, in one worker.
           sequence: { concurrent: false },

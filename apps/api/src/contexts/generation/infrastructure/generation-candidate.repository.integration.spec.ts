@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { GenerationRunRepository } from '../domain/repository-ports.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
@@ -7,8 +8,7 @@ import {
   acceptedEvent,
   aCandidate,
   aRun,
-  rejectedEvent,
-} from '../../../testing/generation-fixtures.js';
+  rejectedEvent, registering } from '../../../testing/generation-fixtures.js';
 import {
   acceptCandidate,
   recordVerdict,
@@ -24,14 +24,14 @@ import { PostgresGenerationRunRepository } from './generation-run.repository.js'
 /** Real Postgres, never a double (ENGINEERING-HANDBOOK §5). */
 let database: TestDatabase;
 let candidates: PostgresGenerationCandidateRepository;
-let runs: PostgresGenerationRunRepository;
+let runs: GenerationRunRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
   candidates = new PostgresGenerationCandidateRepository(database.pool);
-  runs = new PostgresGenerationRunRepository(database.pool);
+  runs = registering(database.pool);
 });
 
 afterAll(async () => {
@@ -78,8 +78,8 @@ describe('the round trip, field by field', () => {
     expect(found.confidence).toBe(0.85);
 
     expect(found.pin.runId).toBe(run.pin.runId);
-    expect(found.pin.modelVersionId).toBe('model-v3');
-    expect(found.pin.promptVersionId).toBe('prompt-v7');
+    expect(found.pin.modelVersionId).toBe('00000000-0000-4000-8000-0000000a0003');
+    expect(found.pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
     expect(Object.keys(found.pin).sort()).toEqual(['modelVersionId', 'promptVersionId', 'runId']);
 
     expect(found.content.itemType).toBe('SINGLE_CORRECT_MCQ');
@@ -210,8 +210,8 @@ describe('saving is reconciliation, not overwrite', () => {
 
     it('when it names a different model version or prompt version', async () => {
       const { candidate } = await storedWithVerdicts();
-      expect(expectError(await candidates.save({ ...candidate, pin: { ...candidate.pin, modelVersionId: 'model-v9' } })).kind).toBe('Conflict');
-      expect(expectError(await candidates.save({ ...candidate, pin: { ...candidate.pin, promptVersionId: 'prompt-v9' } })).kind).toBe('Conflict');
+      expect(expectError(await candidates.save({ ...candidate, pin: { ...candidate.pin, modelVersionId: '00000000-0000-4000-8000-0000000a0009' } })).kind).toBe('Conflict');
+      expect(expectError(await candidates.save({ ...candidate, pin: { ...candidate.pin, promptVersionId: '00000000-0000-4000-8000-0000000b0009' } })).kind).toBe('Conflict');
     });
 
     it('when it has lost a verdict the store holds', async () => {
@@ -293,7 +293,7 @@ describe('what the store refuses', () => {
   it('refuses a candidate whose pin differs from the run it names', async () => {
     const run = await savedRun();
     const candidate = aCandidate(run);
-    const failure = expectError(await candidates.save({ ...candidate, pin: { ...candidate.pin, promptVersionId: 'prompt-v8' } }));
+    const failure = expectError(await candidates.save({ ...candidate, pin: { ...candidate.pin, promptVersionId: '00000000-0000-4000-8000-0000000b0008' } }));
     expect(failure.code).toBe('PERSISTENCE_REJECTED');
     expect(await count('generation_candidate', candidate.candidateId)).toBe(0);
   });
@@ -347,8 +347,8 @@ describe('events share the candidate’s transaction (§9 rule 4)', () => {
     expect(row?.schema_version).toBe(1);
     expect(row?.payload.candidateId).toBe(accepted.candidateId);
     expect(row?.payload.pin['runId']).toBe(run.pin.runId);
-    expect(row?.payload.pin['modelVersionId']).toBe('model-v3');
-    expect(row?.payload.pin['promptVersionId']).toBe('prompt-v7');
+    expect(row?.payload.pin['modelVersionId']).toBe('00000000-0000-4000-8000-0000000a0003');
+    expect(row?.payload.pin['promptVersionId']).toBe('00000000-0000-4000-8000-0000000b0007');
     expect(Object.keys(row!.payload).sort()).toEqual(['candidateId', 'contentItemId', 'pin']);
     expect((row!.payload as { contentItemId?: string }).contentItemId).toBeTypeOf('string');
   });
@@ -418,16 +418,16 @@ describe('finding', () => {
 
   // The question F28 exists to answer.
   it('answers “which candidates did prompt v7 produce?” across runs and states', async () => {
-    const tag = `prompt-${randomUUID()}`;
+    const tag = randomUUID();
     const early = aCandidate(await savedRun({ promptVersionId: tag }));
-    const later = expectValue(rejectCandidate(aCandidate(await savedRun({ promptVersionId: tag, modelVersionId: 'model-v4' }))));
-    const unrelated = aCandidate(await savedRun({ promptVersionId: `${tag}-other` }));
+    const later = expectValue(rejectCandidate(aCandidate(await savedRun({ promptVersionId: tag, modelVersionId: '00000000-0000-4000-8000-0000000a0004' }))));
+    const unrelated = aCandidate(await savedRun({ promptVersionId: randomUUID() }));
     for (const candidate of [early, later, unrelated]) expectValue(await candidates.save(candidate));
 
     const affected = expectValue(await candidates.findByPromptVersion(tag));
     expect(affected.map((candidate) => candidate.candidateId)).toEqual([early.candidateId, later.candidateId]);
-    expect(affected.map((candidate) => candidate.pin.modelVersionId)).toEqual(['model-v3', 'model-v4']);
+    expect(affected.map((candidate) => candidate.pin.modelVersionId)).toEqual(['00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000a0004']);
     expect(affected.map((candidate) => candidate.state)).toEqual(['proposed', 'rejected']);
-    expect(expectValue(await candidates.findByPromptVersion(`${tag}-none`))).toEqual([]);
+    expect(expectValue(await candidates.findByPromptVersion(randomUUID()))).toEqual([]);
   });
 });

@@ -1,8 +1,11 @@
 import type { GenerationCandidateRepository, GenerationRunRepository } from '../domain/repository-ports.js';
 import { HandlerRegistry, type Handler } from './handler-registry.js';
-import type { AuditRecorder, Clock, ContentAuthoring, IdentifierFactory } from './ports.js';
+import type { AuditRecorder, Clock, ContentAuthoring, IdentifierFactory, ProposalProvider } from './ports.js';
 import { StartGenerationRunHandler } from './handlers/run-handlers.js';
 import { AcceptCandidateHandler, RejectCandidateHandler } from './handlers/decision-handlers.js';
+import { RunPrecheckBatteryHandler } from './handlers/battery-handlers.js';
+import type { BlockedPrecheck, PrecheckRunner } from './prechecks/battery.js';
+import { ProposeCandidateHandler } from './handlers/propose-handlers.js';
 import { RecordPrecheckVerdictHandler } from './handlers/verdict-handlers.js';
 import { GetCandidateHandler, ListRunCandidatesHandler } from './queries/candidate-queries.js';
 
@@ -13,6 +16,11 @@ export interface GenerationDependencies {
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
+  /** The provider port; the composition root supplies an adapter, and nothing in here knows which. */
+  readonly provider: ProposalProvider;
+  /** The checks that can run, and the ones declared unrunnable. Every check in the vocabulary is one or the other. */
+  readonly runners: readonly PrecheckRunner[];
+  readonly blocked: readonly BlockedPrecheck[];
   /** Content's authoring, supplied by the composition root; generation holds no write capability of its own. */
   readonly content: ContentAuthoring;
 }
@@ -24,9 +32,12 @@ export interface GenerationDependencies {
  * else constructs a handler.
  */
 export function composeGenerationHandlers(deps: GenerationDependencies): HandlerRegistry {
+  const recordVerdict = new RecordPrecheckVerdictHandler(deps);
   const handlers: readonly Handler<never, unknown>[] = [
     new StartGenerationRunHandler(deps),
-    new RecordPrecheckVerdictHandler(deps),
+    new ProposeCandidateHandler(deps),
+    recordVerdict,
+    new RunPrecheckBatteryHandler({ ...deps, recordVerdict }),
     new AcceptCandidateHandler(deps),
     new RejectCandidateHandler(deps),
     new GetCandidateHandler(deps),

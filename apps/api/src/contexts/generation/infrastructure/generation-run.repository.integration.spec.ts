@@ -2,23 +2,50 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { aRun } from '../../../testing/generation-fixtures.js';
+import { MODEL_VERSION, PROMPT_VERSION, aRun, ensureVersions, registering, versionId } from '../../../testing/generation-fixtures.js';
+import type { GenerationRunRepository } from '../domain/repository-ports.js';
 import { PostgresGenerationRunRepository } from './generation-run.repository.js';
 
 /** Real Postgres, never a double (ENGINEERING-HANDBOOK §5). */
 let database: TestDatabase;
-let repository: PostgresGenerationRunRepository;
+let repository: GenerationRunRepository;
+let unregistering: PostgresGenerationRunRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  repository = new PostgresGenerationRunRepository(database.pool);
+  repository = registering(database.pool);
+  unregistering = new PostgresGenerationRunRepository(database.pool);
 });
 
 afterAll(async () => {
   await database.revertMigrations();
   await database.close();
+});
+
+describe('a run pins registry rows, and nothing else', () => {
+  it('is refused by the database when it names a model version the registry does not hold', async () => {
+    const run = aRun({ modelVersionId: versionId('model', 9001) });
+    const failure = expectError(await unregistering.save(run));
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+    expect(failure.message).toContain('generation_run_model_version_fk');
+    expect(expectError(await unregistering.findById(run.pin.runId)).kind).toBe('NotFound');
+  });
+
+  it('is refused by the database when it names a prompt version the registry does not hold', async () => {
+    await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
+    const run = aRun({ promptVersionId: versionId('prompt', 9001) });
+    const failure = expectError(await unregistering.save(run));
+    expect(failure.message).toContain('generation_run_prompt_version_fk');
+  });
+
+  it('is saved once both are published', async () => {
+    const run = aRun({ modelVersionId: versionId('model', 9002), promptVersionId: versionId('prompt', 9002) });
+    expectError(await unregistering.save(run));
+    expectValue(await repository.save(run));
+    expect(expectValue(await unregistering.findById(run.pin.runId)).pin.promptVersionId).toBe(versionId('prompt', 9002));
+  });
 });
 
 describe('saving and finding a run', () => {
@@ -31,8 +58,8 @@ describe('saving and finding a run', () => {
 
     const found = expectValue(await repository.findById(run.pin.runId));
     expect(found.pin.runId).toBe(run.pin.runId);
-    expect(found.pin.modelVersionId).toBe('model-v3');
-    expect(found.pin.promptVersionId).toBe('prompt-v7');
+    expect(found.pin.modelVersionId).toBe('00000000-0000-4000-8000-0000000a0003');
+    expect(found.pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
     expect(found.requestedAt).toBe('2026-10-16T09:30:00.125Z');
     expect(found.request['band']).toBe('medium');
     expect(found.request['count']).toBe(5);
@@ -45,13 +72,13 @@ describe('saving and finding a run', () => {
   });
 
   it('stores the pin in the columns the F28 query reads', async () => {
-    const run = aRun({ modelVersionId: 'model-v9', promptVersionId: 'prompt-v1' });
+    const run = aRun({ modelVersionId: '00000000-0000-4000-8000-0000000a0009', promptVersionId: '00000000-0000-4000-8000-0000000b0001' });
     await repository.save(run);
     const { rows } = await database.pool.query(
       `SELECT model_version_id, prompt_version_id, request_schema_version FROM ai.generation_run WHERE run_id = $1`,
       [run.pin.runId],
     );
-    expect(rows).toEqual([{ model_version_id: 'model-v9', prompt_version_id: 'prompt-v1', request_schema_version: 1 }]);
+    expect(rows).toEqual([{ model_version_id: '00000000-0000-4000-8000-0000000a0009', prompt_version_id: '00000000-0000-4000-8000-0000000b0001', request_schema_version: 1 }]);
   });
 
   it('reports a run saved twice as a Conflict and leaves the first untouched', async () => {
