@@ -80,8 +80,9 @@ import {
 import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer-edit-handlers.js';
 import { SweepReviewAgeingHandler } from '../application/review/handlers/ageing-handlers.js';
 import { RefreshFingerprintsHandler } from '../application/review/handlers/fingerprint-handlers.js';
-import { GetDuplicateCandidatesHandler } from '../application/review/queries/duplicate-queries.js';
+import { GetDuplicateCandidatesForProposalHandler, GetDuplicateCandidatesHandler } from '../application/review/queries/duplicate-queries.js';
 import { GetQueueHealthHandler, GetReviewerThroughputHandler } from '../application/review/queries/queue-queries.js';
+import { validateProposedContent } from '../application/proposal-validation.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). `register` composes content's
@@ -160,7 +161,7 @@ const REQUIRED_DEPS_KEYS = [
   'reviewPolicy',
 ] as const satisfies readonly (keyof ContentCompositionDeps)[];
 
-export function register(deps: ContentCompositionDeps): DynamicModule {
+function assemble(deps: ContentCompositionDeps) {
   for (const key of REQUIRED_DEPS_KEYS) {
     if (deps[key] === undefined) {
       throw new Error(`content composition is missing required dependency: ${key}`);
@@ -210,6 +211,12 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     reviewPolicy,
     transactions,
   };
+
+  return bag;
+}
+
+export function register(deps: ContentCompositionDeps): DynamicModule {
+  const bag = assemble(deps);
 
   const handlers = [
     // Authoring
@@ -264,9 +271,45 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new GetPublishedSolutionHandler(bag),
     // Review queries (M4-32, M4-33)
     new GetDuplicateCandidatesHandler(bag),
+    new GetDuplicateCandidatesForProposalHandler(bag),
     new GetQueueHealthHandler(bag),
     new GetReviewerThroughputHandler(bag),
   ] as unknown as readonly Handler<never, unknown>[];
 
   return ContentModule.register({ handlers, principals: deps.principals });
+}
+
+/**
+ * What generation consumes from content, and nothing more: the two commands that
+ * turn an accepted candidate into a draft awaiting review, the query that finds
+ * duplicates of a proposal not yet stored, and the pure validator (M5-37).
+ *
+ * **This is the whole of what the composition root can hand generation.** Content
+ * exposes its handlers to no other context; `register` builds them inside a module
+ * the root never sees. Rather than let the root reach into that module, content
+ * names the three handlers generation is allowed to call and builds them from the
+ * same assembly `register` uses — the same repositories, the same audit recorder,
+ * the same idempotency store — so a draft generation creates is indistinguishable
+ * from one an author does. Generation holds no capability to write a content
+ * aggregate (SEC-20, F27); it holds these handlers, and content's policies
+ * authorize the human who accepted the candidate exactly as they would for any draft.
+ *
+ * Adding a fourth handler here is a deliberate change to what generation may do to
+ * content, and is reviewed as one.
+ */
+export interface ContentForGeneration {
+  readonly createDraft: CreateItemDraftHandler;
+  readonly submitForReview: SubmitItemForReviewHandler;
+  readonly duplicatesForProposal: GetDuplicateCandidatesForProposalHandler;
+  readonly validateProposal: typeof validateProposedContent;
+}
+
+export function contentForGeneration(deps: ContentCompositionDeps): ContentForGeneration {
+  const bag = assemble(deps);
+  return {
+    createDraft: new CreateItemDraftHandler(bag),
+    submitForReview: new SubmitItemForReviewHandler(bag),
+    duplicatesForProposal: new GetDuplicateCandidatesForProposalHandler(bag),
+    validateProposal: validateProposedContent,
+  };
 }

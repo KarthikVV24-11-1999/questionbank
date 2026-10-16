@@ -28,6 +28,7 @@ import type {
   IdentifierFactory,
 } from '../ports.js';
 import type { CreateSolutionDraft, UpdateSolutionDraft } from '../commands/solution-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * FR-TCH-04, and D5's agreement check.
@@ -41,8 +42,8 @@ import type { CreateSolutionDraft, UpdateSolutionDraft } from '../commands/solut
  * later, or nobody does.
  */
 
-export const CREATE_SOLUTION_DRAFT_POLICY = policy('CreateSolutionDraft', ['author', 'content_ops']);
-export const UPDATE_SOLUTION_DRAFT_POLICY = policy('UpdateSolutionDraft', ['author', 'content_ops']);
+export const CREATE_SOLUTION_DRAFT_POLICY = policy('CreateSolutionDraft', [ROLES.author, ROLES.contentOps]);
+export const UPDATE_SOLUTION_DRAFT_POLICY = policy('UpdateSolutionDraft', [ROLES.author, ROLES.contentOps]);
 
 export interface SolutionAuthoringDependencies {
   readonly solutions: SolutionRepository;

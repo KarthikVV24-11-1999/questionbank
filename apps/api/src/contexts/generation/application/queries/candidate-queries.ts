@@ -1,5 +1,5 @@
 import { err, ok, type Result } from '../../domain/result.js';
-import type { GenerationCandidate } from '../../domain/generation-candidate.js';
+import { isForReview, type GenerationCandidate } from '../../domain/generation-candidate.js';
 import type { GenerationCandidateRepository } from '../../domain/repository-ports.js';
 import { authorize, fromGeneration, type ApplicationError } from '../authorization.js';
 import type { Handler } from '../handler-registry.js';
@@ -39,6 +39,16 @@ export class GetCandidateHandler implements Handler<GetCandidate, GenerationCand
   }
 }
 
+/**
+ * A run's candidates **that a person has something to decide about** (M5-39).
+ *
+ * A candidate that failed a blocking pre-check can never be accepted and is not
+ * listed: it stays `proposed` for good, because deciding is a human act and the
+ * pipeline holds none, and a list that included it would fill with items no one can
+ * act on. It is still readable by id through `GetCandidate`, with its failing
+ * verdicts and their working. This is a filter on a query and not a terminal state
+ * — see `isForReview` and D46.
+ */
 export class ListRunCandidatesHandler implements Handler<ListRunCandidates, readonly GenerationCandidate[]> {
   readonly name = 'ListRunCandidates';
   readonly policy = LIST_RUN_CANDIDATES_POLICY;
@@ -53,6 +63,6 @@ export class ListRunCandidatesHandler implements Handler<ListRunCandidates, read
     if (!permitted.ok) return err(permitted.error);
 
     const found = await this.deps.candidates.findByRun(query.runId);
-    return found.ok ? ok(found.value) : err(fromGeneration(found.error));
+    return found.ok ? ok(found.value.filter(isForReview)) : err(fromGeneration(found.error));
   }
 }

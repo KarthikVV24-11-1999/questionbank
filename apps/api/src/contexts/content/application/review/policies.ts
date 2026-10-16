@@ -1,4 +1,5 @@
 import { DRAFT_OVERSIGHT_ROLES, policy, type AuthorizationPolicy } from '../authorization.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * The review workspace's authorization policies (M4-26, DEC-M4-7). Declared
@@ -41,25 +42,25 @@ import { DRAFT_OVERSIGHT_ROLES, policy, type AuthorizationPolicy } from '../auth
  * health).
  */
 
-export const CLAIM_NEXT_FOR_REVIEW_POLICY: AuthorizationPolicy = policy('ClaimNextForReview', ['reviewer']);
+export const CLAIM_NEXT_FOR_REVIEW_POLICY: AuthorizationPolicy = policy('ClaimNextForReview', [ROLES.reviewer]);
 
 /** A reviewer releases their own claim; ownership is checked at the handler, the same way `authorizeDraftAccess` checks it for a draft. */
-export const RELEASE_ASSIGNMENT_POLICY: AuthorizationPolicy = policy('ReleaseAssignment', ['reviewer']);
+export const RELEASE_ASSIGNMENT_POLICY: AuthorizationPolicy = policy('ReleaseAssignment', [ROLES.reviewer]);
 
 /** Content Ops' push path (DEC-M4-9) — the only way an assignment is created without a claim. */
 export const REASSIGN_REVIEW_POLICY: AuthorizationPolicy = policy('ReassignReview', DRAFT_OVERSIGHT_ROLES);
 
 /** A reviewer extends their own lease before it expires; ownership is checked at the handler. */
-export const EXTEND_LEASE_POLICY: AuthorizationPolicy = policy('ExtendLease', ['reviewer']);
+export const EXTEND_LEASE_POLICY: AuthorizationPolicy = policy('ExtendLease', [ROLES.reviewer]);
 
 /** Both roles could already record a decision under M3; DEC-M4-7 adds no restriction here. */
 export const RECORD_REVIEW_DECISION_POLICY: AuthorizationPolicy = policy('RecordReviewDecision', [
-  'reviewer',
-  'content_ops',
+  ROLES.reviewer,
+  ROLES.contentOps,
 ]);
 
 /** Approve-with-edits (M4-29, DEC-M4-3) is a reviewer act — the reviewer edits, the author stays the author. */
-export const APPROVE_WITH_EDITS_POLICY: AuthorizationPolicy = policy('ApproveWithEdits', ['reviewer']);
+export const APPROVE_WITH_EDITS_POLICY: AuthorizationPolicy = policy('ApproveWithEdits', [ROLES.reviewer]);
 
 /** DEC-M4-15: a command any scheduler can call, restricted to the role that already owns escalation and queue health. */
 export const SWEEP_REVIEW_AGEING_POLICY: AuthorizationPolicy = policy('SweepReviewAgeing', DRAFT_OVERSIGHT_ROLES);
@@ -72,8 +73,20 @@ export const REFRESH_FINGERPRINTS_POLICY: AuthorizationPolicy = policy('RefreshF
 
 /** M4-32. Both roles that touch a claimed item read its duplicate signal — the reviewer deciding, and Content Ops overseeing. */
 export const GET_DUPLICATE_CANDIDATES_POLICY: AuthorizationPolicy = policy('GetDuplicateCandidates', [
-  'reviewer',
-  'content_ops',
+  ROLES.reviewer,
+  ROLES.contentOps,
+]);
+
+/**
+ * M5-33. A proposal's duplicate check is asked for by whatever is deciding
+ * whether the proposal is worth keeping — Content Ops, or the generation
+ * pipeline's pre-check — and by no reviewer, who sees the claimed item's own.
+ * The pipeline's role is named here as curriculum names it on its taxonomy read:
+ * a role string, not an import, so content still knows nothing of generation.
+ */
+export const GET_PROPOSAL_DUPLICATES_POLICY: AuthorizationPolicy = policy('GetDuplicateCandidatesForProposal', [
+  ROLES.contentOps,
+  ROLES.generationPipeline,
 ]);
 
 /**
@@ -83,8 +96,8 @@ export const GET_DUPLICATE_CANDIDATES_POLICY: AuthorizationPolicy = policy('GetD
  * `content_ops` sees every reviewer's breakdown and the true aggregate.
  */
 export const GET_REVIEWER_THROUGHPUT_POLICY: AuthorizationPolicy = policy('GetReviewerThroughput', [
-  'reviewer',
-  'content_ops',
+  ROLES.reviewer,
+  ROLES.contentOps,
 ]);
 
 /** Every policy this module declares — what `policies.spec.ts` walks to assert each names roles and no policy invents its own array. */
@@ -99,5 +112,6 @@ export const REVIEW_POLICIES: readonly AuthorizationPolicy[] = Object.freeze([
   GET_QUEUE_HEALTH_POLICY,
   REFRESH_FINGERPRINTS_POLICY,
   GET_DUPLICATE_CANDIDATES_POLICY,
+  GET_PROPOSAL_DUPLICATES_POLICY,
   GET_REVIEWER_THROUGHPUT_POLICY,
 ]);

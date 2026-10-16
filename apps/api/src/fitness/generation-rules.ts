@@ -31,7 +31,8 @@ export interface GenerationViolation {
     | 'M5_20_EVENT_CARRIES_CONTENT'
     | 'M5_20_HANDLER_INVENTS_ENVELOPE'
     | 'EXT05_PROVIDER_LEAKS_OUT_OF_ITS_ADAPTER'
-    | 'EXT05_API_KEY_READ_IN_REPOSITORY';
+    | 'EXT05_API_KEY_READ_IN_REPOSITORY'
+    | 'F33_INFERENCE_ON_A_REQUEST_PATH';
   readonly file: string;
   readonly importPath: string;
   readonly message: string;
@@ -312,6 +313,50 @@ export function checkProviderIsolation(
     if (NETWORK_CALL.test(code)) flag(file, 'makes a network call');
     if (API_KEY_READ.test(code)) flag(file, 'reads an API-key-shaped environment variable');
     if (MODEL_NAME_LITERAL.test(code)) flag(file, 'names a model as a string literal');
+  }
+  return violations;
+}
+
+/**
+ * **F33: no live inference on a request path.** A model is slow and can fail, and
+ * an HTTP request that waits on one inherits both. The pipeline's calls to a
+ * provider — proposing a candidate, running the judged pre-checks — happen off any
+ * request path, and the HTTP layer of this context (`api/`) is the request path.
+ *
+ * So nothing in `api/` may import a provider adapter or name the two handlers that
+ * reach one (`ProposeCandidate`, `RunPrecheckBattery`), the battery's own write
+ * (`RecordPrecheckVerdict`), or either provider port. Naming them is how a route
+ * would reach them; the route list is separately held closed by the contract spec,
+ * and this rule is what stops the controller from being edited around it.
+ */
+const INFERENCE_NAMES = /\b(?:ProposeCandidate|RunPrecheckBattery|RecordPrecheckVerdict|ProposalProvider|JudgementProvider)\b/u;
+const PROVIDER_ADAPTER_IMPORT = /(?:^|\/)infrastructure\/provider\//u;
+
+export function checkNoInferenceOnARequestPath(
+  root: string,
+  options: { readonly files?: readonly string[] } = {},
+): GenerationViolation[] {
+  const files =
+    options.files ??
+    generationFiles(root).filter((file) => file.includes('/api/') && !file.endsWith('.spec.ts'));
+  const violations: GenerationViolation[] = [];
+
+  const flag = (file: string, what: string, importPath = ''): void => {
+    violations.push({
+      rule: 'F33_INFERENCE_ON_A_REQUEST_PATH',
+      file,
+      importPath,
+      message: `${file} ${what}; the HTTP layer is a request path, and no live inference runs behind one (F33)`,
+    });
+  };
+
+  for (const file of files) {
+    const code = readCode(join(root, file));
+    for (const importPath of importsOf(code)) {
+      if (PROVIDER_ADAPTER_IMPORT.test(importPath)) flag(file, `imports ${importPath}`, importPath);
+    }
+    const named = INFERENCE_NAMES.exec(code);
+    if (named !== null) flag(file, `names ${named[0]}`);
   }
   return violations;
 }

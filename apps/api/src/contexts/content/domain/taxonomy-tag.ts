@@ -1,3 +1,4 @@
+import { isBlank, isRecord } from './shape.js';
 import { err, ok, type Result } from './result.js';
 import { validationError, type ContentError } from './content-error.js';
 
@@ -29,6 +30,7 @@ export interface TaxonomyTag {
 }
 
 export type TaxonomyTagErrorCode =
+  | 'TAG_MALFORMED'
   | 'CONCEPT_IDENTITY_REQUIRED'
   | 'TAXONOMY_VERSION_REQUIRED'
   | 'WEIGHT_OUT_OF_RANGE'
@@ -47,9 +49,6 @@ export interface CreateTaxonomyTagProps {
   readonly isPrimary: boolean;
 }
 
-function isBlank(value: string): boolean {
-  return value.trim().length === 0;
-}
 
 function invalid(code: TaxonomyTagErrorCode, message: string, location: string): TaxonomyTagError {
   return validationError(code, message, location);
@@ -59,6 +58,7 @@ export function createTaxonomyTag(
   props: CreateTaxonomyTagProps,
   location = 'taxonomyTags',
 ): Result<TaxonomyTag, TaxonomyTagError> {
+  if (!isRecord(props)) return err(invalid('TAG_MALFORMED', 'a tag is an object', location));
   if (isBlank(props.conceptIdentityId)) {
     return err(invalid('CONCEPT_IDENTITY_REQUIRED', 'a tag requires a conceptIdentityId', location));
   }
@@ -89,6 +89,7 @@ export function createTaxonomyTagSet(
   props: readonly CreateTaxonomyTagProps[],
   location = 'taxonomyTags',
 ): Result<readonly TaxonomyTag[], TaxonomyTagError> {
+  if (!Array.isArray(props)) return err(invalid('TAG_MALFORMED', 'tags are an array of objects', location));
   if (props.length === 0) {
     return err(
       invalid('TAGS_REQUIRED', 'an item requires at least one concept tag (FR-TCH-02 rule 4)', location),

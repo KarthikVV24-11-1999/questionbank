@@ -7,7 +7,7 @@ import { parse } from 'yaml';
  * `/healthz` and `/readyz` are operational, not contract (M0-13) — asserted
  * against the real, committed documents rather than trusted by inspection.
  */
-const DOCS = ['content.yaml', 'curriculum.yaml', 'scoring.yaml'];
+const DOCS = ['content.yaml', 'curriculum.yaml', 'generation.yaml', 'scoring.yaml'];
 
 describe('health routes are absent from every OpenAPI document', () => {
   it.each(DOCS)('%s names no /healthz or /readyz path', (fileName) => {

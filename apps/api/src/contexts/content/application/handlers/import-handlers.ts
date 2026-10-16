@@ -24,6 +24,7 @@ import {
   type ImportReport,
   type RejectedRecord,
 } from '../import/import-batch.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * FR-TCH-11 and FR-QM-10 — volume without bypassing governance.
@@ -44,7 +45,7 @@ import {
  */
 
 /** FR-QM-10's actors: Content Ops and Author, the latter within their subject. */
-export const IMPORT_ITEM_BATCH_POLICY = policy('ImportItemBatch', ['author', 'content_ops']);
+export const IMPORT_ITEM_BATCH_POLICY = policy('ImportItemBatch', [ROLES.author, ROLES.contentOps]);
 
 export interface ImportItemBatch {
   /** The JSON Lines document, header first. */

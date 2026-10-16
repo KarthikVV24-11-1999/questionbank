@@ -2,7 +2,7 @@
 
 The typed HTTP client and the generated types both `@questionbank/api` and `@questionbank/studio` build
 against, plus the fitness-checked seam between them. OpenAPI documents live under `openapi/` (`content.yaml`,
-`curriculum.yaml`, `scoring.yaml`); Zod schemas and TypeScript types under `src/` are generated from them, not
+`curriculum.yaml`, `generation.yaml`, `scoring.yaml`); Zod schemas and TypeScript types under `src/` are generated from them, not
 hand-written, so the client and the server can never quietly drift out of sync (F15).
 
 ## How to run it

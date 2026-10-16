@@ -11,13 +11,13 @@ import {
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
 import { expectError, expectValue } from '../../testing/expect-result.js';
 import { singleCorrectSpec, textBody } from '../../testing/content-fixtures.js';
-import { contentAuthoringOver } from '../../testing/content-authoring-adapter.js';
 import { aRun, registering, MODEL_VERSION, PROMPT_VERSION, ensureVersions } from '../../testing/generation-fixtures.js';
-import { contextFor, fixedClock, principalWith, RecordingAudit } from '../../testing/generation-context.js';
+import { contextFor, principalWith } from '../../testing/generation-context.js';
+import { composeGeneration, type ComposedGeneration } from '../../testing/composed-generation.js';
+import { PostgresItemRepository } from '../../contexts/content/infrastructure/item.repository.js';
+import type { HandlerRegistry } from '../../contexts/generation/application/handler-registry.js';
 import { readFileSync } from 'node:fs';
-import { composeGenerationHandlers } from '../../contexts/generation/application/compose-handlers.js';
 import { RecordedProvider } from '../../contexts/generation/infrastructure/provider/recorded-provider.js';
-import { AcceptCandidateHandler } from '../../contexts/generation/application/handlers/decision-handlers.js';
 import { createGenerationCandidate, recordVerdict, type GenerationCandidate } from '../../contexts/generation/domain/generation-candidate.js';
 import { BLOCKING_PRECHECKS } from '../../contexts/generation/domain/precheck-vocabulary.js';
 import { PostgresGenerationCandidateRepository } from '../../contexts/generation/infrastructure/generation-candidate.repository.js';
@@ -35,22 +35,27 @@ const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 let database: TestDatabase;
 let runs: GenerationRunRepository;
 let candidates: PostgresGenerationCandidateRepository;
-let authoring: ReturnType<typeof contentAuthoringOver>;
+let composed: ComposedGeneration;
+let registry: HandlerRegistry;
+let items: PostgresItemRepository;
+
+const RECORDINGS = resolve(API_ROOT, 'src/contexts/generation/infrastructure/provider/recordings');
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
+  // Setup writes go straight to generation's own repositories; everything that is
+  // *done* to a candidate goes through the registry the application composed.
   runs = registering(database.pool);
   candidates = new PostgresGenerationCandidateRepository(database.pool);
-  authoring = contentAuthoringOver(database.pool, {
-    clock: fixedClock,
-    identifiers: { next: () => randomUUID() },
-    renderer: { async validate(version) { return { itemVersionId: version.versionId, surfacesChecked: ['web'], failures: [] }; } },
-  });
+  composed = await composeGeneration(database, { provider: RecordedProvider.fromDirectory(RECORDINGS) });
+  registry = composed.registry;
+  items = new PostgresItemRepository(database.pool);
 });
 
 afterAll(async () => {
+  await composed.close();
   await database.revertMigrations();
   await database.close();
 });
@@ -87,8 +92,9 @@ async function storedCandidate(body: Record<string, unknown>, confidence = 0.64)
 }
 
 function accept() {
-  const audit = new RecordingAudit();
-  return new AcceptCandidateHandler({ candidates, content: authoring, clock: fixedClock, audit });
+  const found = registry.get<{ candidateId: string }, { contentItemId: string }>('AcceptCandidate');
+  if (found === undefined) throw new Error('the composed registry has no AcceptCandidate');
+  return found;
 }
 
 async function contentRowCount(table: string): Promise<number> {
@@ -100,7 +106,7 @@ describe('an accepted candidate becomes a draft in the review queue', () => {
     const candidate = await storedCandidate(proposal());
     const accepted = expectValue(await accept().handle({ candidateId: candidate.candidateId }, contextFor(ops, 'corr-e2e-1')));
 
-    const item = expectValue(await authoring.items.findById(accepted.contentItemId));
+    const item = expectValue(await items.findById(accepted.contentItemId));
     expect(item.lifecycleState).toBe('in_review');
     expect(item.itemType).toBe('SINGLE_CORRECT_MCQ');
     expect(item.versions).toHaveLength(1);
@@ -153,17 +159,19 @@ describe('an accepted candidate becomes a draft in the review queue', () => {
   it('stores the confidence content would store, so provenance reads back as the mapping said', async () => {
     const candidate = await storedCandidate(proposal(), 0.64149);
     const accepted = expectValue(await accept().handle({ candidateId: candidate.candidateId }, contextFor(ops)));
-    const item = expectValue(await authoring.items.findById(accepted.contentItemId));
+    const item = expectValue(await items.findById(accepted.contentItemId));
     expect(item.versions[0]!.provenance.confidence).toBe(0.641);
     expect(expectValue(await candidates.findById(candidate.candidateId)).confidence).toBe(0.64149);
   });
 
-  it('contains content raising on a malformed proposal: the candidate stays proposed and content is empty', async () => {
+  it('is told by content, as a value, that a malformed proposal is malformed (D41): the candidate stays proposed and content is empty', async () => {
     const before = await contentRowCount('item');
     const candidate = await storedCandidate(proposal({ responseSpec: { itemType: 'SINGLE_CORRECT_MCQ' } }));
 
     const failure = expectError(await accept().handle({ candidateId: candidate.candidateId }, contextFor(ops)));
-    expect(failure.code).toBe('CONTENT_AUTHORING_FAILED');
+    // Before D41 this raised inside content and the accept handler had to contain it. Content now answers with a value.
+    expect(failure.kind).toBe('Validation');
+    expect(failure.code).toBe('RESPONSE_SPEC_MALFORMED');
     expect(expectValue(await candidates.findById(candidate.candidateId)).state).toBe('proposed');
     expect(await contentRowCount('item')).toBe(before);
     expect((await database.pool.query(`SELECT 1 FROM platform.outbox_message WHERE aggregate_id = $1`, [candidate.candidateId])).rowCount).toBe(0);
@@ -199,22 +207,10 @@ describe('ADR-0025 stays green throughout — asserted, not assumed', () => {
 });
 
 describe('the whole pipeline: start a run, propose, check, accept — a draft in content’s review queue', () => {
-  const RECORDINGS = resolve(API_ROOT, 'src/contexts/generation/infrastructure/provider/recordings');
   const machine = principalWith(['generation_pipeline'], 'system');
 
-  it('carries a recorded proposal through every handler of both contexts, composed through the real registry', async () => {
+  it('carries a recorded proposal through every handler of both contexts, through the registry the application composed', async () => {
     await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
-    const registry = composeGenerationHandlers({
-      runs,
-      candidates,
-      clock: fixedClock,
-      identifiers: { next: () => randomUUID() },
-      audit: new RecordingAudit(),
-      provider: RecordedProvider.fromDirectory(RECORDINGS),
-      runners: [],
-      blocked: [],
-      content: authoring,
-    });
     const run = <I, O>(name: string, input: I, principal = machine) => {
       const found = registry.get<I, O>(name);
       if (found === undefined) throw new Error(`no handler ${name}`);
@@ -253,7 +249,7 @@ describe('the whole pipeline: start a run, propose, check, accept — a draft in
 
     const accepted = expectValue(await run<unknown, { contentItemId: string }>('AcceptCandidate', { candidateId: proposed.candidateId }, ops));
 
-    const item = expectValue(await authoring.items.findById(accepted.contentItemId));
+    const item = expectValue(await items.findById(accepted.contentItemId));
     expect(item.lifecycleState).toBe('in_review');
     const provenance = item.versions[0]!.provenance;
     expect(provenance.sourceType).toBe('ai_generated');

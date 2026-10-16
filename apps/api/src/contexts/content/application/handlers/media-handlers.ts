@@ -32,6 +32,7 @@ import type {
   RegisterMediaAsset,
   RetireMediaAsset,
 } from '../commands/media-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Orchestration only (§1), and the one place the content context talks to
@@ -44,10 +45,10 @@ import type {
  * checksum would not catch it.
  */
 
-export const REGISTER_MEDIA_ASSET_POLICY = policy('RegisterMediaAsset', ['author', 'content_ops']);
-export const ADD_MEDIA_ASSET_VERSION_POLICY = policy('AddMediaAssetVersion', ['author', 'content_ops']);
+export const REGISTER_MEDIA_ASSET_POLICY = policy('RegisterMediaAsset', [ROLES.author, ROLES.contentOps]);
+export const ADD_MEDIA_ASSET_VERSION_POLICY = policy('AddMediaAssetVersion', [ROLES.author, ROLES.contentOps]);
 /** Retirement removes a figure from everything that may still be assembled. */
-export const RETIRE_MEDIA_ASSET_POLICY = policy('RetireMediaAsset', ['content_ops']);
+export const RETIRE_MEDIA_ASSET_POLICY = policy('RetireMediaAsset', [ROLES.contentOps]);
 
 export interface MediaAuthoringDependencies {
   readonly assets: MediaAssetRepository;

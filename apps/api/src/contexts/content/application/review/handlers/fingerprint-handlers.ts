@@ -5,9 +5,8 @@ import {
   exactHash,
   normalizedText,
   skeletonHash,
-  type ItemFingerprintFacts,
+  fingerprintFactsOf,
 } from '../../../domain/review/fingerprint.js';
-import { optionsOf } from '../../../domain/response-specification.js';
 import { applicationError, authorize, type ApplicationError } from '../../authorization.js';
 import type { ApplicationContext } from '../../ports.js';
 import { REFRESH_FINGERPRINTS_POLICY } from '../policies.js';
@@ -88,10 +87,7 @@ export class RefreshFingerprintsHandler {
         // 'unclassified'), the same fact SweepReviewAgeingHandler's own
         // `as string` cast already relies on.
         const subject = item.authoringSubject as string;
-        const facts: ItemFingerprintFacts = {
-          stem: version.stem,
-          options: optionsOf(version.responseSpec).map((option) => option.body),
-        };
+        const facts = fingerprintFactsOf(version.stem, version.responseSpec);
         const saved = await this.deps.fingerprints.save({
           itemId: item.itemId,
           itemVersionId: version.versionId,

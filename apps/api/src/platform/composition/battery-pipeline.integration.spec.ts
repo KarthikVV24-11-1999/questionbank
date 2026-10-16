@@ -3,34 +3,33 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { GetTaxonomyVersionQuery } from '../../contexts/curriculum/application/queries/curriculum-queries.js';
-import { composeGenerationHandlers } from '../../contexts/generation/application/compose-handlers.js';
 import type { BatteryReport } from '../../contexts/generation/application/prechecks/battery.js';
-import { buildPrechecks } from '../../contexts/generation/application/prechecks/index.js';
 import type { PrecheckConfig } from '../../contexts/generation/application/prechecks/judge.js';
 import type { HandlerRegistry } from '../../contexts/generation/application/handler-registry.js';
 import type { GenerationCandidate } from '../../contexts/generation/domain/generation-candidate.js';
-import { CurriculumSyllabusReader } from '../../contexts/generation/infrastructure/curriculum-syllabus-reader.js';
 import { RecordedProvider } from '../../contexts/generation/infrastructure/provider/recorded-provider.js';
 import { PostgresGenerationCandidateRepository } from '../../contexts/generation/infrastructure/generation-candidate.repository.js';
-import { PostgresVersionRegistry } from '../../contexts/generation/infrastructure/version-registry.repository.js';
-import { DrizzleTaxonomyVersionRepository } from '../../contexts/curriculum/infrastructure/taxonomy-version.repository.js';
-import { contentAuthoringOver } from '../../testing/content-authoring-adapter.js';
+import { PostgresFingerprintRepository } from '../../contexts/content/infrastructure/review/fingerprint.repository.js';
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
 import { expectError, expectValue } from '../../testing/expect-result.js';
-import { MODEL_VERSION, PROMPT_VERSION, ensureVersions, registering, versionId } from '../../testing/generation-fixtures.js';
-import { RecordingAudit, contextFor, fixedClock, principalWith } from '../../testing/generation-context.js';
+import { MODEL_VERSION, PROMPT_VERSION, aCandidate, ensureVersions, versionId } from '../../testing/generation-fixtures.js';
+import { composeGeneration, type ComposedGeneration } from '../../testing/composed-generation.js';
+import { PostgresItemRepository } from '../../contexts/content/infrastructure/item.repository.js';
+import { contextFor, fixedClock, principalWith } from '../../testing/generation-context.js';
+import { RefreshFingerprintsHandler } from '../../contexts/content/application/review/handlers/fingerprint-handlers.js';
 import { aTaxonomy } from '../../testing/published-taxonomy.js';
 
 /**
  * The whole pre-check battery, end to end: a recorded proposal, the real
  * registry, curriculum's real taxonomy, content's real handlers, real Postgres.
  *
- * The point is what it adds up to. Seven checks can run, five cannot (content
- * exposes no validator over a proposal), and a candidate whose blocking checks
- * did not all run **cannot be accepted** — said here as a fact about the running
- * system, because "a check that did not run is not a check that passed" is only
- * worth anything if acceptance really does refuse.
+ * The point is what it adds up to. Eleven checks can run and one cannot (the
+ * difficulty prior, advisory), and a candidate whose blocking checks did not all
+ * run **cannot be accepted** while one that ran them all and passed **is**, and
+ * reaches content's review queue — said here as facts about the running system,
+ * because "a check that did not run is not a check that passed" is only worth
+ * anything if acceptance really does refuse, and the milestone's deliverable is
+ * only demonstrated if it really does accept.
  */
 const RECORDINGS = resolve(dirname(fileURLToPath(import.meta.url)), '../../contexts/generation/infrastructure/provider/recordings');
 const TASK = (name: string) => (JSON.parse(readFileSync(join(RECORDINGS, name), 'utf8')) as { request: { grounding: never; task: Record<string, unknown> } }).request;
@@ -46,8 +45,11 @@ const CONFIG: PrecheckConfig = {
 };
 
 let database: TestDatabase;
+let composed: ComposedGeneration;
 let candidates: PostgresGenerationCandidateRepository;
 let registry: HandlerRegistry;
+let fingerprints: PostgresFingerprintRepository;
+let items: PostgresItemRepository;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
@@ -56,34 +58,23 @@ beforeAll(async () => {
   await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
   await aTaxonomy(database, { versionId: RAMP_TAG.taxonomyVersionId, conceptIdentityId: RAMP_TAG.conceptIdentityId, displayName: 'Kinematics', publish: true });
 
+  // The application as it is composed: the real registry, content's and curriculum's real
+  // handlers behind it, the real audit recorder in front. Only the provider is a test's, because
+  // no live adapter exists.
+  composed = await composeGeneration(database, { provider: RecordedProvider.fromDirectory(RECORDINGS), precheckConfig: CONFIG });
+  registry = composed.registry;
   candidates = new PostgresGenerationCandidateRepository(database.pool);
-  const provider = RecordedProvider.fromDirectory(RECORDINGS);
-  const syllabus = new CurriculumSyllabusReader(
-    new GetTaxonomyVersionQuery({ versions: new DrizzleTaxonomyVersionRepository(database.db), exams: {} as never, profiles: {} as never, migrations: {} as never }),
-  );
-  registry = composeGenerationHandlers({
-    runs: registering(database.pool),
-    candidates,
-    clock: fixedClock,
-    identifiers: { next: () => randomUUID() },
-    audit: new RecordingAudit(),
-    provider,
-    content: contentAuthoringOver(database.pool, {
-      clock: fixedClock,
-      identifiers: { next: () => randomUUID() },
-      renderer: { async validate(version) { return { itemVersionId: version.versionId, surfacesChecked: ['web'], failures: [] }; } },
-    }),
-    ...buildPrechecks({ registry: new PostgresVersionRegistry(database.pool), judge: provider, syllabus, config: CONFIG }),
-  });
+  fingerprints = new PostgresFingerprintRepository(database.pool);
+  items = new PostgresItemRepository(database.pool);
 });
 
 afterAll(async () => {
+  await composed.close();
   await database.revertMigrations();
   await database.close();
 });
 
 const machine = principalWith(['generation_pipeline'], 'system');
-const machineWhoMayReadTheSyllabus = principalWith(['generation_pipeline', 'content_ops'], 'system');
 const ops = principalWith(['content_ops']);
 
 function handle<I, O>(name: string, input: I, principal = machine) {
@@ -108,24 +99,23 @@ describe('the battery, as it runs today', () => {
 
     expect(report.checks).toHaveLength(12);
     const byStatus = (status: string) => report.checks.filter((line) => line.status === status).map((line) => line.check).sort();
-    expect(byStatus('recorded')).toEqual(
-      ['ambiguity_clarity', 'answer_verification', 'distractor_validity', 'item_solution_key_consistency', 'provenance_licensing_completeness', 'safety_appropriateness'],
-    );
-    expect(byStatus('blocked')).toEqual(['difficulty_plausibility', 'duplicate_detection', 'numeric_spec_completeness', 'renderability', 'schema_validity']);
-    expect(byStatus('could_not_run')).toEqual(['syllabus_scope']);
+    expect(byStatus('recorded')).toEqual([
+      'ambiguity_clarity', 'answer_verification', 'distractor_validity', 'duplicate_detection', 'item_solution_key_consistency',
+      'numeric_spec_completeness', 'provenance_licensing_completeness', 'renderability', 'safety_appropriateness', 'schema_validity', 'syllabus_scope',
+    ]);
+    expect(byStatus('blocked')).toEqual(['difficulty_plausibility']);
+    expect(byStatus('could_not_run')).toEqual([]);
     expect(byStatus('unaccounted')).toEqual([]);
     expect(byStatus('could_not_record')).toEqual([]);
   });
 
-  it('says plainly what each blocked check is blocked on', async () => {
+  it('says plainly what the one blocked check is blocked on', async () => {
     const candidate = await proposed('kinematics-ramp.json');
     const report = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: candidate.candidateId }));
-    for (const check of ['schema_validity', 'renderability', 'numeric_spec_completeness', 'duplicate_detection', 'difficulty_plausibility']) {
-      const line = statusOf(report, check);
-      expect(line.status).toBe('blocked');
-      expect(line.blocked?.successor).toContain('pure validator over proposed content');
-      expect(line.blocked?.successor).toContain('duplicate check that accepts proposed content');
-    }
+    const line = statusOf(report, 'difficulty_plausibility');
+    expect(line.status).toBe('blocked');
+    expect(line.severity).toBe('advisory');
+    expect(line.blocked?.successor).toContain('difficulty prior over proposed content');
   });
 
   it('records no verdict at all for a blocked check or for one that could not run — not a pass, not a skip', async () => {
@@ -134,7 +124,8 @@ describe('the battery, as it runs today', () => {
 
     const { rows } = await database.pool.query(`SELECT check_id FROM ai.candidate_verdict WHERE candidate_id = $1 ORDER BY check_id`, [candidate.candidateId]);
     expect(rows.map((row: { check_id: string }) => row.check_id)).toEqual([
-      'ambiguity_clarity', 'answer_verification', 'distractor_validity', 'item_solution_key_consistency', 'provenance_licensing_completeness', 'safety_appropriateness',
+      'ambiguity_clarity', 'answer_verification', 'distractor_validity', 'duplicate_detection', 'item_solution_key_consistency',
+      'numeric_spec_completeness', 'provenance_licensing_completeness', 'renderability', 'safety_appropriateness', 'schema_validity', 'syllabus_scope',
     ]);
   });
 
@@ -153,12 +144,12 @@ describe('the battery, as it runs today', () => {
     const candidate = await proposed('kinematics-ramp.json');
     expectValue(await handle('RunPrecheckBattery', { candidateId: candidate.candidateId }));
     const second = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: candidate.candidateId }));
-    expect(second.checks.filter((line) => line.status === 'already_recorded')).toHaveLength(6);
-    expect(expectValue(await candidates.findById(candidate.candidateId)).verdicts).toHaveLength(6);
+    expect(second.checks.filter((line) => line.status === 'already_recorded')).toHaveLength(11);
+    expect(expectValue(await candidates.findById(candidate.candidateId)).verdicts).toHaveLength(11);
   });
 });
 
-describe('a check that did not run is not a check that passed — end to end', () => {
+describe('a candidate generated by the pipeline reaches content’s review queue — end to end', () => {
   async function acceptance(candidate: GenerationCandidate) {
     const items = await countOf('content.item');
     const failure = expectError(await handle('AcceptCandidate', { candidateId: candidate.candidateId }, ops));
@@ -167,30 +158,56 @@ describe('a check that did not run is not a check that passed — end to end', (
     return failure;
   }
 
-  it('acceptance still refuses after every check that can run has passed, naming each blocking check that never did', async () => {
+  // Track E proved the opposite: with checks 1, 2 and 4 blocked, nothing could be
+  // accepted. This is the milestone's deployable outcome, demonstrated.
+  it('proposed, checked by every blocking check, and accepted — a draft awaiting a human reviewer', async () => {
     const candidate = await proposed('kinematics-ramp.json');
-    expectValue(await handle('RunPrecheckBattery', { candidateId: candidate.candidateId }));
+    const report = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: candidate.candidateId }, machine));
+    expect(report.checks.filter((line) => line.status === 'recorded' && line.outcome === 'pass')).toHaveLength(11);
 
-    const failure = await acceptance(candidate);
-    expect(failure.kind).toBe('PreconditionFailed');
-    expect(failure.code).toBe('CANDIDATE_NOT_PRECHECKED');
-    for (const missing of ['schema_validity', 'renderability', 'numeric_spec_completeness', 'syllabus_scope']) {
-      expect(failure.message, missing).toContain(missing);
-    }
-    for (const ran of ['answer_verification', 'item_solution_key_consistency', 'distractor_validity', 'safety_appropriateness', 'provenance_licensing_completeness']) {
-      expect(failure.message, ran).not.toContain(ran);
-    }
+    const before = await countOf('content.item');
+    const accepted = expectValue(await handle<unknown, { contentItemId: string }>('AcceptCandidate', { candidateId: candidate.candidateId }, ops));
+
+    expect(await countOf('content.item')).toBe(before + 1);
+    const queued = await database.pool.query(`SELECT lifecycle_state FROM content.item WHERE item_id = $1`, [accepted.contentItemId]);
+    expect(queued.rows).toEqual([{ lifecycle_state: 'in_review' }]);
+    const provenance = await database.pool.query(
+      `SELECT source_type, model_version_id, prompt_version_id, generation_run_id FROM content.item_provenance p
+         JOIN content.item_version v USING (item_version_id) WHERE v.item_id = $1`,
+      [accepted.contentItemId],
+    );
+    expect(provenance.rows).toEqual([
+      { source_type: 'ai_generated', model_version_id: candidate.pin.modelVersionId, prompt_version_id: candidate.pin.promptVersionId, generation_run_id: candidate.pin.runId },
+    ]);
+    expect(expectValue(await candidates.findById(candidate.candidateId)).state).toBe('accepted');
+    expect(await countOf(`platform.outbox_message WHERE aggregate_id = '${candidate.candidateId}'`)).toBe(1);
   });
 
-  it('and still refuses when the syllabus check runs too — the three content-blocked checks remain', async () => {
+  it('and is not published: INV-01 leaves that to a human reviewer’s signature', async () => {
     const candidate = await proposed('kinematics-ramp.json');
-    const report = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: candidate.candidateId }, machineWhoMayReadTheSyllabus));
-    expect(statusOf(report, 'syllabus_scope')).toMatchObject({ status: 'recorded', outcome: 'pass' });
+    expectValue(await handle('RunPrecheckBattery', { candidateId: candidate.candidateId }, machine));
+    const accepted = expectValue(await handle<unknown, { contentItemId: string }>('AcceptCandidate', { candidateId: candidate.candidateId }, ops));
+    const published = await database.pool.query(`SELECT 1 FROM content.item WHERE item_id = $1 AND lifecycle_state = 'published'`, [accepted.contentItemId]);
+    expect(published.rowCount).toBe(0);
+  });
 
+  it('under the pipeline’s own principal alone — no borrowed role — all eleven run and the candidate is accepted (D43 closed)', async () => {
+    const candidate = await proposed('kinematics-ramp.json');
+    const report = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: candidate.candidateId }, principalWith(['generation_pipeline'], 'system')));
+    expect(statusOf(report, 'syllabus_scope')).toMatchObject({ status: 'recorded', outcome: 'pass' });
+    expectValue(await handle('AcceptCandidate', { candidateId: candidate.candidateId }, ops));
+    expect(expectValue(await candidates.findById(candidate.candidateId)).state).toBe('accepted');
+  });
+
+  it('a proposal tagged with a concept the syllabus does not hold fails check 5, and acceptance names it', async () => {
+    const candidate = await proposed('optics-lens.json');
+    // The lens proposal's tag names a concept that is in no published taxonomy. Make everything else about it acceptable.
+    const report = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: candidate.candidateId }));
+    expect(statusOf(report, 'syllabus_scope')).toMatchObject({ status: 'recorded', outcome: 'fail' });
+    expect(statusOf(report, 'syllabus_scope').detail).toContain('is not in taxonomy version');
     const failure = await acceptance(candidate);
-    expect(failure.code).toBe('CANDIDATE_NOT_PRECHECKED');
-    expect(failure.message).toContain('schema_validity');
-    expect(failure.message).not.toContain('syllabus_scope');
+    expect(failure.code).toBe('CANDIDATE_PRECHECK_FAILED');
+    expect(failure.message).toContain('syllabus_scope');
   });
 
   it('a candidate the model could not stand behind is a failing verdict, and acceptance names the check that failed', async () => {
@@ -218,5 +235,90 @@ describe('a check that did not run is not a check that passed — end to end', (
     // Still `proposed`, with no decision row and no outbox event: nothing was routed anywhere.
     expect(await countOf(`ai.candidate_decision WHERE candidate_id = '${candidate.candidateId}'`)).toBe(0);
     expect(await countOf(`platform.outbox_message WHERE aggregate_id = '${candidate.candidateId}'`)).toBe(0);
+  });
+});
+
+describe('what content says about a proposal is acted on — end to end, by content’s own rules', () => {
+  const UNRENDERABLE_BODY = (() => {
+    const ramp = JSON.parse(readFileSync(join(RECORDINGS, 'kinematics-ramp.json'), 'utf8')) as { response: { body: Record<string, unknown> } };
+    return {
+      ...ramp.response.body,
+      stem: { schemaVersion: 1, blocks: [{ kind: 'MATH_BLOCK', latex: '\\wormhole', textAlternative: 'a wormhole' }] },
+    };
+  })();
+
+  it('a stem that does not render is recorded as failing renderability, and acceptance names it', async () => {
+    const run = expectValue(await handle<unknown, { pin: { runId: string } }>('StartGenerationRun', { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, request: {} }));
+    const stored = aCandidate(
+      { pin: { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, runId: run.pin.runId }, requestedAt: '2026-10-16T09:30:00.000Z', request: {} },
+      { body: UNRENDERABLE_BODY },
+    );
+    expectValue(await candidates.save(stored));
+
+    const report = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: stored.candidateId }, machine));
+    expect(statusOf(report, 'renderability')).toMatchObject({ status: 'recorded', outcome: 'fail', severity: 'blocking' });
+    expect(statusOf(report, 'renderability').detail).toContain('NOTATION_UNRENDERABLE');
+    expect(statusOf(report, 'schema_validity')).toMatchObject({ status: 'recorded', outcome: 'pass' });
+
+    const items = await countOf('content.item');
+    const failure = expectError(await handle('AcceptCandidate', { candidateId: stored.candidateId }, ops));
+    expect(failure.code).toBe('CANDIDATE_PRECHECK_FAILED');
+    expect(failure.message).toContain('renderability');
+    expect(await countOf('content.item')).toBe(items);
+  });
+
+  it('a retype of something already in the review queue is flagged, and — being advisory — does not stop acceptance', async () => {
+    const first = await proposed('kinematics-ramp.json');
+    expectValue(await handle('RunPrecheckBattery', { candidateId: first.candidateId }, machine));
+    const queued = expectValue(await handle<unknown, { contentItemId: string }>('AcceptCandidate', { candidateId: first.candidateId }, ops));
+    expectValue(await new RefreshFingerprintsHandler({ items, fingerprints }).handle({ since: '2000-01-01T00:00:00.000Z', now: '2026-10-16T09:30:00.000Z' }, contextFor(ops)));
+
+    const again = await proposed('kinematics-ramp.json');
+    const report = expectValue(await handle<unknown, BatteryReport>('RunPrecheckBattery', { candidateId: again.candidateId }, machine));
+    const duplicate = statusOf(report, 'duplicate_detection');
+    expect(duplicate).toMatchObject({ status: 'recorded', outcome: 'fail', severity: 'advisory' });
+    expect(duplicate.detail).toContain('exact retype of');
+
+    const accepted = expectValue(await handle<unknown, { contentItemId: string }>('AcceptCandidate', { candidateId: again.candidateId }, ops));
+    expect(accepted.contentItemId).not.toBe(queued.contentItemId);
+  });
+});
+
+describe('a run’s candidate list leaves out the one that failed a blocking check (M5-39)', () => {
+  it('lists the candidate that passed and not the one the real battery failed, though both belong to the run', async () => {
+    const recorded = (name: string) => TASK(name);
+    const run = expectValue(
+      await handle<unknown, { pin: { runId: string } }>('StartGenerationRun', { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, request: { purpose: 'listing' } }),
+    );
+    const propose = async (name: string) => {
+      const { grounding, task } = recorded(name);
+      return expectValue(await handle<unknown, GenerationCandidate>('ProposeCandidate', { runId: run.pin.runId, grounding, task }));
+    };
+    const good = await propose('kinematics-ramp.json');
+    const bad = await propose('optics-lens.json');
+    for (const candidate of [good, bad]) expectValue(await handle('RunPrecheckBattery', { candidateId: candidate.candidateId }));
+
+    // The premise, read from storage and not assumed: one failed a blocking check, the other passed them all.
+    const failedBlocking = (candidate: GenerationCandidate) => candidate.verdicts.filter((verdict) => verdict.outcome === 'fail' && ['answer_verification', 'syllabus_scope'].includes(verdict.check));
+    expect(failedBlocking(expectValue(await candidates.findById(bad.candidateId))).length).toBeGreaterThan(0);
+    expect(failedBlocking(expectValue(await candidates.findById(good.candidateId)))).toEqual([]);
+    expect(expectValue(await candidates.findById(bad.candidateId)).state).toBe('proposed');
+
+    const listed = expectValue(await handle<unknown, GenerationCandidate[]>('ListRunCandidates', { runId: run.pin.runId }, ops));
+    expect(listed.map((candidate) => candidate.candidateId)).toEqual([good.candidateId]);
+    expect(expectValue(await candidates.findByRun(run.pin.runId))).toHaveLength(2);
+  });
+
+  it('still returns the failed candidate by id, with the working that failed it', async () => {
+    const run = expectValue(
+      await handle<unknown, { pin: { runId: string } }>('StartGenerationRun', { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, request: { purpose: 'read-by-id' } }),
+    );
+    const { grounding, task } = TASK('optics-lens.json');
+    const bad = expectValue(await handle<unknown, GenerationCandidate>('ProposeCandidate', { runId: run.pin.runId, grounding, task }));
+    expectValue(await handle('RunPrecheckBattery', { candidateId: bad.candidateId }));
+
+    const read = expectValue(await handle<unknown, GenerationCandidate>('GetCandidate', { candidateId: bad.candidateId }, ops));
+    expect(read.verdicts.find((verdict) => verdict.check === 'answer_verification')).toMatchObject({ outcome: 'fail' });
+    expect(expectValue(await handle<unknown, GenerationCandidate[]>('ListRunCandidates', { runId: run.pin.runId }, ops))).toEqual([]);
   });
 });

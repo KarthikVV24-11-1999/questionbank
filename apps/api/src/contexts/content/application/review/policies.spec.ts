@@ -7,6 +7,7 @@ import {
   CLAIM_NEXT_FOR_REVIEW_POLICY,
   EXTEND_LEASE_POLICY,
   GET_DUPLICATE_CANDIDATES_POLICY,
+  GET_PROPOSAL_DUPLICATES_POLICY,
   GET_QUEUE_HEALTH_POLICY,
   GET_REVIEWER_THROUGHPUT_POLICY,
   REASSIGN_REVIEW_POLICY,
@@ -85,8 +86,15 @@ describe('the review policies, per DEC-M4-9 and DEC-M4-1', () => {
     expect(SOURCE).not.toMatch(/policy\([^)]*\['content_ops'\]/u);
   });
 
-  it('declares all eleven named policies and no fewer', () => {
-    expect(REVIEW_POLICIES).toHaveLength(11);
-    expect(new Set(REVIEW_POLICIES.map((p) => p.name)).size).toBe(11);
+  it('declares all twelve named policies and no fewer', () => {
+    expect(REVIEW_POLICIES).toHaveLength(12);
+    expect(new Set(REVIEW_POLICIES.map((p) => p.name)).size).toBe(12);
+  });
+
+  // M5-33. The duplicate check on a proposal is asked for by whatever decides if a
+  // proposal is worth keeping; a reviewer sees the claimed item's own instead.
+  it('lets Content Ops and the generation pipeline ask about a proposal’s duplicates, and no reviewer', () => {
+    expect([...GET_PROPOSAL_DUPLICATES_POLICY.allowedRoles]).toEqual(['content_ops', 'generation_pipeline']);
+    expect(GET_PROPOSAL_DUPLICATES_POLICY.requiresStepUp).toBe(false);
   });
 });

@@ -1,27 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
-import { CreateItemDraftHandler } from '../../contexts/content/application/handlers/authoring-handlers.js';
-import { SubmitItemForReviewHandler } from '../../contexts/content/application/handlers/lifecycle-handlers.js';
-import { InMemoryAuditRecorder, InMemoryIdempotencyStore, InMemoryMediaStore } from '../../contexts/content/application/ports.js';
+import { contentForGeneration } from '../../contexts/content/public/composition.js';
+import { InMemoryAuditRecorder, InMemoryIdempotencyStore } from '../../contexts/content/application/ports.js';
 import { PostgresItemRepository } from '../../contexts/content/infrastructure/item.repository.js';
-import { PostgresMediaAssetRepository } from '../../contexts/content/infrastructure/media-asset.repository.js';
-import { PostgresReviewAssignmentRepository } from '../../contexts/content/infrastructure/review/review-assignment.repository.js';
-import { PostgresReviewDecisionRepository } from '../../contexts/content/infrastructure/review-decision.repository.js';
-import { PostgresSolutionRepository } from '../../contexts/content/infrastructure/solution.repository.js';
-import { PostgresStimulusRepository } from '../../contexts/content/infrastructure/stimulus.repository.js';
-import { PostgresTransactionRunner } from '../../contexts/content/infrastructure/transaction-runner.js';
 import { ContentCommandAuthoring } from '../../contexts/generation/infrastructure/content-command-authoring.js';
-import { contentAuthoringOver } from '../../testing/content-authoring-adapter.js';
 import { describeContentAuthoringContract, type ContentAuthoringUnderTest } from '../../testing/content-authoring-contract.js';
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
 import { fixedClock } from '../../testing/generation-context.js';
+import { createMediaStore } from '../persistence/filesystem-media-store.js';
 
 /**
- * The production `ContentAuthoring` and the test-support one, held to one
- * contract. They are written independently — one injected with content's
- * handlers, one wiring them itself — so this is where drift between them would
- * show.
+ * The production `ContentAuthoring` held to its contract, over **the handlers
+ * content's own seam hands generation** — the same ones the composition root passes
+ * it, built from the same assembly content registers its module from. There is no
+ * second adapter to hold it against: the test-support one existed only because the
+ * seam did not, and was deleted with it (M5-37).
  */
 let database: TestDatabase;
 
@@ -37,11 +31,6 @@ afterAll(async () => {
 });
 
 const identifiers = { next: () => randomUUID() };
-const renderer = {
-  async validate(version: { versionId: string }) {
-    return { itemVersionId: version.versionId, surfacesChecked: ['web'], failures: [] };
-  },
-};
 
 function inspect(pool: Pool, items: PostgresItemRepository): Pick<ContentAuthoringUnderTest, 'itemStateOf' | 'itemCount'> {
   return {
@@ -54,39 +43,27 @@ function inspect(pool: Pool, items: PostgresItemRepository): Pick<ContentAuthori
   };
 }
 
-/** Content's two handlers, built the way the composition root will build them. */
-function contentHandlers(pool: Pool, items: PostgresItemRepository) {
-  const audit = new InMemoryAuditRecorder();
-  return {
-    createDraft: new CreateItemDraftHandler({ items, clock: fixedClock, identifiers, audit, idempotency: new InMemoryIdempotencyStore() }),
-    submitForReview: new SubmitItemForReviewHandler({
-      items,
-      assets: new PostgresMediaAssetRepository(pool),
-      store: new InMemoryMediaStore(),
-      stimuli: new PostgresStimulusRepository(pool),
-      solutions: new PostgresSolutionRepository(pool),
-      reviews: new PostgresReviewDecisionRepository(pool),
-      renderer,
-      assignments: new PostgresReviewAssignmentRepository(pool),
-      transactions: new PostgresTransactionRunner(pool),
-      clock: fixedClock,
-      identifiers,
-      audit,
-    }),
-  };
+/** Content's two handlers, from the seam the composition root uses. */
+function seamHandlers(pool: Pool) {
+  return contentForGeneration({
+    pool,
+    mediaStore: createMediaStore({ mediaStorageRoot: './var/media-test', nodeEnv: 'test' }),
+    idempotency: new InMemoryIdempotencyStore(),
+    clock: fixedClock,
+    identifiers,
+    audit: new InMemoryAuditRecorder(),
+    principals: { resolve: () => null },
+    reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
+  });
 }
 
-describeContentAuthoringContract('the production adapter, over injected handlers', () => {
+describeContentAuthoringContract('the production adapter, over the handlers content’s seam provides', () => {
   const items = new PostgresItemRepository(database.pool);
+  const seam = seamHandlers(database.pool);
   return {
-    authoring: new ContentCommandAuthoring(contentHandlers(database.pool, items)),
+    authoring: new ContentCommandAuthoring({ createDraft: seam.createDraft, submitForReview: seam.submitForReview }),
     ...inspect(database.pool, items),
   };
-});
-
-describeContentAuthoringContract('the test-support adapter', () => {
-  const support = contentAuthoringOver(database.pool, { clock: fixedClock, identifiers, renderer });
-  return { authoring: support, ...inspect(database.pool, support.items) };
 });
 
 describe('the production adapter, on its own terms', () => {

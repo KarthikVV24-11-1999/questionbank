@@ -19,6 +19,7 @@ import type {
   PublishTaxonomyVersion,
   RemoveConceptNode,
 } from '../commands/taxonomy-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 export interface TaxonomyHandlerDependencies {
   readonly versions: TaxonomyVersionRepository;
@@ -33,8 +34,8 @@ export interface TaxonomyWriteResult {
   readonly aggregateVersion: number;
 }
 
-const CURATOR = ['curriculum_curator', 'content_ops'] as const;
-const PUBLISHER = ['content_ops'] as const;
+const CURATOR = [ROLES.curriculumCurator, ROLES.contentOps] as const;
+const PUBLISHER = [ROLES.contentOps] as const;
 
 function toApplicationError(error: RepositoryError): ApplicationError {
   return { kind: error.kind, code: error.code, message: error.message };

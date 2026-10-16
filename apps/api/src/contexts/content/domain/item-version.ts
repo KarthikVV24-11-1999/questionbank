@@ -1,3 +1,4 @@
+import { isBlank, isRecord } from './shape.js';
 import type { PrincipalRef } from '@questionbank/domain-types';
 import { err, ok, type Result } from './result.js';
 import { validationError, type ContentError } from './content-error.js';
@@ -77,6 +78,7 @@ export const DIFFICULTY_BANDS = ['foundational', 'moderate', 'challenging', 'adv
 export type DifficultyBand = (typeof DIFFICULTY_BANDS)[number];
 
 export type ItemVersionErrorCode =
+  | 'RESPONSE_SPEC_REQUIRED'
   | 'VERSION_ID_REQUIRED'
   | 'VERSION_NO_INVALID'
   | 'ITEM_TYPE_MISMATCH'
@@ -93,9 +95,6 @@ export type ItemVersionError = ContentError<ItemVersionErrorCode>;
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u;
 const PRINCIPAL_KINDS = ['human', 'ai_agent', 'system'] as const;
 
-function isBlank(value: string): boolean {
-  return value.trim().length === 0;
-}
 
 function invalid(code: ItemVersionErrorCode, message: string, location: string): ItemVersionError {
   return validationError(code, message, location);
@@ -128,6 +127,10 @@ export function createItemVersion(
     return err(
       invalid('VERSION_NO_INVALID', `versionNo must be an integer >= 1, got ${props.versionNo}`, location),
     );
+  }
+
+  if (!isRecord(props.responseSpec)) {
+    return err(invalid('RESPONSE_SPEC_REQUIRED', 'a version requires a response specification', `${location}.responseSpec`));
   }
 
   // The item's type and its specification's type are the same fact recorded

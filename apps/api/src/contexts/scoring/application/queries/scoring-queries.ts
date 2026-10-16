@@ -6,6 +6,7 @@ import type { DryRunResult } from '../../domain/rescoring-dry-run.js';
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
 import type { ApplicationContext } from '../ports.js';
 import type { Handler } from '../handler-registry.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Read models. **No view here carries an answer key, a correct option or a
@@ -111,12 +112,12 @@ export interface GetRescoringDryRun {
   readonly operationId: string;
 }
 
-export const GET_SCORE_RECORD_POLICY = policy('GetScoreRecord', ['learner', 'ops', 'admin']);
-export const LIST_GENERATIONS_POLICY = policy('ListScoreRecordGenerations', ['learner', 'ops', 'admin']);
-export const GET_DRY_RUN_POLICY = policy('GetRescoringDryRun', ['ops', 'admin']);
+export const GET_SCORE_RECORD_POLICY = policy('GetScoreRecord', [ROLES.learner, ROLES.ops, ROLES.admin]);
+export const LIST_GENERATIONS_POLICY = policy('ListScoreRecordGenerations', [ROLES.learner, ROLES.ops, ROLES.admin]);
+export const GET_DRY_RUN_POLICY = policy('GetRescoringDryRun', [ROLES.ops, ROLES.admin]);
 
 function authorizeRead(context: ApplicationContext, ownerUserId: string): Result<true, ApplicationError> {
-  const isOperator = context.principal.roleContext.some((role) => role === 'ops' || role === 'admin');
+  const isOperator = context.principal.roleContext.some((role) => role === ROLES.ops || role === ROLES.admin);
   if (isOperator || context.principal.id === ownerUserId) return ok(true);
   return err(
     applicationError('Authorization', 'NOT_OWNER', 'a learner may read only their own score records'),

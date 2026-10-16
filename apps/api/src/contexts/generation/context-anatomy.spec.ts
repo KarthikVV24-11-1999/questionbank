@@ -9,17 +9,17 @@ const CONTEXT_DIR = fileURLToPath(new URL('.', import.meta.url));
 const ALL_DIRECTORIES = ['api', 'application', 'domain', 'infrastructure', 'public'] as const;
 
 /** Layers that hold a real module today. */
-const PRESENT_NOW = ['application', 'domain', 'infrastructure', 'public'] as const;
+const PRESENT_NOW = ['api', 'application', 'domain', 'infrastructure', 'public'] as const;
 
 /**
- * Layers the handbook fixes but that have nothing real to hold yet: `api/`
- * waits for the handlers' HTTP surface. A directory cannot exist in git without
- * a file in it, and a file whose only purpose is to make a directory non-empty
- * is exactly what this context forbids — so these are named, not faked. When
- * one lands, move it to `PRESENT_NOW`; the last assertion below fails if it is
- * moved without the directory existing, or left here once it does.
+ * Layers the handbook fixes but that have nothing real to hold yet. None today:
+ * `api/` landed with the composition (M5-37), holding the module that carries the
+ * registry. A directory cannot exist in git without a file in it, and a file whose
+ * only purpose is to make a directory non-empty is exactly what this context
+ * forbids — so a layer with nothing real is named here, not faked. The last
+ * assertion below fails if a layer is listed here once its directory exists.
  */
-const DEFERRED = ['api'] as const;
+const DEFERRED = [] as readonly string[];
 
 function directories(): string[] {
   return readdirSync(CONTEXT_DIR, { withFileTypes: true })

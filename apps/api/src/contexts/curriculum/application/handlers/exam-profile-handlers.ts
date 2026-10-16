@@ -24,6 +24,7 @@ import type {
   SupersedeProfileVersion,
   UpdateProfileDraft,
 } from '../commands/exam-profile-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /** Repository shapes the profile handlers need, named as ports. */
 export interface ExamRepositoryPort {
@@ -52,8 +53,8 @@ export interface ProfileWriteResult {
   readonly aggregateVersion: number;
 }
 
-const PROFILE_AUTHOR = ['exam_owner', 'content_ops'] as const;
-const PROFILE_PUBLISHER = ['exam_owner'] as const;
+const PROFILE_AUTHOR = [ROLES.examOwner, ROLES.contentOps] as const;
+const PROFILE_PUBLISHER = [ROLES.examOwner] as const;
 
 function toApplicationError(error: RepositoryError): ApplicationError {
   return { kind: error.kind, code: error.code, message: error.message };

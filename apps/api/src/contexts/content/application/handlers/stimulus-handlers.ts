@@ -32,6 +32,7 @@ import type {
   CreateStimulusDraft,
   UpdateStimulusDraft,
 } from '../commands/stimulus-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Orchestration only (§1).
@@ -44,9 +45,9 @@ import type {
  * until a candidate disputes a mark.
  */
 
-export const CREATE_STIMULUS_DRAFT_POLICY = policy('CreateStimulusDraft', ['author', 'content_ops']);
-export const UPDATE_STIMULUS_DRAFT_POLICY = policy('UpdateStimulusDraft', ['author', 'content_ops']);
-export const ATTACH_STIMULUS_TO_ITEM_POLICY = policy('AttachStimulusToItem', ['author', 'content_ops']);
+export const CREATE_STIMULUS_DRAFT_POLICY = policy('CreateStimulusDraft', [ROLES.author, ROLES.contentOps]);
+export const UPDATE_STIMULUS_DRAFT_POLICY = policy('UpdateStimulusDraft', [ROLES.author, ROLES.contentOps]);
+export const ATTACH_STIMULUS_TO_ITEM_POLICY = policy('AttachStimulusToItem', [ROLES.author, ROLES.contentOps]);
 
 export interface StimulusAuthoringDependencies {
   readonly stimuli: StimulusRepository;

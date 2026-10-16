@@ -22,6 +22,7 @@ import type {
   RunRescoringDryRun,
   ScoreAttempt,
 } from '../commands/scoring-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Re-scoring is the consequential command in this context: it changes numbers
@@ -34,10 +35,10 @@ export interface RescoringEventPublisher {
   publish(event: AttemptsRescored): Promise<void>;
 }
 
-export const DRAFT_RESCORING_POLICY = policy('DraftRescoring', ['ops', 'admin']);
-export const RUN_RESCORING_DRY_RUN_POLICY = policy('RunRescoringDryRun', ['ops', 'admin']);
-export const APPROVE_RESCORING_POLICY = policy('ApproveRescoring', ['admin'], true);
-export const EXECUTE_RESCORING_POLICY = policy('ExecuteRescoring', ['admin'], true);
+export const DRAFT_RESCORING_POLICY = policy('DraftRescoring', [ROLES.ops, ROLES.admin]);
+export const RUN_RESCORING_DRY_RUN_POLICY = policy('RunRescoringDryRun', [ROLES.ops, ROLES.admin]);
+export const APPROVE_RESCORING_POLICY = policy('ApproveRescoring', [ROLES.admin], true);
+export const EXECUTE_RESCORING_POLICY = policy('ExecuteRescoring', [ROLES.admin], true);
 
 export interface RescoringDependencies {
   readonly operations: RescoringOperationRepository;

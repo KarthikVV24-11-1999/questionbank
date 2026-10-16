@@ -1,3 +1,4 @@
+import { isBlank, isRecord, isRecordArray } from './shape.js';
 import { err, ok, type Result } from './result.js';
 import { validationError, type ContentError } from './content-error.js';
 import type { ContentBody } from './content-body.js';
@@ -116,6 +117,7 @@ export type ResponseSpecification =
   | { readonly itemType: 'NUMERIC'; readonly spec: NumericAnswerSpecData };
 
 export type ResponseSpecErrorCode =
+  | 'RESPONSE_SPEC_MALFORMED'
   | 'ITEM_TYPE_UNKNOWN'
   | 'OPTIONS_TOO_FEW'
   | 'OPTION_ID_REQUIRED'
@@ -140,9 +142,6 @@ export type ResponseSpecError = ContentError<ResponseSpecErrorCode>;
 export const MINIMUM_OPTIONS = 2;
 export const MINIMUM_MATCHING_MEMBERS = 2;
 
-function isBlank(value: string): boolean {
-  return value.trim().length === 0;
-}
 
 function invalid(code: ResponseSpecErrorCode, message: string, location: string): ResponseSpecError {
   return validationError(code, message, location);
@@ -237,11 +236,48 @@ function freezeMembers(members: readonly MatchingMember[]): readonly MatchingMem
 
 export type CreateResponseSpecificationProps = ResponseSpecification;
 
+/**
+ * Whether the fields this item type's checks read are there to be read. Not
+ * whether they are right — that is the checks' job — only whether they are the
+ * kind of thing (an array, a record) the checks were written to dereference.
+ */
+function specShapeProblem(props: CreateResponseSpecificationProps, location: string): ResponseSpecError | undefined {
+  const spec = props as unknown as Record<string, unknown>;
+  const bad = (what: string, where = location) => invalid('RESPONSE_SPEC_MALFORMED', what, where);
+  switch (props.itemType) {
+    case 'SINGLE_CORRECT_MCQ':
+      return isRecordArray(spec['options']) ? undefined : bad('options must be an array of objects', `${location}.options`);
+    case 'MULTIPLE_CORRECT_MCQ':
+      if (!isRecordArray(spec['options'])) return bad('options must be an array of objects', `${location}.options`);
+      return Array.isArray(spec['correctOptionIds']) ? undefined : bad('correctOptionIds must be an array', `${location}.correctOptionIds`);
+    case 'MATCHING':
+      for (const side of ['left', 'right', 'pairs'] as const) {
+        if (!isRecordArray(spec[side])) return bad(`${side} must be an array of objects`, `${location}.${side}`);
+      }
+      return undefined;
+    case 'NUMERIC': {
+      const numeric = spec['spec'];
+      if (numeric === undefined) return undefined; // reported, with its own code, below
+      if (!isRecord(numeric) || !Array.isArray(numeric['acceptedForms'])) {
+        return bad('spec must be an object with an acceptedForms array', `${location}.spec`);
+      }
+      const unit = numeric['unit'];
+      if (unit !== undefined && (!isRecord(unit) || !Array.isArray(unit['acceptedEquivalents']))) {
+        return bad('unit must be an object with an acceptedEquivalents array', `${location}.spec.unit`);
+      }
+      return undefined;
+    }
+  }
+}
+
 export function createResponseSpecification(
   props: CreateResponseSpecificationProps,
   location = 'responseSpec',
 ): Result<ResponseSpecification, ResponseSpecError> {
-  if (!isItemType(props.itemType)) {
+  if (!isRecord(props)) {
+    return err(invalid('RESPONSE_SPEC_MALFORMED', 'a response specification is an object', location));
+  }
+  if (typeof props.itemType !== 'string' || !isItemType(props.itemType)) {
     return err(
       invalid(
         'ITEM_TYPE_UNKNOWN',
@@ -250,6 +286,9 @@ export function createResponseSpecification(
       ),
     );
   }
+
+  const malformed = specShapeProblem(props, location);
+  if (malformed !== undefined) return err(malformed);
 
   switch (props.itemType) {
     case 'SINGLE_CORRECT_MCQ': {

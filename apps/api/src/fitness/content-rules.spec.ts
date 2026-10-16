@@ -660,16 +660,18 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     }).filter((violation) => violation.rule === 'M4_01_REVIEW_REACHES_AUTHORING');
 
-    // Four planted: the original generic authoring file, the two that prove
+    // Five planted: the original generic authoring file, the two that prove
     // the M4-27 ports.ts exemption did not widen into "all of application/",
-    // and the one that proves the M4-28/M4-30 transaction-runner.ts
-    // exemption did not widen into "all of infrastructure/".
-    expect(violations).toHaveLength(4);
+    // the one that proves the M4-28/M4-30 transaction-runner.ts exemption did
+    // not widen into "all of infrastructure/", and the one that proves the
+    // ADR-0026 vocabulary exemption did not widen into "all of platform/".
+    expect(violations).toHaveLength(5);
     const subjects = violations.map((v) => v.subject);
     expect(subjects.some((s) => s.includes('planted-reaches-authoring.ts'))).toBe(true);
     expect(subjects.some((s) => s.includes('planted-reaches-authoring-queries.ts'))).toBe(true);
     expect(subjects.some((s) => s.includes('planted-reaches-lifecycle-handlers.ts'))).toBe(true);
     expect(subjects.some((s) => s.includes('planted-reaches-item-repository.ts'))).toBe(true);
+    expect(subjects.some((s) => s.includes('planted-reaches-platform-composition.ts'))).toBe(true);
   });
 
   it('catches authoring plumbing reaching into review plumbing, the other direction', () => {
@@ -713,6 +715,23 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
+  it('permits review plumbing to import the role vocabulary, platform/auth/roles.ts (ADR-0026)', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((violation) => violation.subject.includes('permitted-roles-import.ts'));
+
+    expect(violations).toEqual([]);
+  });
+
+  it('does not widen the vocabulary exemption into all of platform/ — the composition root still fails', () => {
+    const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
+      include: ['src/fitness-fixtures/as-content-review-subboundary'],
+    }).filter((v) => v.subject.includes('planted-reaches-platform-composition.ts'));
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.rule).toBe('M4_01_REVIEW_REACHES_AUTHORING');
+  });
+
   it('does not widen the ports.ts exemption into all of application/ — authoring-queries.ts and lifecycle-handlers.ts still fail', () => {
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
@@ -745,16 +764,16 @@ describe('the review/authoring sub-boundary (M4-01, DEC-M4-7)', () => {
     expect(violations).toEqual([]);
   });
 
-  it('reports exactly the six planted violations over the fixture directory, no more', () => {
-    // 4 M4_01_REVIEW_REACHES_AUTHORING (the original, the two M4-27
-    // narrowness proofs, and the M4-28/M4-30 transaction-runner.ts
-    // narrowness proof) + 1 M4_01_AUTHORING_REACHES_REVIEW + 1
+  it('reports exactly the seven planted violations over the fixture directory, no more', () => {
+    // 5 M4_01_REVIEW_REACHES_AUTHORING (the original, the two M4-27
+    // narrowness proofs, the M4-28/M4-30 transaction-runner.ts narrowness
+    // proof, and the ADR-0026 platform/ narrowness proof) + 1 M4_01_AUTHORING_REACHES_REVIEW + 1
     // M4_01_INTERNAL_MODULE_IMPORTS_BARREL (M4-35).
     const violations = checkReviewAuthoringSubBoundary(API_ROOT, {
       include: ['src/fitness-fixtures/as-content-review-subboundary'],
     });
 
-    expect(violations).toHaveLength(6);
+    expect(violations).toHaveLength(7);
   });
 
   it('catches an authoring module importing its own public/index.ts (M4-35)', () => {

@@ -21,12 +21,19 @@ import { incorrectOptionIdsOf } from './response-specification.js';
  * to treat, and the safe reading of "unknown" would have to be blocking, which
  * would surprise an author with a refusal nobody can explain.
  *
+ * **`STRUCTURE_INVALID` is the proposal path's.** A stored draft was built by the
+ * domain's constructors and cannot be malformed; a proposal arrives as untyped
+ * JSON and can be. `validateProposedContent` reports what the constructors
+ * refuse as this finding, so a malformed proposal gets a report and not a
+ * raised error (debt D41).
+ *
  * **Duplicate detection is M4's.** It is reported as `not_evaluated`, never as
  * "none found": a report claiming no duplicates when the check never ran is a
  * lie a reviewer will act on.
  */
 
 export const BLOCKING_CODES = [
+  'STRUCTURE_INVALID',
   'ANSWER_KEY_MISSING',
   'NUMERIC_TOLERANCE_MISSING',
   'CONCEPT_TAG_MISSING',

@@ -248,6 +248,7 @@ describe('the barrel exports no aggregate, repository or infrastructure type', (
       'projectContentBody',
       'projectValidatedAnswerKey',
       'toAnswerKeyData',
+      'validateProposedContent',
     ]);
   });
 

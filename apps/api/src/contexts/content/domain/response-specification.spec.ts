@@ -421,3 +421,13 @@ describe('immutability', () => {
     expect(optionsOf(spec)).toHaveLength(4);
   });
 });
+
+describe('a specification that is not even an object (D41)', () => {
+  it('is refused with a value, whatever it is', () => {
+    for (const notASpec of [null, undefined, 'SINGLE_CORRECT_MCQ', 3, [], true]) {
+      const failure = expectError(createResponseSpecification(notASpec as never));
+      expect(failure.code).toBe('RESPONSE_SPEC_MALFORMED');
+      expect(failure.location).toBe('responseSpec');
+    }
+  });
+});

@@ -683,6 +683,14 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M5-37. The provider a deployment has when none was chosen: a gap here is a
+        // path on which a proposal or a judgement is answered without a provider.
+        'src/contexts/generation/infrastructure/provider/unconfigured-provider.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/generation/application/handlers/propose-handlers.ts': {
           branches: 100,
           lines: 100,
@@ -744,6 +752,36 @@ export default defineConfig({
           statements: 100,
         },
         'src/contexts/generation/application/prechecks/index.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/proposal-validation.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/domain/shape.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/domain/proposed-item.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/application/prechecks/content-checks.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/infrastructure/content-proposal-checks.ts': {
           branches: 100,
           lines: 100,
           functions: 100,
@@ -904,6 +942,12 @@ export default defineConfig({
         // M0-05. This decides who is who — a gap here is a forged token
         // accepted, an unknown principal kind coerced, or an expired token
         // treated as live.
+        'src/platform/auth/roles.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/platform/auth/token.ts': {
           branches: 100,
           lines: 100,

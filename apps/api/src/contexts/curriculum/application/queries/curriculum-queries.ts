@@ -9,6 +9,7 @@ import type { MigrationDryRunResult } from '../../domain/migration-dry-run.js';
 import { authorize, policy, type ApplicationError } from '../authorization.js';
 import type { Handler } from '../handler-registry.js';
 import type { ApplicationContext } from '../ports.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Read models are DTOs — plain, camelCase, safe to serialize. A domain
@@ -122,8 +123,20 @@ export interface CurriculumQueryDependencies {
   readonly migrations: Pick<DrizzleTaxonomyMigrationRepository, 'findById'>;
 }
 
-const READER = ['learner', 'curriculum_curator', 'content_ops', 'exam_owner'] as const;
-const CURRICULUM_STAFF = ['curriculum_curator', 'content_ops', 'exam_owner'] as const;
+const READER = [ROLES.learner, ROLES.curriculumCurator, ROLES.contentOps, ROLES.examOwner] as const;
+/**
+ * Who may read a taxonomy version: everyone `READER` names, and the generation
+ * pipeline (M5-35, debt D43).
+ *
+ * A taxonomy is published, versioned reference data, not sensitive — a learner
+ * may read it, so a machine classifying a proposal against it may too. This is
+ * the one query that gains the role, and it gains it for reading only: no
+ * command, and no other query, admits the pipeline. The role is a string, not
+ * an import, so curriculum still knows nothing of generation's code.
+ */
+const TAXONOMY_READER = [...READER, ROLES.generationPipeline] as const;
+
+const CURRICULUM_STAFF = [ROLES.curriculumCurator, ROLES.contentOps, ROLES.examOwner] as const;
 
 function toApplicationError(error: RepositoryError): ApplicationError {
   return { kind: error.kind, code: error.code, message: error.message };
@@ -156,7 +169,7 @@ function toVersionView(version: TaxonomyVersion, aggregateVersion: number): Taxo
 
 export class GetTaxonomyVersionQuery implements Handler<GetTaxonomyVersion, TaxonomyVersionDetailView> {
   readonly name = 'GetTaxonomyVersion';
-  readonly policy = policy('GetTaxonomyVersion', READER);
+  readonly policy = policy('GetTaxonomyVersion', TAXONOMY_READER);
 
   constructor(private readonly deps: CurriculumQueryDependencies) {}
 

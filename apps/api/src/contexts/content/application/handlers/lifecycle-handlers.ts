@@ -69,6 +69,7 @@ import type {
   SuspendItem,
   WithdrawItemFromReview,
 } from '../commands/lifecycle-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * FR-QM-01 rule 2 and DEC-1. **These handlers drive a machine they do not
@@ -85,26 +86,26 @@ import type {
  * satisfied verdict.
  */
 
-export const SUBMIT_ITEM_FOR_REVIEW_POLICY = policy('SubmitItemForReview', ['author', 'content_ops']);
-export const WITHDRAW_ITEM_FROM_REVIEW_POLICY = policy('WithdrawItemFromReview', ['author', 'content_ops']);
-export const RECORD_ITEM_REVIEW_DECISION_POLICY = policy('RecordItemReviewDecision', ['reviewer', 'content_ops']);
+export const SUBMIT_ITEM_FOR_REVIEW_POLICY = policy('SubmitItemForReview', [ROLES.author, ROLES.contentOps]);
+export const WITHDRAW_ITEM_FROM_REVIEW_POLICY = policy('WithdrawItemFromReview', [ROLES.author, ROLES.contentOps]);
+export const RECORD_ITEM_REVIEW_DECISION_POLICY = policy('RecordItemReviewDecision', [ROLES.reviewer, ROLES.contentOps]);
 /** SECURITY-ARCHITECTURE §4: only Content Ops publishes, and it is step-up. */
-export const PUBLISH_ITEM_VERSION_POLICY = policy('PublishItemVersion', ['content_ops'], true);
-export const SUSPEND_ITEM_POLICY = policy('SuspendItem', ['content_ops']);
-export const RETIRE_ITEM_POLICY = policy('RetireItem', ['content_ops'], true);
+export const PUBLISH_ITEM_VERSION_POLICY = policy('PublishItemVersion', [ROLES.contentOps], true);
+export const SUSPEND_ITEM_POLICY = policy('SuspendItem', [ROLES.contentOps]);
+export const RETIRE_ITEM_POLICY = policy('RetireItem', [ROLES.contentOps], true);
 
-export const SUBMIT_STIMULUS_FOR_REVIEW_POLICY = policy('SubmitStimulusForReview', ['author', 'content_ops']);
-export const RECORD_STIMULUS_REVIEW_DECISION_POLICY = policy('RecordStimulusReviewDecision', ['reviewer', 'content_ops']);
-export const PUBLISH_STIMULUS_VERSION_POLICY = policy('PublishStimulusVersion', ['content_ops'], true);
-export const RETIRE_STIMULUS_POLICY = policy('RetireStimulus', ['content_ops'], true);
+export const SUBMIT_STIMULUS_FOR_REVIEW_POLICY = policy('SubmitStimulusForReview', [ROLES.author, ROLES.contentOps]);
+export const RECORD_STIMULUS_REVIEW_DECISION_POLICY = policy('RecordStimulusReviewDecision', [ROLES.reviewer, ROLES.contentOps]);
+export const PUBLISH_STIMULUS_VERSION_POLICY = policy('PublishStimulusVersion', [ROLES.contentOps], true);
+export const RETIRE_STIMULUS_POLICY = policy('RetireStimulus', [ROLES.contentOps], true);
 
-export const SUBMIT_SOLUTION_FOR_REVIEW_POLICY = policy('SubmitSolutionForReview', ['author', 'content_ops']);
-export const RECORD_SOLUTION_REVIEW_DECISION_POLICY = policy('RecordSolutionReviewDecision', ['reviewer', 'content_ops']);
-export const PUBLISH_SOLUTION_VERSION_POLICY = policy('PublishSolutionVersion', ['content_ops'], true);
+export const SUBMIT_SOLUTION_FOR_REVIEW_POLICY = policy('SubmitSolutionForReview', [ROLES.author, ROLES.contentOps]);
+export const RECORD_SOLUTION_REVIEW_DECISION_POLICY = policy('RecordSolutionReviewDecision', [ROLES.reviewer, ROLES.contentOps]);
+export const PUBLISH_SOLUTION_VERSION_POLICY = policy('PublishSolutionVersion', [ROLES.contentOps], true);
 
-export const SUBMIT_MEDIA_ASSET_FOR_REVIEW_POLICY = policy('SubmitMediaAssetForReview', ['author', 'content_ops']);
-export const RECORD_MEDIA_ASSET_REVIEW_DECISION_POLICY = policy('RecordMediaAssetReviewDecision', ['reviewer', 'content_ops']);
-export const PUBLISH_MEDIA_ASSET_VERSION_POLICY = policy('PublishMediaAssetVersion', ['content_ops'], true);
+export const SUBMIT_MEDIA_ASSET_FOR_REVIEW_POLICY = policy('SubmitMediaAssetForReview', [ROLES.author, ROLES.contentOps]);
+export const RECORD_MEDIA_ASSET_REVIEW_DECISION_POLICY = policy('RecordMediaAssetReviewDecision', [ROLES.reviewer, ROLES.contentOps]);
+export const PUBLISH_MEDIA_ASSET_VERSION_POLICY = policy('PublishMediaAssetVersion', [ROLES.contentOps], true);
 
 export interface LifecycleDependencies {
   readonly items: ItemRepository;

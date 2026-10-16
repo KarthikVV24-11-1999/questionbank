@@ -7,6 +7,12 @@ import type { Pool } from 'pg';
 import { MissingAuthorizationPolicyError } from '../../contexts/content/application/handler-registry.js';
 import { ContentModule } from '../../contexts/content/api/content.module.js';
 import { policy } from '../../contexts/content/application/authorization.js';
+import { GENERATION_REGISTRY } from '../../contexts/generation/api/generation.controller.js';
+import { GenerationModule } from '../../contexts/generation/api/generation.module.js';
+import { HandlerRegistry, MissingAuthorizationPolicyError as GenerationPolicyMissing } from '../../contexts/generation/application/handler-registry.js';
+import { InvalidPrecheckConfigurationError } from '../../contexts/generation/application/prechecks/index.js';
+import { policy as generationPolicy } from '../../contexts/generation/application/authorization.js';
+import { GENERATION_POLICIES } from '../../contexts/generation/application/policies.js';
 import { checkBoundaries } from '../../fitness/boundary-rules.js';
 import { createApplication, type CreateApplicationOverrides } from './app-factory.js';
 import type { AppConfig } from '../config/config.js';
@@ -88,6 +94,35 @@ describe('createApplication — unit speed', () => {
 
     await expect(createApplication(CONFIG, overrides)).rejects.toThrow(MissingAuthorizationPolicyError);
     await expect(createApplication(CONFIG, overrides)).rejects.toThrow(/PlantedPolicyLessHandler/u);
+  });
+
+  it('composes generation: its registry resolves every handler the context declares, on the production path', async () => {
+    app = await createApplication(CONFIG, { pool: fakePool() });
+    const registry = app.get<HandlerRegistry>(GENERATION_REGISTRY, { strict: false });
+    expect([...registry.names].sort()).toEqual(GENERATION_POLICIES.map((entry) => entry.name).sort());
+    expect(registry.names).toHaveLength(8);
+  });
+
+  it('rejects a planted policy-less generation handler across the composed set, naming the handler', async () => {
+    const policyLessHandler = {
+      name: 'PlantedPolicyLessGenerationHandler',
+      policy: generationPolicy('PlantedPolicyLessGenerationHandler', []),
+      async handle() {
+        return { ok: true as const, value: undefined };
+      },
+    };
+    const overrides: CreateApplicationOverrides = {
+      pool: fakePool(),
+      generationRegister: () => GenerationModule.register({ registry: HandlerRegistry.of([policyLessHandler] as never), principals: { resolve: () => null } }),
+    };
+
+    await expect(createApplication(CONFIG, overrides)).rejects.toThrow(GenerationPolicyMissing);
+    await expect(createApplication(CONFIG, overrides)).rejects.toThrow(/PlantedPolicyLessGenerationHandler/u);
+  });
+
+  it('refuses to boot on a pre-check configuration that cannot be right, rather than composing a battery that fails at its first check', async () => {
+    const broken = { ambiguity_clarity: { modelVersionId: 'not-a-uuid', promptVersionId: 'nor-this' } };
+    await expect(createApplication({ ...CONFIG, generationPrecheckConfig: broken }, { pool: fakePool() })).rejects.toThrow(InvalidPrecheckConfigurationError);
   });
 
   it('refuses to boot in production with the filesystem media store — closes the M0-10 integration criterion', async () => {

@@ -36,6 +36,7 @@ import type {
   DeriveDraftFromVersion,
   UpdateItemDraft,
 } from '../commands/authoring-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Orchestration only (§1). Every decision about whether an item is valid, may
@@ -49,10 +50,10 @@ import type {
  * requirement rather than a target.
  */
 
-export const CREATE_ITEM_DRAFT_POLICY = policy('CreateItemDraft', ['author', 'content_ops']);
-export const UPDATE_ITEM_DRAFT_POLICY = policy('UpdateItemDraft', ['author', 'content_ops']);
-export const DERIVE_DRAFT_FROM_VERSION_POLICY = policy('DeriveDraftFromVersion', ['author', 'content_ops']);
-export const DELETE_ITEM_DRAFT_POLICY = policy('DeleteItemDraft', ['author', 'content_ops']);
+export const CREATE_ITEM_DRAFT_POLICY = policy('CreateItemDraft', [ROLES.author, ROLES.contentOps]);
+export const UPDATE_ITEM_DRAFT_POLICY = policy('UpdateItemDraft', [ROLES.author, ROLES.contentOps]);
+export const DERIVE_DRAFT_FROM_VERSION_POLICY = policy('DeriveDraftFromVersion', [ROLES.author, ROLES.contentOps]);
+export const DELETE_ITEM_DRAFT_POLICY = policy('DeleteItemDraft', [ROLES.author, ROLES.contentOps]);
 
 export interface ItemAuthoringDependencies {
   readonly items: ItemRepository;

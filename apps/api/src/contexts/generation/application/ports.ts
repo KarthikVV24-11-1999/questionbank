@@ -1,5 +1,13 @@
 import type { PrincipalRef } from '@questionbank/domain-types';
-import type { CreateItemDraft, SubmitItemForReview } from '../../content/public/index.js';
+import type {
+  AuthoredItemContent,
+  CreateItemDraft,
+  DuplicateCandidatesResult,
+  GetDuplicateCandidatesForProposal,
+  ProposalFacts,
+  SubmitItemForReview,
+  ValidationReport,
+} from '../../content/public/index.js';
 import type { ModelPin } from '../domain/model-pin.js';
 import type { Result } from '../domain/result.js';
 import type { ApplicationError, AuthorizationContext } from './authorization.js';
@@ -153,4 +161,25 @@ export interface SyllabusVersion {
  */
 export interface SyllabusReader {
   read(taxonomyVersionId: string, context: ApplicationContext): Promise<Result<SyllabusVersion, ApplicationError>>;
+}
+
+/**
+ * What content can tell generation about a proposal that has not been stored
+ * (M5-32, M5-33) — the two things checks 1, 2, 4 and 8 need and generation
+ * cannot work out for itself.
+ *
+ * Both are content's logic over content's data, asked of content, so generation
+ * holds no copy of a rule and no capability to write: validation is pure, and
+ * the duplicate comparison reads content's fingerprints and stores nothing. As
+ * with every other seam into content, the composition root supplies the
+ * implementation; generation names the shapes.
+ */
+export interface ContentProposalChecks {
+  /** The same report a stored draft's findings return, without storing anything. Pure and total. */
+  validate(content: AuthoredItemContent, facts: ProposalFacts): ValidationReport;
+  /** The three labelled duplicate groups for a proposal. Advisory. */
+  duplicates(
+    query: GetDuplicateCandidatesForProposal,
+    context: ApplicationContext,
+  ): Promise<Result<DuplicateCandidatesResult, ApplicationError>>;
 }

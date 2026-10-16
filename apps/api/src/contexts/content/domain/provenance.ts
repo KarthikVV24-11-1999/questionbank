@@ -1,3 +1,4 @@
+import { isBlank, isRecord } from './shape.js';
 import { err, ok, type Result } from './result.js';
 import { validationError, type ContentError } from './content-error.js';
 
@@ -52,6 +53,7 @@ export interface Provenance {
 }
 
 export type ProvenanceErrorCode =
+  | 'PROVENANCE_MALFORMED'
   | 'SOURCE_TYPE_UNKNOWN'
   | 'SOURCE_EXAM_REQUIRED'
   | 'SOURCE_YEAR_REQUIRED'
@@ -75,9 +77,6 @@ export type CreateProvenanceProps = Provenance;
  */
 export const EARLIEST_SOURCE_YEAR = 1950;
 
-function isBlank(value: string | undefined): boolean {
-  return value === undefined || value.trim().length === 0;
-}
 
 function invalid(code: ProvenanceErrorCode, message: string, location: string): ProvenanceError {
   return validationError(code, message, location);
@@ -97,6 +96,7 @@ export function createProvenance(
   context: ProvenanceContext,
   location = 'provenance',
 ): Result<Provenance, ProvenanceError> {
+  if (!isRecord(props)) return err(invalid('PROVENANCE_MALFORMED', 'provenance is an object', location));
   if (!(SOURCE_TYPES as readonly string[]).includes(props.sourceType)) {
     return err(
       invalid(

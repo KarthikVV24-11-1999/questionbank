@@ -332,3 +332,33 @@ describe('loadConfigFromProcessEnv — the one call site that reads process.env 
     });
   });
 });
+
+describe('loadConfig — the optional pre-check configuration (M5-37)', () => {
+  const PAIRING = { modelVersionId: 'm', promptVersionId: 'p' };
+  const MESSAGE =
+    'GENERATION_PRECHECK_CONFIG must be a JSON object mapping each check id to { modelVersionId, promptVersionId }';
+  const refused = { ok: false, error: { key: 'generationPrecheckConfig', message: MESSAGE } };
+
+  it('is absent from the config when the deployment did not set it, rather than present and empty', () => {
+    for (const env of [validEnv(), validEnv({ GENERATION_PRECHECK_CONFIG: '' }), validEnv({ GENERATION_PRECHECK_CONFIG: '  ' })]) {
+      const result = loadConfig(env);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect('generationPrecheckConfig' in result.value).toBe(false);
+    }
+  });
+
+  it('carries the mapping through unchanged when it is well-formed', () => {
+    const result = loadConfig(validEnv({ GENERATION_PRECHECK_CONFIG: JSON.stringify({ answer_verification: PAIRING, syllabus_scope: PAIRING }) }));
+    expect(result.ok && result.value.generationPrecheckConfig).toEqual({ answer_verification: PAIRING, syllabus_scope: PAIRING });
+  });
+
+  it('refuses what is not JSON', () => {
+    expect(loadConfig(validEnv({ GENERATION_PRECHECK_CONFIG: '{not json' }))).toEqual(refused);
+  });
+
+  it('refuses JSON that is not an object of pairings: null, a number, an array, a pairing missing a field, a pairing of the wrong type', () => {
+    for (const raw of ['null', '7', '[]', '{"a":null}', '{"a":{"modelVersionId":"m"}}', '{"a":{"modelVersionId":"m","promptVersionId":5}}', '{"a":3}']) {
+      expect(loadConfig(validEnv({ GENERATION_PRECHECK_CONFIG: raw })), raw).toEqual(refused);
+    }
+  });
+});

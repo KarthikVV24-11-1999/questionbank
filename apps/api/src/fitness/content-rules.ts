@@ -442,6 +442,13 @@ export interface CoverageThreshold {
  */
 export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/application/answer-key-projection.ts',
+  // Validates a proposal without storing it (M5-32): the same validateDraft, reached
+  // from content that was never saved.
+  'src/contexts/content/application/proposal-validation.ts',
+  // The shape checks that let a constructor answer a malformed input with a value (D41).
+  'src/contexts/content/domain/shape.ts',
+  // The structural half of validating a proposal, shared by the validator and the duplicate check.
+  'src/contexts/content/domain/proposed-item.ts',
   'src/contexts/content/application/final-answer-agreement.ts',
   'src/contexts/content/application/authorization.ts',
   'src/contexts/content/application/handler-registry.ts',
@@ -723,6 +730,15 @@ const PORTS_MODULE = /(^|\/)application\/ports\.ts$/u;
 const TRANSACTION_RUNNER_MODULE = /(^|\/)infrastructure\/transaction-runner\.ts$/u;
 
 /**
+ * Contract 4 (ADR-0026): the role vocabulary, `platform/auth/roles.ts`. Review
+ * policies name roles as every other policy now does, and the vocabulary is a
+ * leaf outside the context, so it is neither authoring nor review. Exact path,
+ * the same reasoning as the three above: any other `platform/` module must
+ * still fail, planted and proven in `content-rules.spec.ts`.
+ */
+const ROLE_VOCABULARY_MODULE = /(^|\/)platform\/auth\/roles\.ts$/u;
+
+/**
  * Seam-file membership (M4-35) is relative to whichever tree is being
  * scanned — `<includeRoot>/public/composition.ts` and `<includeRoot>/public/index.ts`
  * — never a bare `public/index.ts` filename match. A content module
@@ -813,6 +829,7 @@ export function checkReviewAuthoringSubBoundary(
           AUTHORIZATION_MODULE.test(relTarget) ||
           PORTS_MODULE.test(relTarget) ||
           TRANSACTION_RUNNER_MODULE.test(relTarget) ||
+          ROLE_VOCABULARY_MODULE.test(relTarget) ||
           // Only public/composition.ts reaches this line — public/index.ts
           // (the barrel) is intercepted above, before this check ever runs.
           isSeamModule(relTarget, includes);
@@ -820,7 +837,7 @@ export function checkReviewAuthoringSubBoundary(
           violations.push({
             rule: 'M4_01_REVIEW_REACHES_AUTHORING',
             subject: relFile,
-            detail: `imports ${importPath} (${relTarget}), which is none of a domain aggregate/value object, application/authorization.ts, application/ports.ts, or infrastructure/transaction-runner.ts`,
+            detail: `imports ${importPath} (${relTarget}), which is none of a domain aggregate/value object, application/authorization.ts, application/ports.ts, infrastructure/transaction-runner.ts, or the role vocabulary (platform/auth/roles.ts)`,
           });
         }
       }

@@ -3,8 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { GetTaxonomyVersionQuery } from '../../contexts/curriculum/application/queries/curriculum-queries.js';
-import { DrizzleTaxonomyVersionRepository } from '../../contexts/curriculum/infrastructure/taxonomy-version.repository.js';
+import { curriculumForGeneration } from '../../contexts/curriculum/public/composition.js';
 import { syllabusScopeCheck } from '../../contexts/generation/application/prechecks/syllabus-check.js';
 import { CurriculumSyllabusReader } from '../../contexts/generation/infrastructure/curriculum-syllabus-reader.js';
 import { RecordedProvider } from '../../contexts/generation/infrastructure/provider/recorded-provider.js';
@@ -29,16 +28,22 @@ const TAG = (BODY['taxonomyTags'] as { conceptIdentityId: string; taxonomyVersio
 const CONFIG = { modelVersionId: versionId('model', 5), promptVersionId: versionId('prompt', 25) };
 
 let database: TestDatabase;
-let versions: DrizzleTaxonomyVersionRepository;
 let reader: CurriculumSyllabusReader;
 
 beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  versions = new DrizzleTaxonomyVersionRepository(database.db);
+  // Curriculum's own seam hands over the one handler generation may call; the reader is built over it
+  // exactly as the composition root builds it.
   reader = new CurriculumSyllabusReader(
-    new GetTaxonomyVersionQuery({ versions, exams: {} as never, profiles: {} as never, migrations: {} as never }),
+    curriculumForGeneration({
+      pool: database.pool,
+      clock: { now: () => new Date('2026-10-16T09:30:00.000Z') },
+      identifiers: { next: () => randomUUID() },
+      audit: { record: async () => undefined },
+      principals: { resolve: () => null },
+    }).taxonomyVersion,
   );
   await aTaxonomy(database, { versionId: TAG.taxonomyVersionId, conceptIdentityId: TAG.conceptIdentityId, displayName: 'Kinematics', publish: true });
 });
@@ -81,12 +86,17 @@ describe('check 5 against curriculum’s real taxonomy', () => {
     expect(outcome.detail).toBe(`taxonomy version ${ghost} does not exist`);
   });
 
-  // The finding. Curriculum decides who may read, and its read policy admits
-  // learners, curators, Content Ops and exam owners — not the generation
-  // pipeline. Under the pipeline's own principal the check cannot run, and says
-  // so rather than guessing.
-  it('could not run under the pipeline’s own principal: curriculum’s read policy does not admit it', async () => {
-    const failure = expectError(await check().run(candidate(), asPipeline));
+  // D43, closed (M5-35): curriculum admits the pipeline to this one read, so the
+  // check runs under the pipeline's *own* principal and not one borrowing a role.
+  it('runs under the pipeline’s own principal, with nothing but the pipeline role', async () => {
+    expect(asPipeline.principal.roleContext).toEqual(['generation_pipeline']);
+    const outcome = expectValue(await check().run(candidate(), asPipeline));
+    expect(outcome.outcome).toBe('pass');
+    expect(outcome.detail).toContain('Kinematics');
+  });
+
+  it('and curriculum still decides: a principal with neither a reading role nor the pipeline’s is refused, by curriculum’s own policy', async () => {
+    const failure = expectError(await check().run(candidate(), contextFor(principalWith(['author']))));
     expect(failure.kind).toBe('Authorization');
     expect(failure.code).toBe('NOT_PERMITTED');
     expect(failure.message).toContain('GetTaxonomyVersion');

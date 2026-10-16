@@ -1,4 +1,5 @@
 import { policy, type AuthorizationPolicy } from './authorization.js';
+import { ROLES } from '../../../platform/auth/roles.js';
 
 /**
  * Who may do what in the generation context.
@@ -19,8 +20,8 @@ import { policy, type AuthorizationPolicy } from './authorization.js';
  * principal, so `content_ops` is also a role content's own policy admits; the
  * two policy sets are separate and happen to agree.
  */
-export const GENERATION_PIPELINE_ROLE = 'generation_pipeline';
-export const CONTENT_OPS_ROLE = 'content_ops';
+export const GENERATION_PIPELINE_ROLE = ROLES.generationPipeline;
+export const CONTENT_OPS_ROLE = ROLES.contentOps;
 
 export const START_GENERATION_RUN_POLICY: AuthorizationPolicy = policy('StartGenerationRun', [
   GENERATION_PIPELINE_ROLE,

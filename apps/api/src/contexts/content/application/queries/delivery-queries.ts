@@ -14,6 +14,7 @@ import { publishedStimulusVersionOf, type StimulusType, type StimulusVersion } f
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
 import type { Handler } from '../handler-registry.js';
 import type { ApplicationContext, Entitlements } from '../ports.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * The delivery read models. **No view here carries an answer key, a
@@ -35,12 +36,12 @@ import type { ApplicationContext, Entitlements } from '../ports.js';
 
 /** Every role that reads published content, including the unauthenticated tier. */
 export const DELIVERY_ROLES = Object.freeze([
-  'learner',
-  'guest',
-  'author',
-  'reviewer',
-  'content_ops',
-  'system',
+  ROLES.learner,
+  ROLES.guest,
+  ROLES.author,
+  ROLES.reviewer,
+  ROLES.contentOps,
+  ROLES.system,
 ]);
 
 export const GET_PUBLISHED_ITEM_POLICY = policy('GetPublishedItem', DELIVERY_ROLES);

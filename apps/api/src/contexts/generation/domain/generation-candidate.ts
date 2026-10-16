@@ -284,6 +284,34 @@ export function recordVerdict(
 }
 
 /**
+ * The blocking checks this candidate has a failing verdict for. **One definition**,
+ * used by acceptance to refuse and by the listing to leave the candidate out, so
+ * the two cannot disagree about what "failed" means. An advisory check that failed
+ * is not here — it informs a reviewer and blocks nothing — and a check with no
+ * verdict is not here either: not having run is `CANDIDATE_NOT_PRECHECKED`, a
+ * different thing from having run and said no.
+ */
+export function failedBlockingChecks(candidate: Pick<GenerationCandidate, 'verdicts'>): readonly PrecheckId[] {
+  return candidate.verdicts
+    .filter((verdict) => verdict.outcome === 'fail' && precheckSeverity(verdict.check) === 'blocking')
+    .map((verdict) => verdict.check);
+}
+
+/**
+ * Whether a person has anything to decide about this candidate. One that failed a
+ * blocking check can never be accepted, and deciding is a human act the pipeline
+ * holds no capability to perform on its behalf — so it stays `proposed` for good,
+ * and a queue that listed it would fill with items nobody can act on (M5-39).
+ *
+ * This is deliberately a predicate and not a state. Rejecting such a candidate would
+ * be a lifecycle transition with its own invariants, made by something other than a
+ * human; that is a domain change, and it is debt D46 rather than a query detail.
+ */
+export function isForReview(candidate: Pick<GenerationCandidate, 'verdicts'>): boolean {
+  return failedBlockingChecks(candidate).length === 0;
+}
+
+/**
  * Acceptance hands the candidate to content, so it is the one transition with
  * preconditions beyond the lifecycle.
  *
@@ -311,9 +339,7 @@ export function acceptCandidate(candidate: GenerationCandidate): Result<Generati
     );
   }
 
-  const failed = candidate.verdicts
-    .filter((verdict) => verdict.outcome === 'fail' && precheckSeverity(verdict.check) === 'blocking')
-    .map((verdict) => verdict.check);
+  const failed = failedBlockingChecks(candidate);
   if (failed.length > 0) {
     return err(
       preconditionFailedError(

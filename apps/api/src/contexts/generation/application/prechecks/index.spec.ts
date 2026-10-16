@@ -3,7 +3,15 @@ import { versionId } from '../../../../testing/generation-fixtures.js';
 import { BLOCKING_PRECHECKS, PRECHECKS, PRECHECK_IDS } from '../../domain/precheck-vocabulary.js';
 import { err, ok } from '../../domain/result.js';
 import { applicationError } from '../authorization.js';
-import { BLOCKED_PRECHECKS, CONTENT_PROPOSAL_VALIDATION_SUCCESSOR, InvalidPrecheckConfigurationError, buildPrechecks, type PrecheckDependencies } from './index.js';
+import {
+  BLOCKED_PRECHECKS,
+  DIFFICULTY_PRIOR_SUCCESSOR,
+  InvalidPrecheckConfigurationError,
+  UNCONFIGURED_SUCCESSOR,
+  buildPrechecks,
+  unconfiguredPrechecks,
+  type PrecheckDependencies,
+} from './index.js';
 import { JUDGED_CHECKS, type PrecheckConfig } from './judge.js';
 
 const CONFIG: PrecheckConfig = Object.fromEntries(
@@ -14,6 +22,8 @@ const deps = (config: PrecheckConfig = CONFIG): PrecheckDependencies => ({
   registry: {} as never,
   judge: { judge: async () => ok({ output: {} }) },
   syllabus: { read: async () => err(applicationError('Unavailable', 'X', 'x')) },
+  content: {} as never,
+  clock: { now: () => new Date('2026-10-16T09:30:00.000Z') },
   config,
 });
 
@@ -24,14 +34,17 @@ describe('every check in the vocabulary is run or declared blocked — never nei
 
   // Asserted against literals, as sets: a loop over the lists cannot notice one
   // of them getting shorter.
-  it('runs exactly these seven', () => {
+  it('runs exactly these eleven', () => {
     expect([...runs].sort()).toEqual(
-      ['answer_verification', 'syllabus_scope', 'item_solution_key_consistency', 'distractor_validity', 'ambiguity_clarity', 'safety_appropriateness', 'provenance_licensing_completeness'].sort(),
+      [
+        'answer_verification', 'syllabus_scope', 'item_solution_key_consistency', 'distractor_validity', 'ambiguity_clarity',
+        'safety_appropriateness', 'provenance_licensing_completeness', 'schema_validity', 'renderability', 'numeric_spec_completeness', 'duplicate_detection',
+      ].sort(),
     );
   });
 
-  it('blocks exactly these five', () => {
-    expect([...blocked].sort()).toEqual(['schema_validity', 'renderability', 'numeric_spec_completeness', 'duplicate_detection', 'difficulty_plausibility'].sort());
+  it('blocks exactly this one', () => {
+    expect([...blocked]).toEqual(['difficulty_plausibility']);
   });
 
   it('and between them are the twelve of the vocabulary, with nothing in both', () => {
@@ -44,23 +57,18 @@ describe('every check in the vocabulary is run or declared blocked — never nei
     expect(new Set(runs).size).toBe(runs.length);
   });
 
-  it('names one successor for every blocked check, and says why each is blocked', () => {
-    expect(new Set(built.blocked.map((entry) => entry.successor))).toEqual(new Set([CONTENT_PROPOSAL_VALIDATION_SUCCESSOR]));
-    expect(CONTENT_PROPOSAL_VALIDATION_SUCCESSOR).toContain('pure validator over proposed content');
-    expect(CONTENT_PROPOSAL_VALIDATION_SUCCESSOR).toContain('duplicate check that accepts proposed content');
+  it('names a successor for the check that remains blocked, and says why', () => {
+    expect(new Set(built.blocked.map((entry) => entry.successor))).toEqual(new Set([DIFFICULTY_PRIOR_SUCCESSOR]));
+    expect(DIFFICULTY_PRIOR_SUCCESSOR).toContain('difficulty prior over proposed content');
     for (const entry of BLOCKED_PRECHECKS) expect(entry.reason.length, entry.check).toBeGreaterThan(30);
   });
 });
 
 describe('what the blocked set costs, said plainly', () => {
-  it('leaves blocking checks that cannot run: so nothing is acceptable through the battery until content\'s successor lands', () => {
+  it('is nothing that blocks acceptance: the one check still blocked is advisory', () => {
     const blockedBlocking = BLOCKED_PRECHECKS.map((entry) => entry.check).filter((check) => (BLOCKING_PRECHECKS as readonly string[]).includes(check));
-    expect(blockedBlocking.sort()).toEqual(['numeric_spec_completeness', 'renderability', 'schema_validity']);
-  });
-
-  it('while both advisory checks it cannot run (8 and 9) do not block acceptance in any case', () => {
-    const advisory: readonly string[] = PRECHECKS.filter((check) => check.severity === 'advisory').map((check) => check.id);
-    expect(BLOCKED_PRECHECKS.map((entry) => entry.check).filter((check) => advisory.includes(check)).sort()).toEqual(['difficulty_plausibility', 'duplicate_detection']);
+    expect(blockedBlocking).toEqual([]);
+    expect(PRECHECKS.find((check) => check.id === 'difficulty_plausibility')?.severity).toBe('advisory');
   });
 });
 
@@ -80,5 +88,33 @@ describe('a configuration that cannot be right does not build', () => {
     const error = new InvalidPrecheckConfigurationError('X', 'why');
     expect(error.name).toBe('InvalidPrecheckConfigurationError');
     expect(error.message).toBe('the pre-check battery cannot be built: X: why');
+  });
+});
+
+describe('a deployment that supplied no pre-check configuration (M5-37)', () => {
+  const unconfigured = unconfiguredPrechecks();
+
+  it('runs nothing', () => {
+    expect(unconfigured.runners).toEqual([]);
+  });
+
+  it('declares all twelve blocked, as a set equal to the vocabulary — a check is never merely absent', () => {
+    expect([...unconfigured.blocked.map((entry) => entry.check)].sort()).toEqual([...PRECHECK_IDS].sort());
+    expect(unconfigured.blocked).toHaveLength(12);
+  });
+
+  it('gives the eleven that wait on configuration one reason and one named successor', () => {
+    const waiting = unconfigured.blocked.filter((entry) => entry.check !== 'difficulty_plausibility');
+    expect(waiting).toHaveLength(11);
+    for (const entry of waiting) {
+      expect(entry.reason).toContain('no pre-check configuration was supplied');
+      expect(entry.successor).toBe(UNCONFIGURED_SUCCESSOR);
+    }
+  });
+
+  it('leaves check 9 with its own permanent reason rather than a reason that configuration would fix', () => {
+    const difficulty = unconfigured.blocked.find((entry) => entry.check === 'difficulty_plausibility');
+    expect(difficulty).toEqual(BLOCKED_PRECHECKS[0]);
+    expect(difficulty?.successor).toBe(DIFFICULTY_PRIOR_SUCCESSOR);
   });
 });

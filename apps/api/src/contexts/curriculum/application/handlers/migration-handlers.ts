@@ -17,6 +17,7 @@ import type {
   ExecuteMigration,
   RunDryRun,
 } from '../commands/migration-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 export interface MigrationRepositoryPort {
   insert: DrizzleTaxonomyMigrationRepository['insert'];
@@ -58,8 +59,8 @@ export interface ExecutionResultView extends MigrationWriteResult {
   readonly chunkCount: number;
 }
 
-const MIGRATION_AUTHOR = ['curriculum_curator', 'content_ops'] as const;
-const MIGRATION_EXECUTOR = ['content_ops'] as const;
+const MIGRATION_AUTHOR = [ROLES.curriculumCurator, ROLES.contentOps] as const;
+const MIGRATION_EXECUTOR = [ROLES.contentOps] as const;
 const DEFAULT_CHUNK_SIZE = 100;
 
 function toApplicationError(error: RepositoryError): ApplicationError {

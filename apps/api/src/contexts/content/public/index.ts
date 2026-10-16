@@ -113,6 +113,7 @@ export type {
   DuplicateCandidatesResult,
   DuplicateEvaluationState,
   GetDuplicateCandidates,
+  GetDuplicateCandidatesForProposal,
 } from '../application/review/queries/duplicate-queries.js';
 
 export type {
@@ -218,6 +219,14 @@ export type {
 } from '../domain/pre-submission-validation.js';
 
 export { BLOCKING_CODES, WARNING_CODES, describeDuplicateCheck } from '../domain/pre-submission-validation.js';
+
+/**
+ * Validate proposed content without storing it: the same `AuthoredItemContent` a
+ * draft is created from, the same report the stored draft's findings return. Pure,
+ * total for any input, and the same `validateDraft` underneath (M5-32).
+ */
+export { validateProposedContent } from '../application/proposal-validation.js';
+export type { ProposalFacts } from '../application/proposal-validation.js';
 
 /** The publication precondition codes the Studio validation panel groups by. */
 export { PRECONDITION_CODES } from '../domain/publication-preconditions.js';

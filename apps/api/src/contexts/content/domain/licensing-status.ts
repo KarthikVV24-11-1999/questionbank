@@ -1,3 +1,4 @@
+import { isBlank, isRecord } from './shape.js';
 import { err, ok, type Result } from './result.js';
 import { validationError, type ContentError } from './content-error.js';
 
@@ -29,6 +30,7 @@ export interface LicensingStatus {
 }
 
 export type LicensingErrorCode =
+  | 'LICENSING_MALFORMED'
   | 'LICENSING_STATUS_UNKNOWN'
   | 'LICENSE_REF_REQUIRED'
   | 'ATTRIBUTION_REQUIRED'
@@ -45,9 +47,6 @@ export type CreateLicensingStatusProps = LicensingStatus;
  */
 export const UNRESOLVED_LICENSING: LicensingStatus = Object.freeze({ status: 'unresolved' });
 
-function isBlank(value: string | undefined): boolean {
-  return value === undefined || value.trim().length === 0;
-}
 
 function invalid(code: LicensingErrorCode, message: string, location: string): LicensingError {
   return validationError(code, message, location);
@@ -60,6 +59,7 @@ export function createLicensingStatus(
   props: CreateLicensingStatusProps,
   location = 'licensing',
 ): Result<LicensingStatus, LicensingError> {
+  if (!isRecord(props)) return err(invalid('LICENSING_MALFORMED', 'licensing is an object', location));
   if (!(LICENSING_STATUSES as readonly string[]).includes(props.status)) {
     return err(
       invalid('LICENSING_STATUS_UNKNOWN', `unknown licensing status "${props.status}"`, location),

@@ -65,8 +65,9 @@ describe('the code sets are disjoint and exhaustive', () => {
     }
   });
 
-  it('names FR-TCH-07 rule 1’s six blocking cases', () => {
+  it('names FR-TCH-07 rule 1’s six blocking cases, and the one only a proposal can have', () => {
     expect([...BLOCKING_CODES]).toEqual([
+      'STRUCTURE_INVALID',
       'ANSWER_KEY_MISSING',
       'NUMERIC_TOLERANCE_MISSING',
       'CONCEPT_TAG_MISSING',

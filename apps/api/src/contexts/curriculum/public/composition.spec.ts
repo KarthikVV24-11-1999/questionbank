@@ -81,3 +81,37 @@ describe('the public barrel does not import the composition module', () => {
     expect(importsComposition(`export * from './composition.js';\n`)).toBe(true);
   });
 });
+
+describe('who the generation pipeline may reach in curriculum (M5-35, D43)', () => {
+  async function composed(): Promise<HandlerRegistry> {
+    const moduleRef = await Test.createTestingModule({ imports: [register(validDeps())] }).compile();
+    return moduleRef.get<HandlerRegistry>(CURRICULUM_REGISTRY);
+  }
+
+  it('may read a taxonomy version — and that is the only handler of the whole composed set that admits it', async () => {
+    const registry = await composed();
+    expect(registry.names.length).toBeGreaterThan(20);
+
+    const admitting = registry.names.filter((name) => registry.get(name)?.policy.allowedRoles.includes('generation_pipeline'));
+    expect(admitting).toEqual(['GetTaxonomyVersion']);
+  });
+
+  it('gives it the taxonomy read on top of the roles that could already read it, and removes none', async () => {
+    const roles = (await composed()).get('GetTaxonomyVersion')?.policy.allowedRoles;
+    expect(roles).toEqual(['learner', 'curriculum_curator', 'content_ops', 'exam_owner', 'generation_pipeline']);
+  });
+
+  it('and nothing that writes: no command, in the whole composed set, admits it', async () => {
+    const registry = await composed();
+    const commands = registry.names.filter((name) => !name.startsWith('Get') && !name.startsWith('List'));
+    expect(commands.length).toBeGreaterThan(10);
+    for (const name of commands) expect(registry.get(name)?.policy.allowedRoles, name).not.toContain('generation_pipeline');
+  });
+
+  it('and not the neighbouring reads either: the concept subtree, prerequisites, profiles, exams and migrations stay as they were', async () => {
+    const registry = await composed();
+    for (const name of ['ListTaxonomyVersions', 'GetConceptSubtree', 'GetConceptPrerequisites', 'GetExamProfileVersion', 'ListExams', 'GetMigrationDryRun']) {
+      expect(registry.get(name)?.policy.allowedRoles, name).not.toContain('generation_pipeline');
+    }
+  });
+});

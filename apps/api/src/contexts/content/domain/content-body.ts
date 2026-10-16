@@ -1,3 +1,4 @@
+import { isBlank, isRecord } from './shape.js';
 import { err, ok, type Result } from './result.js';
 import { validationError, type ContentError } from './content-error.js';
 
@@ -76,6 +77,7 @@ export interface ContentBody {
 }
 
 export type ContentBodyErrorCode =
+  | 'BODY_MALFORMED'
   | 'BODY_EMPTY'
   | 'BLOCK_KIND_UNKNOWN'
   | 'INLINE_KIND_UNKNOWN'
@@ -113,9 +115,6 @@ export const MAX_LIST_DEPTH = 3;
  */
 const MARKUP_PATTERN = /<\/?[a-z][^>]*>|&[a-z]+;|&#\d+;/iu;
 
-function isBlank(value: string): boolean {
-  return value.trim().length === 0;
-}
 
 function invalid(code: ContentBodyErrorCode, message: string, location: string): ContentBodyError {
   return validationError(code, message, location);
@@ -313,7 +312,92 @@ function freezeBlock(block: Block): Block {
  * invalid document returns the first failure with its location, and no
  * partially-built body escapes.
  */
+/**
+ * Whether a value has the shape of an inline, before anyone reads its fields.
+ * A kind this does not know is left for `checkInline` to name; this answers
+ * only "can the fields be read at all".
+ */
+function inlineShape(inline: unknown, location: string): ContentBodyError | undefined {
+  const bad = (what: string) => invalid('BODY_MALFORMED', `an inline ${what}`, location);
+  if (!isRecord(inline) || typeof inline['kind'] !== 'string') return bad('is not an object with a kind');
+  const text = (field: string) => typeof inline[field] === 'string';
+  switch (inline['kind']) {
+    case 'TEXT':
+      return text('value') && Array.isArray(inline['marks']) ? undefined : bad('TEXT needs a string value and a marks array');
+    case 'MATH_INLINE':
+      return text('latex') && text('textAlternative') ? undefined : bad('MATH_INLINE needs string latex and textAlternative');
+    case 'CHEM_INLINE':
+      return text('notation') && text('textAlternative') ? undefined : bad('CHEM_INLINE needs string notation and textAlternative');
+    case 'MEDIA_REF':
+      return text('assetVersionId') ? undefined : bad('MEDIA_REF needs a string assetVersionId');
+    default:
+      return undefined;
+  }
+}
+
+function inlinesShape(value: unknown, location: string): ContentBodyError | undefined {
+  if (!Array.isArray(value)) return invalid('BODY_MALFORMED', 'inlines must be an array', location);
+  for (const [index, inline] of value.entries()) {
+    const failure = inlineShape(inline, `${location}[${index}]`);
+    if (failure !== undefined) return failure;
+  }
+  return undefined;
+}
+
+function blockShape(block: unknown, location: string): ContentBodyError | undefined {
+  const bad = (what: string) => invalid('BODY_MALFORMED', `a block ${what}`, location);
+  if (!isRecord(block) || typeof block['kind'] !== 'string') return bad('is not an object with a kind');
+  const text = (field: string) => typeof block[field] === 'string';
+  switch (block['kind']) {
+    case 'PARAGRAPH':
+      return inlinesShape(block['inlines'], `${location}.inlines`);
+    case 'MATH_BLOCK':
+      return text('latex') && text('textAlternative') ? undefined : bad('MATH_BLOCK needs string latex and textAlternative');
+    case 'CHEM_BLOCK':
+      return text('notation') && text('textAlternative') ? undefined : bad('CHEM_BLOCK needs string notation and textAlternative');
+    case 'MEDIA_BLOCK':
+      if (!text('assetVersionId') || !text('sizeHint')) return bad('MEDIA_BLOCK needs a string assetVersionId and sizeHint');
+      return block['caption'] === undefined ? undefined : inlinesShape(block['caption'], `${location}.caption`);
+    case 'LIST': {
+      if (!Array.isArray(block['items'])) return bad('LIST needs an items array');
+      for (const [index, item] of block['items'].entries()) {
+        if (!Array.isArray(item)) return invalid('BODY_MALFORMED', 'a list item must be an array of blocks', `${location}.items[${index}]`);
+        for (const [blockIndex, nested] of item.entries()) {
+          const failure = blockShape(nested, `${location}.items[${index}].blocks[${blockIndex}]`);
+          if (failure !== undefined) return failure;
+        }
+      }
+      return undefined;
+    }
+    case 'TABLE': {
+      if (!Array.isArray(block['header']) || !Array.isArray(block['rows'])) return bad('TABLE needs a header array and a rows array');
+      for (const [index, cell] of block['header'].entries()) {
+        const failure = inlinesShape(cell, `${location}.header[${index}]`);
+        if (failure !== undefined) return failure;
+      }
+      for (const [rowIndex, row] of block['rows'].entries()) {
+        if (!Array.isArray(row)) return invalid('BODY_MALFORMED', 'a table row must be an array of cells', `${location}.rows[${rowIndex}]`);
+        for (const [cellIndex, cell] of row.entries()) {
+          const failure = inlinesShape(cell, `${location}.rows[${rowIndex}][${cellIndex}]`);
+          if (failure !== undefined) return failure;
+        }
+      }
+      return undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
 export function createContentBody(blocks: readonly Block[]): Result<ContentBody, ContentBodyError> {
+  // The shape of everything is settled before anything is read, so that no
+  // check below can meet a value that is not the kind of value it was written for.
+  if (!Array.isArray(blocks)) return err(invalid('BODY_MALFORMED', 'a content body is an array of blocks', 'blocks'));
+  for (const [index, block] of (blocks as readonly unknown[]).entries()) {
+    const failure = blockShape(block, `blocks[${index}]`);
+    if (failure !== undefined) return err(failure);
+  }
+
   if (blocks.length === 0) {
     return err(invalid('BODY_EMPTY', 'a content body requires at least one block', 'blocks'));
   }

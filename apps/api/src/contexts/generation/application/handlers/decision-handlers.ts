@@ -46,9 +46,11 @@ export interface AcceptedCandidate {
  * contained here, at the seam, rather than becoming a 500 with a half-done
  * acceptance behind it.
  *
- * **This is containment, not a fix — debt D41.** Content owes a value where it
- * currently raises, and its own no-throw guard cannot see the gap because it
- * reads for the `throw` keyword rather than for a raise.
+ * **Defence in depth now, not the only defence — debt D41.** The constructors a
+ * proposal passes through return a value for malformed input (proved by a sweep),
+ * and the pre-checks run content's validator before a candidate can be accepted,
+ * so a malformed proposal is stopped well before this seam. The containment stays
+ * because the rest of content's domain still has the pattern.
  */
 async function guarded<T>(work: () => Promise<Result<T, ApplicationError>>): Promise<Result<T, ApplicationError>> {
   try {

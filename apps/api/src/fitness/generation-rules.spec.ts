@@ -6,6 +6,7 @@ import {
   checkGenerationReachesUpstreamOnlyAsBarrelTypes,
   checkGenerationTouchesNoContentTable,
   checkEventsCarryNoContent,
+  checkNoInferenceOnARequestPath,
   checkProviderIsolation,
   PROVIDER_ADAPTER_DIRECTORY,
   checkHandlersInventNoEnvelope,
@@ -209,5 +210,27 @@ describe('EXT-05 — the provider is the adapter’s, and nobody else’s', () =
     expect(generationFiles(API_ROOT).filter((file) => file.startsWith(PROVIDER_ADAPTER_DIRECTORY)).every((file) => file.startsWith(PROVIDER_ADAPTER_DIRECTORY))).toBe(true);
     expect(adapterFile.startsWith(PROVIDER_ADAPTER_DIRECTORY)).toBe(true);
     expect('src/contexts/generation/infrastructure/generation-run.repository.ts'.startsWith(PROVIDER_ADAPTER_DIRECTORY)).toBe(false);
+  });
+});
+
+describe('F33 — no live inference behind a request path (M5-38)', () => {
+  const PLANTED_ROUTE = 'src/fitness-fixtures/as-generation-application/planted-inference-route.ts';
+
+  it('holds across the context’s HTTP layer', () => {
+    expect(checkNoInferenceOnARequestPath(API_ROOT)).toEqual([]);
+  });
+
+  it('read the HTTP layer, so a clean result means something', () => {
+    const governed = generationFiles(API_ROOT).filter((file) => file.includes('/api/') && !file.endsWith('.spec.ts'));
+    expect(governed).toContain('src/contexts/generation/api/generation.controller.ts');
+    expect(governed).toContain('src/contexts/generation/api/generation.module.ts');
+  });
+
+  it('is red on a controller that imports the provider adapter and names the handlers that reach a model', () => {
+    const violations = checkNoInferenceOnARequestPath(API_ROOT, { files: [PLANTED_ROUTE] });
+    expect(violations.every((violation) => violation.rule === 'F33_INFERENCE_ON_A_REQUEST_PATH')).toBe(true);
+    expect(violations).toHaveLength(2);
+    expect(violations[0]?.message).toContain('imports ../../contexts/generation/infrastructure/provider/recorded-provider.js');
+    expect(violations[1]?.message).toContain('names ProposeCandidate');
   });
 });

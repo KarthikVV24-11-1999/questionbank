@@ -40,6 +40,7 @@ export const CONFIG_KEYS = [
   'reviewEscalateAfterHours',
   'reviewLeaseHours',
   'reviewSampleRate',
+  'generationPrecheckConfig',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -72,7 +73,26 @@ export interface AppConfig {
   readonly reviewEscalateAfterHours: number;
   readonly reviewLeaseHours: number;
   readonly reviewSampleRate: number;
+  /**
+   * Which registry rows each judged pre-check runs under (M5-37): a model version
+   * and a prompt version per check, keyed by check id. **Absent unless the deployment
+   * supplied it** — versions are pinned data (ARCHITECTURE §8, AI-ARCHITECTURE §15),
+   * so there is no default to fall back on, and a deployment without it composes
+   * generation with every check declared blocked: nothing can then be accepted, which
+   * is the honest state of a battery that has not been configured. Only the *shape*
+   * is checked here; whether the ids are registry rows, and whether each check has its
+   * own prompt (F29), is checked by generation when it builds the battery, and a
+   * configuration that fails there refuses boot.
+   */
+  readonly generationPrecheckConfig?: GenerationPrecheckConfig;
 }
+
+export interface PrecheckPairing {
+  readonly modelVersionId: string;
+  readonly promptVersionId: string;
+}
+
+export type GenerationPrecheckConfig = Readonly<Record<string, PrecheckPairing>>;
 
 /** The minimum key length the auth stub (M0-05) accepts — matched here so config fails first. */
 const MIN_SIGNING_KEY_BYTES = 32;
@@ -110,6 +130,7 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   reviewEscalateAfterHours: 'REVIEW_ESCALATE_AFTER_HOURS',
   reviewLeaseHours: 'REVIEW_LEASE_HOURS',
   reviewSampleRate: 'REVIEW_SAMPLE_RATE',
+  generationPrecheckConfig: 'GENERATION_PRECHECK_CONFIG',
 };
 
 function fail(key: ConfigKey, message: string): ConfigResult<never> {
@@ -279,6 +300,30 @@ function parseReviewSampleRate(env: Readonly<Record<string, string | undefined>>
   return { ok: true, value };
 }
 
+function isPairing(value: unknown): value is PrecheckPairing {
+  if (typeof value !== 'object' || value === null) return false;
+  const pairing = value as Record<string, unknown>;
+  return typeof pairing['modelVersionId'] === 'string' && typeof pairing['promptVersionId'] === 'string';
+}
+
+function parseGenerationPrecheckConfig(
+  env: Readonly<Record<string, string | undefined>>,
+): ConfigResult<GenerationPrecheckConfig | undefined> {
+  const raw = env[ENV_VAR_NAMES.generationPrecheckConfig];
+  if (raw === undefined || raw.trim().length === 0) return { ok: true, value: undefined };
+  const message = `${ENV_VAR_NAMES.generationPrecheckConfig} must be a JSON object mapping each check id to { modelVersionId, promptVersionId }`;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return fail('generationPrecheckConfig', message);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed) || !Object.values(parsed).every(isPairing)) {
+    return fail('generationPrecheckConfig', message);
+  }
+  return { ok: true, value: parsed as GenerationPrecheckConfig };
+}
+
 /**
  * Total: never throws, and returns the first violated key's error rather
  * than collecting all of them — one bad value is enough to refuse boot, and
@@ -324,6 +369,9 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   const reviewSampleRate = parseReviewSampleRate(env);
   if (!reviewSampleRate.ok) return reviewSampleRate;
 
+  const generationPrecheckConfig = parseGenerationPrecheckConfig(env);
+  if (!generationPrecheckConfig.ok) return generationPrecheckConfig;
+
   return {
     ok: true,
     value: {
@@ -340,6 +388,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       reviewEscalateAfterHours: reviewEscalateAfterHours.value,
       reviewLeaseHours: reviewLeaseHours.value,
       reviewSampleRate: reviewSampleRate.value,
+      ...(generationPrecheckConfig.value === undefined ? {} : { generationPrecheckConfig: generationPrecheckConfig.value }),
     },
   };
 }

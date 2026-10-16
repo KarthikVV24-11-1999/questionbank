@@ -8,9 +8,8 @@ import {
   exactHash,
   normalizedText,
   skeletonHash,
-  type ItemFingerprintFacts,
+  fingerprintFactsOf,
 } from '../../../domain/review/fingerprint.js';
-import { optionsOf } from '../../../domain/response-specification.js';
 import { applicationError, authorize, authorizeSubjectScope, type ApplicationError } from '../../authorization.js';
 import type { ApplicationContext, AuditRecorder, Clock } from '../../ports.js';
 import {
@@ -20,6 +19,7 @@ import {
   RELEASE_ASSIGNMENT_POLICY,
 } from '../policies.js';
 import type { ClaimNextForReview, ExtendLease, ReassignReview, ReleaseAssignment } from '../commands/assignment-commands.js';
+import { ROLES } from '../../../../../platform/auth/roles.js';
 
 /**
  * Claim, release, reassign, extend (M4-27) — the queue, driven. Under
@@ -168,10 +168,7 @@ export class ClaimNextForReviewHandler extends AssignmentHandler {
       const version = item.value.versions.find((candidate) => candidate.versionId === assignment.itemVersionId);
       if (version === undefined) return;
 
-      const facts: ItemFingerprintFacts = {
-        stem: version.stem,
-        options: optionsOf(version.responseSpec).map((option) => option.body),
-      };
+      const facts = fingerprintFactsOf(version.stem, version.responseSpec);
       await this.deps.fingerprints.save({
         itemId: assignment.itemId,
         itemVersionId: assignment.itemVersionId,
@@ -231,7 +228,7 @@ export class ReassignReviewHandler extends AssignmentHandler {
     const assigned = await this.deps.assignments.assign({
       itemVersionId: command.itemVersionId,
       subject: command.subject,
-      reviewer: { kind: 'human', id: command.reviewerId, roleContext: ['reviewer'] },
+      reviewer: { kind: 'human', id: command.reviewerId, roleContext: [ROLES.reviewer] },
       now: now.toISOString(),
       leaseExpiresAt: new Date(now.getTime() + this.deps.reviewPolicy.leaseHours * HOUR_MS).toISOString(),
     });

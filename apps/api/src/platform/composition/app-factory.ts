@@ -21,13 +21,14 @@ import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
 import { HealthModule } from '../http/health.module.js';
-import { register as registerContent } from '../../contexts/content/public/composition.js';
-import { register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
+import { contentForGeneration, register as registerContent } from '../../contexts/content/public/composition.js';
+import { curriculumForGeneration, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
+import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
 import { register as registerScoring } from '../../contexts/scoring/public/composition.js';
 
 /**
  * The composition root (M0-12, DEC-M0-5). `createApplication` is the single
- * function that turns three independently-composable contexts into one
+ * function that turns four independently-composable contexts into one
  * running `INestApplication` — it **wires, and decides nothing**: every
  * default below is a platform adapter this milestone already built (M0-02
  * through M0-11), never a business rule. If wiring something here required a
@@ -58,10 +59,17 @@ export interface CreateApplicationOverrides {
   readonly contentRegister?: typeof registerContent;
   readonly curriculumRegister?: typeof registerCurriculum;
   readonly scoringRegister?: typeof registerScoring;
+  readonly generationRegister?: typeof registerGeneration;
+  /**
+   * The provider generation proposes and judges through. Absent in production, where
+   * no live adapter exists yet and generation is composed with one that answers
+   * every call as unavailable; a test passes the recorded adapter here.
+   */
+  readonly generationProvider?: GenerationCompositionDeps['provider'];
 }
 
 /**
- * Combines the three contexts' `DynamicModule`s into one root module,
+ * Combines the four contexts' `DynamicModule`s into one root module,
  * following the same static-`register` convention every `*.module.ts` in
  * this repository already uses. It declares nothing of its own — no
  * controller, no provider — so there is nothing here for a business rule to
@@ -117,8 +125,9 @@ export async function createApplication(
   const contentRegister = overrides.contentRegister ?? registerContent;
   const curriculumRegister = overrides.curriculumRegister ?? registerCurriculum;
   const scoringRegister = overrides.scoringRegister ?? registerScoring;
+  const generationRegister = overrides.generationRegister ?? registerGeneration;
 
-  const contentModule = contentRegister({
+  const contentDeps = {
     pool,
     mediaStore,
     idempotency,
@@ -132,11 +141,27 @@ export async function createApplication(
       leaseHours: config.reviewLeaseHours,
       sampleRate: config.reviewSampleRate,
     },
-  });
-  const curriculumModule = curriculumRegister({ pool, clock, identifiers, audit, principals });
-  const scoringModule = scoringRegister({ pool, clock, identifiers, audit, principals });
+  };
+  const curriculumDeps = { pool, clock, identifiers, audit, principals };
 
-  const rootImports = [contentModule, curriculumModule, scoringModule, HealthModule.register(pool)];
+  const contentModule = contentRegister(contentDeps);
+  const curriculumModule = curriculumRegister(curriculumDeps);
+  const scoringModule = scoringRegister({ pool, clock, identifiers, audit, principals });
+  // Generation is downstream of content and curriculum (ADR-0025): it receives the
+  // handlers they name for it, and nothing flows the other way.
+  const generationModule = generationRegister({
+    pool,
+    clock,
+    identifiers,
+    audit,
+    principals,
+    content: contentForGeneration(contentDeps),
+    curriculum: curriculumForGeneration(curriculumDeps),
+    ...(overrides.generationProvider === undefined ? {} : { provider: overrides.generationProvider }),
+    ...(config.generationPrecheckConfig === undefined ? {} : { precheckConfig: config.generationPrecheckConfig }),
+  });
+
+  const rootImports = [contentModule, curriculumModule, scoringModule, generationModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
   // `app.close()` never double-closes a connection the caller still owns

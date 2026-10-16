@@ -88,7 +88,7 @@ export class InMemoryMigrationExecutor implements MigrationExecutor {
   }
 }
 
-export function register(deps: CurriculumCompositionDeps): DynamicModule {
+function assemble(deps: CurriculumCompositionDeps) {
   for (const key of REQUIRED_DEPS_KEYS) {
     if (deps[key] === undefined) {
       throw new Error(`curriculum composition is missing required dependency: ${key}`);
@@ -114,6 +114,12 @@ export function register(deps: CurriculumCompositionDeps): DynamicModule {
     clock: deps.clock,
     identifiers: deps.identifiers,
   };
+
+  return bag;
+}
+
+export function register(deps: CurriculumCompositionDeps): DynamicModule {
+  const bag = assemble(deps);
 
   const handlers = [
     // Exam & profile
@@ -145,4 +151,21 @@ export function register(deps: CurriculumCompositionDeps): DynamicModule {
   ] as unknown as readonly Handler<never, unknown>[];
 
   return CurriculumModule.register({ handlers, principals: deps.principals });
+}
+
+/**
+ * What generation consumes from curriculum, and nothing more: the one read that
+ * says which concepts a taxonomy version contains and whether it is in force
+ * (M5-37). Curriculum admits the generation pipeline to this query alone (D43,
+ * closed), and the handler is built from the same assembly `register` uses.
+ *
+ * Content's counterpart, `contentForGeneration`, explains why a context names
+ * what another may call and does not let the composition root reach into its module.
+ */
+export interface CurriculumForGeneration {
+  readonly taxonomyVersion: GetTaxonomyVersionQuery;
+}
+
+export function curriculumForGeneration(deps: CurriculumCompositionDeps): CurriculumForGeneration {
+  return { taxonomyVersion: new GetTaxonomyVersionQuery(assemble(deps)) };
 }

@@ -6,7 +6,9 @@ import {
   CANDIDATE_STATES,
   CANDIDATE_TRANSITIONS,
   createGenerationCandidate,
+  failedBlockingChecks,
   isCandidateState,
+  isForReview,
   isCandidateTransition,
   recordVerdict,
   rejectCandidate,
@@ -442,5 +444,44 @@ describe('restoring a candidate from storage', () => {
     expect(
       expectError(restoreGenerationCandidate({ ...RESTORE, verdicts: [{ check: 'x' as never, outcome: 'pass' }] })).code,
     ).toBe('VERDICT_CHECK_UNKNOWN');
+  });
+});
+
+describe('which candidates a person has something to decide about (M5-39)', () => {
+  const failing = (check: PrecheckId, outcome: 'pass' | 'fail' = 'fail') => ({ check, outcome });
+
+  it('names the blocking checks a candidate failed, in the order they were recorded, and nothing else', () => {
+    const candidate = proposed({ verdicts: [failing('renderability'), failing('schema_validity', 'pass'), failing('answer_verification')] });
+    expect(failedBlockingChecks(candidate)).toEqual(['renderability', 'answer_verification']);
+  });
+
+  it('does not count an advisory check that failed: it informs a reviewer and blocks nothing', () => {
+    const candidate = proposed({ verdicts: [failing('duplicate_detection'), failing('ambiguity_clarity')] });
+    expect(failedBlockingChecks(candidate)).toEqual([]);
+    expect(isForReview(candidate)).toBe(true);
+  });
+
+  it('does not count a blocking check that has no verdict: not having run is not having failed', () => {
+    expect(failedBlockingChecks(proposed({ verdicts: [] }))).toEqual([]);
+    expect(isForReview(proposed({ verdicts: [] }))).toBe(true);
+  });
+
+  it('is for review when every verdict passed, and not when any blocking verdict failed', () => {
+    expect(isForReview(fullyChecked())).toBe(true);
+    for (const check of BLOCKING_PRECHECKS) {
+      const verdicts = BLOCKING_PRECHECKS.map((id) => failing(id, id === check ? 'fail' : 'pass'));
+      expect(isForReview(proposed({ verdicts })), check).toBe(false);
+    }
+  });
+
+  it('agrees with acceptance exactly: a candidate acceptance refuses for a failed check is a candidate not for review', () => {
+    for (const check of BLOCKING_PRECHECKS) {
+      const verdicts = BLOCKING_PRECHECKS.map((id) => failing(id, id === check ? 'fail' : 'pass'));
+      const candidate = proposed({ verdicts });
+      expect(expectError(acceptCandidate(candidate)).code, check).toBe('CANDIDATE_PRECHECK_FAILED');
+      expect(isForReview(candidate), check).toBe(false);
+    }
+    expect(expectValue(acceptCandidate(fullyChecked())).state).toBe('accepted');
+    expect(isForReview(fullyChecked())).toBe(true);
   });
 });

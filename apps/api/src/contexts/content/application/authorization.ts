@@ -1,5 +1,6 @@
 import type { PrincipalRef } from '@questionbank/domain-types';
 import { err, ok, type Result } from '../domain/result.js';
+import { ROLES } from '../../../platform/auth/roles.js';
 
 /**
  * Policy-based, deny-by-default, evaluated at the handler boundary
@@ -109,7 +110,7 @@ export function authorize(
  * that an unfinished item is not circulating. Widening this is a reviewed
  * change to a named constant, not an inference.
  */
-export const DRAFT_OVERSIGHT_ROLES = Object.freeze(['content_ops']);
+export const DRAFT_OVERSIGHT_ROLES: readonly string[] = Object.freeze([ROLES.contentOps]);
 
 /**
  * How a subject scope is carried on a principal.
@@ -123,7 +124,7 @@ export const DRAFT_OVERSIGHT_ROLES = Object.freeze(['content_ops']);
 export const SUBJECT_SCOPE_PREFIX = 'subject:';
 
 /** Roles whose content capability is unscoped in SECURITY-ARCHITECTURE §4. */
-export const CROSS_SUBJECT_ROLES = Object.freeze(['content_ops']);
+export const CROSS_SUBJECT_ROLES: readonly string[] = Object.freeze([ROLES.contentOps]);
 
 export function subjectScopesOf(context: AuthorizationContext): readonly string[] {
   return context.principal.roleContext

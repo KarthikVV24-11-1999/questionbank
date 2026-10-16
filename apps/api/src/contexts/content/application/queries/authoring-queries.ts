@@ -25,6 +25,7 @@ import {
 } from '../authorization.js';
 import type { Handler } from '../handler-registry.js';
 import type { ApplicationContext, Clock, RenderValidator } from '../ports.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * The authoring read models — **the only views in this context that carry the
@@ -42,7 +43,7 @@ import type { ApplicationContext, Clock, RenderValidator } from '../ports.js';
  * theirs to see (FR-TCH-06 rule 1).
  */
 
-export const AUTHORING_ROLES = Object.freeze(['author', 'reviewer', 'content_ops']);
+export const AUTHORING_ROLES = Object.freeze([ROLES.author, ROLES.reviewer, ROLES.contentOps]);
 
 export const GET_ITEM_DRAFT_POLICY = policy('GetItemDraft', AUTHORING_ROLES);
 export const LIST_MY_DRAFTS_POLICY = policy('ListMyDrafts', AUTHORING_ROLES);

@@ -8,6 +8,7 @@ import { applicationError, authorize, policy, type ApplicationError } from '../a
 import type { ApplicationContext, AuditRecorder, Clock, IdentifierFactory } from '../ports.js';
 import type { Handler } from '../handler-registry.js';
 import type { ScoreAttempt } from '../commands/scoring-commands.js';
+import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Orchestration only (§1). Every decision about what a mark is belongs to the
@@ -19,7 +20,7 @@ export interface EventPublisher {
   publish(event: AttemptScored): Promise<void>;
 }
 
-export const SCORE_ATTEMPT_POLICY = policy('ScoreAttempt', ['ops', 'admin', 'system']);
+export const SCORE_ATTEMPT_POLICY = policy('ScoreAttempt', [ROLES.ops, ROLES.admin, ROLES.system]);
 
 export interface ScoreAttemptDependencies {
   readonly records: ScoreRecordRepository;
