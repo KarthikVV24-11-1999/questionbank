@@ -180,6 +180,38 @@ compromise.
 as one of three triggers that would bring that runtime with it.
 **Cited** [ADR-0024](adr/ADR-0024-generation-is-typescript-until-the-ecosystem-is-needed.md)
 
+### D40 — Accepting a candidate is not atomic across the context boundary
+
+`AcceptCandidate` asks content to create a draft and submit it, then records the decision and its event
+in generation's own transaction. Two contexts means two transactions, and a failure between them leaves a
+content draft with no decision recorded against its candidate: the candidate is still `proposed`, and
+accepting it again would create a second draft. The error names the draft left behind, so an operator
+can find and withdraw it, and nothing is lost — but nothing prevents the duplicate either.
+
+**Trigger** The first accept to fail after content succeeded in practice, or the outbox relay (D17)
+existing, at which point accept can be split into a content-side effect driven by the recorded decision
+instead of a call made before it.
+**Cited** `apps/api/src/contexts/generation/application/handlers/decision-handlers.ts`
+
+### D41 — Content's domain raises on structurally malformed input, and its guard cannot see it
+
+ENGINEERING-HANDBOOK §8 has domain operations report expected failures as values, never as thrown
+exceptions. `content/domain/`'s own guard asserts exactly that — and it reads for the `throw`
+*keyword*, so a `TypeError` raised by dereferencing something absent is invisible to it. Verified:
+`createResponseSpecification({ itemType: 'SINGLE_CORRECT_MCQ' })` with no options raises
+`TypeError: Cannot read properties of undefined (reading 'length')`.
+
+A typed caller cannot reach this — the call above needs a cast to compile. It matters now because
+generation is the first caller handing content **untyped JSON**, a model's proposal, and the shapes
+a model produces are not the shapes TypeScript was checking. `decision-handlers.ts` contains the
+raise at the seam and returns `Unavailable`, which keeps the acceptance honest but is a workaround,
+not a fix: content still owes a value where it currently raises.
+
+**Trigger** The next caller to hand content's domain data it did not type-check — an import path, a
+second generation surface, or any deserialized command. Fixing it means defensive validation in
+content's own constructors and a guard that can see a raise rather than a keyword.
+**Cited** `apps/api/src/contexts/generation/application/handlers/decision-handlers.ts`
+
 ---
 
 ## Closed

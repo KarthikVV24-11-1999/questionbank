@@ -1,10 +1,13 @@
 import { err, ok, type Result } from './result.js';
 import {
+  conflictError,
   preconditionFailedError,
   ruleViolationError,
   validationError,
   type GenerationError,
 } from './generation-error.js';
+import { freezeJson, isJsonObject } from './json-document.js';
+import { BLOCKING_PRECHECKS, isPrecheckId, precheckSeverity, type PrecheckId } from './precheck-vocabulary.js';
 import { createModelPin, type ModelPin, type ModelPinError, type ModelPinProps } from './model-pin.js';
 
 /**
@@ -70,7 +73,7 @@ export type VerdictOutcome = (typeof VERDICT_OUTCOMES)[number];
 
 /** One pre-check's result. `check` is the battery's stable identifier for it, never its prose. */
 export interface PrecheckVerdict {
-  readonly check: string;
+  readonly check: PrecheckId;
   readonly outcome: VerdictOutcome;
   readonly detail?: string;
 }
@@ -86,6 +89,11 @@ export interface GenerationCandidate {
   readonly pin: ModelPin;
   readonly content: ProposedContent;
   readonly verdicts: readonly PrecheckVerdict[];
+  /**
+   * How sure the model was, in [0, 1]. Content's AI provenance requires it, so
+   * a candidate without one could never become a draft.
+   */
+  readonly confidence: number;
   readonly state: CandidateState;
 }
 
@@ -93,9 +101,14 @@ export type CandidateErrorCode =
   | 'CANDIDATE_ID_REQUIRED'
   | 'CONTENT_ITEM_TYPE_REQUIRED'
   | 'CONTENT_BODY_INVALID'
+  | 'CONFIDENCE_REQUIRED'
+  | 'CONFIDENCE_OUT_OF_RANGE'
   | 'VERDICT_CHECK_REQUIRED'
+  | 'VERDICT_CHECK_UNKNOWN'
   | 'VERDICT_OUTCOME_UNKNOWN'
   | 'VERDICT_CHECK_DUPLICATED'
+  | 'VERDICT_CANDIDATE_NOT_PROPOSED'
+  | 'VERDICT_ALREADY_RECORDED'
   | 'CANDIDATE_PIN_INCOMPLETE'
   | 'CANDIDATE_NOT_PRECHECKED'
   | 'CANDIDATE_PRECHECK_FAILED';
@@ -107,23 +120,37 @@ export interface CreateGenerationCandidateProps {
   readonly pin: ModelPinProps;
   readonly content: ProposedContent;
   readonly verdicts: readonly PrecheckVerdict[];
+  readonly confidence: number;
 }
 
 function isBlank(value: unknown): boolean {
   return typeof value !== 'string' || value.trim().length === 0;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** A deep, frozen copy — the caller keeps no handle through which the proposal can change under review. */
-function freezeCopy(value: unknown): unknown {
-  if (Array.isArray(value)) return Object.freeze(value.map(freezeCopy));
-  if (isPlainObject(value)) {
-    return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, freezeCopy(inner)])));
+/** One verdict, validated and frozen. `location` is where it sits, so the error can say where. */
+function checkVerdict(verdict: PrecheckVerdict, location: string): Result<PrecheckVerdict, CandidateError> {
+  if (isBlank(verdict.check)) {
+    return err(validationError('VERDICT_CHECK_REQUIRED', 'a verdict must name its check', `${location}.check`));
   }
-  return value;
+  // The vocabulary is closed (§11): a verdict for a check the battery does not
+  // have is a typo or a stale producer, and stored it would never be read.
+  if (!isPrecheckId(verdict.check)) {
+    return err(
+      validationError('VERDICT_CHECK_UNKNOWN', `"${verdict.check}" is not one of the pre-checks`, `${location}.check`),
+    );
+  }
+  if (!(VERDICT_OUTCOMES as readonly string[]).includes(verdict.outcome)) {
+    return err(
+      validationError('VERDICT_OUTCOME_UNKNOWN', `unknown verdict outcome "${verdict.outcome}"`, `${location}.outcome`),
+    );
+  }
+  return ok(
+    Object.freeze(
+      verdict.detail === undefined
+        ? { check: verdict.check, outcome: verdict.outcome }
+        : { check: verdict.check, outcome: verdict.outcome, detail: verdict.detail },
+    ),
+  );
 }
 
 function checkVerdicts(verdicts: readonly PrecheckVerdict[]): Result<readonly PrecheckVerdict[], CandidateError> {
@@ -132,14 +159,8 @@ function checkVerdicts(verdicts: readonly PrecheckVerdict[]): Result<readonly Pr
 
   for (const [index, verdict] of verdicts.entries()) {
     const location = `verdicts[${index}]`;
-    if (isBlank(verdict.check)) {
-      return err(validationError('VERDICT_CHECK_REQUIRED', 'a verdict must name its check', `${location}.check`));
-    }
-    if (!(VERDICT_OUTCOMES as readonly string[]).includes(verdict.outcome)) {
-      return err(
-        validationError('VERDICT_OUTCOME_UNKNOWN', `unknown verdict outcome "${verdict.outcome}"`, `${location}.outcome`),
-      );
-    }
+    const checked = checkVerdict(verdict, location);
+    if (!checked.ok) return err(checked.error);
     // Two verdicts for one check would let a later pass hide an earlier fail.
     if (seen.has(verdict.check)) {
       return err(
@@ -147,13 +168,7 @@ function checkVerdicts(verdicts: readonly PrecheckVerdict[]): Result<readonly Pr
       );
     }
     seen.add(verdict.check);
-    frozen.push(
-      Object.freeze(
-        verdict.detail === undefined
-          ? { check: verdict.check, outcome: verdict.outcome }
-          : { check: verdict.check, outcome: verdict.outcome, detail: verdict.detail },
-      ),
-    );
+    frozen.push(checked.value);
   }
   return ok(Object.freeze(frozen));
 }
@@ -171,8 +186,20 @@ export function createGenerationCandidate(
   if (isBlank(props.content.itemType)) {
     return err(validationError('CONTENT_ITEM_TYPE_REQUIRED', 'the proposal must name an item type', 'content.itemType'));
   }
-  if (!isPlainObject(props.content.body)) {
+  if (!isJsonObject(props.content.body)) {
     return err(validationError('CONTENT_BODY_INVALID', 'the proposal body must be a JSON object', 'content.body'));
+  }
+
+  // Absence and range are different failures: the first is a producer that
+  // never supplied one, the second a number that cannot be a probability. NaN
+  // is a number, and falls to the second.
+  if (typeof props.confidence !== 'number') {
+    return err(validationError('CONFIDENCE_REQUIRED', 'a candidate must carry a confidence', 'confidence'));
+  }
+  if (!Number.isFinite(props.confidence) || props.confidence < 0 || props.confidence > 1) {
+    return err(
+      validationError('CONFIDENCE_OUT_OF_RANGE', `confidence must lie in [0, 1], got ${props.confidence}`, 'confidence'),
+    );
   }
 
   const verdicts = checkVerdicts(props.verdicts);
@@ -184,12 +211,76 @@ export function createGenerationCandidate(
       pin: pin.value,
       content: Object.freeze({
         itemType: props.content.itemType,
-        body: freezeCopy(props.content.body) as Readonly<Record<string, unknown>>,
+        body: freezeJson(props.content.body) as Readonly<Record<string, unknown>>,
       }),
       verdicts: verdicts.value,
+      confidence: props.confidence,
       state: 'proposed' as const,
     }),
   );
+}
+
+export interface RestoreGenerationCandidateProps extends CreateGenerationCandidateProps {
+  readonly state: CandidateState;
+}
+
+/**
+ * Rebuilds a candidate a repository read back, in whatever state it was left.
+ *
+ * Construction always yields a proposed candidate, so storage needs its own
+ * way in. It is not a way around anything: the pin, the proposal and every
+ * verdict are validated exactly as at construction, and the state must be one
+ * of the closed three. What it does not re-litigate is the lifecycle — an
+ * accepted candidate is read back accepted, because that is what happened.
+ * `acceptCandidate` still re-checks the pin of whatever it is handed.
+ */
+export function restoreGenerationCandidate(
+  props: RestoreGenerationCandidateProps,
+): Result<GenerationCandidate, CandidateError> {
+  if (!isCandidateState(props.state)) {
+    return err(validationError('STATE_UNKNOWN', `unknown candidate state "${props.state}"`, 'state'));
+  }
+
+  const candidate = createGenerationCandidate(props);
+  if (!candidate.ok) return candidate;
+  return ok(Object.freeze({ ...candidate.value, state: props.state }));
+}
+
+/**
+ * Records one pre-check's verdict on a candidate, returning a new candidate and
+ * mutating nothing.
+ *
+ * - Only a **proposed** candidate takes a verdict. An accepted candidate has
+ *   already gone to content and a rejected one is closed; a verdict written
+ *   afterwards would rewrite the record the decision was made on.
+ * - A check is recorded **once**. A second verdict for it is a `Conflict`, not
+ *   an overwrite: the battery's results are an audit trail, and a re-run is a
+ *   new run with a new candidate.
+ */
+export function recordVerdict(
+  candidate: GenerationCandidate,
+  verdict: PrecheckVerdict,
+): Result<GenerationCandidate, CandidateError> {
+  if (candidate.state !== 'proposed') {
+    return err(
+      ruleViolationError(
+        'VERDICT_CANDIDATE_NOT_PROPOSED',
+        `a verdict can only be recorded on a proposed candidate, and this one is ${candidate.state}`,
+        'state',
+      ),
+    );
+  }
+
+  const checked = checkVerdict(verdict, 'verdict');
+  if (!checked.ok) return err(checked.error);
+
+  if (candidate.verdicts.some((recorded) => recorded.check === verdict.check)) {
+    return err(
+      conflictError('VERDICT_ALREADY_RECORDED', `check "${verdict.check}" already has a verdict`, 'verdict.check'),
+    );
+  }
+
+  return ok(Object.freeze({ ...candidate, verdicts: Object.freeze([...candidate.verdicts, checked.value]) }));
 }
 
 /**
@@ -200,9 +291,10 @@ export function createGenerationCandidate(
  *   an incomplete pin, but a candidate rehydrated from storage never went
  *   through construction, and an accepted artifact without a pin is the one
  *   thing F28 exists to make impossible.
- * - **Nothing unchecked is accepted.** Pre-checks are blocking for AI content,
- *   so a candidate with no verdicts has not been checked, and one with any
- *   failing verdict has been checked and found wanting.
+ * - **Nothing unchecked is accepted.** Blocking pre-checks are mandatory for
+ *   AI content, so every blocking check must have a verdict and every one of
+ *   those must be a pass. An advisory check informs the reviewer and blocks
+ *   nothing: a failing duplicate signal is recorded, not a bar to acceptance.
  */
 export function acceptCandidate(candidate: GenerationCandidate): Result<GenerationCandidate, CandidateError> {
   const next = applyCandidateTransition(candidate.state, 'accept');
@@ -219,18 +311,26 @@ export function acceptCandidate(candidate: GenerationCandidate): Result<Generati
     );
   }
 
-  if (candidate.verdicts.length === 0) {
-    return err(
-      preconditionFailedError('CANDIDATE_NOT_PRECHECKED', 'a candidate with no pre-check verdicts cannot be accepted', 'verdicts'),
-    );
-  }
-
-  const failed = candidate.verdicts.filter((verdict) => verdict.outcome === 'fail').map((verdict) => verdict.check);
+  const failed = candidate.verdicts
+    .filter((verdict) => verdict.outcome === 'fail' && precheckSeverity(verdict.check) === 'blocking')
+    .map((verdict) => verdict.check);
   if (failed.length > 0) {
     return err(
       preconditionFailedError(
         'CANDIDATE_PRECHECK_FAILED',
-        `a candidate that failed pre-checks cannot be accepted: ${failed.join(', ')}`,
+        `a candidate that failed blocking pre-checks cannot be accepted: ${failed.join(', ')}`,
+        'verdicts',
+      ),
+    );
+  }
+
+  const recorded = new Set<string>(candidate.verdicts.map((verdict) => verdict.check));
+  const missing = BLOCKING_PRECHECKS.filter((check) => !recorded.has(check));
+  if (missing.length > 0) {
+    return err(
+      preconditionFailedError(
+        'CANDIDATE_NOT_PRECHECKED',
+        `a candidate without a verdict for every blocking pre-check cannot be accepted: ${missing.join(', ')}`,
         'verdicts',
       ),
     );

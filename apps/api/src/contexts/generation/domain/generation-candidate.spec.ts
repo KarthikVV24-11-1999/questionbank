@@ -8,22 +8,31 @@ import {
   createGenerationCandidate,
   isCandidateState,
   isCandidateTransition,
+  recordVerdict,
   rejectCandidate,
+  restoreGenerationCandidate,
   type CandidateState,
   type CandidateTransition,
   type CreateGenerationCandidateProps,
   type GenerationCandidate,
 } from './generation-candidate.js';
+import { BLOCKING_PRECHECKS, type PrecheckId } from './precheck-vocabulary.js';
 
 const PROPS: CreateGenerationCandidateProps = {
   candidateId: 'cand-1',
   pin: { modelVersionId: 'model-v3', promptVersionId: 'prompt-v7', runId: 'run-42' },
   content: { itemType: 'SINGLE_CORRECT_MCQ', body: { stem: 'A block slides down a ramp.', options: ['a', 'b'] } },
+  confidence: 0.85,
   verdicts: [
-    { check: 'grounding', outcome: 'pass' },
-    { check: 'duplicate', outcome: 'pass', detail: 'no neighbour above threshold' },
+    { check: 'schema_validity', outcome: 'pass' },
+    { check: 'duplicate_detection', outcome: 'pass', detail: 'no neighbour above threshold' },
   ],
 };
+
+/** A verdict for every blocking check, all passing — the least a candidate needs to be accepted. */
+const BLOCKING_ALL_PASS = BLOCKING_PRECHECKS.map((check) => ({ check, outcome: 'pass' as const }));
+const fullyChecked = (overrides: Partial<CreateGenerationCandidateProps> = {}): GenerationCandidate =>
+  proposed({ verdicts: BLOCKING_ALL_PASS, ...overrides });
 
 const proposed = (overrides: Partial<CreateGenerationCandidateProps> = {}): GenerationCandidate =>
   expectValue(createGenerationCandidate({ ...PROPS, ...overrides }));
@@ -109,7 +118,7 @@ describe('construction', () => {
     expect(candidate.pin.promptVersionId).toBe('prompt-v7');
     expect(candidate.pin.runId).toBe('run-42');
     expect(candidate.content.itemType).toBe('SINGLE_CORRECT_MCQ');
-    expect(candidate.verdicts.map((verdict) => verdict.check)).toEqual(['grounding', 'duplicate']);
+    expect(candidate.verdicts.map((verdict) => verdict.check)).toEqual(['schema_validity', 'duplicate_detection']);
   });
 
   it('keeps a verdict’s detail when given and omits the key when not', () => {
@@ -148,23 +157,52 @@ describe('construction', () => {
 
   it('refuses a verdict with no check, an unknown outcome, or a repeated check', () => {
     expect(
-      expectError(createGenerationCandidate({ ...PROPS, verdicts: [{ check: ' ', outcome: 'pass' }] })).code,
+      expectError(createGenerationCandidate({ ...PROPS, verdicts: [{ check: ' ' as never, outcome: 'pass' }] })).code,
     ).toBe('VERDICT_CHECK_REQUIRED');
     expect(
-      expectError(createGenerationCandidate({ ...PROPS, verdicts: [{ check: 'a', outcome: 'maybe' as never }] }))
-        .code,
+      expectError(
+        createGenerationCandidate({ ...PROPS, verdicts: [{ check: 'schema_validity', outcome: 'maybe' as never }] }),
+      ).code,
     ).toBe('VERDICT_OUTCOME_UNKNOWN');
+    const unknownCheck = expectError(
+      createGenerationCandidate({ ...PROPS, verdicts: [{ check: 'grounding' as never, outcome: 'pass' }] }),
+    );
+    expect(unknownCheck.code).toBe('VERDICT_CHECK_UNKNOWN');
+    expect(unknownCheck.location).toBe('verdicts[0].check');
     const repeated = expectError(
       createGenerationCandidate({
         ...PROPS,
         verdicts: [
-          { check: 'a', outcome: 'fail' },
-          { check: 'a', outcome: 'pass' },
+          { check: 'schema_validity', outcome: 'fail' },
+          { check: 'schema_validity', outcome: 'pass' },
         ],
       }),
     );
     expect(repeated.code).toBe('VERDICT_CHECK_DUPLICATED');
     expect(repeated.location).toBe('verdicts[1].check');
+  });
+
+  it('carries its confidence, and keeps the boundary values', () => {
+    expect(proposed().confidence).toBe(0.85);
+    expect(proposed({ confidence: 0 }).confidence).toBe(0);
+    expect(proposed({ confidence: 1 }).confidence).toBe(1);
+  });
+
+  it('refuses an absent confidence as a different failure from an out-of-range one', () => {
+    for (const confidence of [undefined, null, '0.5']) {
+      const failure = expectError(createGenerationCandidate({ ...PROPS, confidence: confidence as never }));
+      expect(failure.kind).toBe('Validation');
+      expect(failure.code).toBe('CONFIDENCE_REQUIRED');
+      expect(failure.location).toBe('confidence');
+    }
+  });
+
+  it('refuses a confidence that cannot be a probability: below 0, above 1, NaN, infinite', () => {
+    for (const confidence of [-0.0001, 1.0001, 2, -1, Number.NaN, Infinity, -Infinity]) {
+      const failure = expectError(createGenerationCandidate({ ...PROPS, confidence }));
+      expect(failure.code, String(confidence)).toBe('CONFIDENCE_OUT_OF_RANGE');
+      expect(failure.location).toBe('confidence');
+    }
   });
 
   it('accepts a candidate with no verdicts yet — it is proposed, not accepted', () => {
@@ -199,7 +237,7 @@ describe('immutability — the proposal cannot change under review', () => {
 
 describe('accepting', () => {
   it('moves a fully pre-checked candidate to accepted, leaving the original untouched', () => {
-    const original = proposed();
+    const original = fullyChecked();
     const accepted = expectValue(acceptCandidate(original));
     expect(accepted.state).toBe('accepted');
     expect(original.state).toBe('proposed');
@@ -217,31 +255,65 @@ describe('accepting', () => {
     }
   });
 
-  it('cannot accept a candidate nothing has checked', () => {
+  it('cannot accept a candidate nothing has checked, naming every blocking check it lacks', () => {
     const failure = expectError(acceptCandidate(proposed({ verdicts: [] })));
     expect(failure.kind).toBe('PreconditionFailed');
     expect(failure.code).toBe('CANDIDATE_NOT_PRECHECKED');
+    for (const check of BLOCKING_PRECHECKS) expect(failure.message).toContain(check);
+    expect(failure.message).not.toContain('duplicate_detection');
   });
 
-  it('cannot accept a candidate with a failing verdict, naming the checks that failed', () => {
+  it('cannot accept a candidate missing even one blocking verdict', () => {
+    for (const omitted of BLOCKING_PRECHECKS) {
+      const failure = expectError(
+        acceptCandidate(proposed({ verdicts: BLOCKING_ALL_PASS.filter((verdict) => verdict.check !== omitted) })),
+      );
+      expect(failure.code).toBe('CANDIDATE_NOT_PRECHECKED');
+      expect(failure.message).toContain(omitted);
+    }
+  });
+
+  it('cannot accept a candidate with a failing blocking verdict, naming the checks that failed', () => {
     const failure = expectError(
       acceptCandidate(
         proposed({
-          verdicts: [
-            { check: 'grounding', outcome: 'pass' },
-            { check: 'duplicate', outcome: 'fail' },
-            { check: 'difficulty', outcome: 'fail' },
-          ],
+          verdicts: BLOCKING_ALL_PASS.map((verdict) =>
+            verdict.check === 'answer_verification' || verdict.check === 'distractor_validity'
+              ? { ...verdict, outcome: 'fail' as const }
+              : verdict,
+          ),
         }),
       ),
     );
     expect(failure.code).toBe('CANDIDATE_PRECHECK_FAILED');
-    expect(failure.message).toContain('duplicate, difficulty');
-    expect(failure.message).not.toContain('grounding');
+    expect(failure.message).toContain('answer_verification, distractor_validity');
+    expect(failure.message).not.toContain('schema_validity');
+  });
+
+  it('accepts a candidate whose only failures are advisory — they inform the reviewer, they do not block', () => {
+    const accepted = expectValue(
+      acceptCandidate(
+        proposed({
+          verdicts: [
+            ...BLOCKING_ALL_PASS,
+            { check: 'duplicate_detection', outcome: 'fail', detail: 'near neighbour' },
+            { check: 'difficulty_plausibility', outcome: 'fail' },
+            { check: 'ambiguity_clarity', outcome: 'fail' },
+          ],
+        }),
+      ),
+    );
+    expect(accepted.state).toBe('accepted');
+    expect(accepted.verdicts.filter((verdict) => verdict.outcome === 'fail')).toHaveLength(3);
+  });
+
+  it('reports a failed blocking check before a missing one', () => {
+    const failure = expectError(acceptCandidate(proposed({ verdicts: [{ check: 'renderability', outcome: 'fail' }] })));
+    expect(failure.code).toBe('CANDIDATE_PRECHECK_FAILED');
   });
 
   it('cannot accept twice, or accept what was rejected', () => {
-    const accepted = expectValue(acceptCandidate(proposed()));
+    const accepted = expectValue(acceptCandidate(fullyChecked()));
     expect(expectError(acceptCandidate(accepted)).code).toBe('TRANSITION_ILLEGAL');
     const rejected = expectValue(rejectCandidate(proposed()));
     expect(expectError(acceptCandidate(rejected)).code).toBe('TRANSITION_ILLEGAL');
@@ -256,7 +328,7 @@ describe('accepting', () => {
 describe('rejecting', () => {
   it('moves a proposed candidate to rejected, whatever its verdicts', () => {
     expect(expectValue(rejectCandidate(proposed())).state).toBe('rejected');
-    expect(expectValue(rejectCandidate(proposed({ verdicts: [{ check: 'a', outcome: 'fail' }] }))).state).toBe(
+    expect(expectValue(rejectCandidate(proposed({ verdicts: [{ check: 'schema_validity', outcome: 'fail' }] }))).state).toBe(
       'rejected',
     );
   });
@@ -264,7 +336,111 @@ describe('rejecting', () => {
   it('is terminal', () => {
     const rejected = expectValue(rejectCandidate(proposed()));
     expect(expectError(rejectCandidate(rejected)).code).toBe('TRANSITION_ILLEGAL');
-    const accepted = expectValue(acceptCandidate(proposed()));
+    const accepted = expectValue(acceptCandidate(fullyChecked()));
     expect(expectError(rejectCandidate(accepted)).code).toBe('TRANSITION_ILLEGAL');
+  });
+});
+
+describe('recording a verdict', () => {
+  const VERDICT = { check: 'answer_verification', outcome: 'pass', detail: 'two independent solves agree' } as const;
+
+  it('returns a new candidate carrying the verdict, mutating nothing', () => {
+    const original = proposed({ verdicts: [] });
+    const recorded = expectValue(recordVerdict(original, VERDICT));
+    expect(recorded.verdicts).toEqual([VERDICT]);
+    expect(original.verdicts).toEqual([]);
+    expect(recorded).not.toBe(original);
+    expect(recorded.candidateId).toBe(original.candidateId);
+    expect(recorded.pin).toBe(original.pin);
+    expect(recorded.content).toBe(original.content);
+    expect(recorded.state).toBe('proposed');
+  });
+
+  it('appends in order and freezes what it returns', () => {
+    const once = expectValue(recordVerdict(proposed({ verdicts: [] }), { check: 'schema_validity', outcome: 'pass' }));
+    const twice = expectValue(recordVerdict(once, VERDICT));
+    expect(twice.verdicts.map((verdict) => verdict.check)).toEqual(['schema_validity', 'answer_verification']);
+    expect(Object.isFrozen(twice)).toBe(true);
+    expect(Object.isFrozen(twice.verdicts)).toBe(true);
+    expect(Object.isFrozen(twice.verdicts[1])).toBe(true);
+    expect(once.verdicts).toHaveLength(1);
+  });
+
+  it('refuses on an accepted or a rejected candidate, naming the state', () => {
+    const accepted = expectValue(acceptCandidate(fullyChecked()));
+    const rejected = expectValue(rejectCandidate(proposed({ verdicts: [] })));
+    for (const [candidate, state] of [
+      [accepted, 'accepted'],
+      [rejected, 'rejected'],
+    ] as const) {
+      const failure = expectError(recordVerdict(candidate, { check: 'duplicate_detection', outcome: 'pass' }));
+      expect(failure.kind).toBe('RuleViolation');
+      expect(failure.code).toBe('VERDICT_CANDIDATE_NOT_PROPOSED');
+      expect(failure.message).toContain(state);
+    }
+  });
+
+  it('refuses the same check twice as a Conflict, leaving the first verdict standing', () => {
+    const once = expectValue(recordVerdict(proposed({ verdicts: [] }), { check: 'renderability', outcome: 'fail' }));
+    const failure = expectError(recordVerdict(once, { check: 'renderability', outcome: 'pass' }));
+    expect(failure.kind).toBe('Conflict');
+    expect(failure.code).toBe('VERDICT_ALREADY_RECORDED');
+    expect(failure.location).toBe('verdict.check');
+    expect(once.verdicts).toEqual([{ check: 'renderability', outcome: 'fail' }]);
+  });
+
+  it('refuses a malformed verdict the way construction does', () => {
+    const candidate = proposed({ verdicts: [] });
+    expect(expectError(recordVerdict(candidate, { check: ' ' as never, outcome: 'pass' })).code).toBe(
+      'VERDICT_CHECK_REQUIRED',
+    );
+    expect(expectError(recordVerdict(candidate, { check: 'grounding' as never, outcome: 'pass' })).code).toBe(
+      'VERDICT_CHECK_UNKNOWN',
+    );
+    expect(expectError(recordVerdict(candidate, { check: 'renderability', outcome: 'maybe' as never })).code).toBe(
+      'VERDICT_OUTCOME_UNKNOWN',
+    );
+  });
+
+  it('reaches acceptance end to end: twelve recorded verdicts, then accepted', () => {
+    const checks: readonly PrecheckId[] = [...BLOCKING_PRECHECKS, 'duplicate_detection', 'difficulty_plausibility', 'ambiguity_clarity'];
+    let candidate = proposed({ verdicts: [] });
+    for (const check of checks) candidate = expectValue(recordVerdict(candidate, { check, outcome: 'pass' }));
+    expect(candidate.verdicts).toHaveLength(12);
+    expect(expectValue(acceptCandidate(candidate)).state).toBe('accepted');
+  });
+});
+
+describe('restoring a candidate from storage', () => {
+  const RESTORE = { ...PROPS, state: 'proposed' as CandidateState };
+
+  it('rebuilds a candidate in every state it can be left in, field by field', () => {
+    for (const state of CANDIDATE_STATES) {
+      const candidate = expectValue(restoreGenerationCandidate({ ...RESTORE, state }));
+      expect(candidate.state).toBe(state);
+      expect(candidate.candidateId).toBe(PROPS.candidateId);
+      expect(candidate.pin.modelVersionId).toBe('model-v3');
+      expect(candidate.pin.promptVersionId).toBe('prompt-v7');
+      expect(candidate.pin.runId).toBe('run-42');
+      expect(candidate.content.itemType).toBe('SINGLE_CORRECT_MCQ');
+      expect(candidate.verdicts).toHaveLength(2);
+      expect(candidate.confidence).toBe(0.85);
+      expect(Object.isFrozen(candidate)).toBe(true);
+    }
+  });
+
+  it('refuses a state outside the closed three', () => {
+    const failure = expectError(restoreGenerationCandidate({ ...RESTORE, state: 'published' as never }));
+    expect(failure.code).toBe('STATE_UNKNOWN');
+    expect(failure.location).toBe('state');
+  });
+
+  it('validates what it rebuilds exactly as construction does', () => {
+    expect(
+      expectError(restoreGenerationCandidate({ ...RESTORE, pin: { ...PROPS.pin, runId: '' }, state: 'accepted' })).code,
+    ).toBe('RUN_ID_REQUIRED');
+    expect(
+      expectError(restoreGenerationCandidate({ ...RESTORE, verdicts: [{ check: 'x' as never, outcome: 'pass' }] })).code,
+    ).toBe('VERDICT_CHECK_UNKNOWN');
   });
 });

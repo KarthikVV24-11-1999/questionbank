@@ -3,6 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   checkGenerationIsDownstreamOnly,
+  checkGenerationReachesContentOnlyAsBarrelTypes,
+  checkGenerationTouchesNoContentTable,
+  checkEventsCarryNoContent,
+  checkHandlersInventNoEnvelope,
+  EVENT_FORBIDDEN_FIELDS,
+  generationFiles,
   GENERATION_CONTEXT,
   upstreamContextFiles,
 } from './generation-rules.js';
@@ -61,5 +67,105 @@ describe('the rule, run against a planted violation', () => {
     // missed" and "the fixture is correctly out of scope" look identical from
     // a green test.
     expect(upstreamContextFiles(API_ROOT)).not.toContain(PLANTED);
+  });
+});
+
+describe('generation reaches content only through its barrel, and only for types (ADR-0025, SEC-20)', () => {
+  const PLANTED_TO_CONTENT = 'src/fitness-fixtures/as-generation-application/planted-content-imports.ts';
+
+  it('holds across every file generation has — specs included', () => {
+    expect(checkGenerationReachesContentOnlyAsBarrelTypes(API_ROOT)).toEqual([]);
+  });
+
+  it('scanned a real tree, and one that really does import content’s barrel', () => {
+    const files = generationFiles(API_ROOT);
+    expect(files.length).toBeGreaterThan(40);
+    expect(files.some((file) => file === 'src/contexts/generation/application/content-draft-acl.ts')).toBe(true);
+    expect(files.some((file) => file.startsWith('src/contexts/generation/domain/'))).toBe(true);
+  });
+
+  it('is red on a deep import and on a runtime import of the barrel, and silent on the permitted type import', () => {
+    const violations = checkGenerationReachesContentOnlyAsBarrelTypes(API_ROOT, { files: [PLANTED_TO_CONTENT] });
+
+    expect(violations.every((violation) => violation.rule === 'GENERATION_REACHES_CONTENT_ONLY_AS_BARREL_TYPES')).toBe(true);
+    expect(violations.map((violation) => violation.importPath).sort()).toEqual([
+      '../../contexts/content/domain/provenance.js',
+      '../../contexts/content/public/index.js',
+    ]);
+    expect(violations.find((violation) => violation.importPath.endsWith('provenance.js'))?.message).toContain('past content');
+    expect(violations.find((violation) => violation.importPath.endsWith('public/index.js'))?.message).toContain('as a value');
+    expect(violations.every((violation) => violation.message.includes('ADR-0025'))).toBe(true);
+  });
+
+  it('does not count the planted fixture against the real run', () => {
+    expect(generationFiles(API_ROOT)).not.toContain(PLANTED_TO_CONTENT);
+  });
+});
+
+describe('F27 — generation touches no content table (SEC-20)', () => {
+  const PLANTED_WRITE = 'src/fitness-fixtures/as-generation-application/planted-content-imports.ts';
+
+  it('holds across every non-spec file generation has', () => {
+    expect(checkGenerationTouchesNoContentTable(API_ROOT)).toEqual([]);
+  });
+
+  it('is red on a planted write to content.item', () => {
+    const violations = checkGenerationTouchesNoContentTable(API_ROOT, { files: [PLANTED_WRITE] });
+    expect(violations.map((violation) => violation.rule)).toEqual(['F27_GENERATION_TOUCHES_CONTENT_TABLES']);
+    expect(violations[0]?.message).toContain('F27');
+  });
+
+  it('matches a table in a statement, not a field path that merely starts with "content."', () => {
+    // 'content.body.stem' is a location string, not a table; the real tree is full of them.
+    expect(checkGenerationTouchesNoContentTable(API_ROOT)).toEqual([]);
+    expect(generationFiles(API_ROOT).some((file) => file.endsWith('content-draft-acl.ts'))).toBe(true);
+  });
+});
+
+describe('M5-20 — events carry facts and identifiers, never content', () => {
+  const PLANTED_EVENT = 'src/fitness-fixtures/as-generation-application/planted-event-violations.ts';
+
+  it('holds for the events generation declares', () => {
+    expect(checkEventsCarryNoContent(API_ROOT)).toEqual([]);
+  });
+
+  it('read a declaration with fields in it, so a clean result means something', () => {
+    // The same call with a name the events do declare proves the scan reaches real fields.
+    const withRealField = checkEventsCarryNoContent(API_ROOT).length;
+    expect(withRealField).toBe(0);
+    expect(EVENT_FORBIDDEN_FIELDS).toContain('stem');
+    expect(EVENT_FORBIDDEN_FIELDS).toContain('correctOptionId');
+    expect(EVENT_FORBIDDEN_FIELDS).toContain('solution');
+  });
+
+  it('is red on an event declaring a stem, an answer key and a solution', () => {
+    const violations = checkEventsCarryNoContent(API_ROOT, [PLANTED_EVENT]);
+    expect(violations.map((violation) => violation.message.match(/"(\w+)"/u)?.[1])).toEqual([
+      'stem',
+      'correctOptionId',
+      'solution',
+    ]);
+    expect(violations.every((violation) => violation.rule === 'M5_20_EVENT_CARRIES_CONTENT')).toBe(true);
+  });
+});
+
+describe('M5-20 — no handler invents a principal or a correlation id', () => {
+  const PLANTED_HANDLER = 'src/fitness-fixtures/as-generation-application/planted-event-violations.ts';
+
+  it('holds for every handler generation has, over handlers that exist', () => {
+    const handlers = generationFiles(API_ROOT).filter(
+      (file) => file.includes('/application/handlers/') && !file.endsWith('.spec.ts'),
+    );
+    expect(handlers.map((file) => file.split('/').pop()).sort()).toEqual([
+      'decision-handlers.ts',
+      'run-handlers.ts',
+      'verdict-handlers.ts',
+    ]);
+    expect(checkHandlersInventNoEnvelope(API_ROOT)).toEqual([]);
+  });
+
+  it('is red on a handler that mints a UUID, a system principal and a literal correlation id', () => {
+    const violations = checkHandlersInventNoEnvelope(API_ROOT, [PLANTED_HANDLER]);
+    expect(violations.map((violation) => violation.rule)).toEqual(['M5_20_HANDLER_INVENTS_ENVELOPE']);
   });
 });

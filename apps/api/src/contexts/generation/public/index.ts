@@ -6,12 +6,18 @@
  * Nothing in `content`, `curriculum` or `scoring` may import this file —
  * generation is downstream of content and nothing points back (ADR-0025,
  * enforced by `fitness/generation-rules.ts`).
- *
- * There are no queries yet.
  */
 
 // ── Commands ────────────────────────────────────────────────────────────────
-export type { AcceptCandidate, RejectCandidate } from '../application/commands/generation-commands.js';
+export type {
+  AcceptCandidate,
+  RecordPrecheckVerdict,
+  RejectCandidate,
+  StartGenerationRun,
+} from '../application/commands/generation-commands.js';
+
+// ── Queries ─────────────────────────────────────────────────────────────────
+export type { GetCandidate, ListRunCandidates } from '../application/queries/candidate-queries.js';
 
 // ── Vocabulary a consumer branches on ───────────────────────────────────────
 export { CANDIDATE_STATES } from '../domain/generation-candidate.js';
@@ -23,6 +29,7 @@ export { GENERATION_EVENT_TYPES } from '../domain/events/generation-events.js';
 export type {
   CandidateAccepted,
   CandidateRejected,
+  EventPrincipal,
   GenerationEvent,
   GenerationEventType,
 } from '../domain/events/generation-events.js';

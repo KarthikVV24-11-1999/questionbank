@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { filesMatching, importsOf, tsFilesUnder } from '../../../fitness/source-scan.js';
@@ -7,6 +7,8 @@ import { isPureNodeBuiltin } from '../../../fitness/boundary-rules.js';
 import {
   ERROR_KINDS,
   GENERATION_ERROR_KINDS,
+  conflictError,
+  notFoundError,
   preconditionFailedError,
   ruleViolationError,
   validationError,
@@ -62,8 +64,14 @@ describe('the error taxonomy', () => {
     ]);
   });
 
-  it('restricts the generation domain to exactly three of them', () => {
-    expect([...GENERATION_ERROR_KINDS]).toEqual(['Validation', 'PreconditionFailed', 'RuleViolation']);
+  it('restricts the generation domain to exactly five of them', () => {
+    expect([...GENERATION_ERROR_KINDS]).toEqual([
+      'Validation',
+      'NotFound',
+      'Conflict',
+      'PreconditionFailed',
+      'RuleViolation',
+    ]);
   });
 
   it('draws every generation kind from the platform taxonomy', () => {
@@ -77,6 +85,8 @@ describe('error constructors', () => {
     (code: string, message: string, location?: string) => GenerationError,
   ])[] = [
     ['Validation', validationError],
+    ['NotFound', notFoundError],
+    ['Conflict', conflictError],
     ['PreconditionFailed', preconditionFailedError],
     ['RuleViolation', ruleViolationError],
   ];
@@ -140,5 +150,64 @@ describe('the domain guards, run against a planted violation', () => {
 
   it('catches a domain module reading a clock and a source of randomness', () => {
     expect(clockReadsIn(PLANTED_DIR)).toHaveLength(1);
+  });
+});
+
+describe('every error kind the domain declares has a producer that is not a test', () => {
+  const CONTEXT_DIR = resolve(DOMAIN_DIR, '..');
+
+  /** Non-test, non-declaring files under the context that call `name(`. */
+  function callSites(name: string): string[] {
+    return filesMatching(CONTEXT_DIR, new RegExp(`\\b${name}\\(`, 'u'), {
+      exclude: ['.spec.ts', '/domain/generation-error.ts'],
+    })
+      .map((file) => relative(CONTEXT_DIR, file))
+      .sort();
+  }
+
+  // Asserted as sets, so a producer disappearing is a reviewed diff rather than
+  // a loop that quietly checks one fewer thing.
+  it('names where Validation, PreconditionFailed and RuleViolation are produced', () => {
+    expect(callSites('validationError')).toEqual([
+      'application/content-draft-acl.ts',
+      'domain/generation-candidate.ts',
+      'domain/generation-run.ts',
+      'domain/model-pin.ts',
+      'infrastructure/repository-errors.ts',
+    ]);
+    expect(callSites('preconditionFailedError')).toEqual([
+      'application/content-draft-acl.ts',
+      'domain/generation-candidate.ts',
+    ]);
+    expect(callSites('ruleViolationError')).toEqual(['domain/generation-candidate.ts']);
+  });
+
+  it('names where NotFound and Conflict are produced — the kinds that were once dropped for want of one', () => {
+    expect(callSites('conflictError')).toEqual(['domain/generation-candidate.ts', 'infrastructure/repository-errors.ts']);
+    expect(callSites('notFoundError')).toEqual(['infrastructure/repository-errors.ts']);
+  });
+
+  it('has every one of those producers actually called by the repositories that report with them', () => {
+    const repositories = ['generation-candidate.repository.ts', 'generation-run.repository.ts'].map((name) =>
+      readFileSync(join(CONTEXT_DIR, 'infrastructure', name), 'utf8'),
+    );
+    expect(repositories.some((source) => /\bnotFound\(/u.test(source))).toBe(true);
+    expect(repositories.some((source) => /\bconflict\(/u.test(source))).toBe(true);
+    expect(repositories.some((source) => /\bfromDatabaseError\(/u.test(source))).toBe(true);
+  });
+
+  it('declares exactly the kinds that have a producer', () => {
+    const produced = (
+      [
+        ['Validation', 'validationError'],
+        ['NotFound', 'notFoundError'],
+        ['Conflict', 'conflictError'],
+        ['PreconditionFailed', 'preconditionFailedError'],
+        ['RuleViolation', 'ruleViolationError'],
+      ] as const
+    )
+      .filter(([, constructor]) => callSites(constructor).length > 0)
+      .map(([kind]) => kind);
+    expect(produced).toEqual([...GENERATION_ERROR_KINDS]);
   });
 });

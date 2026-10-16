@@ -52,32 +52,65 @@ const APPEND_ONLY_CONTENT_TABLES = [
 ];
 const UPDATE_ONLY_CONTENT_TABLES = ['content.review_assignment'];
 
-describe('F5 — every content JSONB column has a version sibling', () => {
-  it('holds across the whole content schema, over a catalogue that is not empty', async () => {
-    const { rows } = await database.pool.query<ColumnRow>(
-      `SELECT table_name AS "table", column_name AS "column", data_type AS "dataType"
+/**
+ * Every schema the application owns, read from the catalogue rather than
+ * listed. A list of schemas is a list somebody must remember to extend: `ai`
+ * was the first schema added after the rule was written, and the rule did not
+ * cover it until a person noticed. Anything that is not the database's own is
+ * the application's.
+ */
+const SYSTEM_SCHEMAS = ['pg_catalog', 'information_schema', 'pg_toast', 'public'];
+
+describe('F5 — every JSONB column in every application schema has a version sibling', () => {
+  const catalogue = () =>
+    database.pool.query<ColumnRow & { schema: string }>(
+      `SELECT table_schema AS "schema", table_schema || '.' || table_name AS "table",
+              column_name AS "column", data_type AS "dataType"
          FROM information_schema.columns
-        WHERE table_schema = 'content'`,
+        WHERE table_schema <> ALL ($1) AND table_schema NOT LIKE 'pg\_%'`,
+      [SYSTEM_SCHEMAS],
     );
 
-    expect(rows.filter((row) => row.dataType === 'jsonb').length).toBeGreaterThanOrEqual(9);
+  it('holds across every schema, over a catalogue that is not empty', async () => {
+    const { rows } = await catalogue();
+    const jsonbBySchema = new Map<string, number>();
+    for (const row of rows.filter((candidate) => candidate.dataType === 'jsonb')) {
+      jsonbBySchema.set(row.schema, (jsonbBySchema.get(row.schema) ?? 0) + 1);
+    }
+
+    // Each schema that holds a document is in the count, so a schema the query
+    // silently stopped reaching would shrink this, not pass.
+    expect(Object.fromEntries([...jsonbBySchema].sort())).toEqual({
+      ai: 2,
+      content: 10,
+      curriculum: 9,
+      platform: 1,
+      scoring: 2,
+    });
     expect(checkJsonbVersionSiblings(rows)).toEqual([]);
   });
 
-  // The instrument, on the same shape of data: dropping a real sibling from the
-  // catalogue rows makes the check fire, so a green result is a fact about the
-  // schema rather than about the query returning nothing.
-  it('fires when a real sibling is taken away', async () => {
-    const { rows } = await database.pool.query<ColumnRow>(
-      `SELECT table_name AS "table", column_name AS "column", data_type AS "dataType"
-         FROM information_schema.columns
-        WHERE table_schema = 'content'`,
-    );
-    const weakened = rows.filter((row) => row.column !== 'stem_body_schema_version');
+  // The instrument, on the same shape of data, in a schema that is not `ai` and
+  // is not the first one the rule covered: dropping a real sibling makes the
+  // check fire, so a green result is a fact about the schema rather than about
+  // the query returning nothing.
+  it('fires when a real sibling is taken away, in each schema in turn', async () => {
+    const { rows } = await catalogue();
+    const siblings: Readonly<Record<string, string>> = {
+      'content.item_version.stem_body': 'stem_body_schema_version',
+      'curriculum.exam_profile_version.timing_policy': 'timing_policy_schema_version',
+      'platform.outbox_message.payload': 'payload_schema_version',
+      'scoring.item_outcome.response_snapshot': 'response_snapshot_schema_version',
+      'ai.generation_candidate.body': 'body_schema_version',
+    };
 
-    expect(checkJsonbVersionSiblings(weakened).map((violation) => violation.subject)).toContain(
-      'item_version.stem_body',
-    );
+    for (const [subject, sibling] of Object.entries(siblings)) {
+      const [table, column] = [subject.slice(0, subject.lastIndexOf('.')), subject.slice(subject.lastIndexOf('.') + 1)];
+      expect(rows.some((row) => row.table === table && row.column === column), subject).toBe(true);
+      const weakened = rows.filter((row) => !(row.table === table && row.column === sibling));
+
+      expect(checkJsonbVersionSiblings(weakened).map((violation) => violation.subject), subject).toEqual([subject]);
+    }
   });
 });
 
@@ -103,11 +136,11 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
     expect(rows[0]?.canLogin).toBe(false);
   });
 
-  it('holds exactly the expected privilege set — SELECT/INSERT/UPDATE/DELETE on content/curriculum/scoring, SELECT/INSERT only on platform', async () => {
+  it('holds exactly the expected privilege set — SELECT/INSERT/UPDATE/DELETE on content/curriculum/scoring, SELECT/INSERT only on platform and ai', async () => {
     const { rows } = await database.pool.query<GrantRow & { schema: string }>(
       `SELECT table_schema AS "schema", table_name AS "table", privilege_type AS "privilege", grantee AS "grantee"
          FROM information_schema.role_table_grants
-        WHERE grantee = $1 AND table_schema IN ('content', 'curriculum', 'scoring', 'platform')`,
+        WHERE grantee = $1 AND table_schema IN ('content', 'curriculum', 'scoring', 'platform', 'ai')`,
       [APP_ROLE],
     );
 
@@ -123,7 +156,7 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
 
     for (const [table, privileges] of byTable) {
       expect(privileges.has('TRUNCATE'), table).toBe(false);
-      if (table.startsWith('platform.') || APPEND_ONLY_CONTENT_TABLES.includes(table)) {
+      if (table.startsWith('platform.') || table.startsWith('ai.') || APPEND_ONLY_CONTENT_TABLES.includes(table)) {
         expect([...privileges].sort(), table).toEqual(['INSERT', 'SELECT']);
       } else if (UPDATE_ONLY_CONTENT_TABLES.includes(table)) {
         // review_assignment (M4-21): claimed, released, reassigned and
