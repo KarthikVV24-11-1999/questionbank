@@ -531,6 +531,32 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        // M5 Track A. Correctness-bearing by ADR-0008: a candidate that can be
+        // accepted unpinned, or out of order, is what INV-01 and F28 exist to stop.
+        'src/contexts/generation/domain/result.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/domain/generation-error.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/domain/model-pin.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/generation/domain/generation-candidate.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/content/domain/content-error.ts': {
           branches: 100,
           lines: 100,

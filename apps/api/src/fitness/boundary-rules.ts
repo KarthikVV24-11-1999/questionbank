@@ -79,13 +79,19 @@ export function isPureNodeBuiltin(importPath: string): boolean {
   return PURE_NODE_BUILTINS.has(importPath);
 }
 
-/** The bounded context a path belongs to, or null for anything outside contexts/. */
-function contextOf(path: string): string | null {
+/**
+ * The bounded context a path belongs to, or null for anything outside contexts/.
+ *
+ * Exported because `generation-rules.ts` asks the same question of the same
+ * paths. A second copy of this regex is how F1 and the test of F1 once came to
+ * disagree — see the note on `importsOf` above.
+ */
+export function contextOf(path: string): string | null {
   return /^src\/contexts\/([^/]+)\//u.exec(path)?.[1] ?? null;
 }
 
 /** Resolves a relative import to a repo-relative path, without extensions. */
-function resolveImport(fromFile: string, importPath: string, root: string): string | null {
+export function resolveImport(fromFile: string, importPath: string, root: string): string | null {
   if (!importPath.startsWith('.')) return null;
   const absolute = resolve(join(root, fromFile), '..', importPath);
   return relative(root, absolute).replaceAll('\\', '/');

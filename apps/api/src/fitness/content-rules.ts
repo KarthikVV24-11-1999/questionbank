@@ -274,16 +274,23 @@ export function checkSingleContentRenderer(
 /**
  * The AI context, by every name it could arrive under.
  *
- * **None of these exists yet** — the generation context is M5's — so this is a
- * tripwire rather than a check with something to find today. That is the
- * point: INV-01 is a boundary property, and the moment somebody creates the
- * far side of it, an import into content fails the build rather than being
- * noticed in review. The spec proves the mechanism fires by pointing it at a
- * context that does exist.
+ * `contexts/generation/` now exists, so this has a real far side; `contexts/ai/`
+ * and the package name are still tripwires. INV-01 is a boundary property, and
+ * the moment an import into content appears it fails the build rather than
+ * being noticed in review.
+ *
+ * **These match the specifier's text, not a resolved path**, which is why the
+ * bare `generation/` form is here as well as the qualified one. From
+ * `contexts/content/<layer>/`, the natural relative import of generation's
+ * barrel is `../../generation/public/index.js` — it never contains the word
+ * `contexts`, and the qualified pattern alone misses it. `generation-rules.ts`
+ * resolves paths properly and catches that form too (ADR-0025); this is the
+ * named invariant, and it should not be the weaker of the two.
  */
 export const AI_CONTEXT_PATTERNS = [
   /contexts\/ai\//u,
   /contexts\/generation\//u,
+  /(^|\/)generation\//u,
   /@questionbank\/ai\b/u,
 ] as const;
 

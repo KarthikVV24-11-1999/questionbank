@@ -292,12 +292,30 @@ describe('INV-01 — no import path from an AI context into content', () => {
     expect(violations.map((violation) => violation.rule)).toContain('INV01_AI_REACHES_CONTENT');
   });
 
-  it('watches every name the AI context could arrive under, none of which exists yet', () => {
-    expect(AI_CONTEXT_PATTERNS).toHaveLength(3);
+  it('watches every name the AI context could arrive under, including the one that now exists', () => {
+    expect(AI_CONTEXT_PATTERNS).toHaveLength(4);
     expect(AI_CONTEXT_PATTERNS.some((pattern) => pattern.test('../../contexts/ai/public/index.js'))).toBe(true);
     expect(AI_CONTEXT_PATTERNS.some((pattern) => pattern.test('@questionbank/ai'))).toBe(true);
     expect(existsSync(join(API_ROOT, 'src/contexts/ai'))).toBe(false);
-    expect(existsSync(join(API_ROOT, 'src/contexts/generation'))).toBe(false);
+    expect(AI_CONTEXT_PATTERNS.some((pattern) => pattern.test('../../contexts/generation/public/index.js'))).toBe(true);
+  });
+
+  it('catches the bare relative form a content module would actually write', () => {
+    // From `contexts/content/<layer>/`, generation's barrel is two levels up
+    // and the specifier never contains the word `contexts`. The qualified
+    // pattern alone missed this, and a planted import of exactly this shape
+    // was caught only by `generation-rules.ts` — INV-01 is the named
+    // invariant and should not be the weaker of the two checks.
+    expect(AI_CONTEXT_PATTERNS.some((pattern) => pattern.test('../../generation/public/index.js'))).toBe(true);
+    expect(AI_CONTEXT_PATTERNS.some((pattern) => pattern.test('../../generation/domain/candidate.js'))).toBe(true);
+  });
+
+  it('does not fire on a word that merely contains the context name', () => {
+    // `regeneration/` and `generational-report.js` are not the generation
+    // context. A pattern that matched them would make the invariant something
+    // authors route around rather than respect.
+    expect(AI_CONTEXT_PATTERNS.some((pattern) => pattern.test('../../regeneration/public/index.js'))).toBe(false);
+    expect(AI_CONTEXT_PATTERNS.some((pattern) => pattern.test('./generational-report.js'))).toBe(false);
   });
 });
 

@@ -8,8 +8,9 @@ import * as content from './public/index.js';
  *
  * M5's AI pre-check needs exactly three things from Content: a way to
  * **enqueue a generated candidate for review** (`SubmitItemForReview` — the
- * same command a human author's draft already goes through; M5 is not a
- * fourth context with its own queue, DEC-M4-7), a way to **read decision
+ * same command a human author's draft already goes through; generation is its
+ * own bounded context but it does **not** stand up a second review queue,
+ * DEC-M4-7 and ADR-0025), a way to **read decision
  * outcomes** so it can compute first-pass acceptance (`ReviewOutcome`,
  * `REVIEW_OUTCOMES`), and the **rejection taxonomy** so a returned candidate
  * classifies by a stable code rather than by matching message text

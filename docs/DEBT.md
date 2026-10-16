@@ -152,6 +152,34 @@ not hold. Named in the model rather than faked with an empty body.
 **Cited** `apps/studio/src/features/review-workspace/review-workspace-model.ts`,
 `review-workspace-api.ts`
 
+### D38 — The Compose file builds three contexts that do not exist
+
+`docker-compose.yml` declares `build: context: ./ai-fixture`, `dockerfile: apps/api/Dockerfile` and
+a studio build — and none of `infra/compose/ai-fixture/`, `apps/api/Dockerfile` or
+`apps/studio/Dockerfile` is in the repository. `compose-rules.ts` agrees with the file rather than
+the disk, because it parses structure and cannot know whether a build context resolves; that is
+precisely the Tier-1 property [ADR-0013](adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md)
+forbids it from claiming. The stack has never been run, so nothing has ever surfaced it.
+
+**Trigger** The first real `docker compose up`. At that point either the three contexts get built,
+or `ai-fixture` comes out of the file and out of `REQUIRED_SERVICES` — the file and the disk must
+agree, and today they do not.
+**Cited** `apps/api/src/fitness/compose-rules.ts`
+
+### D39 — No symbolic verification runtime
+
+[AI-ARCHITECTURE](AI-ARCHITECTURE.md) §11 check 3 reads "CAS where symbolic; otherwise 2 independent
+solves", and [TECH-STACK](TECH-STACK.md) names SymPy for it — a computer algebra system does not
+agree with itself out of politeness, unlike a second model call. There is no Python in this
+repository and SymPy is not installable offline, so the CAS branch cannot be built. The `otherwise`
+branch is what ships, which the architecture already specifies as the fallback rather than a
+compromise.
+
+**Trigger** A Python service existing here, or SymPy becoming installable offline — see
+[ADR-0024](adr/ADR-0024-generation-is-typescript-until-the-ecosystem-is-needed.md), which names this
+as one of three triggers that would bring that runtime with it.
+**Cited** [ADR-0024](adr/ADR-0024-generation-is-typescript-until-the-ecosystem-is-needed.md)
+
 ---
 
 ## Closed

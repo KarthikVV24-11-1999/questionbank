@@ -10,6 +10,15 @@ import { parse } from 'yaml';
  * substitute for.
  */
 
+/**
+ * **This list agrees with the file, not with the disk (debt D38).** Three of
+ * these services name a build context that does not exist — `./ai-fixture`,
+ * `apps/api/Dockerfile`, `apps/studio/Dockerfile`. Nothing here can know that:
+ * a parse sees a `build:` key, never whether it resolves, which is the Tier-1
+ * property ADR-0013 forbids this module from claiming. The day the stack is
+ * actually brought up, either the contexts get built or `ai-fixture` leaves
+ * both this list and the file.
+ */
 export const REQUIRED_SERVICES = ['postgres', 'valkey', 'minio', 'ai-fixture', 'api', 'studio'] as const;
 
 const HEALTHCHECK_KEYS = ['test', 'interval', 'timeout', 'retries', 'start_period'] as const;
