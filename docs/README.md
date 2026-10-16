@@ -30,5 +30,6 @@ One line per document: the question it answers, not what it contains.
 ## Decisions
 
 - [DECISIONS.md](DECISIONS.md) — what open product/business questions were closed, and how?
+- [IMPLEMENTATION-DECISIONS.md](IMPLEMENTATION-DECISIONS.md) — what does `DEC-M4-9` mean where the code cites it?
 - [adr/](adr/) — for each divergence from an approved document: what changed, and why.
 - [DEBT.md](DEBT.md) — what is knowingly not built yet, and what triggers each one?

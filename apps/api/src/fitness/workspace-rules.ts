@@ -25,8 +25,12 @@ export interface RequiredScriptViolation {
 
 const REQUIRED_SCRIPTS = ['test', 'typecheck'] as const;
 
-/** Not a workspace container and never will be — walking into it finds nothing a glob could cover. */
-const NEVER_A_WORKSPACE_DIR = new Set(['node_modules', '.git', '.claude', 'docs', 'infra']);
+/**
+ * Not a workspace container and never will be — walking into one finds
+ * nothing a glob could cover. Dot-directories are filtered separately at the
+ * call site, so tooling and VCS state need no entry here.
+ */
+const NEVER_A_WORKSPACE_DIR = new Set(['node_modules', 'docs', 'infra']);
 
 /**
  * Finds every directory under `root` containing a `package.json`, one level

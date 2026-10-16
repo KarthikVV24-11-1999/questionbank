@@ -5,7 +5,7 @@ Date: 2026-08-05
 ## Context
 
 M1-19 requires that "every handler declares an authorization policy; the module fails to boot without
-one" (F36, BACKEND-ARCHITECTURE §5). The milestone plan notes NestJS as the scaffolding for M1-19.
+one" (F36, BACKEND-ARCHITECTURE §5), with NestJS as the scaffolding that provides it.
 
 M1-19 through M1-22 build command handlers, query handlers and their policies. None of them serve
 HTTP, resolve a dependency graph at runtime, or need a DI container. The first task that does is

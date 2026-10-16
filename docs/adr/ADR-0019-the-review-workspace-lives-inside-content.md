@@ -55,7 +55,7 @@ Concretely:
      context-wide shared contracts
 
 3. **The sub-boundary governs `application/` and `infrastructure/` only, never `api/`**
-   (amendment of 2026-08-26, recorded in the plan under DEC-M4-7). The HTTP edge is request and
+   (amendment of 2026-08-26, carried with [DEC-M4-7](../IMPLEMENTATION-DECISIONS.md)). The HTTP edge is request and
    response translation; the coupling that blocks extraction lives in the write path, and that is
    where the gate applies. Narrowing what a ratified decision covers is recorded here rather than
    done quietly.

@@ -15,7 +15,7 @@ import type { Block, ContentBody } from '../../contexts/content/domain/content-b
  * item index — so the corpus is the same bytes on every machine, and "the
  * constants-swapped pair is detected" is a fact rather than a distribution.
  *
- * **40, not 200 (corrected 2026-08-25, see the plan's own note).** The
+ * **40, not 200 (corrected 2026-08-25).** The
  * corpus's value is the six planted cases, which exercise the same detectors
  * at 40 items as at 200. What 200 was sized for was throughput realism, and
  * that is `Fail — blocked` at any size — no reviewer pool exists to run a

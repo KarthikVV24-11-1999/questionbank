@@ -50,7 +50,7 @@ import type {
 /** Matches `CORPUS_SIZE` in `apps/api/src/testing/review/corpus-40.ts` — see the header. */
 const CORPUS_SIZE = 40;
 
-/** The plan's own figure: the run must be at least this long to say anything. */
+/** M4-38's own figure: the run must be at least this long to say anything. */
 const DECISIONS_MEASURED = 20;
 
 const CONTENT_BODY = { schemaVersion: 1, blocks: [{ kind: 'TEXT', value: 'A block slides down a ramp.' }] };
@@ -178,7 +178,7 @@ describe('Tier 1 — interaction cost across 20 consecutive approvals (M4-44)', 
 
     /**
      * Two keys per decision — the outcome and its confirmation — is the
-     * budget the plan's "≤ 1 keystroke per decision" is about: one *choice*,
+     * budget "≤ 1 keystroke per decision" is about: one *choice*,
      * plus the Enter that commits it. Asserting the raw count here keeps the
      * claim checkable rather than a matter of what counts as a keystroke.
      */

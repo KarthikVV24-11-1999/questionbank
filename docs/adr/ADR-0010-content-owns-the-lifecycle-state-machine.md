@@ -2,7 +2,7 @@
 Status: Accepted
 Date: 2026-08-09
 Relates to: M3-10, M3-11, M3-28 · FR-QM-01, INV-07, INV-12 · [ROADMAP.md](../ROADMAP.md) M3/M4
-Ratified as: M3's plan DEC-1
+Ratified as: [DEC-1](../IMPLEMENTATION-DECISIONS.md#dec-1--content-owns-the-lifecycle-state-machine)
 
 ## Context
 

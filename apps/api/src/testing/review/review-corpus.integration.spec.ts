@@ -124,7 +124,7 @@ afterAll(async () => {
   await database.close();
 });
 
-describe('the corpus is deterministic and shaped as the plan requires (M4-43)', () => {
+describe('the corpus is deterministic and shaped as M4-43 requires', () => {
   it('builds identically across 100 runs', () => {
     const first = JSON.stringify(buildReviewCorpus());
     for (let run = 0; run < 100; run += 1) {
@@ -335,7 +335,7 @@ describe('planted case 6 — the expired claim', () => {
 });
 
 /**
- * **The planted failure the plan asks for.**
+ * **The planted failure M4-43 asks for.**
  *
  * "A planted failure to detect the constants-swapped pair fails the suite" —
  * a corpus whose pair does not actually collide by skeleton hash must make

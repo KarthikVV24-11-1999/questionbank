@@ -2,11 +2,7 @@ node_modules/
 dist/
 coverage/
 .DS_Store
-.claude/settings.local.json
 .env
 .env.local
 .env.*.local
 *.pgpass
-docs/HANDOFF*.md
-docs/tasks/
-docs/SESSION-BRIEF.md

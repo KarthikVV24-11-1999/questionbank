@@ -23,9 +23,9 @@ const KEY_BEARING_FEATURES = [
   // M4-38 (ADR-0009, DEC-M4-12): the review workspace is an authoring-family
   // surface — a reviewer verifies correctness, which requires seeing which
   // option is correct. Added when review-workspace first rendered
-  // `correctOptionId`/`correctOptionIds`, per the plan's own acceptance
-  // criterion ("the answer key is present ... and the surface is
-  // unreachable without an authoring policy").
+  // `correctOptionId`/`correctOptionIds`, against M4-39's acceptance
+  // criterion: the answer key is present, and the surface is unreachable
+  // without an authoring policy.
   join('features', 'review-workspace'),
 ] as const;
 

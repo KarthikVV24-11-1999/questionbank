@@ -73,8 +73,8 @@ interface Mention {
 
 /**
  * "Accompanied" is judged over a **window of lines**, not the same line.
- * The close-out and the plan both write the gate on one line and its status
- * on the next; requiring them on a single line would fail correct documents
+ * Documents here write the gate on one line and its status on the next;
+ * requiring them on a single line would fail correct documents
  * and push authors toward cramming, which is not the point. Six lines is
  * wide enough for a table row plus its note and narrow enough that the two
  * are genuinely being read together.
@@ -110,7 +110,7 @@ describe('Tier 3 — "40 items/hour" never appears without its status (M4-44)', 
     expect(allMentions.length).toBeGreaterThan(3);
   });
 
-  it('scanned more than one file — the gate is named in the plan and the docs both', () => {
+  it('scanned more than one file — the gate is named in more than one place', () => {
     expect(new Set(allMentions.map((mention) => mention.file)).size).toBeGreaterThan(1);
   });
 

@@ -70,7 +70,7 @@ describe('planted mutations — one per assertion', () => {
 
   it('a key-shaped environment variable is a violation, even outside ai-fixture', () => {
     const mutated = clone(real);
-    (mutated.services!['api']!.environment as Record<string, string>)['CLAUDE_API_KEY'] = 'sk-fake';
+    (mutated.services!['api']!.environment as Record<string, string>)['AI_PROVIDER_API_KEY'] = 'sk-fake';
     expect(checkCompose(mutated).some((v) => v.rule === 'KEY_SHAPED_ENV_VAR')).toBe(true);
   });
 

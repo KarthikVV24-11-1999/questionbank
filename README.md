@@ -11,7 +11,7 @@ and the learner-facing product come later, once there is a corpus worth deliveri
 - The application boots and serves an authenticated request against real Postgres:
   `corepack pnpm --filter @questionbank/api start`, then an authenticated `GET /v1/exams` — see
   [How to run it](#how-to-run-it) for the full sequence.
-- **4,857 tests** across 6 workspace projects. Coverage floors are enforced in the test run — ≥80%
+- **4,852 tests** across 6 workspace projects. Coverage floors are enforced in the test run — ≥80%
   line/≥70% branch overall, **100% on every correctness-bearing module** (scoring, publication
   preconditions, the answer-key projection, the audit chain).
 
