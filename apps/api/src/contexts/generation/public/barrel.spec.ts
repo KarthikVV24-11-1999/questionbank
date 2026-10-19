@@ -12,7 +12,7 @@ describe('the barrel exposes commands, vocabulary and events', () => {
   it('builds every command', () => {
     const accept: generation.AcceptCandidate = { candidateId: 'c-1' };
     const reject: generation.RejectCandidate = { candidateId: 'c-1' };
-    const start: generation.StartGenerationRun = { modelVersionId: 'm', promptVersionId: 'p', request: { count: 1 } };
+    const start: generation.StartGenerationRun = { modelVersionId: 'm', promptVersionId: 'p', request: { count: 1 }, budgetTokens: 1000 };
     const verdict: generation.RecordPrecheckVerdict = { candidateId: 'c-1', check: 'renderability', outcome: 'pass' };
     expect([accept.candidateId, reject.candidateId, verdict.candidateId]).toEqual(['c-1', 'c-1', 'c-1']);
     const propose: generation.ProposeCandidate = { runId: 'r-1', grounding: [{ sourceId: 's', text: 't' }], task: { band: 'easy' } };

@@ -29,7 +29,7 @@ describe('a run pins registry rows, and nothing else', () => {
     const run = aRun({ modelVersionId: versionId('model', 9001) });
     const failure = expectError(await unregistering.save(run));
     expect(failure.code).toBe('PERSISTENCE_REJECTED');
-    expect(failure.message).toContain('generation_run_model_version_fk');
+    expect(failure.message).toContain('version_not_evaluated');
     expect(expectError(await unregistering.findById(run.pin.runId)).kind).toBe('NotFound');
   });
 
@@ -37,7 +37,7 @@ describe('a run pins registry rows, and nothing else', () => {
     await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
     const run = aRun({ promptVersionId: versionId('prompt', 9001) });
     const failure = expectError(await unregistering.save(run));
-    expect(failure.message).toContain('generation_run_prompt_version_fk');
+    expect(failure.message).toContain('version_not_evaluated');
   });
 
   it('is saved once both are published', async () => {
@@ -66,7 +66,7 @@ describe('saving and finding a run', () => {
     const filters = found.request['filters'] as { topics: string[]; strict: boolean };
     expect(filters.topics).toEqual(['kinematics', 'optics']);
     expect(filters.strict).toBe(true);
-    expect(Object.keys(found).sort()).toEqual(['pin', 'request', 'requestedAt']);
+    expect(Object.keys(found).sort()).toEqual(['budgetTokens', 'pin', 'request', 'requestedAt']);
     expect(Object.keys(found.pin).sort()).toEqual(['modelVersionId', 'promptVersionId', 'runId']);
     expect(Object.isFrozen(found)).toBe(true);
   });
@@ -115,3 +115,27 @@ function aRunWithId(runId: string, request: Record<string, unknown>) {
   const run = aRun({ request });
   return { ...run, pin: { ...run.pin, runId } };
 }
+
+describe('enqueueing against a budget, when the store itself fails', () => {
+  // A pool whose connections fail on the first statement after BEGIN, and fail again on ROLLBACK:
+  // the repository must still report a value (§8), release the connection, and not mask the first failure.
+  it('reports the store’s refusal as a value and releases the connection, even when the rollback fails too', async () => {
+    let released = 0;
+    const client = {
+      query: async (statement: string) => {
+        if (statement === 'BEGIN') return { rows: [] };
+        throw Object.assign(new Error('connection lost'), { code: '08006' });
+      },
+      release: () => {
+        released += 1;
+      },
+    };
+    const failing = new PostgresGenerationRunRepository({ connect: async () => client } as never);
+
+    const failure = expectError(await failing.saveWithinBudget(aRun(), 'generation'));
+
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+    expect(failure.message).not.toContain('connection lost');
+    expect(released).toBe(1);
+  });
+});

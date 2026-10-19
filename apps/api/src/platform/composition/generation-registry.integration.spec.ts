@@ -70,7 +70,7 @@ describe('every handler the context declares is registered, through the applicat
     const expected = GENERATION_POLICIES.map((entry) => entry.name);
 
     expect([...registry.names].sort()).toEqual([...expected].sort());
-    expect(expected).toHaveLength(8);
+    expect(expected).toHaveLength(11);
     for (const entry of GENERATION_POLICIES) {
       expect(registry.get(entry.name)?.policy, entry.name).toBe(entry);
     }
@@ -115,7 +115,7 @@ describe('the audit recorder in front of generation is the real one (M5-37)', ()
     const before = await database.pool.query(`SELECT count(*)::int AS n FROM platform.audit_record WHERE target_context = 'generation'`);
     const started = expectValue(
       await handler<unknown, { pin: { runId: string } }>('StartGenerationRun').handle(
-        { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, request: { itemType: 'single_choice' } },
+        { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, request: { itemType: 'single_choice' }, budgetTokens: 10_000 },
         contextFor(pipeline, 'corr-audit-1'),
       ),
     );
@@ -152,7 +152,7 @@ describe('a deployment that supplied neither a provider nor a pre-check configur
   it('says a proposal is unavailable because no provider is configured, and creates no candidate', async () => {
     const started = expectValue(
       await handler<unknown, { pin: { runId: string } }>('StartGenerationRun').handle(
-        { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, request: { itemType: 'single_choice' } },
+        { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION, request: { itemType: 'single_choice' }, budgetTokens: 10_000 },
         contextFor(pipeline),
       ),
     );

@@ -17,6 +17,8 @@ export const startGenerationRunSchema = z
     promptVersionId: uuid,
     // What was asked for. Its shape is the pipeline's to define, so it is an object and no more.
     request: z.record(z.string(), z.unknown()),
+    // What the run reserves from its month's budget (M5-41): a positive whole number of tokens.
+    budgetTokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   })
   .strict();
 

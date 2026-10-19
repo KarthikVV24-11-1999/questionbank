@@ -104,6 +104,10 @@
     "output": {
       "outcome": "pass",
       "rationale": "Neutral physics content."
+    },
+    "usage": {
+      "inputTokens": 991,
+      "outputTokens": 169
     }
   }
 }

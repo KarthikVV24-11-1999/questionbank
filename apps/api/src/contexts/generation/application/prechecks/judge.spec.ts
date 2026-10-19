@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
-import { aCandidate, aRun, versionId } from '../../../../testing/generation-fixtures.js';
+import { aCandidate, aRun, versionId, USAGE } from '../../../../testing/generation-fixtures.js';
 import { err, ok } from '../../domain/result.js';
 import { applicationError } from '../authorization.js';
 import type { JudgementProvider, JudgementRequest } from '../ports.js';
@@ -31,14 +31,14 @@ describe('the gateway every judged check goes through', () => {
   const candidate = aCandidate(aRun({ promptVersionId: versionId('prompt', 7) }));
   const recording = (): { provider: JudgementProvider; asked: JudgementRequest[] } => {
     const asked: JudgementRequest[] = [];
-    return { asked, provider: { judge: async (request) => (asked.push(request), ok({ output: { answer: 'b' } })) } };
+    return { asked, provider: { judge: async (request) => (asked.push(request), ok({ usage: USAGE, output: { answer: 'b' } })) } };
   };
 
   it('puts the question to the provider under the check’s own model and prompt', async () => {
     const { provider, asked } = recording();
     const config = { modelVersionId: versionId('model', 5), promptVersionId: versionId('prompt', 20) };
     expectValue(await judgeIndependently(provider, candidate, 'answer_verification', config, { q: 1 }));
-    expect(asked).toEqual([{ ...config, input: { q: 1 } }]);
+    expect(asked).toEqual([{ budgetScope: { feature: 'generation', runId: candidate.pin.runId }, ...config, input: { q: 1 } }]);
   });
 
   it('refuses before the provider is touched when the prompt is the candidate’s own', async () => {

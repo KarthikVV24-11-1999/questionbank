@@ -1,4 +1,7 @@
 import type { Result } from './result.js';
+import type { AdmissionErrorCode, AIBudget } from './ai-budget.js';
+import type { SpendEntry } from './ai-spend.js';
+import type { EvaluationRun, SubjectKind } from './evaluation-run.js';
 import type { GenerationError } from './generation-error.js';
 import type { GenerationCandidate } from './generation-candidate.js';
 import type { GenerationRun } from './generation-run.js';
@@ -23,11 +26,33 @@ import type { GenerationEvent } from './events/generation-events.js';
 
 export type RepositoryError = GenerationError<'CONFLICT' | 'NOT_FOUND' | 'PERSISTENCE_REJECTED'>;
 
+export type RunAdmissionError = RepositoryError | GenerationError<AdmissionErrorCode>;
+
 export interface GenerationRunRepository {
   /** Writes a run once. A run with this id already stored is a `CONFLICT`. */
   save(run: GenerationRun): Promise<Result<GenerationRun, RepositoryError>>;
 
+  /**
+   * Enqueue (M5-41): writes the run **only if it fits its period's budget**, and
+   * decides that in the same transaction that writes it, so two runs enqueued at
+   * once cannot both claim the last of a ceiling. A period with no declared budget
+   * is `BUDGET_NOT_DECLARED`; one the run would overflow is `RUN_EXCEEDS_BUDGET`.
+   * Either way nothing is written.
+   */
+  saveWithinBudget(run: GenerationRun, feature: string): Promise<Result<GenerationRun, RunAdmissionError>>;
+
   findById(runId: string): Promise<Result<GenerationRun, RepositoryError>>;
+}
+
+export interface AIBudgetRepository {
+  /** Declares a period's ceiling once. A second declaration for the same feature and period is a `CONFLICT`. */
+  declare(
+    budget: AIBudget,
+    declaredBy: { readonly kind: string; readonly id: string },
+    declaredAt: string,
+  ): Promise<Result<AIBudget, RepositoryError>>;
+
+  find(feature: string, period: string): Promise<Result<AIBudget | undefined, RepositoryError>>;
 }
 
 export interface GenerationCandidateRepository {
@@ -67,4 +92,34 @@ export interface VersionRegistry {
   registerPromptVersion(version: PromptVersion): Promise<Result<PromptVersion, RepositoryError>>;
   findModelVersion(modelVersionId: string): Promise<Result<ModelVersion, RepositoryError>>;
   findPromptVersion(promptVersionId: string): Promise<Result<PromptVersion, RepositoryError>>;
+}
+
+/**
+ * The spend ledger (M5-42): append-only, and the single source of what a run, a
+ * month or a feature has consumed. Nothing keeps a counter beside it.
+ */
+export interface AISpendLedger {
+  append(entry: SpendEntry): Promise<Result<SpendEntry, RepositoryError>>;
+
+  /** Tokens, input plus output, charged to one run. Zero for a run that has spent nothing. */
+  spentByRun(runId: string): Promise<Result<number, RepositoryError>>;
+
+  /** Tokens charged to a feature in a UTC calendar month, `YYYY-MM`. */
+  spentInPeriod(feature: string, period: string): Promise<Result<number, RepositoryError>>;
+}
+
+/**
+ * Evaluation runs (M5-43). Written once and never changed; the gate on activating a
+ * version reads only whether a *passing* one exists.
+ */
+export interface EvaluationRunRepository {
+  save(
+    run: EvaluationRun,
+    evaluatedBy: { readonly kind: string; readonly id: string },
+  ): Promise<Result<EvaluationRun, RepositoryError>>;
+
+  findById(evaluationRunId: string): Promise<Result<EvaluationRun, RepositoryError>>;
+
+  /** Whether a passing evaluation exists for this version. A failing one is not a pass. */
+  hasPassing(kind: SubjectKind, versionId: string): Promise<Result<boolean, RepositoryError>>;
 }

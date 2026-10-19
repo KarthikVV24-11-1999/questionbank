@@ -295,3 +295,38 @@ on every platform table, and the chain columns must not become the reason that s
 disables the append-only trigger for the length of one statement inside the migration's transaction
 and re-enables it, rather than weakening the rule permanently for a one-time migration.
 → `infra/migrations/20260820190000_platform_audit_chain.sql`
+
+### DEC-M5-1 — Two M5 acceptance criteria are `Fail — blocked` from the start
+First-pass review acceptance (≥ 60%) and cost per published item (≤ 40% of the human-only baseline)
+cannot be measured here: both need a reviewer pool, and none exists. The wording is fixed at the start so
+it cannot drift toward "basically met" as pieces land — the same move DEC-M4-5 made for reviewer
+throughput. They are blocked on **one** resource, not two, and what they do *not* block is the
+verification catch rate (F34) and the evaluation gate (F31), which are measurable offline.
+→ `testing/eval/eval-run.ts`
+
+### DEC-M5-4 — The eval corpus is the 100 known-bad, plus synthetics
+The golden set is specified as 250 real items with official keys plus 100 known-bad negative controls. The
+250 real items are B1 — the licensing decision that has blocked the scoring golden set since M2 — and
+nothing here attempts to source papers. M5 builds the 100 known-bad controls, on which F34's catch rate is
+measured and not blocked, and synthetic positives clearly labelled as such. A run reporting zero official
+items says so in words and is not a validated run.
+→ `testing/eval/eval-corpus.ts` · `testing/eval/eval-run.ts`
+
+### DEC-M5-9 — The budget is enforced at enqueue, not at call
+A budget checked at call time has already committed to the work by the time it refuses, and a
+partially-generated run is the worst outcome: tokens spent, nothing publishable. A run is admitted
+against its period's budget when it is enqueued, in the transaction that writes it, so one that does not
+fit is never written and the refusal says by how much. **Proposed at M5 and implemented at M5-41; it was
+never ratified by anyone but the task that built it.**
+→ `contexts/generation/application/handlers/run-handlers.ts` · `contexts/generation/infrastructure/generation-run.repository.ts`
+
+### DEC-M5-10 — What counts as a regression, and who records an evaluation
+The architecture says regression blocks promotion and does not say what one is. An evaluation run's
+outcome is **derived by the domain, never asserted**: a dimension the baseline reported that this run
+scores lower on, or does not report, is a regression; a dimension with an absolute floor (verification
+catch rate on known-bad items, 95%, F34) scored below it is one; a run that measured nothing is not a
+pass; a version's first evaluation has no baseline, so only floors apply. A regression is stored as
+`fail`, which the activation gate does not accept. Recording an evaluation is `content_ops`'s alone: the
+pipeline is what a pass lets through, so it cannot certify itself. **Chosen at M5-43 where the document
+was silent; nobody else has agreed to these thresholds.**
+→ `contexts/generation/domain/evaluation-run.ts` · `contexts/generation/application/policies.ts`

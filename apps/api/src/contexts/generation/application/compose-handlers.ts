@@ -1,8 +1,8 @@
-import type { GenerationCandidateRepository, GenerationRunRepository } from '../domain/repository-ports.js';
+import type { AIBudgetRepository, EvaluationRunRepository, GenerationCandidateRepository, GenerationRunRepository } from '../domain/repository-ports.js';
 import { HandlerRegistry, type Handler } from './handler-registry.js';
 import type { AuditRecorder, Clock, ContentAuthoring, IdentifierFactory, ProposalProvider } from './ports.js';
-import { StartGenerationRunHandler } from './handlers/run-handlers.js';
-import { AcceptCandidateHandler, RejectCandidateHandler } from './handlers/decision-handlers.js';
+import { DeclareAIBudgetHandler, RecordEvaluationRunHandler, StartGenerationRunHandler } from './handlers/run-handlers.js';
+import { AcceptCandidateHandler, DisposeCandidateHandler, RejectCandidateHandler } from './handlers/decision-handlers.js';
 import { RunPrecheckBatteryHandler } from './handlers/battery-handlers.js';
 import type { BlockedPrecheck, PrecheckRunner } from './prechecks/battery.js';
 import { ProposeCandidateHandler } from './handlers/propose-handlers.js';
@@ -12,6 +12,8 @@ import { GetCandidateHandler, ListRunCandidatesHandler } from './queries/candida
 /** Everything the context's handlers need from outside it. */
 export interface GenerationDependencies {
   readonly runs: GenerationRunRepository;
+  readonly budgets: AIBudgetRepository;
+  readonly evaluations: EvaluationRunRepository;
   readonly candidates: GenerationCandidateRepository;
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
@@ -33,11 +35,15 @@ export interface GenerationDependencies {
  */
 export function composeGenerationHandlers(deps: GenerationDependencies): HandlerRegistry {
   const recordVerdict = new RecordPrecheckVerdictHandler(deps);
+  const dispose = new DisposeCandidateHandler(deps);
   const handlers: readonly Handler<never, unknown>[] = [
     new StartGenerationRunHandler(deps),
+    new DeclareAIBudgetHandler(deps),
+    new RecordEvaluationRunHandler(deps),
     new ProposeCandidateHandler(deps),
     recordVerdict,
-    new RunPrecheckBatteryHandler({ ...deps, recordVerdict }),
+    new RunPrecheckBatteryHandler({ ...deps, recordVerdict, dispose }),
+    dispose,
     new AcceptCandidateHandler(deps),
     new RejectCandidateHandler(deps),
     new GetCandidateHandler(deps),

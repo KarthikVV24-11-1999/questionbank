@@ -35,8 +35,8 @@ describe('a run whose stored request is no longer a document', () => {
     await database.pool.query(`ALTER TABLE ai.generation_run DROP CONSTRAINT generation_run_request_check`);
     const runId = randomUUID();
     await database.pool.query(
-      `INSERT INTO ai.generation_run (run_id, model_version_id, prompt_version_id, requested_at, request)
-       VALUES ($1, $2, $3, now(), '[1]')`,
+      `INSERT INTO ai.generation_run (run_id, model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+       VALUES ($1, $2, $3, now(), '[1]', 1000)`,
       [runId, MODEL_VERSION, PROMPT_VERSION],
     );
 
@@ -54,8 +54,8 @@ describe('a candidate carrying a verdict for a check the battery does not have',
     const runId = randomUUID();
     const candidateId = randomUUID();
     await database.pool.query(
-      `INSERT INTO ai.generation_run (run_id, model_version_id, prompt_version_id, requested_at, request)
-       VALUES ($1, '00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', now(), '{}')`,
+      `INSERT INTO ai.generation_run (run_id, model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+       VALUES ($1, '00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', now(), '{}', 1000)`,
       [runId],
     );
     await database.pool.query(

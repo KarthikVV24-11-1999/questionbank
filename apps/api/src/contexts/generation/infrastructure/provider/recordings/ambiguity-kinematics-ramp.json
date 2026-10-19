@@ -104,6 +104,10 @@
     "output": {
       "outcome": "pass",
       "rationale": "The ramp is frictionless and starts from rest, so \"acceleration along the ramp\" has one reading."
+    },
+    "usage": {
+      "inputTokens": 900,
+      "outputTokens": 120
     }
   }
 }

@@ -37,9 +37,12 @@ const PRECHECK_CONFIG = Object.fromEntries(
 /** The handlers the context declares. Asserted as a set: a loop over the registry cannot notice one going missing. */
 const DECLARED_HANDLERS = [
   'AcceptCandidate',
+  'DeclareAIBudget',
+  'DisposeCandidate',
   'GetCandidate',
   'ListRunCandidates',
   'ProposeCandidate',
+  'RecordEvaluationRun',
   'RecordPrecheckVerdict',
   'RejectCandidate',
   'RunPrecheckBattery',

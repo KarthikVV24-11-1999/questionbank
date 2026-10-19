@@ -11,7 +11,10 @@
 // ── Commands ────────────────────────────────────────────────────────────────
 export type {
   AcceptCandidate,
+  DeclareAIBudget,
+  DisposeCandidate,
   ProposeCandidate,
+  RecordEvaluationRun,
   RecordPrecheckVerdict,
   RejectCandidate,
   RunPrecheckBattery,

@@ -6,6 +6,8 @@ import {
   checkGenerationReachesUpstreamOnlyAsBarrelTypes,
   checkGenerationTouchesNoContentTable,
   checkEventsCarryNoContent,
+  checkEveryAiCallDeclaresABudgetScope,
+  METERED_PROVIDER_FILE,
   checkNoInferenceOnARequestPath,
   checkProviderIsolation,
   PROVIDER_ADAPTER_DIRECTORY,
@@ -210,6 +212,35 @@ describe('EXT-05 — the provider is the adapter’s, and nobody else’s', () =
     expect(generationFiles(API_ROOT).filter((file) => file.startsWith(PROVIDER_ADAPTER_DIRECTORY)).every((file) => file.startsWith(PROVIDER_ADAPTER_DIRECTORY))).toBe(true);
     expect(adapterFile.startsWith(PROVIDER_ADAPTER_DIRECTORY)).toBe(true);
     expect('src/contexts/generation/infrastructure/generation-run.repository.ts'.startsWith(PROVIDER_ADAPTER_DIRECTORY)).toBe(false);
+  });
+});
+
+describe('F32 — every AI call site declares a budget scope (M5-41)', () => {
+  const PLANTED_CALLS = 'src/fitness-fixtures/as-generation-application/planted-unscoped-ai-calls.ts';
+
+  it('holds across the context: both call sites name their scope', () => {
+    expect(checkEveryAiCallDeclaresABudgetScope(API_ROOT)).toEqual([]);
+  });
+
+  it('read the call sites, so a clean result means something', () => {
+    const governed = generationFiles(API_ROOT).filter((file) => !file.startsWith(PROVIDER_ADAPTER_DIRECTORY) && !file.endsWith('.spec.ts') && file !== METERED_PROVIDER_FILE);
+    expect(governed).toContain('src/contexts/generation/application/handlers/propose-handlers.ts');
+    expect(governed).toContain('src/contexts/generation/application/prechecks/judge.ts');
+  });
+
+  it('exempts the meter by its exact path, which exists, and nothing alongside it', () => {
+    expect(METERED_PROVIDER_FILE).toBe('src/contexts/generation/application/metered-provider.ts');
+    expect(generationFiles(API_ROOT)).toContain(METERED_PROVIDER_FILE);
+    // A sibling file forwarding a request by name is a violation, not covered by the meter's exemption.
+    expect(checkEveryAiCallDeclaresABudgetScope(API_ROOT, { files: ['src/fitness-fixtures/as-generation-application/planted-unscoped-ai-calls.ts'] }).length).toBeGreaterThan(0);
+  });
+
+  it('is red on a call with no scope and on a call whose arguments hide it, and not on the one that declares it', () => {
+    const violations = checkEveryAiCallDeclaresABudgetScope(API_ROOT, { files: [PLANTED_CALLS] });
+    expect(violations.every((violation) => violation.rule === 'F32_AI_CALL_WITHOUT_A_BUDGET_SCOPE')).toBe(true);
+    expect(violations).toHaveLength(2);
+    expect(violations[0]?.message).toContain('.judge(');
+    expect(violations[1]?.message).toContain('.propose(');
   });
 });
 

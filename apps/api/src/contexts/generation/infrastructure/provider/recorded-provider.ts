@@ -12,6 +12,7 @@ import type {
   ProposalRequest,
   ProposalResponse,
 } from '../../application/ports.js';
+import { isTokenUsage } from '../../domain/ai-spend.js';
 import { canonicalJson } from '../../domain/canonical-json.js';
 
 /**
@@ -102,10 +103,14 @@ function parseProposal(source: string, request: Record<string, unknown>, respons
   if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
     throw new InvalidRecordingError(source, 'response.confidence must be a number in [0, 1]');
   }
+  const usage = response['usage'];
+  if (!isTokenUsage(usage)) {
+    throw new InvalidRecordingError(source, 'response.usage must hold whole, non-negative inputTokens and outputTokens');
+  }
   return {
     kind: 'propose',
     key: proposalKey(request as unknown as RecordedRequest),
-    response: freezeJson({ itemType: response['itemType'], body: response['body'], confidence }) as ProposalResponse,
+    response: freezeJson({ itemType: response['itemType'], body: response['body'], confidence, usage }) as ProposalResponse,
   };
 }
 
@@ -116,10 +121,14 @@ function parseJudgement(source: string, request: Record<string, unknown>, respon
   if (!isJsonObject(response['output'])) {
     throw new InvalidRecordingError(source, 'a judgement response needs an "output" object');
   }
+  const usage = response['usage'];
+  if (!isTokenUsage(usage)) {
+    throw new InvalidRecordingError(source, 'a judgement response needs "usage": whole, non-negative inputTokens and outputTokens');
+  }
   return {
     kind: 'judge',
     key: judgementKey(request as unknown as JudgementRequest),
-    response: freezeJson({ output: response['output'] }) as JudgementResponse,
+    response: freezeJson({ output: response['output'], usage }) as JudgementResponse,
   };
 }
 

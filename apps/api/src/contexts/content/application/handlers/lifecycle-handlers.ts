@@ -40,7 +40,7 @@ import type {
 import type { LifecycleTransition } from '../../domain/item-lifecycle.js';
 import { isKeyAcceptedByExecutor } from '../answer-key-projection.js';
 import { solutionAgreesWithKey } from '../final-answer-agreement.js';
-import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
+import { applicationError, authorize, authorizeDraftAccess, policy, type ApplicationError } from '../authorization.js';
 import type { Handler } from '../handler-registry.js';
 import type {
   ApplicationContext,
@@ -86,7 +86,13 @@ import { ROLES } from '../../../../platform/auth/roles.js';
  * satisfied verdict.
  */
 
-export const SUBMIT_ITEM_FOR_REVIEW_POLICY = policy('SubmitItemForReview', [ROLES.author, ROLES.contentOps]);
+/**
+ * `generation_pipeline` is admitted so the pipeline can put the draft it created
+ * into review (M5-40, ADR-0029) — and only that one: `SubmitItemForReviewHandler`
+ * checks the draft's owner, so the role is not a way to push anybody else's
+ * unfinished draft into the queue.
+ */
+export const SUBMIT_ITEM_FOR_REVIEW_POLICY = policy('SubmitItemForReview', [ROLES.author, ROLES.contentOps, ROLES.generationPipeline]);
 export const WITHDRAW_ITEM_FROM_REVIEW_POLICY = policy('WithdrawItemFromReview', [ROLES.author, ROLES.contentOps]);
 export const RECORD_ITEM_REVIEW_DECISION_POLICY = policy('RecordItemReviewDecision', [ROLES.reviewer, ROLES.contentOps]);
 /** SECURITY-ARCHITECTURE §4: only Content Ops publishes, and it is step-up. */
@@ -219,6 +225,12 @@ export class SubmitItemForReviewHandler extends AuditedHandler implements Handle
 
     const found = await this.deps.items.findById(command.itemId);
     if (!found.ok) return err(fromContent(found.error));
+
+    // FR-TCH-06 rule 1: the role says "may submit drafts", the owner check says
+    // "this one". Update, derive and delete already carry it; submit did not, which
+    // was harmless while only humans were admitted and is not once a machine is.
+    const owns = authorizeDraftAccess(found.value.versions[found.value.versions.length - 1]!.authoredBy.id, context);
+    if (!owns.ok) return err(owns.error);
 
     // The lock of FR-TCH-08 rule 1 is the state itself: `in_review` is not an
     // editable state, so `replaceDraftVersion` refuses from here on.

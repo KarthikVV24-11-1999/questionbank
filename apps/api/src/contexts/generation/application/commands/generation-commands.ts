@@ -21,6 +21,33 @@ export interface StartGenerationRun {
   readonly promptVersionId: string;
   /** What was asked for. A JSON object whose shape is the pipeline's to define. */
   readonly request: Readonly<Record<string, unknown>>;
+  /**
+   * What the run reserves from its period's budget, in tokens (M5-41). A run that
+   * would not fit is refused at enqueue and nothing is written.
+   */
+  readonly budgetTokens: number;
+}
+
+/**
+ * Records the evidence a version may be activated on: scores for one model or prompt version against a
+ * named corpus, compared with the passing run it replaces. The outcome is not in the command — the domain
+ * derives it from the scores and the baseline, so a caller cannot assert a pass.
+ */
+export interface RecordEvaluationRun {
+  readonly subject: { readonly kind: string; readonly versionId: string };
+  readonly corpus: string;
+  readonly scores: Readonly<Record<string, unknown>>;
+  readonly baselineRunId?: string;
+}
+
+/**
+ * Declares the ceiling, in tokens, that one feature's runs may reserve in one UTC
+ * calendar month. Declared once; a period with no declaration admits nothing.
+ */
+export interface DeclareAIBudget {
+  readonly feature: string;
+  readonly period: string;
+  readonly ceilingTokens: number;
 }
 
 /**
@@ -40,6 +67,16 @@ export interface AcceptCandidate {
 }
 
 export interface RejectCandidate {
+  readonly candidateId: string;
+}
+
+/**
+ * Acts on the battery's result: accepts a candidate whose blocking checks all
+ * passed, rejects one that failed a blocking check, leaves one the battery has not
+ * finished with. The pipeline's route (ADR-0029); `AcceptCandidate` and
+ * `RejectCandidate` stay the operator's override.
+ */
+export interface DisposeCandidate {
   readonly candidateId: string;
 }
 

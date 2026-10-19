@@ -55,6 +55,19 @@ describe('content composition — register resolves every handler', () => {
   });
 });
 
+describe('content composition — what the generation pipeline is admitted to (M5-40, ADR-0029)', () => {
+  // Asserted as the set, against literals: a loop over the registry cannot notice a role being
+  // admitted to one more handler. The pipeline may create a draft and put it into review, and
+  // read the duplicate candidates for a proposal; every other content act stays a human's.
+  it('admits generation_pipeline to exactly these handlers, and no others', async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [register(validDeps())] }).compile();
+    const registry = moduleRef.get<HandlerRegistry>(CONTENT_REGISTRY);
+
+    const admitting = [...registry.names].filter((name) => registry.get(name)?.policy.allowedRoles.includes('generation_pipeline')).sort();
+    expect(admitting).toEqual(['CreateItemDraft', 'GetDuplicateCandidatesForProposal', 'SubmitItemForReview']);
+  });
+});
+
 /** Mutable, optional mirror of `ContentCompositionDeps` — for deleting a key to simulate a bypassed type check. */
 type MutableDeps = { -readonly [K in keyof ContentCompositionDeps]?: ContentCompositionDeps[K] };
 

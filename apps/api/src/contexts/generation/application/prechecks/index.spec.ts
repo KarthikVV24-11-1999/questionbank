@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { versionId } from '../../../../testing/generation-fixtures.js';
+import { versionId, USAGE } from '../../../../testing/generation-fixtures.js';
 import { BLOCKING_PRECHECKS, PRECHECKS, PRECHECK_IDS } from '../../domain/precheck-vocabulary.js';
 import { err, ok } from '../../domain/result.js';
 import { applicationError } from '../authorization.js';
@@ -20,7 +20,7 @@ const CONFIG: PrecheckConfig = Object.fromEntries(
 
 const deps = (config: PrecheckConfig = CONFIG): PrecheckDependencies => ({
   registry: {} as never,
-  judge: { judge: async () => ok({ output: {} }) },
+  judge: { judge: async () => ok({ usage: USAGE, output: {} }) },
   syllabus: { read: async () => err(applicationError('Unavailable', 'X', 'x')) },
   content: {} as never,
   clock: { now: () => new Date('2026-10-16T09:30:00.000Z') },

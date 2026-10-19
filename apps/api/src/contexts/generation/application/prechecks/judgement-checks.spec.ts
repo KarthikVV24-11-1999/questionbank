@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
-import { aCandidate, aRun, versionId } from '../../../../testing/generation-fixtures.js';
+import { aCandidate, aRun, versionId, USAGE } from '../../../../testing/generation-fixtures.js';
 import { contextFor, principalWith } from '../../../../testing/generation-context.js';
 import { RecordedProvider } from '../../infrastructure/provider/recorded-provider.js';
 import { err, ok } from '../../domain/result.js';
@@ -70,7 +70,7 @@ describe.each([
 
   it('cannot run on a reply with no usable verdict and rationale', async () => {
     for (const output of [{}, { outcome: 'maybe', rationale: 'x' }, { outcome: 'pass' }, { outcome: 'pass', rationale: '  ' }, { outcome: 'pass', rationale: 4 }]) {
-      const failure = expectError(await check(id, { judge: async () => ok({ output }) }).run(candidateFor(RAMP), machine));
+      const failure = expectError(await check(id, { judge: async () => ok({ usage: USAGE, output }) }).run(candidateFor(RAMP), machine));
       expect(failure.code).toBe('PROVIDER_REPLY_MALFORMED');
     }
   });
@@ -81,7 +81,7 @@ describe.each([
   });
 
   it('trims the rationale it records', async () => {
-    const outcome = expectValue(await check(id, { judge: async () => ok({ output: { outcome: 'fail', rationale: '  padded  ' } }) }).run(candidateFor(RAMP), machine));
+    const outcome = expectValue(await check(id, { judge: async () => ok({ usage: USAGE, output: { outcome: 'fail', rationale: '  padded  ' } }) }).run(candidateFor(RAMP), machine));
     expect(outcome).toEqual({ outcome: 'fail', detail: 'padded' });
   });
 });
@@ -166,7 +166,7 @@ describe('what an item without options is shown', () => {
   it('ambiguity and safety are asked about the stem alone', async () => {
     for (const id of ['ambiguity_clarity', 'safety_appropriateness'] as const) {
       const asked: JudgementRequest[] = [];
-      const judge: JudgementProvider = { judge: async (request) => (asked.push(request), ok({ output: { outcome: 'pass', rationale: 'fine' } })) };
+      const judge: JudgementProvider = { judge: async (request) => (asked.push(request), ok({ usage: USAGE, output: { outcome: 'pass', rationale: 'fine' } })) };
       expectValue(await check(id, judge).run(candidateFor(numeric, 'NUMERIC'), machine));
       expect(Object.keys(asked[0]!.input).sort()).toEqual(['itemType', 'stem']);
     }
@@ -175,7 +175,7 @@ describe('what an item without options is shown', () => {
   it('and are not misled by a specification that is missing or has options that are not options', async () => {
     for (const body of [{ stem: 'only a stem' }, { stem: 's', responseSpec: { options: [1, 2] } }, { stem: 's', responseSpec: 'nonsense' }]) {
       const asked: JudgementRequest[] = [];
-      const judge: JudgementProvider = { judge: async (request) => (asked.push(request), ok({ output: { outcome: 'pass', rationale: 'fine' } })) };
+      const judge: JudgementProvider = { judge: async (request) => (asked.push(request), ok({ usage: USAGE, output: { outcome: 'pass', rationale: 'fine' } })) };
       expectValue(await check('ambiguity_clarity', judge).run(candidateFor(body), machine));
       expect(Object.keys(asked[0]!.input).sort()).toEqual(['itemType', 'stem']);
     }
@@ -191,7 +191,7 @@ describe('what an item without options is shown', () => {
 
   it('but still asks about a multiple-answer item, which does have distractors', async () => {
     const asked: JudgementRequest[] = [];
-    const judge: JudgementProvider = { judge: async (request) => (asked.push(request), ok({ output: { outcome: 'pass', rationale: 'ok' } })) };
+    const judge: JudgementProvider = { judge: async (request) => (asked.push(request), ok({ usage: USAGE, output: { outcome: 'pass', rationale: 'ok' } })) };
     expectValue(await check('distractor_validity', judge).run(candidateFor(RAMP, 'MULTIPLE_CORRECT_MCQ'), machine));
     expect(asked).toHaveLength(1);
   });

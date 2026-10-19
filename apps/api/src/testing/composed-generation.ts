@@ -4,6 +4,10 @@ import type { HandlerRegistry } from '../contexts/generation/application/handler
 import type { PrecheckConfig } from '../contexts/generation/application/prechecks/judge.js';
 import { GENERATION_REGISTRY } from '../contexts/generation/api/generation.controller.js';
 import type { GenerationCompositionDeps } from '../contexts/generation/public/composition.js';
+import { createAIBudget } from '../contexts/generation/domain/ai-budget.js';
+import { PostgresAIBudgetRepository } from '../contexts/generation/infrastructure/ai-budget.repository.js';
+import { periodOf } from '../contexts/generation/domain/ai-budget.js';
+import { ensureVersions } from './generation-fixtures.js';
 import { createApplication } from '../platform/composition/app-factory.js';
 import type { AppConfig } from '../platform/config/config.js';
 import { createRecordingTelemetry } from '../platform/observability/recording-telemetry.js';
@@ -48,6 +52,12 @@ export interface ComposeOptions {
   readonly precheckConfig?: PrecheckConfig;
   readonly clock?: Clock;
   readonly identifiers?: IdentifierFactory;
+  /**
+   * The ceiling declared for the clock's month, in tokens. Generous by default so a spec that is
+   * not about budgets is not limited by one; `null` declares none, which is what a deployment has
+   * until someone declares one.
+   */
+  readonly budgetCeilingTokens?: number | null;
 }
 
 export async function composeGeneration(database: TestDatabase, options: ComposeOptions = {}): Promise<ComposedGeneration> {
@@ -61,6 +71,17 @@ export async function composeGeneration(database: TestDatabase, options: Compose
       ...(options.provider === undefined ? {} : { generationProvider: options.provider }),
     },
   );
+  // A judged check's spend is attributed to the model and prompt version it ran under, as foreign keys into
+  // the registry, so the versions a configuration names have to be rows before anything is spent against them.
+  for (const pin of Object.values(options.precheckConfig ?? {})) await ensureVersions(database.pool, pin);
+  const ceiling = options.budgetCeilingTokens === undefined ? 1_000_000_000 : options.budgetCeilingTokens;
+  if (ceiling !== null) {
+    const clock = options.clock ?? fixedClock;
+    const budget = createAIBudget({ feature: 'generation', period: periodOf(clock.now().toISOString())!, ceilingTokens: ceiling });
+    if (!budget.ok) throw new Error(`the composed budget is invalid: ${budget.error.code}`);
+    // Already declared by an earlier composition over the same database is fine: a period's ceiling is fixed once.
+    await new PostgresAIBudgetRepository(database.pool).declare(budget.value, { kind: 'human', id: '00000000-0000-4000-8000-00000000b0b0' }, clock.now().toISOString());
+  }
   const registry = app.get<HandlerRegistry>(GENERATION_REGISTRY, { strict: false });
   return { app, registry, close: () => app.close() };
 }

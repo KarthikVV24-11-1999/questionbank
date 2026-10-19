@@ -12,6 +12,7 @@ import type {
 import type { GetTaxonomyVersion, TaxonomyVersionDetailView } from '../../curriculum/public/index.js';
 import type { PrincipalResolver } from '../api/generation.controller.js';
 import { GenerationModule } from '../api/generation.module.js';
+import { MeteredProvider } from '../application/metered-provider.js';
 import { composeGenerationHandlers } from '../application/compose-handlers.js';
 import type { AuditRecorder, Clock, IdentifierFactory, JudgementProvider, ProposalProvider } from '../application/ports.js';
 import { buildPrechecks, unconfiguredPrechecks } from '../application/prechecks/index.js';
@@ -19,6 +20,9 @@ import type { PrecheckConfig } from '../application/prechecks/judge.js';
 import { ContentCommandAuthoring, type CommandHandler } from '../infrastructure/content-command-authoring.js';
 import { ContentProposalChecker } from '../infrastructure/content-proposal-checks.js';
 import { CurriculumSyllabusReader } from '../infrastructure/curriculum-syllabus-reader.js';
+import { PostgresEvaluationRunRepository } from '../infrastructure/evaluation-run.repository.js';
+import { PostgresAISpendLedger } from '../infrastructure/ai-spend-ledger.repository.js';
+import { PostgresAIBudgetRepository } from '../infrastructure/ai-budget.repository.js';
 import { PostgresGenerationCandidateRepository } from '../infrastructure/generation-candidate.repository.js';
 import { PostgresGenerationRunRepository } from '../infrastructure/generation-run.repository.js';
 import { UnconfiguredProvider } from '../infrastructure/provider/unconfigured-provider.js';
@@ -83,7 +87,19 @@ export function register(deps: GenerationCompositionDeps): DynamicModule {
     }
   }
 
-  const provider = deps.provider ?? new UnconfiguredProvider();
+  const runs = new PostgresGenerationRunRepository(deps.pool);
+  const evaluations = new PostgresEvaluationRunRepository(deps.pool);
+  // Everything that calls a provider — the proposer and every judged check — gets the *metered* one, so
+  // there is no path to the adapter that does not check the run's budget before the call and write its
+  // spend to the ledger after it (M5-42). The adapter itself is never handed to a handler.
+  const provider = new MeteredProvider({
+    inner: deps.provider ?? new UnconfiguredProvider(),
+    runs,
+    evaluations,
+    ledger: new PostgresAISpendLedger(deps.pool),
+    clock: deps.clock,
+    identifiers: deps.identifiers,
+  });
   const prechecks =
     deps.precheckConfig === undefined
       ? unconfiguredPrechecks()
@@ -98,7 +114,9 @@ export function register(deps: GenerationCompositionDeps): DynamicModule {
         });
 
   const registry = composeGenerationHandlers({
-    runs: new PostgresGenerationRunRepository(deps.pool),
+    runs,
+    evaluations,
+    budgets: new PostgresAIBudgetRepository(deps.pool),
     candidates: new PostgresGenerationCandidateRepository(deps.pool),
     clock: deps.clock,
     identifiers: deps.identifiers,

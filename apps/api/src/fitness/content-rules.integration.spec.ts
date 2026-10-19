@@ -81,7 +81,7 @@ describe('F5 — every JSONB column in every application schema has a version si
     // Each schema that holds a document is in the count, so a schema the query
     // silently stopped reaching would shrink this, not pass.
     expect(Object.fromEntries([...jsonbBySchema].sort())).toEqual({
-      ai: 2,
+      ai: 3,
       content: 10,
       curriculum: 9,
       platform: 1,

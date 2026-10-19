@@ -69,8 +69,20 @@ export interface CheckReport {
   readonly error?: { readonly code: string; readonly message: string };
 }
 
+/**
+ * What the pipeline did with the candidate once the checks had run (ADR-0029).
+ * `failed` means it tried and could not — the error, and for an acceptance that was
+ * interrupted the draft it left behind, are in `error`.
+ */
+export type DispositionReport =
+  | { readonly status: 'accepted'; readonly contentItemId: string }
+  | { readonly status: 'rejected' }
+  | { readonly status: 'undecided' }
+  | { readonly status: 'failed'; readonly error: { readonly code: string; readonly message: string } };
+
 /** One entry per check in the vocabulary, in vocabulary order — a report with twelve lines, always. */
 export interface BatteryReport {
   readonly candidateId: string;
   readonly checks: readonly CheckReport[];
+  readonly disposition: DispositionReport;
 }

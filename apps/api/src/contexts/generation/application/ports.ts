@@ -8,6 +8,7 @@ import type {
   SubmitItemForReview,
   ValidationReport,
 } from '../../content/public/index.js';
+import type { TokenUsage } from '../domain/ai-spend.js';
 import type { ModelPin } from '../domain/model-pin.js';
 import type { Result } from '../domain/result.js';
 import type { ApplicationError, AuthorizationContext } from './authorization.js';
@@ -74,6 +75,21 @@ export interface GroundingExcerpt {
 }
 
 /**
+ * The budget an AI call is charged to — declared by **every call site**, never
+ * defaulted (F32, AI-ARCHITECTURE §14: "every AI call site declares a budget
+ * scope"). A feature, and the run the spend belongs to: the run is where the
+ * reservation was made (M5-41), so spend lands against the thing that reserved it.
+ *
+ * `fitness/generation-rules.ts` holds the rule at the source: a call to a provider
+ * port whose arguments do not name `budgetScope` fails, proven against a planted
+ * call site.
+ */
+export interface BudgetScope {
+  readonly feature: string;
+  readonly runId: string;
+}
+
+/**
  * What the pipeline asks a provider for — in generation's own terms.
  *
  * The request is composed in the order the architecture fixes (system →
@@ -87,6 +103,8 @@ export interface GroundingExcerpt {
  */
 export interface ProposalRequest {
   readonly pin: ModelPin;
+  /** Which budget this call is charged to (F32). Required: a call that does not say has no ceiling. */
+  readonly budgetScope: BudgetScope;
   readonly grounding: readonly GroundingExcerpt[];
   /** What to produce: the item type, subject and band the run asked for. A JSON object whose shape is the pipeline's. */
   readonly task: Readonly<Record<string, unknown>>;
@@ -101,6 +119,8 @@ export interface ProposalResponse {
   readonly itemType: string;
   readonly body: Readonly<Record<string, unknown>>;
   readonly confidence: number;
+  /** What the call consumed. Every provider reports it, because the ledger records it (M5-42). */
+  readonly usage: TokenUsage;
 }
 
 /**
@@ -128,6 +148,8 @@ export interface ProposalProvider {
  * checker was shown is therefore exactly this object, and a test can read it.
  */
 export interface JudgementRequest {
+  /** Which budget this call is charged to (F32). Required, as on `ProposalRequest`. */
+  readonly budgetScope: BudgetScope;
   readonly modelVersionId: string;
   readonly promptVersionId: string;
   readonly input: Readonly<Record<string, unknown>>;
@@ -135,6 +157,8 @@ export interface JudgementRequest {
 
 export interface JudgementResponse {
   readonly output: Readonly<Record<string, unknown>>;
+  /** What the call consumed, as on `ProposalResponse`. */
+  readonly usage: TokenUsage;
 }
 
 /** The second port (EXT-05): the same isolation rule governs it, and the same adapter directory holds its adapters. */

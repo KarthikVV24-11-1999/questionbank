@@ -904,13 +904,15 @@ describe('the media library reports what it cannot read', () => {
 async function driveToState(item: Item, state: LifecycleState): Promise<Item> {
   const deps = lifecycle();
   const versionId = item.versions[0]!.versionId;
+  // Submitting is the draft's owner's act (FR-TCH-06 rule 1), so it is done as whoever wrote this one.
+  const owner = item.versions[0]!.authoredBy.id === otherAuthor.id ? otherAuthor : author;
   switch (state) {
     case 'draft':
       return item;
     case 'in_review':
-      return expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author)));
+      return expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(owner)));
     case 'changes_requested': {
-      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(owner));
       return expectValue(
         await new RecordItemReviewDecisionHandler(deps).handle(
           {
@@ -926,7 +928,7 @@ async function driveToState(item: Item, state: LifecycleState): Promise<Item> {
       );
     }
     case 'approved': {
-      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(owner));
       return expectValue(
         await new RecordItemReviewDecisionHandler(deps).handle(
           { itemId: item.itemId, itemVersionId: versionId, outcome: 'approve', candidatesShownIds: [] },
@@ -935,7 +937,7 @@ async function driveToState(item: Item, state: LifecycleState): Promise<Item> {
       );
     }
     case 'rejected': {
-      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(author));
+      await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(owner));
       return expectValue(
         await new RecordItemReviewDecisionHandler(deps).handle(
           {

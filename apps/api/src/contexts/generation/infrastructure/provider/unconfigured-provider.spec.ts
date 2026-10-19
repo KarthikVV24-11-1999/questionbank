@@ -11,6 +11,7 @@ const provider = new UnconfiguredProvider();
 describe('the provider a deployment has when none was chosen', () => {
   it('refuses a proposal as unavailable, naming that no provider is configured, and invents nothing', async () => {
     const result = await provider.propose({
+      budgetScope: { feature: 'generation', runId: versionId('run', 1) },
       pin: { modelVersionId: versionId('model', 1), promptVersionId: versionId('prompt', 1), runId: versionId('run', 1) },
       grounding: [],
       task: { itemType: 'single_choice' },
@@ -23,7 +24,7 @@ describe('the provider a deployment has when none was chosen', () => {
   });
 
   it('refuses a judgement the same way', async () => {
-    const result = await provider.judge({ modelVersionId: versionId('model', 1), promptVersionId: versionId('prompt', 2), input: {} });
+    const result = await provider.judge({ budgetScope: { feature: 'generation', runId: versionId('run', 1) }, modelVersionId: versionId('model', 1), promptVersionId: versionId('prompt', 2), input: {} });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.kind).toBe('Unavailable');

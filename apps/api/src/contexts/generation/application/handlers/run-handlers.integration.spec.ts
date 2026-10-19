@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { GenerationRunRepository } from '../../domain/repository-ports.js';
-import { registering } from '../../../../testing/generation-fixtures.js';
+import { ensureVersions, registering } from '../../../../testing/generation-fixtures.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../../testing/database.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
@@ -12,6 +12,8 @@ import {
   principalWith,
 } from '../../../../testing/generation-context.js';
 import { createGenerationRun } from '../../domain/generation-run.js';
+import { PostgresEvaluationRunRepository } from '../../infrastructure/evaluation-run.repository.js';
+import { PostgresAIBudgetRepository } from '../../infrastructure/ai-budget.repository.js';
 import { StartGenerationRunHandler } from './run-handlers.js';
 
 /** Real Postgres, never a double (ENGINEERING-HANDBOOK §5). */
@@ -23,6 +25,17 @@ beforeAll(async () => {
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
   runs = registering(database.pool);
+  // A run may only name versions with a passing evaluation (F31); these specs are not about the gate.
+  for (const [modelVersionId, promptVersionId] of [
+    ['00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007'],
+    ['00000000-0000-4000-8000-0000000a0001', '00000000-0000-4000-8000-0000000b0001'],
+    ['00000000-0000-4000-8000-0000000a0004', '00000000-0000-4000-8000-0000000b0009'],
+    ['00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0008'],
+  ] as const) {
+    await ensureVersions(database.pool, { modelVersionId, promptVersionId });
+  }
+  // The run is admitted against its month's budget (M5-41); these specs are not about the budget.
+  expectValue(await new PostgresAIBudgetRepository(database.pool).declare({ feature: 'generation', period: '2026-10', ceilingTokens: 1_000_000_000 }, { kind: 'human', id: randomUUID() }, FIXED_NOW.toISOString()));
 });
 
 afterAll(async () => {
@@ -36,6 +49,7 @@ const COMMAND = {
   modelVersionId: '00000000-0000-4000-8000-0000000a0003',
   promptVersionId: '00000000-0000-4000-8000-0000000b0007',
   request: { band: 'medium', count: 5, filters: { topics: ['kinematics'] } },
+  budgetTokens: 1000,
 };
 
 function handler(overrides: { next?: () => string } = {}) {
@@ -44,6 +58,7 @@ function handler(overrides: { next?: () => string } = {}) {
     audit,
     handler: new StartGenerationRunHandler({
       runs,
+      evaluations: new PostgresEvaluationRunRepository(database.pool),
       clock: fixedClock,
       identifiers: { next: overrides.next ?? (() => randomUUID()) },
       audit,
@@ -61,6 +76,7 @@ describe('StartGenerationRun', () => {
     expect(stored.pin.modelVersionId).toBe('00000000-0000-4000-8000-0000000a0003');
     expect(stored.pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
     expect(stored.requestedAt).toBe(FIXED_NOW.toISOString());
+    expect(stored.budgetTokens).toBe(1000);
     expect(stored.request['band']).toBe('medium');
     expect(stored.request['count']).toBe(5);
     expect((stored.request['filters'] as { topics: string[] }).topics).toEqual(['kinematics']);
@@ -169,10 +185,18 @@ describe('StartGenerationRun', () => {
           pin: { ...run.pin, promptVersionId: '00000000-0000-4000-8000-0000000b0099' },
           requestedAt: run.requestedAt,
           request: run.request,
+          budgetTokens: run.budgetTokens,
         }),
       );
       expect(expectError(await runs.save(rewritten)).kind).toBe('Conflict');
       expect(expectValue(await runs.findById(run.pin.runId)).pin.promptVersionId).toBe('00000000-0000-4000-8000-0000000b0007');
+    });
+
+    it('not the reservation: saving the run again with a bigger one is a conflict, and the first stands', async () => {
+      const run = await started();
+      const larger = expectValue(createGenerationRun({ pin: run.pin, requestedAt: run.requestedAt, request: run.request, budgetTokens: run.budgetTokens * 10 }));
+      expect(expectError(await runs.save(larger)).kind).toBe('Conflict');
+      expect(expectValue(await runs.findById(run.pin.runId)).budgetTokens).toBe(1000);
     });
 
     it('not by an UPDATE, which the table refuses from every role', async () => {

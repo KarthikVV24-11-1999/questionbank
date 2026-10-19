@@ -3,16 +3,19 @@ import type { GenerationCandidate } from '../../domain/generation-candidate.js';
 import type { GenerationCandidateRepository } from '../../domain/repository-ports.js';
 import { PRECHECKS } from '../../domain/precheck-vocabulary.js';
 import { applicationError, authorize, fromGeneration, type ApplicationError } from '../authorization.js';
-import type { RecordPrecheckVerdict, RunPrecheckBattery } from '../commands/generation-commands.js';
+import type { DisposeCandidate, RecordPrecheckVerdict, RunPrecheckBattery } from '../commands/generation-commands.js';
 import type { Handler } from '../handler-registry.js';
 import { RUN_PRECHECK_BATTERY_POLICY } from '../policies.js';
+import type { Disposition } from './decision-handlers.js';
 import type { ApplicationContext, AuditRecorder, Clock } from '../ports.js';
-import type { BatteryReport, BlockedPrecheck, CheckReport, PrecheckRunner } from '../prechecks/battery.js';
+import type { BatteryReport, BlockedPrecheck, CheckReport, DispositionReport, PrecheckRunner } from '../prechecks/battery.js';
 
 export interface BatteryDependencies {
   readonly candidates: GenerationCandidateRepository;
   /** The real `RecordPrecheckVerdict` handler: the battery records through the same boundary everything else does. */
   readonly recordVerdict: Handler<RecordPrecheckVerdict, GenerationCandidate>;
+  /** The real `DisposeCandidate` handler: what the pipeline does with the result, through the boundary it always uses. */
+  readonly dispose: Handler<DisposeCandidate, Disposition>;
   readonly runners: readonly PrecheckRunner[];
   readonly blocked: readonly BlockedPrecheck[];
   readonly clock: Clock;
@@ -42,9 +45,13 @@ function describeError(error: ApplicationError): { code: string; message: string
  * A verdict records the check, outcome and reasoning but not the registry rows of
  * the prompt that produced it (debt D44).
  *
- * It does not decide anything. Whether the candidate may be accepted is
- * `acceptCandidate`'s, from the verdicts: a failing blocking check means it
- * never can be, a failing advisory check does not.
+ * **It then acts on the result (M5-40, ADR-0029)**, through `DisposeCandidate`:
+ * every blocking check passed → the candidate is accepted into a draft awaiting a
+ * reviewer; a blocking check failed → it is rejected, terminally; a check that has
+ * not run → nothing, and the report says `undecided`. It decides nothing itself —
+ * whether the candidate may be accepted is `acceptCandidate`'s, from the verdicts —
+ * and a disposition that fails does not undo the verdicts: they stand, and the
+ * report carries the failure.
  */
 export class RunPrecheckBatteryHandler implements Handler<RunPrecheckBattery, BatteryReport> {
   readonly name = 'RunPrecheckBattery';
@@ -97,6 +104,8 @@ export class RunPrecheckBatteryHandler implements Handler<RunPrecheckBattery, Ba
       checks.push(await this.#runOne(base, runner, candidate, context));
     }
 
+    const disposition = await this.#dispose(candidate.candidateId, context);
+
     await this.deps.audit.record({
       principal: context.principal,
       action: this.name,
@@ -106,7 +115,25 @@ export class RunPrecheckBatteryHandler implements Handler<RunPrecheckBattery, Ba
       correlationId: context.correlationId,
       occurredAt: this.deps.clock.now(),
     });
-    return ok({ candidateId: candidate.candidateId, checks });
+    return ok({ candidateId: candidate.candidateId, checks, disposition });
+  }
+
+  async #dispose(candidateId: string, context: ApplicationContext): Promise<DispositionReport> {
+    let disposed: Awaited<ReturnType<Handler<DisposeCandidate, Disposition>['handle']>>;
+    try {
+      disposed = await this.deps.dispose.handle({ candidateId }, context);
+    } catch (error) {
+      return { status: 'failed', error: { code: 'DISPOSE_RAISED', message: error instanceof Error ? error.message : String(error) } };
+    }
+    if (!disposed.ok) return { status: 'failed', error: describeError(disposed.error) };
+    switch (disposed.value.disposition) {
+      case 'accept':
+        return { status: 'accepted', contentItemId: disposed.value.contentItemId! };
+      case 'reject':
+        return { status: 'rejected' };
+      case 'undecided':
+        return { status: 'undecided' };
+    }
   }
 
   async #runOne(

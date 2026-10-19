@@ -104,6 +104,10 @@
     "output": {
       "outcome": "fail",
       "rationale": "\"Real, magnified image\" is satisfied for two object positions between f and 2f only if the lens is thin; the stem does not say, and a reader could defend two options."
+    },
+    "usage": {
+      "inputTokens": 913,
+      "outputTokens": 127
     }
   }
 }

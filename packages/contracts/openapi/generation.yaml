@@ -7,11 +7,13 @@ info:
     operation names its handler in `x-handler`, which the contract spec reconciles
     against the registry.
 
-    **An operator starts a run and reads what it produced, and that is all.** No
-    route here is student-facing, and none reaches a model: proposing a candidate
-    and running the pre-check battery call a provider, so they are the pipeline's
-    work and have no route (F33). Accepting or rejecting a candidate is not on this
-    surface yet.
+    **An operator starts a run, reads what it produced, and may override what became
+    of a candidate.** No route here is student-facing, and none reaches a model:
+    proposing a candidate and running the pre-check battery call a provider, so they
+    are the pipeline's work and have no route (F33). The pipeline accepts a candidate
+    whose blocking checks all passed and rejects one that failed a blocking check,
+    without a person (ADR-0029); `acceptance` and `rejection` below are the
+    operator's manual override of that, not the path candidates normally take.
 
     **Every route here is an authoring-family route (ADR-0009, ADR-0028).** A
     candidate carries a proposed item, and a proposed item carries its answer key,
@@ -29,6 +31,8 @@ x-authoring-routes:
   - /v1/authoring/generation-runs
   - /v1/authoring/generation-runs/{runId}/candidates
   - /v1/authoring/generation-candidates/{candidateId}
+  - /v1/authoring/generation-candidates/{candidateId}/acceptance
+  - /v1/authoring/generation-candidates/{candidateId}/rejection
 
 tags:
   - name: generation-runs
@@ -60,6 +64,7 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
         '422': { $ref: '#/components/responses/Problem' }
 
   /v1/authoring/generation-runs/{runId}/candidates:
@@ -111,6 +116,57 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/generation-candidates/{candidateId}/acceptance:
+    post:
+      operationId: acceptCandidate
+      x-handler: AcceptCandidate
+      summary: Accept a candidate by hand, creating a draft in the review queue
+      description: |
+        The operator's override. The preconditions are the pipeline's: a candidate
+        that failed a blocking check, or has not passed every one, is refused. What
+        this creates is a draft awaiting a reviewer — nothing is published.
+      tags: [generation-candidates]
+      parameters:
+        - $ref: '#/components/parameters/CandidateId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The candidate was accepted; the draft it became is named.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AcceptedCandidate' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/authoring/generation-candidates/{candidateId}/rejection:
+    post:
+      operationId: rejectCandidate
+      x-handler: RejectCandidate
+      summary: Reject a candidate by hand. Terminal.
+      tags: [generation-candidates]
+      parameters:
+        - $ref: '#/components/parameters/CandidateId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The candidate is rejected.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationCandidate' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
 
 components:
   parameters:
@@ -180,7 +236,7 @@ components:
     StartGenerationRunRequest:
       type: object
       additionalProperties: false
-      required: [modelVersionId, promptVersionId, request]
+      required: [modelVersionId, promptVersionId, request, budgetTokens]
       properties:
         modelVersionId:
           type: string
@@ -193,6 +249,13 @@ components:
         request:
           type: object
           description: What was asked for. Its shape is the pipeline's to define.
+        budgetTokens:
+          type: integer
+          minimum: 1
+          description: |
+            What the run reserves from its UTC month's budget, in tokens. Refused at enqueue,
+            with nothing written, when the month has no declared budget or this would take
+            the reservations past its ceiling (412 PreconditionFailed).
 
     ModelPin:
       type: object
@@ -210,7 +273,7 @@ components:
     GenerationRun:
       type: object
       additionalProperties: false
-      required: [pin, requestedAt, request]
+      required: [pin, requestedAt, request, budgetTokens]
       properties:
         pin: { $ref: '#/components/schemas/ModelPin' }
         requestedAt:
@@ -218,6 +281,7 @@ components:
           format: date-time
           description: Supplied by the system's clock, never by the caller.
         request: { type: object }
+        budgetTokens: { type: integer, minimum: 1 }
 
     CandidateState:
       type: string
@@ -285,3 +349,14 @@ components:
           maximum: 1
           description: How sure the model was. Content's AI provenance requires it.
         state: { $ref: '#/components/schemas/CandidateState' }
+
+    AcceptedCandidate:
+      type: object
+      additionalProperties: false
+      required: [candidateId, contentItemId]
+      properties:
+        candidateId: { type: string, format: uuid }
+        contentItemId:
+          type: string
+          format: uuid
+          description: The content draft the candidate became — an identifier, not a join.

@@ -226,6 +226,7 @@ describe('the whole pipeline: start a run, propose, check, accept — a draft in
         modelVersionId: MODEL_VERSION,
         promptVersionId: PROMPT_VERSION,
         request: recorded.request.task,
+        budgetTokens: 100_000,
       }),
     );
     const proposed = expectValue(

@@ -108,6 +108,10 @@
     "output": {
       "outcome": "pass",
       "rationale": "Options a, c and d are each wrong for the stated reason (g, g cos(theta), g tan(theta) confuse the component), plausible to a learner who mis-resolves the weight, and distinct from one another."
+    },
+    "usage": {
+      "inputTokens": 939,
+      "outputTokens": 141
     }
   }
 }

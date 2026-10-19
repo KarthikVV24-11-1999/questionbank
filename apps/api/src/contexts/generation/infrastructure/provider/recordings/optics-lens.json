@@ -131,6 +131,10 @@
         "status": "owned"
       }
     },
-    "confidence": 0.62
+    "confidence": 0.62,
+    "usage": {
+      "inputTokens": 2185,
+      "outputTokens": 855
+    }
   }
 }

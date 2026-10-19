@@ -4,6 +4,7 @@ import {
   CONTENT_OPS_ROLE,
   GENERATION_PIPELINE_ROLE,
   GENERATION_POLICIES,
+  DISPOSE_CANDIDATE_POLICY,
   GET_CANDIDATE_POLICY,
   LIST_RUN_CANDIDATES_POLICY,
   PROPOSE_CANDIDATE_POLICY,
@@ -20,15 +21,18 @@ describe('the generation policies, by name', () => {
     const granted = Object.fromEntries(GENERATION_POLICIES.map((entry) => [entry.name, [...entry.allowedRoles].sort()]));
     expect(granted).toEqual({
       StartGenerationRun: ['content_ops', 'generation_pipeline'],
+      DeclareAIBudget: ['content_ops'],
+      RecordEvaluationRun: ['content_ops'],
       ProposeCandidate: ['generation_pipeline'],
       RunPrecheckBattery: ['generation_pipeline'],
       RecordPrecheckVerdict: ['generation_pipeline'],
+      DisposeCandidate: ['generation_pipeline'],
       AcceptCandidate: ['content_ops'],
       RejectCandidate: ['content_ops'],
       GetCandidate: ['content_ops'],
       ListRunCandidates: ['content_ops'],
     });
-    expect(GENERATION_POLICIES).toHaveLength(8);
+    expect(GENERATION_POLICIES).toHaveLength(11);
   });
 
   it('names a role on every policy, and a distinct name on each', () => {
@@ -36,12 +40,18 @@ describe('the generation policies, by name', () => {
     expect(new Set(GENERATION_POLICIES.map((entry) => entry.name)).size).toBe(GENERATION_POLICIES.length);
   });
 
-  // INV-01 as roles: the machine that proposes cannot decide, and the person
-  // who decides cannot write the audit trail the decision rests on.
-  it('keeps the proposing machine away from every decision and every read', () => {
+  // INV-01 as roles: the machine that proposes holds no judgement of its own, and
+  // the person who intervenes cannot write the audit trail the result rests on. The
+  // machine's accept capability is DisposeCandidate (ADR-0029) — it acts on recorded
+  // verdicts — and the manual accept and reject stay out of its reach.
+  it('keeps the proposing machine away from the manual decisions and every read', () => {
     for (const decided of [ACCEPT_CANDIDATE_POLICY, REJECT_CANDIDATE_POLICY, GET_CANDIDATE_POLICY, LIST_RUN_CANDIDATES_POLICY]) {
       expect(decided.allowedRoles, decided.name).not.toContain(GENERATION_PIPELINE_ROLE);
     }
+  });
+
+  it('lets only the machine dispose, and keeps the operator on the override', () => {
+    expect([...DISPOSE_CANDIDATE_POLICY.allowedRoles]).toEqual([GENERATION_PIPELINE_ROLE]);
   });
 
   it('keeps the deciding human away from the battery’s verdicts', () => {

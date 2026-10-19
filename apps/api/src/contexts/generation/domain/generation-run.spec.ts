@@ -6,6 +6,7 @@ const PROPS: CreateGenerationRunProps = {
   pin: { modelVersionId: '00000000-0000-4000-8000-0000000a0003', promptVersionId: '00000000-0000-4000-8000-0000000b0007', runId: '00000000-0000-4000-8000-0000000c0042' },
   requestedAt: '2026-10-16T09:30:00.000Z',
   request: { band: 'medium', count: 5, nested: { topic: 'kinematics' } },
+  budgetTokens: 50_000,
 };
 
 describe('createGenerationRun', () => {

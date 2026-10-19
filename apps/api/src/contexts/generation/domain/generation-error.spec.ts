@@ -170,6 +170,9 @@ describe('every error kind the domain declares has a producer that is not a test
   it('names where Validation, PreconditionFailed and RuleViolation are produced', () => {
     expect(callSites('validationError')).toEqual([
       'application/content-draft-acl.ts',
+      'domain/ai-budget.ts',
+      'domain/ai-spend.ts',
+      'domain/evaluation-run.ts',
       'domain/generation-candidate.ts',
       'domain/generation-run.ts',
       'domain/model-pin.ts',
@@ -178,6 +181,8 @@ describe('every error kind the domain declares has a producer that is not a test
     ]);
     expect(callSites('preconditionFailedError')).toEqual([
       'application/content-draft-acl.ts',
+      'domain/ai-budget.ts',
+      'domain/evaluation-run.ts',
       'domain/generation-candidate.ts',
     ]);
     expect(callSites('ruleViolationError')).toEqual(['domain/generation-candidate.ts']);

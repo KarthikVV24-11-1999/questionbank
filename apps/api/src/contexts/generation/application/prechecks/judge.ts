@@ -1,3 +1,4 @@
+import { GENERATION_FEATURE } from '../../domain/ai-budget.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import type { GenerationCandidate } from '../../domain/generation-candidate.js';
 import { isUuid } from '../../domain/uuid.js';
@@ -101,5 +102,10 @@ export async function judgeIndependently(
 ): Promise<Result<JudgementResponse, ApplicationError>> {
   const independent = requireIndependentPrompt(check, candidate.pin.promptVersionId, config.promptVersionId);
   if (!independent.ok) return independent;
-  return provider.judge({ modelVersionId: config.modelVersionId, promptVersionId: config.promptVersionId, input });
+  return provider.judge({
+    budgetScope: { feature: GENERATION_FEATURE, runId: candidate.pin.runId },
+    modelVersionId: config.modelVersionId,
+    promptVersionId: config.promptVersionId,
+    input,
+  });
 }

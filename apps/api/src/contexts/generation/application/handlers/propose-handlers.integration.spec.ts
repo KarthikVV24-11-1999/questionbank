@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../../testing/database.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
-import { MODEL_VERSION, PROMPT_VERSION, aRun, registering } from '../../../../testing/generation-fixtures.js';
+import { MODEL_VERSION, PROMPT_VERSION, aRun, registering, USAGE } from '../../../../testing/generation-fixtures.js';
 import { FIXED_NOW, RecordingAudit, contextFor, fixedClock, principalWith } from '../../../../testing/generation-context.js';
 import { PostgresGenerationCandidateRepository } from '../../infrastructure/generation-candidate.repository.js';
 import { RecordedProvider } from '../../infrastructure/provider/recorded-provider.js';
@@ -152,7 +152,7 @@ describe('ProposeCandidate', () => {
   it('refuses a confidence the domain refuses, storing nothing', async () => {
     const run = await savedRun();
     const before = await candidateCount();
-    const wild: ProposalProvider = { propose: async () => ok({ itemType: 'SINGLE_CORRECT_MCQ', body: RAMP.response.body, confidence: 1.5 }) };
+    const wild: ProposalProvider = { propose: async () => ok({ itemType: 'SINGLE_CORRECT_MCQ', body: RAMP.response.body, confidence: 1.5, usage: USAGE }) };
     const failure = expectError(await handler(wild).propose.handle(COMMAND(run.pin.runId), contextFor(machine)));
     expect(failure.code).toBe('CONFIDENCE_OUT_OF_RANGE');
     expect(failure.location).toBe('confidence');

@@ -20,10 +20,10 @@ type ParseOutcome =
   | { success: false; error: { issues: ReadonlyArray<{ path: PropertyKey[]; message: string }> } };
 
 /**
- * HTTP for the generation context: **an operator starts a run and reads what it
- * produced, and that is all** (M5-38).
+ * HTTP for the generation context: **an operator starts a run, reads what it
+ * produced, and may override what became of a candidate** (M5-38, M5-40).
  *
- * Three routes, each an operator's act. Everything else the context does is not
+ * Five routes, each an operator's act. Everything else the context does is not
  * reachable from here, and each absence is a decision:
  *
  *   - `ProposeCandidate` and `RunPrecheckBattery` call a model. A request path
@@ -34,8 +34,10 @@ type ParseOutcome =
  *   - `RecordPrecheckVerdict` is the battery's own write; the verdicts are the
  *     audit trail a human decision rests on, and a route to write them would be a
  *     route to write the result one wanted.
- *   - `AcceptCandidate` and `RejectCandidate` are the human's decision and are
- *     not on this surface yet; see the Track G report.
+ *   - `DisposeCandidate` is the pipeline's act on the battery's result, run off
+ *     any request path with the battery (ADR-0029); an operator's route to the same
+ *     end is `AcceptCandidate` and `RejectCandidate` below, an override and not the
+ *     path candidates normally take.
  *
  * **These routes are authoring-family routes** (ADR-0009, ADR-0028): a candidate
  * carries a proposed item, and a proposed item carries its answer key. No route
@@ -77,6 +79,25 @@ export class GenerationController {
     @Res() response: Response,
   ): Promise<void> {
     await this.run(response, headers, 'GetCandidate', 200, () => this.parse(candidateIdSchema, { candidateId }));
+  }
+
+  /** The operator's override (ADR-0029). The pipeline accepts on its own; this is for the one it did not, or should not have. */
+  @Post('/v1/authoring/generation-candidates/:candidateId/acceptance')
+  async acceptCandidate(
+    @Param('candidateId') candidateId: string,
+    @Headers() headers: Record<string, string>,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.run(response, headers, 'AcceptCandidate', 200, () => this.parse(candidateIdSchema, { candidateId }));
+  }
+
+  @Post('/v1/authoring/generation-candidates/:candidateId/rejection')
+  async rejectCandidate(
+    @Param('candidateId') candidateId: string,
+    @Headers() headers: Record<string, string>,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.run(response, headers, 'RejectCandidate', 200, () => this.parse(candidateIdSchema, { candidateId }));
   }
 
   private parse(schema: ZodType, value: unknown): ParseOutcome {

@@ -50,7 +50,17 @@ import { ROLES } from '../../../../platform/auth/roles.js';
  * requirement rather than a target.
  */
 
-export const CREATE_ITEM_DRAFT_POLICY = policy('CreateItemDraft', [ROLES.author, ROLES.contentOps]);
+/**
+ * **`generation_pipeline` is admitted here, and to `SubmitItemForReview`, and to
+ * no other command** (M5-40, ADR-0029). The pipeline puts a draft in the review
+ * queue when every blocking pre-check passed, with no person in front of the
+ * review stage. What it writes is a draft awaiting review, authored by the
+ * pipeline's own principal and carrying `ai_generated` provenance; it cannot edit
+ * one, derive one, delete one, or sign a review or a publication, because none of
+ * those policies names it. `composition.spec.ts` holds the admitting set to
+ * exactly these two commands.
+ */
+export const CREATE_ITEM_DRAFT_POLICY = policy('CreateItemDraft', [ROLES.author, ROLES.contentOps, ROLES.generationPipeline]);
 export const UPDATE_ITEM_DRAFT_POLICY = policy('UpdateItemDraft', [ROLES.author, ROLES.contentOps]);
 export const DERIVE_DRAFT_FROM_VERSION_POLICY = policy('DeriveDraftFromVersion', [ROLES.author, ROLES.contentOps]);
 export const DELETE_ITEM_DRAFT_POLICY = policy('DeleteItemDraft', [ROLES.author, ROLES.contentOps]);

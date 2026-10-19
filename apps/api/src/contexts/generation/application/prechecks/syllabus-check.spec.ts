@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
-import { aCandidate, aRun, versionId } from '../../../../testing/generation-fixtures.js';
+import { aCandidate, aRun, versionId, USAGE } from '../../../../testing/generation-fixtures.js';
 import { contextFor, principalWith } from '../../../../testing/generation-context.js';
 import { RecordedProvider } from '../../infrastructure/provider/recorded-provider.js';
 import { err, ok } from '../../domain/result.js';
@@ -119,7 +119,7 @@ describe('check 5 — syllabus scope conformance', () => {
       [TAG.taxonomyVersionId]: published([{ conceptIdentityId: TAG.conceptIdentityId, displayName: 'Kinematics' }, { conceptIdentityId: 'c-2', displayName: 'Dynamics' }]),
     });
     const seen: JudgementRequest[] = [];
-    const judge: JudgementProvider = { judge: async (request) => (seen.push(request), ok({ output: { outcome: 'pass', rationale: 'in scope' } })) };
+    const judge: JudgementProvider = { judge: async (request) => (seen.push(request), ok({ usage: USAGE, output: { outcome: 'pass', rationale: 'in scope' } })) };
     expectValue(await check(syllabus, judge).run(candidate({ ...BODY, taxonomyTags: [TAG, second, TAG] }), machine));
     expect(reads).toHaveLength(1);
     expect((seen[0]?.input['concepts'] as unknown[]).length).toBe(2);
@@ -127,7 +127,7 @@ describe('check 5 — syllabus scope conformance', () => {
 
   it('records the classifier’s no as a failing verdict with its reasoning', async () => {
     const { syllabus } = reader({ [TAG.taxonomyVersionId]: published() });
-    const judge: JudgementProvider = { judge: async () => ok({ output: { outcome: 'fail', rationale: 'this is organic chemistry' } }) };
+    const judge: JudgementProvider = { judge: async () => ok({ usage: USAGE, output: { outcome: 'fail', rationale: 'this is organic chemistry' } }) };
     expect(expectValue(await check(syllabus, judge).run(candidate(), machine))).toEqual({ outcome: 'fail', detail: 'this is organic chemistry' });
   });
 
@@ -149,7 +149,7 @@ describe('check 5 — syllabus scope conformance', () => {
       expect(expectError(await check(syllabus, observed().judge).run(candidate({ ...BODY, stem: 'unrecorded' }), machine)).code).toBe('NO_RECORDING_FOR_REQUEST');
       const down = applicationError('Unavailable', 'DOWN', 'later');
       expect(expectError(await check(syllabus, { judge: async () => err(down) }).run(candidate(), machine))).toBe(down);
-      expect(expectError(await check(syllabus, { judge: async () => ok({ output: {} }) }).run(candidate(), machine)).code).toBe('PROVIDER_REPLY_MALFORMED');
+      expect(expectError(await check(syllabus, { judge: async () => ok({ usage: USAGE, output: {} }) }).run(candidate(), machine)).code).toBe('PROVIDER_REPLY_MALFORMED');
     });
   });
 

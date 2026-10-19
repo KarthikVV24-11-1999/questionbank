@@ -303,6 +303,27 @@ describe('the whole path from draft to published', () => {
     }
   });
 
+  it('submits only a draft the caller owns, or one Content Ops oversees (FR-TCH-06 rule 1) — the role alone is not enough', async () => {
+    const deps = lifecycle();
+    const item = await draftItem();
+    const stranger: PrincipalRef = { kind: 'human', id: '00000000-0000-4000-8000-0000000000c1', roleContext: ['author', 'subject:physics'] };
+    // The pipeline's role is admitted to this handler (M5-40, ADR-0029); another principal's draft is still not its to submit.
+    const machine: PrincipalRef = { kind: 'system', id: '00000000-0000-4000-8000-0000000000c2', roleContext: ['generation_pipeline', 'subject:physics'] };
+
+    for (const caller of [stranger, machine]) {
+      const refused = await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, as(caller));
+      expect(expectError(refused).code, caller.id).toBe('NOT_THE_DRAFT_OWNER');
+    }
+    // Refused before the transition: the draft is still a draft its author can edit.
+    const stillEditable = await new UpdateItemDraftHandler(itemBench()).handle(
+      { itemId: item.itemId, content: itemContent(), idempotencyKey: 'k-owner' },
+      as(author),
+    );
+    expect(stillEditable.ok).toBe(true);
+
+    expectValue(await new SubmitItemForReviewHandler(deps).handle({ itemId: item.itemId }, asOps()));
+  });
+
   it('locks the draft against author edits from submission (FR-TCH-08 rule 1)', async () => {
     const deps = lifecycle();
     const item = await draftItem();

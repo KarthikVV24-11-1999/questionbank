@@ -32,6 +32,10 @@
     "output": {
       "outcome": "pass",
       "rationale": "A block on a frictionless incline is resolution of forces along a plane — squarely within Kinematics as the syllabus defines it."
+    },
+    "usage": {
+      "inputTokens": 1004,
+      "outputTokens": 176
     }
   }
 }

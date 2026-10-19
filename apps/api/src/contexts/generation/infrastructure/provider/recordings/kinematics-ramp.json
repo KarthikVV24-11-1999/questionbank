@@ -139,6 +139,10 @@
         "finalAnswer": "b"
       }
     },
-    "confidence": 0.874
+    "confidence": 0.874,
+    "usage": {
+      "inputTokens": 2148,
+      "outputTokens": 844
+    }
   }
 }

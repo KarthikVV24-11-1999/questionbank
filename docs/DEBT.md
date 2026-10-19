@@ -188,6 +188,13 @@ content draft with no decision recorded against its candidate: the candidate is 
 accepting it again would create a second draft. The error names the draft left behind, so an operator
 can find and withdraw it, and nothing is lost — but nothing prevents the duplicate either.
 
+**The exposure widened at M5-40.** Accepting is now also automatic: the battery acts on its own result
+(`DisposeCandidate`, ADR-0029), so a save that fails after content took the draft leaves the candidate
+`proposed` with every verdict recorded, and the next battery run — a retry, a scheduler's second pass —
+disposes of it again and creates a second draft. The report names the first (`disposition.failed`, with the
+draft in the error), and the operator's route is the same, but nothing in the code stops the retry. The
+trigger below is unchanged and is now the likelier one to arrive.
+
 **Trigger** The first accept to fail after content succeeded in practice, or the outbox relay (D17)
 existing, at which point accept can be split into a content-side effect driven by the recorded decision
 instead of a call made before it.
@@ -250,20 +257,6 @@ exists when the verdict is written and is then discarded.
 found in a judged check.
 **Cited** `apps/api/src/contexts/generation/application/handlers/battery-handlers.ts`
 
-### D46 — A candidate that failed a blocking check stays `proposed` for good
-
-Deciding is a human act and the pipeline holds no capability to decide, so a candidate that failed a
-blocking pre-check can never be accepted and is never rejected by anything. M5-39 keeps it out of the
-list a person works from (`isForReview`), which stops the queue filling with items nobody can act on,
-but the candidate is still stored as `proposed`, still counted by `findByRun`, still readable by id, and
-nothing clears it. A terminal state — the pipeline rejecting what can never pass — would be a lifecycle
-transition with its own invariants, made by something other than a human, and is a domain change, not a
-query detail.
-
-**Trigger** The first need to see or count failed candidates (a run's failure rate), a storage cost from
-accumulating them, or a decision that the pipeline may reject on a failed blocking check.
-**Cited** `apps/api/src/contexts/generation/application/queries/candidate-queries.ts`, `apps/api/src/contexts/generation/domain/generation-candidate.ts`
-
 ### D45 — No live provider adapter: a composed deployment cannot reach a model
 
 The composition root gives generation an adapter that answers every proposal and every judgement as
@@ -278,7 +271,94 @@ today fails the way a run against a provider that is down fails (AI-12), so a ca
 
 ---
 
+### D47 — The budget counts tokens, not money: no price per model version
+
+`AIBudget` ceilings and runs' reservations are whole numbers of tokens, because a provider reports
+tokens and the registry holds no price. That makes the budget a true ceiling on usage and says nothing
+about spend: two models with different per-token prices burn the same budget at different cost, and
+"cost per published item" (M5's ≤ 40% criterion, itself blocked on a reviewer pool) cannot be read from
+the ledger without a conversion that does not exist.
+
+**Trigger** The first need to compare cost across model versions, or the first deployment with a
+provider bill to reconcile. The work is a price per model version in the registry — immutable rows, like
+the versions — and a conversion at read time, not a change to the ledger.
+**Cited** `apps/api/src/contexts/generation/domain/ai-budget.ts`
+
+### D48 — A period's budget cannot be raised once declared
+
+A budget is one immutable row per feature and month, so a ceiling set too low cannot be raised mid-month:
+a second declaration is a `CONFLICT`, and the table refuses an UPDATE from every role. The refusal is
+deliberate for now — an editable ceiling is a way for a run to raise its own limit unless declaring is
+a separate, audited act — but it means the only remedy for a ceiling set wrong is the next month's.
+
+**Trigger** The first month a ceiling is declared too low and generation has to stop for want of one.
+The work is a declaration that supersedes (a later row for the same period, the latest standing),
+audited like the first, never an UPDATE.
+**Cited** `apps/api/src/contexts/generation/infrastructure/ai-budget.repository.ts`
+
+### D49 — The spend ledger is not partitioned by month
+
+The data architecture sketches `ai_spend_ledger` as range-partitioned on `occurred_at`, monthly. It is a
+plain table. A partitioned table needs each month's partition to exist before a row lands in it, and a
+missing one fails the insert — which here fails the metered call whose spend it records. Until something
+creates partitions ahead of time, an unpartitioned append-only table is the safer failure.
+
+**Trigger** The ledger growing large enough that a month's sum or a retention policy is slow or awkward,
+or a job existing to create partitions ahead of the calendar.
+**Cited** `infra/migrations/20260905110000_ai_spend_ledger.sql`
+
+### D50 — A run can overshoot its reservation by one call
+
+The cost of a provider call is known only after it, so the meter refuses a call when the run has *already*
+consumed everything it reserved, not when this call would take it over. The call that crosses the line is
+allowed, recorded, and the next is refused: the overshoot is bounded by one call, but it is not zero, and a
+run's ledger total can exceed its `budgetTokens`. A pre-call estimate from the prompt's size and the
+call's `max_tokens` would tighten it and would be a second guess at the cost beside the real one.
+
+**Trigger** A run whose overshoot matters — a reservation small enough, or a call large enough, that one
+call is a meaningful fraction of it.
+**Cited** `apps/api/src/contexts/generation/application/metered-provider.ts`
+
+### D51 — The activation gate trusts a stored evaluation outcome
+
+F31's gate asks whether a *passing* evaluation run exists, and "passing" is the `outcome` column. The
+domain derives that outcome from the scores and the baseline, and a stored run is re-derived when it is read
+back (`findById` refuses one whose outcome its scores do not derive) — but the gate itself, in SQL and in
+`hasPassing`, reads the column and does not recompute it. A row inserted directly with `outcome = 'pass'` and
+scores that would fail would activate a version. The table is append-only and only one handler writes it, so
+today that takes a person with database access; it is not a path the application has.
+
+**Trigger** Anyone other than the one handler gaining a way to write `ai.evaluation_run`, or an audit finding
+a stored pass its scores do not support. The work is to have the gate read through the domain, not the column.
+**Cited** `infra/migrations/20260906100000_ai_evaluation_run.sql`
+
+### D52 — The renderability check accepts an unterminated optional argument
+
+The evaluation corpus (M5-44) plants twelve unrenderable stems; the battery catches ten. The two it lets
+through carry `\sqrt[` — an optional argument opened and never closed, which is malformed TeX and which the
+content renderer's validation does not reject. Whether the renderer or the item is wrong cannot be settled
+without a reference TeX engine, which this repository does not have; the items stay in the corpus as known-bad,
+and the catch rate (95 of 100, exactly at F34's floor) is reported with them counted as misses.
+
+**Trigger** A reference engine becoming available to check the notation against, or the first real item
+carrying one of these through to a reviewer. The work is a bracket-balance rule in the renderer's validation
+for optional arguments, or a ruling that the item is valid.
+**Cited** `apps/api/src/testing/eval/eval-corpus.ts`
+
 ## Closed
+
+### D46 — A candidate that failed a blocking check stayed `proposed` for good *(closed at M5-40)*
+
+Deciding was a human act and the pipeline held no capability to decide, so a candidate that failed a
+blocking pre-check could never be accepted and was never rejected by anything; M5-39 kept it out of the
+list a person works from, but it stayed stored as `proposed` and counted by `findByRun`.
+
+Closed by [ADR-0029](adr/ADR-0029-the-pipeline-disposes-of-a-candidate-on-the-batterys-result.md): the
+battery's result is acted on by the pipeline (`DisposeCandidate`), and a candidate that failed a blocking
+check is rejected, terminally, in the same run. `isForReview` stays as the listing's guard for a candidate
+whose rejection could not be saved; the normal path no longer leaves one.
+
+**Cited** `apps/api/src/contexts/generation/application/queries/candidate-queries.ts`, `apps/api/src/contexts/generation/domain/generation-candidate.ts`, `apps/api/src/contexts/generation/application/handlers/decision-handlers.ts`
 
 ### D43 — Curriculum's read policy did not admit the generation pipeline *(closed at M5-35)*
 

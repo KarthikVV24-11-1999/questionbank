@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
-import { aCandidate, aRun, versionId } from '../../../../testing/generation-fixtures.js';
+import { aCandidate, aRun, versionId, USAGE } from '../../../../testing/generation-fixtures.js';
 import { contextFor, principalWith } from '../../../../testing/generation-context.js';
 import { KEY_BEARING_FIELDS } from '../../../../fitness/content-rules.js';
 import { RecordedProvider } from '../../infrastructure/provider/recorded-provider.js';
@@ -92,7 +92,9 @@ describe('check 3 — independent answer verification', () => {
       const second = observed();
       expectValue(await check(first.judge).run(candidateFor('kinematics-ramp.json'), machine));
       expectValue(await check(second.judge).run(candidateFor('kinematics-ramp.json', rekeyed), machine));
-      expect(JSON.stringify(second.asked)).toBe(JSON.stringify(first.asked));
+      // Who pays (the run each candidate belongs to) is not part of the question the verifier was asked.
+      const question = (asked: readonly { budgetScope?: unknown }[]) => JSON.stringify(asked.map(({ budgetScope: _scope, ...rest }) => rest));
+      expect(question(second.asked)).toBe(question(first.asked));
     });
   });
 
@@ -152,10 +154,10 @@ describe('check 3 — independent answer verification', () => {
       const down = applicationError('Unavailable', 'PROVIDER_DOWN', 'later');
       expect(expectError(await check({ judge: async () => err(down) }).run(candidateFor('kinematics-ramp.json'), machine))).toBe(down);
 
-      const malformed = await check({ judge: async () => ok({ output: { answer: '' } }) }).run(candidateFor('kinematics-ramp.json'), machine);
+      const malformed = await check({ judge: async () => ok({ usage: USAGE, output: { answer: '' } }) }).run(candidateFor('kinematics-ramp.json'), machine);
       expect(expectError(malformed).code).toBe('PROVIDER_REPLY_MALFORMED');
       const second = expectError(
-        await check({ judge: (() => { let n = 0; return async () => ok({ output: n++ === 0 ? { answer: 'b' } : {} }); })() }).run(candidateFor('kinematics-ramp.json'), machine),
+        await check({ judge: (() => { let n = 0; return async () => ok({ usage: USAGE, output: n++ === 0 ? { answer: 'b' } : {} }); })() }).run(candidateFor('kinematics-ramp.json'), machine),
       );
       expect(second.location).toBe('solve 2');
     });
@@ -164,7 +166,7 @@ describe('check 3 — independent answer verification', () => {
   it('verifies a numeric and a multiple-answer item, in the same canonical form', async () => {
     const numeric = { stem: 'q', responseSpec: { itemType: 'NUMERIC', spec: { expectedValue: '9.81' } } };
     const numericCandidate = aCandidate(aRun(), { body: numeric, itemType: 'NUMERIC' });
-    const answering = (answer: unknown): JudgementProvider => ({ judge: async () => ok({ output: { answer } }) });
+    const answering = (answer: unknown): JudgementProvider => ({ judge: async () => ok({ usage: USAGE, output: { answer } }) });
     expect(expectValue(await check(answering(9.81)).run(numericCandidate, machine)).outcome).toBe('pass');
     expect(expectValue(await check(answering('9.80')).run(numericCandidate, machine)).outcome).toBe('fail');
 

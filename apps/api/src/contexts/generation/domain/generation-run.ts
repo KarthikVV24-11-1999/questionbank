@@ -1,6 +1,7 @@
 import { err, ok, type Result } from './result.js';
 import { validationError, type GenerationError } from './generation-error.js';
 import { freezeJson, isJsonObject } from './json-document.js';
+import { isTokenCount } from './ai-budget.js';
 import { createModelPin, type ModelPin, type ModelPinError, type ModelPinProps } from './model-pin.js';
 
 /**
@@ -25,9 +26,15 @@ export interface GenerationRun {
   /** UTC, ISO-8601 with milliseconds (`toISOString`'s form), as supplied by the caller. */
   readonly requestedAt: string;
   readonly request: Readonly<Record<string, unknown>>;
+  /**
+   * What the run reserved from its period's budget, in tokens, when it was
+   * enqueued (M5-41). The run is the record of the reservation, so the two cannot
+   * disagree and the reservation is as immutable as the run.
+   */
+  readonly budgetTokens: number;
 }
 
-export type GenerationRunErrorCode = 'RUN_REQUESTED_AT_INVALID' | 'RUN_REQUEST_INVALID';
+export type GenerationRunErrorCode = 'RUN_REQUESTED_AT_INVALID' | 'RUN_REQUEST_INVALID' | 'RUN_BUDGET_INVALID';
 
 export type GenerationRunError = GenerationError<GenerationRunErrorCode> | ModelPinError;
 
@@ -35,6 +42,7 @@ export interface CreateGenerationRunProps {
   readonly pin: ModelPinProps;
   readonly requestedAt: string;
   readonly request: Readonly<Record<string, unknown>>;
+  readonly budgetTokens: number;
 }
 
 // Milliseconds exactly, because that is what survives a round trip through
@@ -54,9 +62,14 @@ export function createGenerationRun(props: CreateGenerationRunProps): Result<Gen
     return err(validationError('RUN_REQUEST_INVALID', 'the run request must be a JSON object', 'request'));
   }
 
+  if (!isTokenCount(props.budgetTokens)) {
+    return err(validationError('RUN_BUDGET_INVALID', 'a run reserves a positive whole number of tokens', 'budgetTokens'));
+  }
+
   return ok(
     Object.freeze({
       pin: pin.value,
+      budgetTokens: props.budgetTokens,
       requestedAt: props.requestedAt,
       request: freezeJson(props.request) as Readonly<Record<string, unknown>>,
     }),

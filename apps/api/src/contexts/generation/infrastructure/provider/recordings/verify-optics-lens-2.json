@@ -104,6 +104,10 @@
   "response": {
     "output": {
       "answer": "a"
+    },
+    "usage": {
+      "inputTokens": 1056,
+      "outputTokens": 204
     }
   }
 }

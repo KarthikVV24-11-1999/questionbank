@@ -100,7 +100,7 @@ describe('createApplication — unit speed', () => {
     app = await createApplication(CONFIG, { pool: fakePool() });
     const registry = app.get<HandlerRegistry>(GENERATION_REGISTRY, { strict: false });
     expect([...registry.names].sort()).toEqual(GENERATION_POLICIES.map((entry) => entry.name).sort());
-    expect(registry.names).toHaveLength(8);
+    expect(registry.names).toHaveLength(11);
   });
 
   it('rejects a planted policy-less generation handler across the composed set, naming the handler', async () => {

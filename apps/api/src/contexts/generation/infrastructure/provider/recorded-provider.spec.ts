@@ -6,15 +6,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkNoApiKeyReadAnywhere } from '../../../../fitness/generation-rules.js';
 import { expectError, expectValue } from '../../../../testing/expect-result.js';
 import { versionId } from '../../../../testing/generation-fixtures.js';
-import type { ProposalRequest } from '../../application/ports.js';
+import type { BudgetScope, ProposalRequest } from '../../application/ports.js';
 import { InvalidRecordingError, RecordedProvider } from './recorded-provider.js';
 
 const RECORDINGS = join(dirname(fileURLToPath(import.meta.url)), 'recordings');
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../../..');
 
+/** Who pays is not part of the question: a recording is found without it, so a spec gives every request the same one. */
+const SCOPE: BudgetScope = { feature: 'generation', runId: versionId('run', 900) };
+
 interface RecordingFile {
   request: { pin: { modelVersionId: string; promptVersionId: string }; grounding: ProposalRequest['grounding']; task: ProposalRequest['task'] };
-  response: { itemType: string; body: Record<string, unknown>; confidence: number };
+  response: { itemType: string; body: Record<string, unknown>; confidence: number; usage: { inputTokens: number; outputTokens: number } };
 }
 
 function recordingFile(name: string): RecordingFile {
@@ -24,7 +27,7 @@ function recordingFile(name: string): RecordingFile {
 /** The request a recording answers, with a run id of the caller's own — the run is not part of the question. */
 function requestFor(name: string, runId = versionId('run', 1)): ProposalRequest {
   const { request } = recordingFile(name);
-  return { pin: { ...request.pin, runId }, grounding: request.grounding, task: request.task };
+  return { budgetScope: SCOPE, pin: { ...request.pin, runId }, grounding: request.grounding, task: request.task };
 }
 
 const provider = () => RecordedProvider.fromDirectory(RECORDINGS);
@@ -57,7 +60,8 @@ describe('the recorded adapter replays what was recorded', () => {
       expect(response.itemType).toBe(recorded.itemType);
       expect(response.confidence).toBe(recorded.confidence);
       expect((response.body['subject'] as string)).toBe(recorded.body['subject']);
-      expect(Object.keys(response).sort()).toEqual(['body', 'confidence', 'itemType']);
+      expect(Object.keys(response).sort()).toEqual(['body', 'confidence', 'itemType', 'usage']);
+      expect(response.usage).toEqual(recorded.usage);
     }
   });
 
@@ -86,6 +90,7 @@ describe('deterministic — the same request yields the same bytes', () => {
   it('whatever order the request’s fields arrive in, and whichever run asks', async () => {
     const original = requestFor('optics-lens.json');
     const reordered: ProposalRequest = {
+      budgetScope: { feature: 'generation', runId: versionId('run', 78) },
       task: Object.fromEntries(Object.entries(original.task).reverse()),
       grounding: original.grounding,
       pin: { runId: versionId('run', 77), promptVersionId: original.pin.promptVersionId, modelVersionId: original.pin.modelVersionId },
@@ -225,14 +230,24 @@ describe('no API key is read anywhere in this repository', () => {
   });
 });
 
+describe('who pays is not part of the question (F32)', () => {
+  it('finds the same recording whichever budget scope the request declares', async () => {
+    const original = requestFor('optics-lens.json');
+    const elsewhere = { ...original, budgetScope: { feature: 'tutoring', runId: versionId('run', 901) } };
+    expect(JSON.stringify(expectValue(await provider().propose(elsewhere)))).toBe(JSON.stringify(expectValue(await provider().propose(original))));
+  });
+});
+
 describe('the recorded adapter replays judgements too', () => {
   const MODEL = versionId('model', 5);
   const PROMPT = versionId('prompt', 20);
-  const recordedJudgement = (name: string) =>
-    JSON.parse(readFileSync(join(RECORDINGS, name), 'utf8')) as {
+  const recordedJudgement = (name: string) => {
+    const file = JSON.parse(readFileSync(join(RECORDINGS, name), 'utf8')) as {
       request: { modelVersionId: string; promptVersionId: string; input: Record<string, unknown> };
       response: { output: Record<string, unknown> };
     };
+    return { request: { budgetScope: SCOPE, ...file.request }, response: file.response };
+  };
 
   it('answers a recorded judgement with its recorded output, byte for byte, twice', async () => {
     const { request, response } = recordedJudgement('verify-optics-lens-1.json');
@@ -265,22 +280,42 @@ describe('the recorded adapter replays judgements too', () => {
 
   it('fails loudly for an input nobody recorded, never calling out', async () => {
     const fetched = vi.spyOn(globalThis, 'fetch');
-    const failure = expectError(await provider().judge({ modelVersionId: MODEL, promptVersionId: PROMPT, input: { nothing: 'recorded' } }));
+    const failure = expectError(await provider().judge({ budgetScope: SCOPE, modelVersionId: MODEL, promptVersionId: PROMPT, input: { nothing: 'recorded' } }));
     expect(failure.code).toBe('NO_RECORDING_FOR_REQUEST');
     expect(fetched).not.toHaveBeenCalled();
   });
 
   it('keeps proposals and judgements apart: a judgement recording never answers a proposal request, or the reverse', async () => {
     const adapter = RecordedProvider.fromRecordings([
-      { source: 'j.json', content: { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }, response: { output: { a: 1 } } } },
+      { source: 'j.json', content: { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }, response: { output: { a: 1 }, usage: { inputTokens: 1, outputTokens: 1 } } } },
     ]);
-    expectValue(await adapter.judge({ modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }));
+    expectValue(await adapter.judge({ budgetScope: SCOPE, modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }));
     expect(expectError(await adapter.propose(requestFor('optics-lens.json'))).code).toBe('NO_RECORDING_FOR_REQUEST');
+  });
+
+  it('refuses at load a recording that reports no usage, or usage that is not whole non-negative token counts (M5-42)', () => {
+    const proposal = (usage: unknown) => () => {
+      const file = JSON.parse(JSON.stringify(recordingFile('optics-lens.json'))) as { response: Record<string, unknown> };
+      if (usage === undefined) delete file.response['usage'];
+      else file.response['usage'] = usage;
+      return RecordedProvider.fromRecordings([{ source: 'p.json', content: file }]);
+    };
+    const judgement = (usage: unknown) => () => {
+      const response: Record<string, unknown> = { output: {} };
+      if (usage !== undefined) response['usage'] = usage;
+      return RecordedProvider.fromRecordings([{ source: 'j.json', content: { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: {} }, response } }]);
+    };
+    for (const bad of [undefined, 5, {}, { inputTokens: 1 }, { inputTokens: -1, outputTokens: 1 }, { inputTokens: 1.5, outputTokens: 1 }, { inputTokens: '1', outputTokens: 1 }]) {
+      expect(proposal(bad), JSON.stringify(bad)).toThrow(/usage/u);
+      expect(judgement(bad), JSON.stringify(bad)).toThrow(/usage/u);
+    }
+    // Zero is a real answer: a call can cost input and return nothing.
+    expect(proposal({ inputTokens: 0, outputTokens: 0 })).not.toThrow();
   });
 
   it('refuses at load a judgement recording that cannot be trusted, and a kind it does not know', () => {
     const judgement = (change: (file: Record<string, unknown>) => void) => {
-      const file = { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: {} }, response: { output: {} } } as Record<string, unknown>;
+      const file = { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: {} }, response: { output: {}, usage: { inputTokens: 1, outputTokens: 1 } } } as Record<string, unknown>;
       change(file);
       return () => RecordedProvider.fromRecordings([{ source: 'j.json', content: file }]);
     };
@@ -289,8 +324,8 @@ describe('the recorded adapter replays judgements too', () => {
     expect(judgement((file) => { file['response'] = { output: 5 }; })).toThrow(/needs an "output" object/u);
     expect(judgement((file) => { file['kind'] = 'sing'; })).toThrow(/kind "sing" is neither "propose" nor "judge"/u);
     expect(() => RecordedProvider.fromRecordings([
-      { source: 'a.json', content: { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }, response: { output: {} } } },
-      { source: 'b.json', content: { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }, response: { output: { other: true } } } },
+      { source: 'a.json', content: { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }, response: { output: {}, usage: { inputTokens: 1, outputTokens: 1 } } } },
+      { source: 'b.json', content: { kind: 'judge', request: { modelVersionId: MODEL, promptVersionId: PROMPT, input: { q: 1 } }, response: { output: { other: true }, usage: { inputTokens: 1, outputTokens: 1 } } } },
     ])).toThrow(/b\.json is not usable: it records the same request as a\.json/u);
   });
 });

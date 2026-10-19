@@ -298,17 +298,40 @@ export function failedBlockingChecks(candidate: Pick<GenerationCandidate, 'verdi
 }
 
 /**
- * Whether a person has anything to decide about this candidate. One that failed a
- * blocking check can never be accepted, and deciding is a human act the pipeline
- * holds no capability to perform on its behalf — so it stays `proposed` for good,
- * and a queue that listed it would fill with items nobody can act on (M5-39).
- *
- * This is deliberately a predicate and not a state. Rejecting such a candidate would
- * be a lifecycle transition with its own invariants, made by something other than a
- * human; that is a domain change, and it is debt D46 rather than a query detail.
+ * Whether this candidate belongs in the operator's listing. A candidate that failed
+ * a blocking check is rejected terminally by the pipeline (`dispositionOf`, ADR-0029),
+ * so by the normal path none is left `proposed`; this stays as the listing's guard
+ * for one that predates the disposition or whose rejection could not be saved, and
+ * it shares `failedBlockingChecks` with the disposition so the two cannot disagree.
  */
 export function isForReview(candidate: Pick<GenerationCandidate, 'verdicts'>): boolean {
   return failedBlockingChecks(candidate).length === 0;
+}
+
+export const CANDIDATE_DISPOSITIONS = ['accept', 'reject', 'undecided'] as const;
+export type CandidateDisposition = (typeof CANDIDATE_DISPOSITIONS)[number];
+
+/**
+ * What the battery's result says to do with a candidate — **one definition**, which
+ * the pipeline acts on (ADR-0029, closing D46).
+ *
+ *   - any blocking check failed → `reject`: it can never be accepted, so leaving it
+ *     `proposed` is a queue of items nobody can act on;
+ *   - every blocking check has a recorded pass → `accept`: a draft for the reviewer;
+ *   - otherwise → `undecided`: a check has not run (a provider failure, a blocked
+ *     check), and **a check that did not run is not a pass**. Nothing is decided.
+ *
+ * This reads the battery's recorded verdicts and forms no judgement of its own; the
+ * judgement was each check's. A candidate that is not `proposed` has nothing left to
+ * decide, so it is `undecided` whatever its verdicts say.
+ */
+export function dispositionOf(candidate: Pick<GenerationCandidate, 'state' | 'verdicts'>): CandidateDisposition {
+  if (candidate.state !== 'proposed') return 'undecided';
+  if (failedBlockingChecks(candidate).length > 0) return 'reject';
+  const passed = new Set<string>(
+    candidate.verdicts.filter((verdict) => verdict.outcome === 'pass').map((verdict) => verdict.check),
+  );
+  return BLOCKING_PRECHECKS.every((check) => passed.has(check)) ? 'accept' : 'undecided';
 }
 
 /**

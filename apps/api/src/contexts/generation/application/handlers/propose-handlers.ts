@@ -1,3 +1,4 @@
+import { GENERATION_FEATURE } from '../../domain/ai-budget.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import { createGenerationCandidate, type GenerationCandidate } from '../../domain/generation-candidate.js';
 import type { GenerationCandidateRepository, GenerationRunRepository } from '../../domain/repository-ports.js';
@@ -48,6 +49,7 @@ export class ProposeCandidateHandler implements Handler<ProposeCandidate, Genera
     if (!run.ok) return err(fromGeneration(run.error));
 
     const proposed = await this.deps.provider.propose({
+      budgetScope: { feature: GENERATION_FEATURE, runId: run.value.pin.runId },
       pin: run.value.pin,
       grounding: command.grounding,
       task: command.task,

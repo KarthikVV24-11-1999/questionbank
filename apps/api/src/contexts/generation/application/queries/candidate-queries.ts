@@ -43,11 +43,11 @@ export class GetCandidateHandler implements Handler<GetCandidate, GenerationCand
  * A run's candidates **that a person has something to decide about** (M5-39).
  *
  * A candidate that failed a blocking pre-check can never be accepted and is not
- * listed: it stays `proposed` for good, because deciding is a human act and the
- * pipeline holds none, and a list that included it would fill with items no one can
- * act on. It is still readable by id through `GetCandidate`, with its failing
- * verdicts and their working. This is a filter on a query and not a terminal state
- * — see `isForReview` and D46.
+ * listed. The pipeline rejects such a candidate terminally (ADR-0029, D46 closed),
+ * so on the normal path none is left `proposed`; this filter stays because the
+ * rejection can itself fail to save, and a list that included the candidate would
+ * fill with items no one can act on. It is still readable by id through
+ * `GetCandidate`, with its failing verdicts and their working — see `isForReview`.
  */
 export class ListRunCandidatesHandler implements Handler<ListRunCandidates, readonly GenerationCandidate[]> {
   readonly name = 'ListRunCandidates';

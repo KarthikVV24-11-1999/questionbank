@@ -116,6 +116,10 @@
     "output": {
       "outcome": "pass",
       "rationale": "The stem asks for the acceleration along the ramp; the solution derives g sin(theta) and its final answer, option b, is the keyed option."
+    },
+    "usage": {
+      "inputTokens": 926,
+      "outputTokens": 134
     }
   }
 }

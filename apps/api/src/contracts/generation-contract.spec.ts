@@ -38,9 +38,9 @@ function authoringRouteDrift(spec: Pick<OpenApi, 'paths' | 'x-authoring-routes'>
 }
 
 describe('F15 — every endpoint reconciles with a real handler', () => {
-  it('names a handler on every operation, and exactly these three', () => {
-    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(3);
-    expect([...declaredHandlers].sort()).toEqual(['GetCandidate', 'ListRunCandidates', 'StartGenerationRun']);
+  it('names a handler on every operation, and exactly these five', () => {
+    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(5);
+    expect([...declaredHandlers].sort()).toEqual(['AcceptCandidate', 'GetCandidate', 'ListRunCandidates', 'RejectCandidate', 'StartGenerationRun']);
   });
 
   it('names only handlers that exist and declare a policy (F36)', () => {
@@ -72,16 +72,16 @@ describe('F15 — every endpoint reconciles with a real handler', () => {
         return { ok: true as const, value: undefined };
       },
     }));
-    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(3);
+    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(5);
   });
 });
 
 describe('F33 — no live inference behind a request path', () => {
-  // The handlers the context declares that have no route, asserted as a set: a ninth handler
+  // The handlers the context declares that have no route, asserted as a set: a tenth handler
   // with no routing decision fails here, so every handler is routed or deliberately not.
-  it('leaves exactly the five handlers that call a model, write a verdict, or decide, without a route', () => {
+  it('leaves exactly the six handlers that call a model, write a verdict, set a budget, record an evaluation, or act on the battery, without a route', () => {
     const unrouted = GENERATION_POLICIES.map((entry) => entry.name).filter((name) => !declaredHandlers.includes(name));
-    expect(unrouted.sort()).toEqual(['AcceptCandidate', 'ProposeCandidate', 'RecordPrecheckVerdict', 'RejectCandidate', 'RunPrecheckBattery']);
+    expect(unrouted.sort()).toEqual(['DeclareAIBudget', 'DisposeCandidate', 'ProposeCandidate', 'RecordEvaluationRun', 'RecordPrecheckVerdict', 'RunPrecheckBattery']);
   });
 
   it('names neither of the two handlers that reach a provider, in the document or the controller', () => {
@@ -104,6 +104,12 @@ describe('INV-01 — what the pipeline may and may not reach over HTTP', () => {
   it('lets only Content Ops read a candidate, because it carries the answer key', () => {
     expect([...POLICY_BY_NAME['GetCandidate']!.allowedRoles]).toEqual([ROLES.contentOps]);
     expect([...POLICY_BY_NAME['ListRunCandidates']!.allowedRoles]).toEqual([ROLES.contentOps]);
+  });
+
+  it('puts the manual override with Content Ops alone, and the pipeline’s disposition with the pipeline alone (ADR-0029)', () => {
+    expect([...POLICY_BY_NAME['AcceptCandidate']!.allowedRoles]).toEqual([ROLES.contentOps]);
+    expect([...POLICY_BY_NAME['RejectCandidate']!.allowedRoles]).toEqual([ROLES.contentOps]);
+    expect([...POLICY_BY_NAME['DisposeCandidate']!.allowedRoles]).toEqual([ROLES.generationPipeline]);
   });
 
   it('lets the machine and Content Ops start a run, and nobody else', () => {
@@ -160,21 +166,27 @@ describe('the document’s vocabulary is the code’s, as sets in both direction
 
   it('the pin is the three registry references and nothing the caller can choose beyond two of them', () => {
     expect([...(SPEC.components.schemas['ModelPin']!.required ?? [])].sort()).toEqual(['modelVersionId', 'promptVersionId', 'runId']);
-    expect(Object.keys(SPEC.components.schemas['StartGenerationRunRequest']!.properties ?? {}).sort()).toEqual(['modelVersionId', 'promptVersionId', 'request']);
+    expect(Object.keys(SPEC.components.schemas['StartGenerationRunRequest']!.properties ?? {}).sort()).toEqual(['budgetTokens', 'modelVersionId', 'promptVersionId', 'request']);
   });
 });
 
 describe('boundary validation accepts what the document says and refuses what it does not', () => {
   const ID = '00000000-0000-4000-8000-000000000001';
 
-  it('a run request carries the two registry ids and an object, and nothing else', () => {
-    expect(startGenerationRunSchema.safeParse({ modelVersionId: ID, promptVersionId: ID, request: { itemType: 'x' } }).success).toBe(true);
+  it('a run request carries the two registry ids, an object and a reservation in tokens, and nothing else', () => {
+    expect(startGenerationRunSchema.safeParse({ modelVersionId: ID, promptVersionId: ID, request: { itemType: 'x' }, budgetTokens: 5000 }).success).toBe(true);
     for (const bad of [
-      { promptVersionId: ID, request: {} },
-      { modelVersionId: ID, promptVersionId: 'not-a-uuid', request: {} },
-      { modelVersionId: ID, promptVersionId: ID, request: 'a string' },
-      { modelVersionId: ID, promptVersionId: ID, request: {}, runId: ID },
-      { modelVersionId: ID, promptVersionId: ID, request: {}, requestedAt: '2026-01-01T00:00:00.000Z' },
+      { promptVersionId: ID, request: {}, budgetTokens: 1 },
+      { modelVersionId: ID, promptVersionId: 'not-a-uuid', request: {}, budgetTokens: 1 },
+      { modelVersionId: ID, promptVersionId: ID, request: 'a string', budgetTokens: 1 },
+      { modelVersionId: ID, promptVersionId: ID, request: {}, runId: ID, budgetTokens: 1 },
+      { modelVersionId: ID, promptVersionId: ID, request: {}, requestedAt: '2026-01-01T00:00:00.000Z', budgetTokens: 1 },
+      // The reservation is required, and is a positive whole number of tokens.
+      { modelVersionId: ID, promptVersionId: ID, request: {} },
+      { modelVersionId: ID, promptVersionId: ID, request: {}, budgetTokens: 0 },
+      { modelVersionId: ID, promptVersionId: ID, request: {}, budgetTokens: -1 },
+      { modelVersionId: ID, promptVersionId: ID, request: {}, budgetTokens: 1.5 },
+      { modelVersionId: ID, promptVersionId: ID, request: {}, budgetTokens: '5000' },
     ]) {
       expect(startGenerationRunSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
     }

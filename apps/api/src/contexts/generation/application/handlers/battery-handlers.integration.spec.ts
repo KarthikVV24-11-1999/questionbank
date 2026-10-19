@@ -13,6 +13,11 @@ import { applicationError } from '../authorization.js';
 import type { BlockedPrecheck, CheckOutcome, PrecheckRunner } from '../prechecks/battery.js';
 import { RunPrecheckBatteryHandler } from './battery-handlers.js';
 import { RecordPrecheckVerdictHandler } from './verdict-handlers.js';
+import { DisposeCandidateHandler, type Disposition } from './decision-handlers.js';
+import type { ContentAuthoring } from '../ports.js';
+import type { Handler } from '../handler-registry.js';
+import type { DisposeCandidate } from '../commands/generation-commands.js';
+import { DISPOSE_CANDIDATE_POLICY } from '../policies.js';
 
 /**
  * The battery's own behaviour — recording, accounting, idempotence — against
@@ -55,10 +60,23 @@ const failing = (check: PrecheckId, detail = 'it did not hold'): PrecheckRunner 
   run: async () => ok<CheckOutcome>({ outcome: 'fail', detail }),
 });
 
+/**
+ * Most of this file is about recording, accounting and idempotence, which a
+ * disposition would only get in the way of: it would accept or reject the very
+ * candidate each test goes on to inspect. So these tests dispose through a handler
+ * that leaves the candidate as it is, and the disposition has its own describe
+ * below, against the real handler.
+ */
+const leavesAlone: Handler<DisposeCandidate, Disposition> = {
+  name: 'DisposeCandidate',
+  policy: DISPOSE_CANDIDATE_POLICY,
+  handle: async ({ candidateId }) => ok({ candidateId, disposition: 'undecided' as const }),
+};
+
 function battery(runners: readonly PrecheckRunner[], blocked: readonly BlockedPrecheck[] = []) {
   const audit = new RecordingAudit();
   const recordVerdict = new RecordPrecheckVerdictHandler({ candidates, clock: fixedClock, audit });
-  return { audit, handler: new RunPrecheckBatteryHandler({ candidates, recordVerdict, runners, blocked, clock: fixedClock, audit }) };
+  return { audit, handler: new RunPrecheckBatteryHandler({ candidates, recordVerdict, dispose: leavesAlone, runners, blocked, clock: fixedClock, audit }) };
 }
 
 /** Every check implemented or blocked: a configuration with nothing left unaccounted. */
@@ -195,6 +213,7 @@ describe('a check that did not run is not a check that passed', () => {
     const refusing = new RunPrecheckBatteryHandler({
       candidates,
       recordVerdict: { name: 'x', policy: battery([]).handler.policy, handle: async () => err(applicationError('Conflict', 'VERDICT_ALREADY_RECORDED', 'someone got there first')) },
+      dispose: leavesAlone,
       runners: [passing('renderability')],
       blocked: [],
       clock: fixedClock,
@@ -291,5 +310,118 @@ describe('who may run it, and on what', () => {
 
   it('surfaces a store refusal as it is', async () => {
     expect(expectError(await battery([]).handler.handle({ candidateId: 'not-a-uuid' }, contextFor(machine))).code).toBe('PERSISTENCE_REJECTED');
+  });
+});
+
+describe('the battery acts on its result (M5-40, ADR-0029)', () => {
+  function disposing(authoring: ContentAuthoring, runners: readonly PrecheckRunner[], blocked: readonly BlockedPrecheck[] = []) {
+    const audit = new RecordingAudit();
+    const recordVerdict = new RecordPrecheckVerdictHandler({ candidates, clock: fixedClock, audit });
+    const dispose = new DisposeCandidateHandler({ candidates, content: authoring, clock: fixedClock, audit });
+    return new RunPrecheckBatteryHandler({ candidates, recordVerdict, dispose, runners, blocked, clock: fixedClock, audit });
+  }
+  /** A proposal content's mapping takes: the default fixture body is enough to record verdicts on, not to become a draft. */
+  async function storedProposal(): Promise<GenerationCandidate> {
+    const run = aRun();
+    expectValue(await runs.save(run));
+    const candidate = aCandidate(run, {
+      body: { stem: { blocks: [] }, responseSpec: { itemType: 'SINGLE_CORRECT_MCQ' }, taxonomyTags: [], difficultyEstimate: 'moderate', subject: 'physics' },
+    });
+    expectValue(await candidates.save(candidate));
+    return candidate;
+  }
+  const calls: string[] = [];
+  const authoring: ContentAuthoring = {
+    async createDraft() {
+      calls.push('createDraft');
+      return ok({ itemId: randomUUID() });
+    },
+    async submitForReview() {
+      calls.push('submitForReview');
+      return ok(true as const);
+    },
+  };
+
+  it('accepts a candidate every blocking check passed for, with no human between the battery and the review queue', async () => {
+    calls.length = 0;
+    const candidate = await storedProposal();
+    const report = expectValue(await disposing(authoring, everythingBut([])).handle({ candidateId: candidate.candidateId }, contextFor(machine)));
+
+    expect(report.disposition).toMatchObject({ status: 'accepted' });
+    expect(calls).toEqual(['createDraft', 'submitForReview']);
+    expect(expectValue(await candidates.findById(candidate.candidateId)).state).toBe('accepted');
+  });
+
+  it('rejects a candidate that failed a blocking check, terminally, and creates no draft (D46)', async () => {
+    calls.length = 0;
+    const candidate = await storedProposal();
+    const runners = PRECHECK_IDS.map((check) => (check === 'answer_verification' ? failing(check) : passing(check)));
+    const report = expectValue(await disposing(authoring, runners).handle({ candidateId: candidate.candidateId }, contextFor(machine)));
+
+    expect(report.disposition).toEqual({ status: 'rejected' });
+    expect(calls).toEqual([]);
+    expect(expectValue(await candidates.findById(candidate.candidateId)).state).toBe('rejected');
+  });
+
+  it('accepts despite a failing advisory check: it informs the reviewer and blocks nothing', async () => {
+    calls.length = 0;
+    const candidate = await storedProposal();
+    const advisory: readonly PrecheckId[] = PRECHECKS.filter((check) => check.severity === 'advisory').map((check) => check.id);
+    const runners = PRECHECK_IDS.map((check) => (advisory.includes(check) ? failing(check) : passing(check)));
+    const report = expectValue(await disposing(authoring, runners).handle({ candidateId: candidate.candidateId }, contextFor(machine)));
+    expect(report.disposition.status).toBe('accepted');
+  });
+
+  it('leaves a candidate undecided while a blocking check has not run, and a later run completes it', async () => {
+    calls.length = 0;
+    const candidate = await storedProposal();
+    const omitted: PrecheckId = 'item_solution_key_consistency';
+    const first = expectValue(
+      await disposing(authoring, everythingBut([omitted]), [{ check: omitted, reason: 'r', successor: 's' }]).handle({ candidateId: candidate.candidateId }, contextFor(machine)),
+    );
+    expect(first.disposition).toEqual({ status: 'undecided' });
+    expect(calls).toEqual([]);
+    expect(expectValue(await candidates.findById(candidate.candidateId)).state).toBe('proposed');
+
+    const second = expectValue(await disposing(authoring, everythingBut([])).handle({ candidateId: candidate.candidateId }, contextFor(machine)));
+    expect(second.disposition.status).toBe('accepted');
+  });
+
+  it('reports a failed disposition rather than failing the battery, and the recorded verdicts stand', async () => {
+    const candidate = await storedProposal();
+    const refusing: ContentAuthoring = {
+      async createDraft() {
+        return err(applicationError('Authorization', 'NOT_PERMITTED', 'content refused'));
+      },
+      async submitForReview() {
+        return ok(true as const);
+      },
+    };
+    const report = expectValue(await disposing(refusing, everythingBut([])).handle({ candidateId: candidate.candidateId }, contextFor(machine)));
+
+    expect(report.disposition).toMatchObject({ status: 'failed', error: { code: 'NOT_PERMITTED' } });
+    const after = expectValue(await candidates.findById(candidate.candidateId));
+    expect(after.state).toBe('proposed');
+    expect(after.verdicts.length).toBeGreaterThan(0);
+  });
+
+  it('contains a disposition that raises, whatever it raises, and reports it without losing the verdicts', async () => {
+    for (const thrown of [new Error('boom'), 'a bare string']) {
+      const candidate = await storedProposal();
+      const audit = new RecordingAudit();
+      const recordVerdict = new RecordPrecheckVerdictHandler({ candidates, clock: fixedClock, audit });
+      const raising: Handler<DisposeCandidate, Disposition> = {
+        name: 'DisposeCandidate',
+        policy: DISPOSE_CANDIDATE_POLICY,
+        handle: async () => {
+          throw thrown;
+        },
+      };
+      const handler = new RunPrecheckBatteryHandler({ candidates, recordVerdict, dispose: raising, runners: everythingBut([]), blocked: [], clock: fixedClock, audit });
+
+      const report = expectValue(await handler.handle({ candidateId: candidate.candidateId }, contextFor(machine)));
+      expect(report.disposition).toEqual({ status: 'failed', error: { code: 'DISPOSE_RAISED', message: thrown instanceof Error ? 'boom' : 'a bare string' } });
+      expect(expectValue(await candidates.findById(candidate.candidateId)).verdicts.length).toBeGreaterThan(0);
+    }
   });
 });

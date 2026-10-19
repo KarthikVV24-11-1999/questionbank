@@ -38,8 +38,11 @@ async function rejects(query: string, params: readonly unknown[] = []): Promise<
 }
 
 const AI_TABLES = [
+  'ai_budget',
+  'ai_spend_ledger',
   'candidate_decision',
   'candidate_verdict',
+  'evaluation_run',
   'generation_candidate',
   'generation_run',
   'model_version',
@@ -49,8 +52,8 @@ const AI_TABLES = [
 async function newRun(model = '00000000-0000-4000-8000-0000000a0003', prompt = '00000000-0000-4000-8000-0000000b0007'): Promise<string> {
   await ensureVersions(database.pool, { modelVersionId: model, promptVersionId: prompt });
   const [run] = await rows<{ run_id: string }>(
-    `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-     VALUES ($1, $2, '2026-10-16T09:30:00Z', '{"count": 5}') RETURNING run_id`,
+    `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+     VALUES ($1, $2, '2026-10-16T09:30:00Z', '{"count": 5}', 1000) RETURNING run_id`,
     [model, prompt],
   );
   return run!.run_id;
@@ -99,8 +102,14 @@ describe('the ai schema is its own', () => {
 
     expect(keys.filter((key) => key.from_schema !== 'ai' || key.to_schema !== 'ai')).toEqual([]);
     expect(keys.map((key) => `${key.from_table}->${key.to_table}`)).toEqual([
+      'ai_spend_ledger->generation_run',
+      'ai_spend_ledger->model_version',
+      'ai_spend_ledger->prompt_version',
       'candidate_decision->generation_candidate',
       'candidate_verdict->generation_candidate',
+      'evaluation_run->evaluation_run',
+      'evaluation_run->model_version',
+      'evaluation_run->prompt_version',
       'generation_candidate->generation_run',
       'generation_run->model_version',
       'generation_run->prompt_version',
@@ -150,16 +159,16 @@ describe('F28 — the pin is stored, and cannot be absent', () => {
     });
     const unregistered = '00000000-0000-4000-8000-0000000fffff';
     expect(await rejects(
-      `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-       VALUES ($1, '00000000-0000-4000-8000-0000000b0007', now(), '{}')`, [unregistered])).toContain('generation_run_model_version_fk');
+      `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+       VALUES ($1, '00000000-0000-4000-8000-0000000b0007', now(), '{}', 1000)`, [unregistered])).toContain('version_not_evaluated');
     expect(await rejects(
-      `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-       VALUES ('00000000-0000-4000-8000-0000000a0003', $1, now(), '{}')`, [unregistered])).toContain('generation_run_prompt_version_fk');
+      `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+       VALUES ('00000000-0000-4000-8000-0000000a0003', $1, now(), '{}', 1000)`, [unregistered])).toContain('version_not_evaluated');
   });
 
   it('refuses a label where a version id belongs, on the run and on the candidate', async () => {
-    expect(await rejects(`INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-      VALUES ('model-v3', '00000000-0000-4000-8000-0000000b0007', now(), '{}')`)).toContain('uuid');
+    expect(await rejects(`INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+      VALUES ('model-v3', '00000000-0000-4000-8000-0000000b0007', now(), '{}', 1000)`)).toContain('uuid');
     const run = await newRun();
     expect(await rejects(
       `INSERT INTO ai.generation_candidate (run_id, model_version_id, prompt_version_id, item_type, body, confidence)
@@ -201,8 +210,8 @@ describe('F28 — the pin is stored, and cannot be absent', () => {
 describe('the documents', () => {
   it('requires a JSON object for the request and the proposal, and a positive schema version', async () => {
     await newRun();
-    expect(await rejects(`INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-      VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', now(), '[1]')`)).toContain('request');
+    expect(await rejects(`INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+      VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', now(), '[1]', 1000)`)).toContain('request');
     const run = await newRun();
     expect(await rejects(
       `INSERT INTO ai.generation_candidate (run_id, model_version_id, prompt_version_id, item_type, body, confidence)

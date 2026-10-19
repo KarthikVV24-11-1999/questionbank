@@ -23,7 +23,11 @@ export const PROMPT_VERSION = versionId('prompt', 7);
  * what it pins. Idempotent, because the registry is append-only and shared by
  * every spec in a file.
  */
-export async function ensureVersions(pool: Pool, pin: { modelVersionId: string; promptVersionId: string }): Promise<void> {
+export async function ensureVersions(
+  pool: Pool,
+  pin: { modelVersionId: string; promptVersionId: string },
+  options: { readonly evaluated?: boolean } = {},
+): Promise<void> {
   await pool.query(
     `INSERT INTO ai.model_version (model_version_id, provider_model_id, automatic_upgrades_prohibited)
      VALUES ($1, $2, true) ON CONFLICT DO NOTHING`,
@@ -34,6 +38,18 @@ export async function ensureVersions(pool: Pool, pin: { modelVersionId: string; 
      VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
     [pin.promptVersionId, `prompts/${pin.promptVersionId}.md`, '0'.repeat(64)],
   );
+  // F31: a run may only name a version with a passing evaluation, so a spec that is not about the gate gets
+  // versions that already have one. A spec that *is* about it asks for `evaluated: false`.
+  if (options.evaluated !== false) {
+    for (const [column, id] of [['model_version_id', pin.modelVersionId], ['prompt_version_id', pin.promptVersionId]] as const) {
+      await pool.query(
+        `INSERT INTO ai.evaluation_run (${column}, corpus, scores, regressions, outcome, evaluated_by_kind, evaluated_by_id, evaluated_at)
+         SELECT $1, 'fixture-corpus', '{"generation_acceptance": 0.9}', '{}', 'pass', 'system', gen_random_uuid(), now()
+          WHERE NOT EXISTS (SELECT 1 FROM ai.evaluation_run WHERE ${column} = $1 AND outcome = 'pass')`,
+        [id],
+      );
+    }
+  }
 }
 
 /** The real run repository, publishing the versions a run pins before saving it. */
@@ -44,12 +60,16 @@ export function registering(pool: Pool): GenerationRunRepository {
       await ensureVersions(pool, run.pin);
       return runs.save(run);
     },
+    saveWithinBudget: async (run, feature) => {
+      await ensureVersions(pool, run.pin);
+      return runs.saveWithinBudget(run, feature);
+    },
     findById: (id) => runs.findById(id),
   };
 }
 
 /** A run with fresh identifiers, so specs never depend on each other's rows. */
-export function aRun(overrides: { modelVersionId?: string; promptVersionId?: string; request?: Record<string, unknown> } = {}): GenerationRun {
+export function aRun(overrides: { modelVersionId?: string; promptVersionId?: string; request?: Record<string, unknown>; budgetTokens?: number } = {}): GenerationRun {
   return expectValue(
     createGenerationRun({
       pin: {
@@ -58,6 +78,7 @@ export function aRun(overrides: { modelVersionId?: string; promptVersionId?: str
         runId: randomUUID(),
       },
       requestedAt: '2026-10-16T09:30:00.125Z',
+      budgetTokens: overrides.budgetTokens ?? 50_000,
       request: overrides.request ?? { band: 'medium', count: 5, filters: { topics: ['kinematics', 'optics'], strict: true } },
     }),
   );
@@ -82,6 +103,9 @@ export function aCandidate(run: GenerationRun, overrides: { body?: Record<string
     }),
   );
 }
+
+/** What a scripted provider reports for a call: specs that are not about spend still owe every response a usage. */
+export const USAGE = { inputTokens: 100, outputTokens: 20 } as const;
 
 export const PRINCIPAL = { kind: 'human', id: randomUUID() } as const;
 

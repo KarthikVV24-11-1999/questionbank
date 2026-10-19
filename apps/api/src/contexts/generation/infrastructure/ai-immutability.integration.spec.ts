@@ -16,8 +16,11 @@ let database: TestDatabase;
 
 const APP_ROLE = 'questionbank_app';
 const AI_TABLES = [
+  'ai_budget',
+  'ai_spend_ledger',
   'candidate_decision',
   'candidate_verdict',
+  'evaluation_run',
   'generation_candidate',
   'generation_run',
   'model_version',
@@ -80,8 +83,8 @@ interface Seeded {
 async function seed(): Promise<Seeded> {
   await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
   const [run] = await rows<{ run_id: string }>(
-    `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-     VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', '2026-10-16T09:30:00Z', '{"count": 5}') RETURNING run_id`,
+    `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+     VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', '2026-10-16T09:30:00Z', '{"count": 5}', 1000) RETURNING run_id`,
   );
   const [candidate] = await rows<{ candidate_id: string }>(
     `INSERT INTO ai.generation_candidate (run_id, model_version_id, prompt_version_id, item_type, body, confidence)
@@ -96,6 +99,15 @@ async function seed(): Promise<Seeded> {
   await database.pool.query(`INSERT INTO ai.candidate_decision (candidate_id, decision) VALUES ($1, 'rejected')`, [
     candidate!.candidate_id,
   ]);
+  await database.pool.query(
+    `INSERT INTO ai.ai_budget (feature, period, ceiling_tokens, declared_by_kind, declared_by_id, declared_at)
+     VALUES ('generation', '2026-10', 1000000, 'human', gen_random_uuid(), now()) ON CONFLICT DO NOTHING`,
+  );
+  await database.pool.query(
+    `INSERT INTO ai.ai_spend_ledger (feature, run_id, model_version_id, prompt_version_id, call_kind, input_tokens, output_tokens, occurred_at)
+     VALUES ('generation', $1, '00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', 'propose', 100, 20, now())`,
+    [run!.run_id],
+  );
   return { runId: run!.run_id, candidateId: candidate!.candidate_id };
 }
 
@@ -104,6 +116,9 @@ describe('the row triggers refuse a rewrite, from every role including the owner
     ['generation_run', 'UPDATE ai.generation_run SET model_version_id = \'00000000-0000-4000-8000-0000000a0009\'', 'DELETE FROM ai.generation_run'],
     ['generation_candidate', 'UPDATE ai.generation_candidate SET item_type = \'OTHER\'', 'DELETE FROM ai.generation_candidate'],
     ['candidate_verdict', 'UPDATE ai.candidate_verdict SET outcome = \'pass\'', 'DELETE FROM ai.candidate_verdict'],
+    ['ai_budget', 'UPDATE ai.ai_budget SET ceiling_tokens = 1', 'DELETE FROM ai.ai_budget'],
+    ['ai_spend_ledger', 'UPDATE ai.ai_spend_ledger SET input_tokens = 0', 'DELETE FROM ai.ai_spend_ledger'],
+    ['evaluation_run', "UPDATE ai.evaluation_run SET outcome = 'pass'", 'DELETE FROM ai.evaluation_run'],
     ['candidate_decision', 'UPDATE ai.candidate_decision SET decision = \'accepted\'', 'DELETE FROM ai.candidate_decision'],
     ['model_version', 'UPDATE ai.model_version SET provider_model_id = \'some-other-model\'', 'DELETE FROM ai.model_version'],
     ['prompt_version', 'UPDATE ai.prompt_version SET source_file = \'prompts/other.md\'', 'DELETE FROM ai.prompt_version'],
@@ -159,6 +174,9 @@ describe('the row triggers refuse a rewrite, from every role including the owner
 describe('the application role holds no privilege to try', () => {
   // Any column will do; the privilege is checked before the statement is.
   const KEY_COLUMN: Readonly<Record<string, string>> = {
+    ai_budget: 'budget_id',
+    ai_spend_ledger: 'ledger_id',
+    evaluation_run: 'evaluation_run_id',
     candidate_decision: 'candidate_id',
     candidate_verdict: 'candidate_id',
     generation_candidate: 'candidate_id',
@@ -181,8 +199,8 @@ describe('the application role holds no privilege to try', () => {
     await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
     const run = await asAppRole(async (query) => {
       const inserted = (await query(
-        `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request)
-         VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', now(), '{}') RETURNING run_id`,
+        `INSERT INTO ai.generation_run (model_version_id, prompt_version_id, requested_at, request, budget_tokens)
+         VALUES ('00000000-0000-4000-8000-0000000a0003', '00000000-0000-4000-8000-0000000b0007', now(), '{}', 1000) RETURNING run_id`,
       )) as { run_id: string }[];
       const read = await query(`SELECT run_id FROM ai.generation_run WHERE run_id = $1`, [inserted[0]!.run_id]);
       return { inserted: inserted.length, read: read.length };

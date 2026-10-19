@@ -22,6 +22,7 @@ export function persistenceRejected(message: string, location?: string): Reposit
 interface DatabaseError {
   readonly code?: string;
   readonly constraint?: string;
+  readonly message?: string;
 }
 
 const UNIQUE_VIOLATION = '23505';
@@ -32,7 +33,9 @@ const UNIQUE_VIOLATION = '23505';
  * refused is `PERSISTENCE_REJECTED`, naming the constraint when there was one.
  */
 export function fromDatabaseError(error: unknown): RepositoryError {
-  const { code, constraint } = error as DatabaseError;
+  const { code, constraint, message } = error as DatabaseError;
+  // The F31 trigger on `generation_run` raises with a message of our own that names the version, and says nothing of SQL.
+  if (typeof message === 'string' && message.startsWith('version_not_evaluated:')) return persistenceRejected(message, 'versionId');
   if (code === UNIQUE_VIOLATION) {
     return conflict(`a concurrent write got there first (${constraint ?? 'unique key'})`, constraint ?? 'unique key');
   }

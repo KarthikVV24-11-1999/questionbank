@@ -32,7 +32,8 @@ export interface GenerationViolation {
     | 'M5_20_HANDLER_INVENTS_ENVELOPE'
     | 'EXT05_PROVIDER_LEAKS_OUT_OF_ITS_ADAPTER'
     | 'EXT05_API_KEY_READ_IN_REPOSITORY'
-    | 'F33_INFERENCE_ON_A_REQUEST_PATH';
+    | 'F33_INFERENCE_ON_A_REQUEST_PATH'
+    | 'F32_AI_CALL_WITHOUT_A_BUDGET_SCOPE';
   readonly file: string;
   readonly importPath: string;
   readonly message: string;
@@ -357,6 +358,74 @@ export function checkNoInferenceOnARequestPath(
     }
     const named = INFERENCE_NAMES.exec(code);
     if (named !== null) flag(file, `names ${named[0]}`);
+  }
+  return violations;
+}
+
+/**
+ * **F32: every AI call site declares a budget scope** (AI-ARCHITECTURE §14, M5-41).
+ *
+ * The type system already requires `budgetScope` on a provider request, and this is
+ * the rule that does not rest on it: a call to `.propose(` or `.judge(` whose
+ * arguments do not name `budgetScope` fails, whatever the types were persuaded to
+ * accept — a spread, a cast, a request built three calls away. A call made with a
+ * bare identifier (`provider.propose(request)`) fails too, because the declaration is
+ * the call site's to make where a reader can see it; a call that really does build
+ * the request elsewhere belongs behind a function that takes the scope as a parameter,
+ * and that function's own call names it.
+ *
+ * The adapters in `infrastructure/provider/` are exempt — they *implement* the ports,
+ * and the call being governed is a caller's — and so are specs, which exercise the
+ * ports directly and are held to the types.
+ */
+/**
+ * The meter is the one file allowed to forward a request by name. It is the wrapper every provider
+ * call goes through, and it has just read `request.budgetScope` and checked it before forwarding; a
+ * rule that made it re-declare the scope it is validating would be asking it to lie. The exemption is
+ * this exact path and `generation-rules.spec.ts` asserts it, so it cannot quietly widen.
+ */
+export const METERED_PROVIDER_FILE = 'src/contexts/generation/application/metered-provider.ts';
+
+const PROVIDER_CALL = /\.(?:propose|judge)\(/gu;
+
+/** The text between a call's opening parenthesis (at `open`) and its matching close. */
+function argumentsAt(code: string, open: number): string {
+  let depth = 0;
+  for (let index = open; index < code.length; index += 1) {
+    const character = code[index];
+    if (character === '(') depth += 1;
+    else if (character === ')') {
+      depth -= 1;
+      if (depth === 0) return code.slice(open + 1, index);
+    }
+  }
+  return code.slice(open + 1);
+}
+
+export function checkEveryAiCallDeclaresABudgetScope(
+  root: string,
+  options: { readonly files?: readonly string[] } = {},
+): GenerationViolation[] {
+  const files =
+    options.files ??
+    generationFiles(root).filter(
+      (file) => !file.startsWith(PROVIDER_ADAPTER_DIRECTORY) && !file.endsWith('.spec.ts') && file !== METERED_PROVIDER_FILE,
+    );
+  const violations: GenerationViolation[] = [];
+
+  for (const file of files) {
+    const code = readCode(join(root, file));
+    for (const match of code.matchAll(PROVIDER_CALL)) {
+      const open = (match.index as number) + match[0].length - 1;
+      if (!/\bbudgetScope\b/u.test(argumentsAt(code, open))) {
+        violations.push({
+          rule: 'F32_AI_CALL_WITHOUT_A_BUDGET_SCOPE',
+          file,
+          importPath: '',
+          message: `${file} calls ${match[0]}…) without declaring a budgetScope at the call site, so the spend has no ceiling to be charged to (F32)`,
+        });
+      }
+    }
   }
   return violations;
 }
