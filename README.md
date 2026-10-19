@@ -4,54 +4,33 @@ A content platform for JEE/NEET exam preparation: a governed question bank, a ve
 the authoring and review tooling that feeds them. It is being built content-pipeline-first — the storefront
 and the learner-facing product come later, once there is a corpus worth delivering.
 
-## Current state
-
-- **5 of 11 milestones closed** — the walking skeleton, the curriculum spine, the scoring engine, the
-  content model and authoring, and the governance and review workspace. AI generation is next.
-- The application boots and serves an authenticated request against real Postgres:
-  `corepack pnpm --filter @questionbank/api start`, then an authenticated `GET /v1/exams` — see
-  [How to run it](#how-to-run-it) for the full sequence.
-- **4,950 tests** across 6 workspace projects. Coverage floors are enforced in the test run — ≥80%
-  line/≥70% branch overall, **100% on every correctness-bearing module** (scoring, publication
-  preconditions, the answer-key projection, the audit chain).
-
-### Known gaps, stated plainly
-
-These are real and deliberately not papered over:
-
-- **The golden scoring set is validated against zero real exam papers.** Four synthetic fixtures, so the
-  regression gate runs on every commit and proves very little. Blocked on a content licensing and IP
-  decision that needs legal input, not engineering.
-- **No Compose stack has ever booted**, and no cloud deploy exists. Both are authored and checked by
-  parsing only — see [ADR-0013](docs/adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md) for
-  what that does and does not entitle either to claim. CI is the one piece of this that has since been
-  executed for real ([ADR-0023](docs/adr/ADR-0023-the-ci-workflow-is-executed-and-leaves-tier-2.md));
-  its first red build was two tests that had only ever passed because this machine is fast.
-- **Reviewer throughput is `Fail — blocked`.** The review workspace is built and its interaction cost is
-  measured, but the ≥ 40 items/hour target needs real reviewers, of which there are none.
-- **There is no learner-facing application yet** — by design. Content first.
+The API boots against PostgreSQL and serves authenticated requests, and the Studio builds and runs against
+it. 5,793 tests across six workspace projects, with coverage floors enforced in the test run.
 
 ---
 
 ## Architecture
 
-Three bounded contexts today, each under `apps/api/src/contexts/`:
+Four bounded contexts, each under `apps/api/src/contexts/`:
 
 ```
 apps/studio ──▶ packages/contracts ──▶ apps/api
  (Studio UI)     (typed client,          ├─ contexts/curriculum/  taxonomy, exam profiles — no dependencies
                   generated from         ├─ contexts/scoring/     marking, scoring — mirrors curriculum's
                   OpenAPI)               │                        vocabulary as its own types; does not import it
-                                         └─ contexts/content/     items, versions, lifecycle, authoring, review
-                                                                   (M4) — imports scoring/public/ for the
-                                                                   answer-key projection only
+                                         ├─ contexts/content/     items, versions, lifecycle, authoring,
+                                         │                        review — imports scoring/public/ for the
+                                         │                        answer-key projection only
+                                         └─ contexts/generation/  AI item generation — proposes drafts to
+                                                                   content; content does not depend on it
 ```
 
 | Context | Owns | Depends on |
 |---|---|---|
 | `curriculum` | Taxonomy, concepts, exam profiles, marking rule sets | nothing |
 | `scoring` | The marking executor, score records, rescoring | nothing — mirrors curriculum's vocabulary, asserted equal to it by a spec, never imports it |
-| `content` | Items, versions, lifecycle, authoring, review workspace (M4) | `scoring/public/`, for the answer-key projection only |
+| `content` | Items, versions, lifecycle, authoring, the review workspace | `scoring/public/`, for the answer-key projection only |
+| `generation` | AI generation runs, candidates, the pre-check battery | `content/public/` and `curriculum/public/`; nothing depends on it |
 
 Cross-context access goes through a context's `public/` barrel and nothing deeper. This is enforced by a
 test — [`apps/api/src/fitness/boundary-rules.spec.ts`](apps/api/src/fitness/boundary-rules.spec.ts) — not by
@@ -232,59 +211,18 @@ each project's own README for what it actually contains:
 **`apps/api` also has a `fitness` script** (`corepack pnpm --filter @questionbank/api fitness`) — the
 architectural gate suite: boundary rules, coverage thresholds, secret scanning, and every other
 correctness-bearing check that is not a unit test of product behaviour. It runs as part of `test`, but it is
-worth knowing it exists separately, because it is what CI would call if a CI provider were connected here
-(it is not — see the handbook's honest accounting of what actually runs in this environment).
+worth knowing it exists separately. CI runs the same scripts on every push.
 
 ---
 
-## Where to start reading
+## Documentation
 
-**[`docs/README.md`](docs/README.md) is the full index** — one line per document, grouped by what question
-it answers. In this order, without opening everything:
-
-1. **[`docs/ENGINEERING-HANDBOOK.md`](docs/ENGINEERING-HANDBOOK.md)** — *how is code here supposed to look?*
-   The architecture rules (context boundaries, the `public/` barrel convention, the five-directory anatomy),
-   the closed error taxonomy, and §11's Day One path, which this README's setup section is an expanded
-   version of.
-2. **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — *what are the pieces, and how do they compose?* See
-   also the [Architecture](#architecture) section above for the current, as-built shape.
-3. **The ADRs, under [`docs/adr/`](docs/adr/)** — *why does this specific divergence from the obvious design
-   exist?* Each records one decision, its consequences, and the alternatives that were rejected and why. Not
-   meant to be read start to finish — consult one when the code does something that looks like it contradicts
-   an approved document, because it usually means an ADR explains the gap.
-
-For the product and domain reasoning behind all of the above — what a `ReviewDecision` is, why an answer key
-is `unresolved` by default, what "correctness-bearing" means for coverage — see
-[`docs/DOMAIN-MODEL.md`](docs/DOMAIN-MODEL.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md).
-
----
-
-## How work is done here
-
-**The unit of work is a task**, and a task is done when it is merged with its own tests green — not when the
-code compiles, not when it "looks right." Each milestone is broken down before it starts, naming every task's
-files, its acceptance criteria, and the tests that prove each criterion; the task is scoped narrowly enough
-that "done" is a fact you can check, not a judgement call. Cross-context work goes through a `public/` barrel
-only — never by reaching into another context's `domain/` or `infrastructure/` — and that boundary is itself
-enforced by a test (`boundary-rules.spec.ts`), not by convention.
-
-**The quality bar is that every claim in this repository is backed by something that can fail.** A test
-asserting an aggregate is immutable is worthless if nothing ever mutates it first; a fitness function
-asserting no secret is committed is worthless if it has never seen a real secret and turned red. This is why
-almost every gate in this codebase — the boundary checker, the secret scanner, every fitness function under
-`apps/api/src/fitness/` — ships with a **planted violation**: a fixture that deliberately breaks the rule, to
-prove the check actually catches something rather than passing vacuously. Coverage thresholds are added with
-the module they cover, not retrofitted, and are verified failing before they're made to pass.
-
-**A test must be able to fail, and an infrastructure claim must be honest about what it can prove.** Where
-something genuinely cannot be verified — no container runtime, no cloud account — the answer is not to skip
-the check quietly or write one that can't fail; it's to say so explicitly.
-[`docs/adr/ADR-0013`](docs/adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md) sets three tiers
-for exactly this: what runs and is proven here, what is authored and whose *semantics* are checked by parsing
-it (never claiming it *works*, only that it's well-formed), and what is recorded `Fail — blocked` with the
-missing resource named. Every milestone's Definition of Done carries its blocked lines openly rather than
-narrowing the criterion until it quietly passes — that discipline is the reason this document could describe
-a real, verified boot sequence instead of a plan.
+[`docs/README.md`](docs/README.md) indexes every document, one line each.
+[`docs/ENGINEERING-HANDBOOK.md`](docs/ENGINEERING-HANDBOOK.md) covers the conventions this codebase
+follows — context boundaries, the `public/` barrel rule, the error taxonomy and the local setup path.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the system design, and
+[`docs/DOMAIN-MODEL.md`](docs/DOMAIN-MODEL.md) the domain itself. Architectural decision records live
+under [`docs/adr/`](docs/adr/).
 
 ---
 

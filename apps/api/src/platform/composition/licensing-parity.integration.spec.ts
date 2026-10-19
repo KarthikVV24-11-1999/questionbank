@@ -3,7 +3,7 @@ import { createLicensingStatus } from '../../contexts/content/domain/licensing-s
 import { licensingProblems } from '../../contexts/generation/application/prechecks/provenance-check.js';
 
 /**
- * Two implementations of one rule drift (SESSION-BRIEF rule 5). Check 12 restates
+ * Two implementations of one rule drift (ENGINEERING-HANDBOOK §5). Check 12 restates
  * content's licensing rules because content exposes no validator over a
  * proposal; this holds the restatement to content's own `createLicensingStatus`
  * over one shared set of cases — complete and incomplete, every status.
