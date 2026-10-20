@@ -8,29 +8,28 @@ corepack pnpm -r typecheck
 corepack pnpm -r --workspace-concurrency=1 test
 ```
 
-Integration specs (`*.integration.spec.ts`) need a real Postgres 16 database — see the root
-[README](README.md#how-to-run-it) for setup. `--workspace-concurrency=1` is required: several projects'
-integration suites share and reshape one schema.
+Integration specs (`*.integration.spec.ts`) need a real Postgres 16 database; see the root
+[README](README.md#how-to-run-it) for setup. `--workspace-concurrency=1` is required, because several
+projects' integration suites share and reshape one schema.
 
 ## Commits
 
-Conventional Commits: `<type>(<scope>): <subject>` — `feat`, `fix`, `refactor`, `perf`, `test`, `docs`,
-`build`/`ci`, `chore`. Scope is the bounded context (`content`, `curriculum`, `scoring`) or the app/package
-name. Imperative mood, no trailing period. The body explains *why*, not what — the diff already shows what.
+Conventional Commits: `<type>(<scope>): <subject>`, using `feat`, `fix`, `refactor`, `perf`, `test`,
+`docs`, `build`, `ci` or `chore`. Scope is the bounded context (`content`, `curriculum`, `scoring`,
+`generation`) or the app or package name. Imperative mood, no trailing period. The body explains why;
+the diff already shows what.
 
-## The two rules that aren't optional
+## Two requirements
 
-**Every architectural constraint is a test that must be proven able to fail.** A boundary rule, a coverage
-threshold, a secret scanner, an immutability trigger — none of it is trusted on review alone. If you add a
-constraint, add the planted violation that shows it catches something, the same way every check under
-`apps/api/src/fitness/` already does.
+Architectural constraints ship with a test that has been shown to fail. If you add a boundary rule, a
+coverage threshold, a secret scan or an immutability trigger, add the fixture that proves it catches
+something, as the checks under `apps/api/src/fitness/` do.
 
-**A change that diverges from an approved document needs an ADR.** If your change contradicts something
-`docs/` says is true — the ROADMAP, an architecture doc, a prior ADR — write the ADR before or alongside the
-code, in `docs/adr/`, stating what changed and why. A divergence that isn't recorded is how the documentation
-becomes unreliable for the next person.
+Changes that contradict an approved document need an architecture decision record. If a change
+disagrees with the roadmap, an architecture document or an earlier decision, add the record in
+`docs/adr/` alongside the code.
 
-## Everything else
+## Conventions
 
-See [`docs/ENGINEERING-HANDBOOK.md`](docs/ENGINEERING-HANDBOOK.md) — context boundaries, the error taxonomy,
-testing strategy, and the rest of what "done" means here.
+[`docs/ENGINEERING-HANDBOOK.md`](docs/ENGINEERING-HANDBOOK.md) covers context boundaries, the error
+taxonomy, testing strategy and the definition of done.
