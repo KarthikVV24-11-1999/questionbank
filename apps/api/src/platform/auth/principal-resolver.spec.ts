@@ -133,10 +133,10 @@ describe('createPrincipalResolver — the token never reaches a log record', () 
 describe('createPrincipalResolver — one instance, no per-context branch', () => {
   it('resolves identically regardless of which context calls it — no context name appears in the executable code', () => {
     // stripComments-based readCode, not raw text: the doc comment above
-    // legitimately names all three contexts to explain *why* one adapter
+    // legitimately names the contexts to explain *why* one adapter
     // serves them — that is prose, not a branch, and only the code matters.
     const code = readCode(resolve(dirname(fileURLToPath(import.meta.url)), 'principal-resolver.ts')).toLowerCase();
-    for (const contextName of ['content', 'curriculum', 'scoring']) {
+    for (const contextName of ['content', 'curriculum', 'scoring', 'generation']) {
       expect(code).not.toContain(contextName);
     }
   });

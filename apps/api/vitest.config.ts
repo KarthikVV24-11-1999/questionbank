@@ -964,7 +964,7 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
-        // M0-07. The one adapter serving three contexts' audit ports — a gap
+        // M0-07. The one adapter serving every context's audit port — a gap
         // here is a compliance record silently wrong or silently missing.
         // Exercised by the integration project (real Postgres); the threshold
         // holds over the combined run, not the unit-only one.

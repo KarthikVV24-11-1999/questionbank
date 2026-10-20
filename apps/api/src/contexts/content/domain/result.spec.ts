@@ -27,7 +27,7 @@ describe('Result', () => {
   });
 
   it('is structurally compatible with the scoring Result crossing the barrel', () => {
-    // The three contexts declare the shape independently (domain/ imports
+    // Each context declares the shape independently (domain/ imports
     // nothing). A value produced under one declaration must satisfy the
     // others, or every barrel crossing needs a conversion. M3 crosses the
     // scoring barrel at M3-08, so this is the one that has to hold.

@@ -10,10 +10,9 @@ real answer key. That requires released papers with official keys, and until
 those exist the corpus is synthetic.
 
 The two are different claims and the suite reports which it is making. Every
-run prints its official and synthetic fixture counts; a run with zero official
-papers is not a validated one, and the milestone Definition of Done carries
-"golden set validated against real released papers" as **failed-blocked** until
-that count is three (DEC-2).
+run prints its official and synthetic fixture counts, and a run with zero
+official papers is not a validated one. The criterion "golden set validated
+against real released papers" stays unmet until that count is three (DEC-2).
 
 ## Fixture rules
 

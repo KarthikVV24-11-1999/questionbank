@@ -32,4 +32,4 @@ disagrees with the roadmap, an architecture document or an earlier decision, add
 ## Conventions
 
 [`docs/ENGINEERING-HANDBOOK.md`](docs/ENGINEERING-HANDBOOK.md) covers context boundaries, the error
-taxonomy, testing strategy and the definition of done.
+taxonomy and testing strategy.

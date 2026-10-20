@@ -39,8 +39,8 @@ graph pnpm already understands from `pnpm-workspace.yaml`.
 **Makes easy:** the M0 exit is not gated on a package that cannot be installed. Nothing about how a
 developer runs tests or typechecks changes from what M1–M3 already established.
 
-**Makes hard:** cross-project caching and change-scoped CI jobs are not available. At today's size — seven
-projects, no CI runner — this cost is unobserved.
+**Makes hard:** cross-project caching and change-scoped CI jobs are not available. At M0's size, with no
+CI runner, that cost was unobserved; the trigger below is what makes it observable.
 
 **Forecloses nothing.** `pnpm -r`'s task graph is a strict subset of what Turborepo needs to know;
 migrating later is additive configuration, not a rewrite.
