@@ -4,6 +4,21 @@ import { SESSION_REF, TAG, aDraftForm, aPublishedForm, id } from '../../../testi
 import * as exposureModule from './exposure.js';
 import { exposureEntriesOf } from './exposure.js';
 
+describe('a form published for several sessions is exposed once per session (ADR-0032)', () => {
+  it('has a row per slot per session, ordered by slot then session, each carrying its own session', () => {
+    const form = aPublishedForm({ sessionRefs: ['shift-2', 'shift-1'] });
+    const entries = expectValue(exposureEntriesOf(form));
+    expect(entries).toHaveLength(12);
+    expect(entries.slice(0, 4).map((e) => [e.slotId, e.sessionRef])).toEqual([
+      [id(TAG.slot, 1), 'shift-1'],
+      [id(TAG.slot, 1), 'shift-2'],
+      [id(TAG.slot, 2), 'shift-1'],
+      [id(TAG.slot, 2), 'shift-2'],
+    ]);
+    expect(new Set(entries.map((e) => `${e.slotId}/${e.sessionRef}`)).size).toBe(12);
+  });
+});
+
 describe('the exposure ledger is a function of a published form', () => {
   it('has one entry per slot, keyed on the form, the item VERSION and the session', () => {
     const form = aPublishedForm();

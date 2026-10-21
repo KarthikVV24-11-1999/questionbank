@@ -366,6 +366,52 @@ exactly those.
 fingerprint refresh to published versions — which would make this entry go away.
 **Cited** `apps/api/src/contexts/assessment/infrastructure/content-corpus.ts`
 
+### D56 — The sessions of a form share its schedule window
+
+[ADR-0032](adr/ADR-0032-a-session-is-a-named-sitting-that-a-form-declares.md) lets a form declare several
+sessions, but the window attempts are held to belongs to the form (`opens_at`, `closes_at`), so every session
+of a form opens and closes together. Real multi-shift sittings of one paper happen at different times.
+
+**Trigger** The first form that needs two sittings at different times: the window then moves onto
+`form_session`, and `attempt_window_is_the_forms` keys to it instead.
+**Cited** `apps/api/src/contexts/assessment/domain/form.ts`
+
+
+### D57 — The near-duplicate similarity threshold is a guess
+
+Assembly treats a content match as a near-duplicate when it is an exact or skeleton match, or a trigram match at
+or above **0.8**. The 0.8 is a default of assembly's own choosing, not a measured one: content calls the ranked
+trigram group advisory and gives no number, and no real catalogue has been run through it. Too low and assembly
+refuses items that are merely about the same topic; too high and a retyped item slips into a form twice.
+
+**Trigger** Calibration: the first real catalogue large enough that the rate of items refused as near-duplicates
+can be set against a reviewer's judgement of the same pairs. The threshold is then set from that comparison and
+the default is removed.
+**Cited** `apps/api/src/contexts/assessment/infrastructure/content-corpus.ts`
+
+
+### D58 — The API serves the form package's bytes
+
+ARCHITECTURE §5.1 and BACKEND-ARCHITECTURE §3 have the package served from a CDN, with the API answering a
+redirect to a signed URL so the bytes never cross the API tier. There is no CDN or object store, so
+`GET /v1/assessment/forms/{formId}/package` answers with the bytes
+([ADR-0034](adr/ADR-0034-the-form-package-is-signed-over-its-bytes-and-served-by-the-api-until-a-cdn-exists.md)).
+A synchronized start by a whole cohort would put every download on the API tier.
+
+**Trigger** A deployment with a CDN or an object store: the package is written there when a form is scheduled and the
+route answers a redirect. The bytes, digest and signature do not change.
+**Cited** `apps/api/src/contexts/assessment/api/assessment.controller.ts`
+
+### D59 — The package signing key has no rotation
+
+One Ed25519 seed signs every package, and a device that has the public key accepts only that key. The key id is in
+every response, which is what a rotation would need, but nothing yet serves more than one key or says which key
+a given form's package should be verified with.
+
+**Trigger** The first need to replace the key, or a deployment with a key-management service: the public-key route then
+lists the keys in force, and a device keeps each it has seen.
+**Cited** `apps/api/src/contexts/assessment/infrastructure/package-signer.ts`
+
 
 ## Closed
 
@@ -390,7 +436,7 @@ never started stayed `created` for good, which collided with the same section's 
 
 Closed by [ADR-0030](adr/ADR-0030-a-created-attempt-can-be-abandoned-and-active-is-a-state.md): `created`
 gets an `abandon` edge guarded on the window having closed, and "active" is defined by state alone so the
-rule can be a partial unique index. The window-closing half is not built; that is D54.
+rule can be a partial unique index. The window-closing half was left undone then, and was built as [D54](#d54--nothing-abandons-a-created-attempt-when-its-window-closes-closed-at-m6-20), which is closed too.
 
 **Cited** `packages/attempt-engine/src/attempt-state.ts`, `apps/api/src/contexts/assessment/domain/attempt-state.ts`
 

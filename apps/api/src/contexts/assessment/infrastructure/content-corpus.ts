@@ -99,6 +99,7 @@ export interface LoadedCorpus {
 export type CorpusErrorCode = 'CORPUS_UNAVAILABLE';
 export type CorpusError = AssessmentError<CorpusErrorCode>;
 
+/** A default, not a measurement (D57). */
 const DEFAULT_TRIGRAM_THRESHOLD = 0.8;
 const PAGE = 200;
 

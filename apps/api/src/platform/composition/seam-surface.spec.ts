@@ -66,16 +66,24 @@ describe('what content offers assessment (M6-14, M6-17)', () => {
     reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
   });
 
-  it('is exactly two handlers: the catalogue and the duplicate candidates', () => {
-    expect(Object.keys(offered).sort()).toEqual(['duplicates', 'listCatalogue']);
-    expect([offered.listCatalogue.name, offered.duplicates.name]).toEqual(['ListPublishedCatalogue', 'GetDuplicateCandidates']);
+  it('is exactly four handlers: the catalogue, the duplicate candidates, and the two version reads', () => {
+    expect(Object.keys(offered).sort()).toEqual(['duplicates', 'itemVersion', 'listCatalogue', 'stimulusVersion']);
+    expect([offered.listCatalogue.name, offered.duplicates.name, offered.itemVersion.name, offered.stimulusVersion.name]).toEqual([
+      'ListPublishedCatalogue',
+      'GetDuplicateCandidates',
+      'GetPublishedItemVersion',
+      'GetPublishedStimulusVersion',
+    ]);
   });
 
-  it('admits the system to both, and a learner to neither', () => {
-    for (const handler of [offered.listCatalogue, offered.duplicates]) {
+  it('admits the system to all four, and a learner only to the two reads of a delivered version', () => {
+    for (const handler of [offered.listCatalogue, offered.duplicates, offered.itemVersion, offered.stimulusVersion]) {
       expect(handler.policy.allowedRoles, handler.name).toContain('system');
-      expect(handler.policy.allowedRoles, handler.name).not.toContain('learner');
     }
+    expect(offered.listCatalogue.policy.allowedRoles).not.toContain('learner');
+    expect(offered.duplicates.policy.allowedRoles).not.toContain('learner');
+    expect(offered.itemVersion.policy.allowedRoles).toContain('learner');
+    expect(offered.stimulusVersion.policy.allowedRoles).toContain('learner');
   });
 
   it('refuses a seam built without a dependency, as register does', () => {

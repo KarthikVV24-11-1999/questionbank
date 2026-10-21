@@ -9,7 +9,7 @@ const CONTEXT_DIR = fileURLToPath(new URL('.', import.meta.url));
 const ALL_DIRECTORIES = ['api', 'application', 'domain', 'infrastructure', 'public'] as const;
 
 /** Layers that hold a real module today. */
-const PRESENT_NOW = ['domain', 'infrastructure'] as readonly string[];
+const PRESENT_NOW = ['api', 'application', 'domain', 'infrastructure', 'public'] as readonly string[];
 
 /**
  * Layers the handbook fixes but that have nothing real to hold yet. A directory
@@ -17,13 +17,13 @@ const PRESENT_NOW = ['domain', 'infrastructure'] as readonly string[];
  * make a directory non-empty is exactly what this context forbids — so a layer
  * with nothing real is named here, not faked.
  *
- * `domain/` left this list with the aggregates (M6-09) and `infrastructure/` with the
- * repositories (M6-13). `application/` and `public/` follow when form
- * assembly and delivery give them handlers to hold, and `api/` with the routes.
+ * Every layer has now left it: `domain/` with the aggregates (M6-09), `infrastructure/`
+ * with the repositories (M6-13), `application/` with the handlers (M6-22), and `api/` and
+ * `public/` with the routes and the composition seam (M6-23).
  * The last assertion below fails if a layer is listed here once its directory
  * exists, so the list cannot go stale quietly.
  */
-const DEFERRED = ['api', 'application', 'public'] as readonly string[];
+const DEFERRED = [] as readonly string[];
 
 function directories(): string[] {
   return readdirSync(CONTEXT_DIR, { withFileTypes: true })

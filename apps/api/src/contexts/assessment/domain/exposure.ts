@@ -15,7 +15,10 @@ import { err, ok, type Result } from './result.js';
  * does not double-count" and "no attempt-time path writes it" the same fact.
  *
  * Each row keys on the form, the slot's item version and the session identity
- * (§12 requires all three and says they cannot be reconstructed).
+ * (§12 requires all three and says they cannot be reconstructed). A form published
+ * for several sessions writes a row per slot **per session**: the same item sat in
+ * two sittings was exposed twice, and the sittings are what multi-shift
+ * normalization groups by (ADR-0032).
  *
  * It lives in assessment although the context map gives exposure to
  * Psychometrics: ADR-0031.
@@ -34,7 +37,7 @@ export interface ExposureEntry {
 export type ExposureErrorCode = 'EXPOSURE_FORM_NOT_PUBLISHED';
 export type ExposureError = AssessmentError<ExposureErrorCode>;
 
-/** One entry per slot of a published form. A draft has no exposure: it may still change. */
+/** One entry per slot per session of a published form. A draft has no exposure: it may still change. */
 export function exposureEntriesOf(form: Form): Result<readonly ExposureEntry[], ExposureError> {
   if (form.publishedAt === null) {
     return err(preconditionFailedError('EXPOSURE_FORM_NOT_PUBLISHED', 'exposure is recorded for a published form only', 'state'));
@@ -42,16 +45,18 @@ export function exposureEntriesOf(form: Form): Result<readonly ExposureEntry[], 
   const writtenAt = form.publishedAt;
   return ok(
     Object.freeze(
-      slotsOf(form).map((slot) =>
-        Object.freeze({
-          formId: form.formId,
-          slotId: slot.slotId,
-          itemId: slot.itemId,
-          itemVersionId: slot.itemVersionId,
-          sessionRef: form.sessionRef,
-          isAnchor: slot.isAnchor,
-          writtenAt,
-        }),
+      slotsOf(form).flatMap((slot) =>
+        form.sessionRefs.map((sessionRef) =>
+          Object.freeze({
+            formId: form.formId,
+            slotId: slot.slotId,
+            itemId: slot.itemId,
+            itemVersionId: slot.itemVersionId,
+            sessionRef,
+            isAnchor: slot.isAnchor,
+            writtenAt,
+          }),
+        ),
       ),
     ),
   );

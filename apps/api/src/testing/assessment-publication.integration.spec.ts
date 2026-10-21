@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { meetsAnchorFloor } from '../contexts/assessment/domain/form.js';
 import { NOW_ISO, refusal, seedForm } from './assessment-db.js';
-import { SESSION_REF, TAG, id } from './assessment-fixtures.js';
+import { TAG, id } from './assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from './database.js';
 
 /**
@@ -34,8 +34,9 @@ const publish = (formId = id(TAG.form)) =>
 const writeLedger = (formId = id(TAG.form)) =>
   database.pool.query(
     `INSERT INTO assessment.exposure_ledger_entry (form_id, slot_id, item_id, item_version_id, session_ref, is_anchor, written_at)
-     SELECT form_id, slot_id, item_id, item_version_id, $2, is_anchor, $3 FROM assessment.form_slot WHERE form_id = $1`,
-    [formId, SESSION_REF, NOW_ISO],
+     SELECT s.form_id, s.slot_id, s.item_id, s.item_version_id, fs.session_ref, s.is_anchor, $2
+       FROM assessment.form_slot s JOIN assessment.form_session fs ON fs.form_id = s.form_id WHERE s.form_id = $1`,
+    [formId, NOW_ISO],
   );
 
 const addToPool = (n = 1) =>
@@ -45,8 +46,8 @@ describe('a form is born a draft', () => {
   it('refuses an INSERT as published, so the publication guard cannot be skipped by never updating', async () => {
     const message = await refusal(() =>
       database.pool.query(
-        `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, session_ref, blueprint_conformance, state, published_at)
-         VALUES ($1, $2, 'mock', 's', '{"satisfied": true}', 'published', now())`,
+        `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, blueprint_conformance, state, published_at)
+         VALUES ($1, $2, 'mock', '{"satisfied": true}', 'published', now())`,
         [id(TAG.form), id(TAG.profile)],
       ),
     );
@@ -133,6 +134,31 @@ describe('a draft becomes published only when it is fit to be', () => {
       await client.query('ROLLBACK');
       client.release();
     }
+  });
+});
+
+describe('publication counts every sitting', () => {
+  it('refuses a form that names no session', async () => {
+    await seedForm(database.pool, { publish: false, sessions: [] });
+    await addToPool();
+    expect(await refusal(publish)).toContain('assessment_publication_requires_a_session');
+  });
+
+  it('refuses a ledger that covers only some of a form\'s sessions', async () => {
+    await seedForm(database.pool, { publish: false, sessions: ['sitting-a', 'sitting-b'] });
+    await addToPool();
+    await database.pool.query(
+      `INSERT INTO assessment.exposure_ledger_entry (form_id, slot_id, item_id, item_version_id, session_ref, is_anchor, written_at)
+       SELECT form_id, slot_id, item_id, item_version_id, 'sitting-a', is_anchor, now() FROM assessment.form_slot WHERE form_id = $1`,
+      [id(TAG.form)],
+    );
+    expect(await refusal(publish)).toContain('assessment_publication_requires_ledger');
+    await database.pool.query(
+      `INSERT INTO assessment.exposure_ledger_entry (form_id, slot_id, item_id, item_version_id, session_ref, is_anchor, written_at)
+       SELECT form_id, slot_id, item_id, item_version_id, 'sitting-b', is_anchor, now() FROM assessment.form_slot WHERE form_id = $1`,
+      [id(TAG.form)],
+    );
+    await publish();
   });
 });
 

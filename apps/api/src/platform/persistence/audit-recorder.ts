@@ -2,10 +2,10 @@ import type { Pool } from 'pg';
 import type { PrincipalKind, RoleSet, UserId } from '@questionbank/domain-types';
 
 /**
- * Content, curriculum, scoring and generation each declare their own `AuditRecord` and
+ * Content, curriculum, scoring, generation and assessment each declare their own `AuditRecord` and
  * `AuditRecorder` independently, and each has said since its own milestone
  * "D4 replaces the in-memory implementation with a durable one." This is
- * that durable implementation — **one adapter serving all four
+ * that durable implementation — **one adapter serving all five
  * declarations**, writing to the single `platform.audit_record` table
  * `20260813120000_platform_audit.sql` creates.
  *
@@ -16,7 +16,7 @@ import type { PrincipalKind, RoleSet, UserId } from '@questionbank/domain-types'
  * against it and never against any one context's declaration, so it never
  * imports from a context's application layer (§9 rule 1 holds even though
  * `platform/` is infrastructure, not a bounded context: the alternative is
- * four copies of an INSERT statement instead of one).
+ * five copies of an INSERT statement instead of one).
  */
 export interface AuditRecordLike {
   readonly principal: {
@@ -25,7 +25,7 @@ export interface AuditRecordLike {
     readonly roleContext: RoleSet;
   };
   readonly action: string;
-  readonly targetContext: 'content' | 'curriculum' | 'scoring' | 'generation';
+  readonly targetContext: 'content' | 'curriculum' | 'scoring' | 'generation' | 'assessment';
   readonly targetType: string;
   readonly targetId: string;
   readonly targetVersion?: number;

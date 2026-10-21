@@ -9,7 +9,9 @@ import {
   singleCorrectSpec,
   textBody,
 } from '../../../testing/content-fixtures.js';
-import type { Result } from '../domain/result.js';
+import { err, ok, type Result } from '../domain/result.js';
+import { notFoundError } from '../domain/content-error.js';
+import type { ItemRepository, PublishedVersionReader, StimulusRepository } from '../domain/repository-ports.js';
 import { transitionItem, type Item } from '../domain/item.js';
 import type { FinalAnswerAssertion } from '../domain/solution.js';
 import type { ItemVersion } from '../domain/item-version.js';
@@ -38,6 +40,7 @@ import {
   RecordSolutionReviewDecisionHandler,
   RecordStimulusReviewDecisionHandler,
   RetireItemHandler,
+  RetireStimulusHandler,
   SubmitItemForReviewHandler,
   SubmitSolutionForReviewHandler,
   SubmitStimulusForReviewHandler,
@@ -58,9 +61,12 @@ import { LIFECYCLE_STATES, type LifecycleState } from '../domain/item-lifecycle.
 
 const LIFECYCLE_STATES_UNDER_TEST = LIFECYCLE_STATES.filter((state) => state !== 'in_review');
 import { REJECTION_REASONS } from '../domain/review/rejection-taxonomy.js';
+import { PostgresPublishedVersions } from '../infrastructure/published-versions.reader.js';
 import { ListPublishedCatalogueHandler } from './queries/catalogue-queries.js';
 import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import {
+  GetPublishedItemVersionHandler,
+  GetPublishedStimulusVersionHandler,
   GetPublishedItemHandler,
   GetPublishedSolutionHandler,
   GetPublishedStimulusHandler,
@@ -192,7 +198,7 @@ const authoringQueries = (): AuthoringQueryDependencies => ({
   clock,
 });
 
-const deliveryQueries = (): DeliveryQueryDependencies => ({ items, stimuli, solutions, entitlements });
+const deliveryQueries = (): DeliveryQueryDependencies => ({ versions: new PostgresPublishedVersions(database.pool), items, stimuli, solutions, entitlements });
 
 function itemContent(overrides: Partial<AuthoredItemContent> = {}): AuthoredItemContent {
   return {
@@ -1284,5 +1290,92 @@ describe('M6-14 — the published catalogue lists what is published, with no key
     const broken = new ListPublishedCatalogueHandler({ catalogue: new PostgresPublishedCatalogue(pool) });
     expect(expectError(await broken.handle({}, as(system))).code).toBe('PERSISTENCE_REJECTED');
     await pool.end().catch(() => undefined);
+  });
+});
+
+describe('M6-24 — a specific published version, by its own id', () => {
+  it('serves the version asked for, as the same key-free view GetPublishedItem returns', async () => {
+    const item = await publishItem(await draftItem());
+    const versionId = item.versions[0]!.versionId;
+    const byVersion = expectValue(await new GetPublishedItemVersionHandler(deliveryQueries()).handle({ itemVersionId: versionId }, as(learner)));
+    const byItem = expectValue(await new GetPublishedItemHandler(deliveryQueries()).handle({ itemId: item.itemId }, as(learner)));
+    expect(byVersion).toEqual(byItem);
+    expect(byVersion.itemVersionId).toBe(versionId);
+    expect(scanForKeyMaterial(byVersion)).toEqual([]);
+    expect(byVersion.options?.map((option) => option.optionId)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('still serves it after the item is suspended or retired: an attempt is pinned to a version, not to its item\'s current state', async () => {
+    const item = await publishItem(await draftItem());
+    const versionId = item.versions[0]!.versionId;
+    expectValue(await new SuspendItemHandler(lifecycle()).handle({ itemId: item.itemId, justification: 'checking a report' }, asOps()));
+    expect(expectError(await new GetPublishedItemHandler(deliveryQueries()).handle({ itemId: item.itemId }, as(learner))).kind).toBe('NotFound');
+    expect(expectValue(await new GetPublishedItemVersionHandler(deliveryQueries()).handle({ itemVersionId: versionId }, as(learner))).itemVersionId).toBe(versionId);
+    expectValue(await new RetireItemHandler(lifecycle()).handle({ itemId: item.itemId, retirementReason: 'superseded' }, asOps()));
+    expect(expectValue(await new GetPublishedItemVersionHandler(deliveryQueries()).handle({ itemVersionId: versionId }, as(learner))).itemVersionId).toBe(versionId);
+  });
+
+  it('does not serve a version that was never published, or one that does not exist', async () => {
+    const draft = await draftItem();
+    const handler = new GetPublishedItemVersionHandler(deliveryQueries());
+    expect(expectError(await handler.handle({ itemVersionId: draft.versions[0]!.versionId }, as(learner))).kind).toBe('NotFound');
+    expect(expectError(await handler.handle({ itemVersionId: freshUuid() }, as(learner))).kind).toBe('NotFound');
+  });
+
+  it('serves a stimulus version by its id, and not an unpublished one', async () => {
+    const stimulus = expectValue(
+      await new CreateStimulusDraftHandler(stimulusBench()).handle(
+        { stimulusType: 'passage', subject: 'physics', body: textBody('A 2 kg block rests on a 30° incline.'), licensing: { status: 'owned' } },
+        as(author),
+      ),
+    );
+    const versionId = stimulus.versions[0]!.versionId;
+    const handler = new GetPublishedStimulusVersionHandler(deliveryQueries());
+    expect(expectError(await handler.handle({ stimulusVersionId: versionId }, as(learner))).kind).toBe('NotFound');
+    const deps = lifecycle();
+    expectValue(await new SubmitStimulusForReviewHandler(deps).handle({ stimulusId: stimulus.stimulusId }, as(author)));
+    expectValue(await new RecordStimulusReviewDecisionHandler(deps).handle({ stimulusId: stimulus.stimulusId, stimulusVersionId: versionId, outcome: 'approve' }, as(reviewer)));
+    expectValue(await new PublishStimulusVersionHandler(deps).handle({ stimulusId: stimulus.stimulusId, stimulusVersionId: versionId }, asOps()));
+    const view = expectValue(await handler.handle({ stimulusVersionId: versionId }, as(learner)));
+    expect(view.stimulusVersionId).toBe(versionId);
+    expect(view.stimulusType).toBe('passage');
+    expect(scanForKeyMaterial(view)).toEqual([]);
+    expectValue(await new RetireStimulusHandler(deps).handle({ stimulusId: stimulus.stimulusId, retirementReason: 'withdrawn' }, asOps()));
+    expect(expectValue(await handler.handle({ stimulusVersionId: versionId }, as(learner))).stimulusVersionId).toBe(versionId);
+    expect(expectError(await handler.handle({ stimulusVersionId: freshUuid() }, as(learner))).kind).toBe('NotFound');
+  });
+
+  it('fails closed when the reader and the repositories disagree: a lookup that errors, or an owner that lacks the version', async () => {
+    const published = await publishItem(await draftItem());
+    const missing = notFoundError('NOT_FOUND', 'gone');
+    const failingItems = { ...items, findById: async () => err(missing) } as unknown as ItemRepository;
+    const failingStimuli = { ...stimuli, findById: async () => err(missing) } as unknown as StimulusRepository;
+    const readerFor = (itemId: string): PublishedVersionReader => ({
+      itemOfPublishedVersion: async () => ok(itemId),
+      stimulusOfPublishedVersion: async () => ok(itemId),
+    });
+    const stimulus = expectValue(
+      await new CreateStimulusDraftHandler(stimulusBench()).handle(
+        { stimulusType: 'passage', subject: 'physics', body: textBody('A passage.'), licensing: { status: 'owned' } },
+        as(author),
+      ),
+    );
+    const base = { ...deliveryQueries() };
+
+    expect(expectError(await new GetPublishedItemVersionHandler({ ...base, items: failingItems, versions: readerFor(published.itemId) }).handle({ itemVersionId: freshUuid() }, as(learner))).kind).toBe('NotFound');
+    expect(expectError(await new GetPublishedItemVersionHandler({ ...base, versions: readerFor(published.itemId) }).handle({ itemVersionId: freshUuid() }, as(learner))).kind).toBe('NotFound');
+    expect(expectError(await new GetPublishedStimulusVersionHandler({ ...base, stimuli: failingStimuli, versions: readerFor(freshUuid()) }).handle({ stimulusVersionId: freshUuid() }, as(learner))).kind).toBe('NotFound');
+    expect(expectError(await new GetPublishedStimulusVersionHandler({ ...base, versions: readerFor(stimulus.stimulusId) }).handle({ stimulusVersionId: freshUuid() }, as(learner))).kind).toBe('NotFound');
+    expect(expectError(await new GetPublishedStimulusVersionHandler(base).handle({ stimulusVersionId: freshUuid() }, as({ kind: 'human', id: freshUuid(), roleContext: ['nobody'] }))).kind).toBe('Authorization');
+  });
+
+  it('is open to every delivery role, as GetPublishedItem is', async () => {
+    const item = await publishItem(await draftItem());
+    const system: PrincipalRef = { kind: 'system', id: freshUuid(), roleContext: ['system'] };
+    const guest: PrincipalRef = { kind: 'human', id: freshUuid(), roleContext: ['guest'] };
+    for (const principal of [learner, guest, system, author, reviewer, contentOps]) {
+      expect((await new GetPublishedItemVersionHandler(deliveryQueries()).handle({ itemVersionId: item.versions[0]!.versionId }, as(principal))).ok).toBe(true);
+    }
+    expect(expectError(await new GetPublishedItemVersionHandler(deliveryQueries()).handle({ itemVersionId: item.versions[0]!.versionId }, as({ kind: 'human', id: freshUuid(), roleContext: ['nobody'] }))).kind).toBe('Authorization');
   });
 });

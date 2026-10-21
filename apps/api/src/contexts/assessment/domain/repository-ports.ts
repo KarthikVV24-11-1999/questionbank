@@ -58,8 +58,25 @@ export interface ExposureLedger {
   /** How many forms each item version has been placed in. A version never placed is absent, not zero. */
   countsByItemVersion(itemVersionIds: readonly string[]): Promise<Result<ReadonlyMap<string, number>, RepositoryError>>;
 
-  /** Every row a form wrote, in slot order. */
+  /** Every row a form wrote, in slot order and then session order. */
   entriesForForm(formId: string): Promise<Result<readonly ExposureEntry[], RepositoryError>>;
+
+  /**
+   * Exposure joined to the attempts that sat it, per session (ADR-0032): for each
+   * item version and each session it was placed in, how many ledger rows placed
+   * it there and how many attempts in that same session on that same form were
+   * started. This join is what multi-shift normalization reads, and it is
+   * possible only because the ledger's session and the attempt's session are one
+   * key. A session nobody has sat yet appears with zero attempts.
+   */
+  exposureBySession(itemVersionIds: readonly string[]): Promise<Result<readonly SessionExposure[], RepositoryError>>;
+}
+
+export interface SessionExposure {
+  readonly sessionRef: string;
+  readonly itemVersionId: string;
+  readonly placements: number;
+  readonly attemptsSat: number;
 }
 
 export interface AttemptRepository {

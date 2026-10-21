@@ -15,6 +15,7 @@ import {
   checkNoAiImportIntoContent,
   checkNoRenderedMarkupField,
   checkNoTruncateGrant,
+  checkPackagingReachesNoKeyMaterial,
   checkPayloadSurfaces,
   checkReviewAuthoringSubBoundary,
   checkSingleContentRenderer,
@@ -53,6 +54,10 @@ const DELIVERY_SURFACES = [
   // M6-14: a listing is where a key leaks by accident, so it is a named delivery surface too.
   'src/contexts/content/application/queries/catalogue-queries.ts',
   'src/contexts/content/domain/events/content-events.ts',
+  // M6-23: the assessment routes are not authoring-family routes (ADR-0033), so they are held to the opposite rule.
+  'src/contexts/assessment/api/assessment.controller.ts',
+  'src/contexts/assessment/api/dto/assessment-schemas.ts',
+  'src/contexts/assessment/application/views.ts',
 ];
 
 const AUTHORING_SURFACES = [
@@ -80,7 +85,7 @@ describe('F6/F35 — the key is on the authoring surface and nowhere else (ADR-0
     for (const module of [...DELIVERY_SURFACES, ...AUTHORING_SURFACES]) {
       expect(existsSync(join(API_ROOT, module)), module).toBe(true);
     }
-    expect(DELIVERY_SURFACES.length + AUTHORING_SURFACES.length).toBe(7);
+    expect(DELIVERY_SURFACES.length + AUTHORING_SURFACES.length).toBe(10);
   });
 
   it('holds on the real tree, in both directions', () => {
@@ -638,7 +643,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
   });
 
   it('declares every rule this module can report', () => {
-    expect(CONTENT_RULES).toHaveLength(15);
+    expect(CONTENT_RULES).toHaveLength(16);
     expect(new Set(CONTENT_RULES).size).toBe(CONTENT_RULES.length);
   });
 });
@@ -887,5 +892,42 @@ describe('ReviewProgress exists nowhere in the tree (M4-30)', () => {
 
   it('catches a planted ReviewProgress declaration, so the check above is not silently vacuous', () => {
     expect(reviewProgressIn(REVIEW_PROGRESS_PLANTED_DIR)).toHaveLength(1);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * M6-25 — the package's code reaches no key material
+ * ------------------------------------------------------------------ */
+
+describe('M6-25 — no packaging module reaches a module that makes or carries an answer key', () => {
+  const PACKAGING_ENTRIES = [
+    join(API_ROOT, 'src/contexts/assessment/domain/form-package.ts'),
+    join(API_ROOT, 'src/contexts/assessment/application/handlers/package-handler.ts'),
+    join(API_ROOT, 'src/contexts/assessment/infrastructure/content-form-reader.ts'),
+  ];
+  const KEY_MODULES = [
+    join(API_ROOT, 'src/contexts/content/application/answer-key-projection.ts'),
+    join(API_ROOT, 'src/contexts/content/domain/response-specification.ts'),
+    join(API_ROOT, 'src/contexts/content/application/queries/authoring-queries.ts'),
+    join(API_ROOT, 'src/contexts/content/api/dto/authoring-schemas.ts'),
+    join(API_ROOT, 'src/contexts/scoring/public/index.ts'),
+  ];
+
+  it('names modules that exist, so the list cannot rot into an empty check', () => {
+    for (const module of [...PACKAGING_ENTRIES, ...KEY_MODULES]) expect(existsSync(module), module).toBe(true);
+  });
+
+  it('holds for the real packaging modules', () => {
+    expect(checkPackagingReachesNoKeyMaterial(PACKAGING_ENTRIES, KEY_MODULES)).toEqual([]);
+  });
+
+  it('fires on a packaging module that reaches key material two hops away', () => {
+    const fixtures = join(API_ROOT, 'src/fitness-fixtures/as-package-reaches-key');
+    const violations = checkPackagingReachesNoKeyMaterial(
+      [join(fixtures, 'planted-packaging.ts')],
+      [join(fixtures, 'key-projection.ts')],
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.rule).toBe('M6_25_PACKAGING_REACHES_KEY_MATERIAL');
   });
 });

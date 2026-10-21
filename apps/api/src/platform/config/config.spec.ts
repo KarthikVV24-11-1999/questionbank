@@ -362,3 +362,37 @@ describe('loadConfig — the optional pre-check configuration (M5-37)', () => {
     }
   });
 });
+
+describe('loadConfig — the form package signing key (M6-26)', () => {
+  const SEED = Buffer.alloc(32, 9).toString('base64');
+  const MESSAGE = 'FORM_PACKAGE_SIGNING_KEY must be 32 random bytes, base64-encoded';
+
+  it('is absent unless supplied, and an unset or blank value is no key', () => {
+    for (const env of [validEnv(), validEnv({ FORM_PACKAGE_SIGNING_KEY: '' }), validEnv({ FORM_PACKAGE_SIGNING_KEY: '  ' })]) {
+      const result = loadConfig(env);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect('formPackageSigningKey' in result.value).toBe(false);
+    }
+  });
+
+  it('carries a 32-byte base64 seed through', () => {
+    const result = loadConfig(validEnv({ FORM_PACKAGE_SIGNING_KEY: SEED }));
+    expect(result.ok && result.value.formPackageSigningKey).toBe(SEED);
+  });
+
+  it('refuses a value that is not 32 bytes of base64, without echoing it', () => {
+    for (const bad of ['not base64 !!', Buffer.alloc(31, 1).toString('base64'), Buffer.alloc(33, 1).toString('base64'), 'a'.repeat(32)]) {
+      const result = loadConfig(validEnv({ FORM_PACKAGE_SIGNING_KEY: bad }));
+      expect(result, bad).toEqual({ ok: false, error: { key: 'formPackageSigningKey', message: MESSAGE } });
+    }
+  });
+
+  it('refuses a key that is the auth key or the audit key: one key wearing a second name', () => {
+    const seedAsAuth = Buffer.alloc(32, 3).toString('base64');
+    expect(loadConfig(validEnv({ AUTH_SIGNING_KEY: seedAsAuth, FORM_PACKAGE_SIGNING_KEY: seedAsAuth }))).toEqual({
+      ok: false,
+      error: { key: 'formPackageSigningKey', message: 'FORM_PACKAGE_SIGNING_KEY must not equal AUTH_SIGNING_KEY or AUDIT_ANCHOR_KEY' },
+    });
+    expect(loadConfig(validEnv({ AUDIT_ANCHOR_KEY: seedAsAuth, FORM_PACKAGE_SIGNING_KEY: seedAsAuth })).ok).toBe(false);
+  });
+});

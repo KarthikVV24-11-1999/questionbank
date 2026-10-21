@@ -41,6 +41,7 @@ export const CONFIG_KEYS = [
   'reviewLeaseHours',
   'reviewSampleRate',
   'generationPrecheckConfig',
+  'formPackageSigningKey',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -85,6 +86,15 @@ export interface AppConfig {
    * configuration that fails there refuses boot.
    */
   readonly generationPrecheckConfig?: GenerationPrecheckConfig;
+  /**
+   * The Ed25519 seed form packages are signed with (M6-26): 32 random bytes, base64.
+   * **Absent unless the deployment supplied it, and no default** (DEC-M0-7) — a key
+   * the deployment never chose is not one to sign with. Without it the package
+   * routes answer as unavailable; the rest of the application boots. Set but not a
+   * 32-byte base64 value, and the application refuses to start. Never the auth or
+   * audit key: a signature scheme of its own is the point.
+   */
+  readonly formPackageSigningKey?: string;
 }
 
 export interface PrecheckPairing {
@@ -131,6 +141,7 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   reviewLeaseHours: 'REVIEW_LEASE_HOURS',
   reviewSampleRate: 'REVIEW_SAMPLE_RATE',
   generationPrecheckConfig: 'GENERATION_PRECHECK_CONFIG',
+  formPackageSigningKey: 'FORM_PACKAGE_SIGNING_KEY',
 };
 
 function fail(key: ConfigKey, message: string): ConfigResult<never> {
@@ -324,6 +335,25 @@ function parseGenerationPrecheckConfig(
   return { ok: true, value: parsed as GenerationPrecheckConfig };
 }
 
+const SIGNING_SEED_BYTES = 32;
+
+function parseFormPackageSigningKey(
+  env: Readonly<Record<string, string | undefined>>,
+  authSigningKey: string,
+  auditAnchorKey: string,
+): ConfigResult<string | undefined> {
+  const raw = env[ENV_VAR_NAMES.formPackageSigningKey];
+  if (raw === undefined || raw.trim().length === 0) return { ok: true, value: undefined };
+  if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(raw) || Buffer.from(raw, 'base64').length !== SIGNING_SEED_BYTES) {
+    // Names the requirement, never the value.
+    return fail('formPackageSigningKey', `${ENV_VAR_NAMES.formPackageSigningKey} must be ${SIGNING_SEED_BYTES} random bytes, base64-encoded`);
+  }
+  if (raw === authSigningKey || raw === auditAnchorKey) {
+    return fail('formPackageSigningKey', `${ENV_VAR_NAMES.formPackageSigningKey} must not equal ${ENV_VAR_NAMES.authSigningKey} or ${ENV_VAR_NAMES.auditAnchorKey}`);
+  }
+  return { ok: true, value: raw };
+}
+
 /**
  * Total: never throws, and returns the first violated key's error rather
  * than collecting all of them — one bad value is enough to refuse boot, and
@@ -372,6 +402,9 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   const generationPrecheckConfig = parseGenerationPrecheckConfig(env);
   if (!generationPrecheckConfig.ok) return generationPrecheckConfig;
 
+  const formPackageSigningKey = parseFormPackageSigningKey(env, authSigningKey.value, auditAnchorKey.value);
+  if (!formPackageSigningKey.ok) return formPackageSigningKey;
+
   return {
     ok: true,
     value: {
@@ -389,6 +422,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       reviewLeaseHours: reviewLeaseHours.value,
       reviewSampleRate: reviewSampleRate.value,
       ...(generationPrecheckConfig.value === undefined ? {} : { generationPrecheckConfig: generationPrecheckConfig.value }),
+      ...(formPackageSigningKey.value === undefined ? {} : { formPackageSigningKey: formPackageSigningKey.value }),
     },
   };
 }

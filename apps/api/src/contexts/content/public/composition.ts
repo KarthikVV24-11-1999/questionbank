@@ -81,6 +81,8 @@ import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer
 import { SweepReviewAgeingHandler } from '../application/review/handlers/ageing-handlers.js';
 import { RefreshFingerprintsHandler } from '../application/review/handlers/fingerprint-handlers.js';
 import { GetDuplicateCandidatesForProposalHandler, GetDuplicateCandidatesHandler } from '../application/review/queries/duplicate-queries.js';
+import { GetPublishedItemVersionHandler, GetPublishedStimulusVersionHandler } from '../application/queries/delivery-queries.js';
+import { PostgresPublishedVersions } from '../infrastructure/published-versions.reader.js';
 import { ListPublishedCatalogueHandler } from '../application/queries/catalogue-queries.js';
 import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import { GetQueueHealthHandler, GetReviewerThroughputHandler } from '../application/review/queries/queue-queries.js';
@@ -179,6 +181,7 @@ function assemble(deps: ContentCompositionDeps) {
   const reviewEscalations = new PostgresReviewEscalationRepository(deps.pool);
   const fingerprints = new PostgresFingerprintRepository(deps.pool);
   const catalogue = new PostgresPublishedCatalogue(deps.pool);
+  const versions = new PostgresPublishedVersions(deps.pool);
   const transactions = new PostgresTransactionRunner(deps.pool);
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
@@ -212,6 +215,7 @@ function assemble(deps: ContentCompositionDeps) {
     escalations: reviewEscalations,
     fingerprints,
     catalogue,
+    versions,
     reviewPolicy,
     transactions,
   };
@@ -274,6 +278,8 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new GetPublishedStimulusHandler(bag),
     new GetPublishedSolutionHandler(bag),
     new ListPublishedCatalogueHandler(bag),
+    new GetPublishedItemVersionHandler(bag),
+    new GetPublishedStimulusVersionHandler(bag),
     // Review queries (M4-32, M4-33)
     new GetDuplicateCandidatesHandler(bag),
     new GetDuplicateCandidatesForProposalHandler(bag),
@@ -321,7 +327,7 @@ export function contentForGeneration(deps: ContentCompositionDeps): ContentForGe
 
 /**
  * What the assessment context consumes from content, and nothing more: the
- * published catalogue, so form assembly has a corpus it can enumerate, and the
+ * published catalogue, so form assembly has a corpus it can enumerate; the
  * duplicate-candidates query, so "no near-duplicates within one form" uses
  * content's own detection rather than a second implementation of it (a rule
  * implemented twice drifts).
@@ -333,6 +339,9 @@ export function contentForGeneration(deps: ContentCompositionDeps): ContentForGe
 export interface ContentForAssessment {
   readonly listCatalogue: ListPublishedCatalogueHandler;
   readonly duplicates: GetDuplicateCandidatesHandler;
+  /** A form pins versions; a package serves exactly those (M6-24), by version id and not by item. */
+  readonly itemVersion: GetPublishedItemVersionHandler;
+  readonly stimulusVersion: GetPublishedStimulusVersionHandler;
 }
 
 export function contentForAssessment(deps: ContentCompositionDeps): ContentForAssessment {
@@ -340,5 +349,7 @@ export function contentForAssessment(deps: ContentCompositionDeps): ContentForAs
   return {
     listCatalogue: new ListPublishedCatalogueHandler(bag),
     duplicates: new GetDuplicateCandidatesHandler(bag),
+    itemVersion: new GetPublishedItemVersionHandler(bag),
+    stimulusVersion: new GetPublishedStimulusVersionHandler(bag),
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { TAG, WINDOW, WITHIN_WINDOW, aClosedForm, aDraftForm, aPublishedForm, aScheduledForm, anActiveForm, formProps, formSlots, id, poolOf } from '../../../testing/assessment-fixtures.js';
+import { SESSION_REF, TAG, WINDOW, WITHIN_WINDOW, aClosedForm, aDraftForm, aPublishedForm, aScheduledForm, anActiveForm, formProps, formSlots, id, poolOf } from '../../../testing/assessment-fixtures.js';
 import * as formModule from './form.js';
 import {
   FORM_STATES,
@@ -75,8 +75,12 @@ describe('creating a form', () => {
     ['a bad form id', { formId: 'nope' }, 'FORM_ID_INVALID'],
     ['a bad profile version', { examProfileVersionId: 'nope' }, 'FORM_PROFILE_INVALID'],
     ['an unknown form type', { formType: 'practice' as 'mock' }, 'FORM_TYPE_INVALID'],
-    ['no session to publish for (§12)', { sessionRef: ' ' }, 'FORM_SESSION_INVALID'],
-    ['a missing session (§12)', { sessionRef: undefined as unknown as string }, 'FORM_SESSION_INVALID'],
+    ['no session to publish for (§12)', { sessionRefs: [] }, 'FORM_SESSIONS_INVALID'],
+    ['a blank session', { sessionRefs: [' '] }, 'FORM_SESSIONS_INVALID'],
+    ['a session key with stray whitespace', { sessionRefs: [' s '] }, 'FORM_SESSIONS_INVALID'],
+    ['the unassigned placeholder', { sessionRefs: ['unassigned:abc'] }, 'FORM_SESSIONS_INVALID'],
+    ['a repeated session', { sessionRefs: ['s', 's'] }, 'FORM_SESSIONS_INVALID'],
+    ['missing sessions (§12)', { sessionRefs: undefined as unknown as string[] }, 'FORM_SESSIONS_INVALID'],
     ['conformance that is not an object', { blueprintConformance: [] as unknown as Record<string, unknown> }, 'FORM_CONFORMANCE_INVALID'],
     ['conformance with no satisfied flag', { blueprintConformance: {} }, 'FORM_CONFORMANCE_INVALID'],
     ['no sections', { sections: [] }, 'FORM_SECTIONS_INVALID'],
@@ -308,7 +312,7 @@ describe('an attempt is created from an open form', () => {
     markingRuleSetHash: 'b'.repeat(64),
     taxonomyVersionId: id(TAG.taxonomy),
     deliveryPolicy: { timing: 'strict' },
-    sessionId: id(TAG.session),
+    sessionRef: SESSION_REF,
     shiftId: 'shift-1',
     durationMs: 10_800_000,
     createdAt: '2026-10-21T08:00:00.000Z',
@@ -353,6 +357,21 @@ describe('an attempt is created from an open form', () => {
 
   it('refuses a malformed now', () => {
     expect(expectError(createAttemptFromForm(anActiveForm(), attemptProps, 'noon')).code).toBe('FORM_NOW_INVALID');
+  });
+
+  it('copies the session from a sitting the form was published for, and refuses one it was not (ADR-0032)', () => {
+    const form = anActiveForm({ sessionRefs: ['2026-01-27/shift-1', '2026-01-27/shift-2'] });
+    expect(form.sessionRefs).toEqual(['2026-01-27/shift-1', '2026-01-27/shift-2']);
+    for (const sessionRef of form.sessionRefs) {
+      expect(expectValue(createAttemptFromForm(form, { ...attemptProps, sessionRef }, WITHIN_WINDOW)).sessionRef).toBe(sessionRef);
+    }
+    const error = expectError(createAttemptFromForm(form, { ...attemptProps, sessionRef: '2026-01-28/shift-1' }, WITHIN_WINDOW));
+    expect(error.code).toBe('FORM_SESSION_NOT_PUBLISHED_FOR');
+    expect(error.kind).toBe('PreconditionFailed');
+  });
+
+  it('keeps a form\'s sessions in a fixed order, so the same sittings are the same form', () => {
+    expect(aDraftForm({ sessionRefs: ['b', 'a'] }).sessionRefs).toEqual(['a', 'b']);
   });
 
   it('passes the attempt\'s own validation through', () => {

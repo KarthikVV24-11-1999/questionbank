@@ -4,7 +4,7 @@ import { ATTEMPT_STATES } from '../contexts/assessment/domain/attempt-state.js';
 import { FORM_STATES, FORM_TYPES } from '../contexts/assessment/domain/form.js';
 import { RESPONSE_EVENT_KINDS } from '../contexts/assessment/domain/response-event.js';
 import { ASSESSMENT_TABLES, insertEvent, refusal, seedAttempt, seedForm, startAttemptRow } from './assessment-db.js';
-import { TAG, id } from './assessment-fixtures.js';
+import { SESSION_REF, TAG, id } from './assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from './database.js';
 
 /**
@@ -67,10 +67,12 @@ describe('the assessment schema is its own', () => {
     expect(keys.map((key) => `${key.from_table}->${key.to_table}`)).toEqual([
       'attempt->form',
       'attempt->form',
+      'attempt->form_session',
       'attempt_slot->attempt',
-      'exposure_ledger_entry->form',
+      'exposure_ledger_entry->form_session',
       'exposure_ledger_entry->form_slot',
       'form_section->form',
+      'form_session->form',
       'form_slot->form_section',
       'response_event->attempt_slot',
     ]);
@@ -100,7 +102,7 @@ describe('§12 — what cannot be reconstructed later cannot be null', () => {
       [[
         'form_slot.is_anchor',
         'form_slot.item_version_id',
-        'attempt.session_id',
+        'attempt.session_ref',
         'attempt.shift_id',
         'attempt_slot.item_version_id',
         'response_event.item_version_id',
@@ -126,12 +128,12 @@ describe('§12 — what cannot be reconstructed later cannot be null', () => {
     const insert = (column: string, value: unknown) =>
       database.pool.query(
         `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-           delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
-         SELECT $1, 'mock', $2, $3, $4, $5, '{}', ${column === 'session_id' ? '$6::uuid' : `'${id(TAG.session)}'::uuid`},
-                ${column === 'shift_id' ? '$6' : `'shift-1'`}, 1000, now(), now()`,
+           delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
+         SELECT $1, 'mock', $2, $3, $4, $5, '{}', ${column === 'session_ref' ? '$6' : `'${SESSION_REF}'`},
+                ${column === 'shift_id' ? '$6' : `'shift-1'`}, 1000, '2026-10-21T12:00:00Z', now()`,
         [id(TAG.student), publishedId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), value],
       );
-    expect(await refusal(() => insert('session_id', null))).toContain('session_id');
+    expect(await refusal(() => insert('session_ref', null))).toContain('session_ref');
     expect(await refusal(() => insert('shift_id', null))).toContain('shift_id');
     expect(await refusal(() => insert('shift_id', '   '))).toContain('attempt_shift_id_check');
   });

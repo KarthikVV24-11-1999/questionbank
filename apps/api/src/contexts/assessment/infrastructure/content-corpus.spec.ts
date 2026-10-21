@@ -77,6 +77,9 @@ const exposure = (counts: [number, number][] | 'fails'): ExposureLedger => ({
   async entriesForForm() {
     throw new Error('not used');
   },
+  async exposureBySession() {
+    throw new Error('not used');
+  },
 });
 
 const corpus = (parts: Partial<ConstructorParameters<typeof ContentCorpus>[0]> & { catalogue: CatalogueHandler }) =>

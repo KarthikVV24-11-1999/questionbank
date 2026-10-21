@@ -316,6 +316,14 @@ Every psychometric capability above depends on data that must be recorded from t
 
 **These cost almost nothing to record and are impossible to reconstruct.** This is the concrete closure of PRD §15 M5.
 
+*Correction, M6 Track D ([ADR-0032](adr/ADR-0032-a-session-is-a-named-sitting-that-a-form-declares.md)).* The two
+rows naming session identity did not say what a session is, and as first built the form's, the ledger's and the
+attempt's session identities could not be related. A **session is a named sitting**: a canonical text key that a
+form declares, as a set, for the sittings it is published for (`form_session`). The exposure ledger holds a row per
+slot per session, and an attempt may name only a session its form was published for — enforced by foreign keys, so
+within-session normalization groups attempts and the exposure recorded for the same sitting. `shift` remains a
+label on the attempt and is not an identity.
+
 ---
 
 ## 13. Fitness Functions

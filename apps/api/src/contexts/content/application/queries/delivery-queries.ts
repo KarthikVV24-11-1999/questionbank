@@ -2,6 +2,7 @@ import { err, ok, type Result } from '../../domain/result.js';
 import type { ContentError } from '../../domain/content-error.js';
 import type {
   ItemRepository,
+  PublishedVersionReader,
   SolutionRepository,
   StimulusRepository,
 } from '../../domain/repository-ports.js';
@@ -47,9 +48,23 @@ export const DELIVERY_ROLES = Object.freeze([
 export const GET_PUBLISHED_ITEM_POLICY = policy('GetPublishedItem', DELIVERY_ROLES);
 export const GET_PUBLISHED_STIMULUS_POLICY = policy('GetPublishedStimulus', DELIVERY_ROLES);
 export const GET_PUBLISHED_SOLUTION_POLICY = policy('GetPublishedSolution', DELIVERY_ROLES);
+export const GET_PUBLISHED_ITEM_VERSION_POLICY = policy('GetPublishedItemVersion', DELIVERY_ROLES);
+export const GET_PUBLISHED_STIMULUS_VERSION_POLICY = policy('GetPublishedStimulusVersion', DELIVERY_ROLES);
 
 export interface GetPublishedItem {
   readonly itemId: string;
+}
+
+/**
+ * One specific version, by its own id (M6-24). What a form's package is built
+ * from: the version a form *pinned*, not whatever is current for the item.
+ */
+export interface GetPublishedItemVersion {
+  readonly itemVersionId: string;
+}
+
+export interface GetPublishedStimulusVersion {
+  readonly stimulusVersionId: string;
 }
 
 export interface GetPublishedStimulus {
@@ -246,6 +261,7 @@ export function toDeliverySolutionView(
 }
 
 export interface DeliveryQueryDependencies {
+  readonly versions: PublishedVersionReader;
   readonly items: ItemRepository;
   readonly stimuli: StimulusRepository;
   readonly solutions: SolutionRepository;
@@ -355,5 +371,61 @@ export class GetPublishedSolutionHandler implements Handler<GetPublishedSolution
     if (!version.ok) return err(fromContent(version.error));
 
     return ok(toDeliverySolutionView(version.value, query.itemVersionId, query.depth));
+  }
+}
+
+/**
+ * The item version a form pinned, as a delivery view. **Found by version id,
+ * served whether or not it is still the item's current version** — an attempt is
+ * pinned to a version, and a package that quietly served a newer one would let
+ * the paper drift from what was scored (INV-04). A version that was never
+ * published is `NotFound`. The view is the same field-by-field, key-free one
+ * `GetPublishedItem` returns.
+ */
+export class GetPublishedItemVersionHandler implements Handler<GetPublishedItemVersion, DeliveryItemView> {
+  readonly name = 'GetPublishedItemVersion';
+  readonly policy = GET_PUBLISHED_ITEM_VERSION_POLICY;
+
+  constructor(private readonly deps: DeliveryQueryDependencies) {}
+
+  async handle(query: GetPublishedItemVersion, context: ApplicationContext): Promise<Result<DeliveryItemView, ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return err(permitted.error);
+
+    const owner = await this.deps.versions.itemOfPublishedVersion(query.itemVersionId);
+    if (!owner.ok) return err(fromContent(owner.error));
+
+    const item = await this.deps.items.findById(owner.value);
+    if (!item.ok) return err(fromContent(item.error));
+
+    const version = item.value.versions.find((candidate) => candidate.versionId === query.itemVersionId);
+    if (version === undefined) {
+      return err(applicationError('NotFound', 'NOT_FOUND', `item version ${query.itemVersionId} is not published`, 'itemVersionId'));
+    }
+    return ok(toDeliveryItemView(owner.value, version));
+  }
+}
+
+export class GetPublishedStimulusVersionHandler implements Handler<GetPublishedStimulusVersion, DeliveryStimulusView> {
+  readonly name = 'GetPublishedStimulusVersion';
+  readonly policy = GET_PUBLISHED_STIMULUS_VERSION_POLICY;
+
+  constructor(private readonly deps: DeliveryQueryDependencies) {}
+
+  async handle(query: GetPublishedStimulusVersion, context: ApplicationContext): Promise<Result<DeliveryStimulusView, ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return err(permitted.error);
+
+    const owner = await this.deps.versions.stimulusOfPublishedVersion(query.stimulusVersionId);
+    if (!owner.ok) return err(fromContent(owner.error));
+
+    const stimulus = await this.deps.stimuli.findById(owner.value);
+    if (!stimulus.ok) return err(fromContent(stimulus.error));
+
+    const version = stimulus.value.versions.find((candidate) => candidate.versionId === query.stimulusVersionId);
+    if (version === undefined) {
+      return err(applicationError('NotFound', 'NOT_FOUND', `stimulus version ${query.stimulusVersionId} is not published`, 'stimulusVersionId'));
+    }
+    return ok(toDeliveryStimulusView(owner.value, stimulus.value.stimulusType, version));
   }
 }

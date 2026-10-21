@@ -41,7 +41,7 @@ describe('saving and finding a form', () => {
     expect(found.publishedAt).toBeNull();
     expect(found.blueprintConformance['satisfied']).toBe(true);
     expect(found.blueprintConformance['sections']).toBe(2);
-    expect(Object.keys(found).sort()).toEqual(['blueprintConformance', 'examProfileVersionId', 'formId', 'formType', 'publishedAt', 'scheduleWindow', 'sections', 'sessionRef', 'state']);
+    expect(Object.keys(found).sort()).toEqual(['blueprintConformance', 'examProfileVersionId', 'formId', 'formType', 'publishedAt', 'scheduleWindow', 'sections', 'sessionRefs', 'state']);
 
     expect(found.sections.map((s) => [s.ordinal, s.sectionSpecRef])).toEqual([[1, 'physics-a'], [2, 'physics-b']]);
     const first = found.sections[0]!.slots[0]!;
@@ -66,7 +66,7 @@ describe('saving and finding a form', () => {
     const found = expectValue(await repository.findById(id(TAG.form)));
     expect(found.state).toBe('published');
     expect(found.publishedAt).toBe('2026-10-21T07:00:00.000Z');
-    expect(found.sessionRef).toBe('2026-01-27/shift-2');
+    expect(found.sessionRefs).toEqual(['2026-01-27/shift-2']);
     expect(slotsOf(found)).toHaveLength(6);
   });
 

@@ -78,15 +78,17 @@ describe('content composition — what the assessment context is admitted to (M6
     expect(admitting).toEqual([
       'GetDuplicateCandidates',
       'GetPublishedItem',
+      'GetPublishedItemVersion',
       'GetPublishedSolution',
       'GetPublishedStimulus',
+      'GetPublishedStimulusVersion',
       'ListPublishedCatalogue',
     ]);
   });
 
-  it('hands assessment the two handlers and nothing else', () => {
+  it('hands assessment the four handlers and nothing else', () => {
     const seam = contentForAssessment(validDeps());
-    expect(Object.keys(seam).sort()).toEqual(['duplicates', 'listCatalogue']);
+    expect(Object.keys(seam).sort()).toEqual(['duplicates', 'itemVersion', 'listCatalogue', 'stimulusVersion']);
     expect(seam.listCatalogue.name).toBe('ListPublishedCatalogue');
     expect(seam.duplicates.name).toBe('GetDuplicateCandidates');
   });

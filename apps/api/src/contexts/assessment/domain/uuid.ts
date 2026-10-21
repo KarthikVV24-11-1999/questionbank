@@ -43,3 +43,12 @@ export function isPositiveInteger(value: unknown): value is number {
 export function addMilliseconds(timestamp: string, ms: number): string {
   return new Date(Date.parse(timestamp) + ms).toISOString();
 }
+
+/**
+ * A session's identity (ADR-0032): a canonical text key naming one sitting. Canonical means exactly
+ * the form the database's check holds — trimmed, non-empty and never the `unassigned:` placeholder
+ * the M6-18 backfill used — so two spellings of one sitting cannot be two sessions.
+ */
+export function isSessionRef(value: unknown): value is string {
+  return typeof value === 'string' && value === value.trim() && value.length > 0 && !value.startsWith('unassigned:');
+}

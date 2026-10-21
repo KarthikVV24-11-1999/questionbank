@@ -4,7 +4,7 @@ import { ATTEMPT_STATES, canMove, type AttemptState } from '../contexts/assessme
 import { restoreAttempt, type AttemptSnapshot } from '../contexts/assessment/domain/attempt.js';
 import { FORM_STATES, canMove as canMoveForm, type FormState } from '../contexts/assessment/domain/form-state.js';
 import { insertEvent, refusal, seedAttempt, seedForm, startAttemptRow, submitAttemptRow } from './assessment-db.js';
-import { TAG, attemptProps, id } from './assessment-fixtures.js';
+import { SESSION_REF, TAG, attemptProps, id } from './assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from './database.js';
 
 /**
@@ -188,7 +188,8 @@ describe('a published form is immutable (D-006)', () => {
       await client.query(`INSERT INTO assessment.anchor_pool_member (item_version_id, exposure_cap, added_at) VALUES ($1, 40, now())`, [id(TAG.itemVersion, 41)]);
       await client.query(
         `INSERT INTO assessment.exposure_ledger_entry (form_id, slot_id, item_id, item_version_id, session_ref, is_anchor, written_at)
-         SELECT form_id, slot_id, item_id, item_version_id, '2026-01-27/shift-2', is_anchor, now() FROM assessment.form_slot WHERE form_id = $1`,
+         SELECT s.form_id, s.slot_id, s.item_id, s.item_version_id, fs.session_ref, s.is_anchor, now()
+           FROM assessment.form_slot s JOIN assessment.form_session fs ON fs.form_id = s.form_id WHERE s.form_id = $1`,
         [formId],
       );
       await client.query(`UPDATE assessment.form SET state = 'published', published_at = now() WHERE form_id = $1`, [formId]);
@@ -222,12 +223,64 @@ describe('a published form is immutable (D-006)', () => {
     const message = await refusal(() =>
       database.pool.query(
         `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-           delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
+           delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
          VALUES ($1, 'mock', $2, $3, $4, $5, '{}', $6, 's', 1000, '2099-01-01T00:00:00Z', now())`,
-        [id(TAG.student), formId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), id(TAG.session)],
+        [id(TAG.student), formId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), SESSION_REF],
       ),
     );
     expect(message).toContain('attempt_window_is_the_forms');
+  });
+});
+
+describe('an attempt\'s session is one its form was published for (ADR-0032), refused by Postgres', () => {
+  const insertIn = (formId: string, sessionRef: string) => () =>
+    seedAttempt(database.pool, { formId, sessionRef, attemptId: id(TAG.attempt, 7), studentId: id(TAG.student, 7) });
+
+  it('refuses a session the form was not published for', async () => {
+    const formId = await seedForm(database.pool);
+    expect(await refusal(insertIn(formId, 'some-other-sitting'))).toContain('attempt_session_is_one_the_form_was_published_for');
+  });
+
+  it('refuses a session another form was published for', async () => {
+    await seedForm(database.pool, { sessions: ['sitting-a'] });
+    const other = await seedForm(database.pool, { formId: id(TAG.form, 2), variant: 1, sessions: ['sitting-b'] });
+    expect(await refusal(insertIn(other, 'sitting-a'))).toContain('attempt_session_is_one_the_form_was_published_for');
+    await insertIn(other, 'sitting-b')();
+  });
+
+  it('accepts each session of a form published for two', async () => {
+    const formId = await seedForm(database.pool, { sessions: ['sitting-a', 'sitting-b'] });
+    await seedAttempt(database.pool, { formId, sessionRef: 'sitting-a', attemptId: id(TAG.attempt, 7), studentId: id(TAG.student, 7) });
+    await seedAttempt(database.pool, { formId, sessionRef: 'sitting-b', attemptId: id(TAG.attempt, 8), studentId: id(TAG.student, 8) });
+  });
+
+  it('refuses a session that is not in canonical form, or is the placeholder', async () => {
+    const formId = await seedForm(database.pool, { publish: false });
+    for (const bad of [' padded ', '', 'unassigned:abc']) {
+      expect(await refusal(() => database.pool.query('INSERT INTO assessment.form_session (form_id, session_ref) VALUES ($1, $2)', [formId, bad])), bad).toContain('form_session_session_ref_check');
+    }
+  });
+
+  it('freezes a form\'s sessions with the form: none can be added, changed or removed once it is published', async () => {
+    const formId = await seedForm(database.pool);
+    expect(await refusal(() => database.pool.query(`INSERT INTO assessment.form_session (form_id, session_ref) VALUES ($1, 'late')`, [formId]))).toContain('assessment_published_form_is_immutable');
+    expect(await refusal(() => database.pool.query(`UPDATE assessment.form_session SET session_ref = 'x' WHERE form_id = $1`, [formId]))).toContain('assessment_published_form_is_immutable');
+    expect(await refusal(() => database.pool.query(`DELETE FROM assessment.form_session WHERE form_id = $1`, [formId]))).toContain('assessment_published_form_is_immutable');
+  });
+
+  it('is the foreign key that refuses: with it dropped, an attempt names a session its form never had', async () => {
+    const formId = await seedForm(database.pool);
+    const accepted = await rolledBack(async (client) => {
+      await client.query('ALTER TABLE assessment.attempt DROP CONSTRAINT attempt_session_is_one_the_form_was_published_for');
+      await client.query(
+        `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
+           delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
+         VALUES ($1, 'mock', $2, $3, $4, $5, '{}', 'invented', 's', 1000, '2026-10-21T12:00:00Z', now())`,
+        [id(TAG.student), formId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy)],
+      );
+      return true;
+    });
+    expect(accepted).toBe(true);
   });
 });
 
@@ -238,7 +291,7 @@ describe('an attempt moves only along the state machine, and keeps its pin', () 
       `student_id = '${id(TAG.student, 9)}'`,
       `marking_rule_set_hash = '${'c'.repeat(64)}'`,
       `shift_id = 'other'`,
-      `session_id = '${id(TAG.session, 9)}'`,
+      `session_ref = 'another-sitting'`,
       `duration_ms = 1`,
       `window_closes_at = now()`,
       `delivery_policy = '{}'`,
@@ -285,9 +338,9 @@ describe('an attempt moves only along the state machine, and keeps its pin', () 
       await client.query(
         `INSERT INTO assessment.attempt
            (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-            delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
+            delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
          VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 'shift-1', 1000, '2026-10-21T12:00:00Z', now())`,
-        [attemptId, id(TAG.student, 50), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), id(TAG.session)],
+        [attemptId, id(TAG.student, 50), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), SESSION_REF],
       );
       if (state !== 'created') {
         await client.query('ALTER TABLE assessment.attempt DISABLE TRIGGER attempt_guarded_update');
@@ -436,7 +489,6 @@ describe('a published form moves only along its lifecycle, and its window is fix
   it('still refuses to change the composition in any scheduled state', async () => {
     const formId = await seedForm(database.pool);
     expect(await refusal(() => database.pool.query(`UPDATE assessment.form SET form_type = 'diagnostic' WHERE form_id = $1`, [formId]))).toContain('only its state and window move');
-    expect(await refusal(() => database.pool.query(`UPDATE assessment.form SET session_ref = 'x' WHERE form_id = $1`, [formId]))).toContain('only its state and window move');
     expect(await refusal(() => database.pool.query(`UPDATE assessment.form_slot SET marks_available = 9 WHERE form_id = $1`, [formId]))).toContain('assessment_published_form_is_immutable');
     expect(await refusal(() => database.pool.query(`DELETE FROM assessment.form WHERE form_id = $1`, [formId]))).toContain('never deleted');
   });
@@ -534,10 +586,10 @@ describe('the attempt state-shape rule: the database\'s check and the domain\'s 
           await client.query(
             `INSERT INTO assessment.attempt
                (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-                delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at, state,
+                delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at, state,
                 started_at, deadline_at, submitted_at, submission_reason, idempotency_key, abandoned_at)
              VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 's', 1000, '2026-10-21T12:00:00Z', now(), '${state}', ${sets.join(', ')})`,
-            [id(TAG.attempt, 1000 + index), id(TAG.student, 1000 + index), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), id(TAG.session)],
+            [id(TAG.attempt, 1000 + index), id(TAG.student, 1000 + index), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), SESSION_REF],
           );
         } catch {
           databaseAccepts = false;

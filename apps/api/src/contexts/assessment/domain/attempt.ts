@@ -17,6 +17,7 @@ import {
   addMilliseconds,
   isNonBlank,
   isPositiveInteger,
+  isSessionRef,
   isSha256Hex,
   isUtcTimestamp,
   isUuid,
@@ -73,8 +74,12 @@ export interface Attempt {
   readonly markingRuleSetHash: string;
   readonly taxonomyVersionId: string;
   readonly deliveryPolicy: Readonly<Record<string, unknown>>;
-  /** §12: the session the attempt was sat in. Never null. */
-  readonly sessionId: string;
+  /**
+   * §12: the session the attempt was sat in (ADR-0032) — the canonical key of one of the sittings its form
+   * was published for, tied to it by a foreign key. Never null, and not the authentication session, which
+   * never ended an attempt.
+   */
+  readonly sessionRef: string;
   /** §12: the shift the attempt belongs to, for multi-shift normalization. Never blank. */
   readonly shiftId: string;
   readonly slots: readonly AttemptSlot[];
@@ -126,7 +131,7 @@ export interface CreateAttemptProps {
   readonly markingRuleSetHash: string;
   readonly taxonomyVersionId: string;
   readonly deliveryPolicy: Readonly<Record<string, unknown>>;
-  readonly sessionId: string;
+  readonly sessionRef: string;
   readonly shiftId: string;
   readonly slots: readonly AttemptSlot[];
   readonly durationMs: number;
@@ -172,7 +177,7 @@ export function createAttempt(props: CreateAttemptProps): Result<Attempt, Attemp
       markingRuleSetHash: props.markingRuleSetHash,
       taxonomyVersionId: props.taxonomyVersionId,
       deliveryPolicy: freezeJson({ ...props.deliveryPolicy }),
-      sessionId: props.sessionId,
+      sessionRef: props.sessionRef,
       shiftId: props.shiftId,
       slots: Object.freeze(
         [...props.slots]
@@ -201,7 +206,7 @@ function firstFault(props: CreateAttemptProps): AttemptError | null {
     [isSha256Hex(props.markingRuleSetHash), 'ATTEMPT_MARKING_HASH_INVALID', 'markingRuleSetHash must be a SHA-256 hex digest', 'markingRuleSetHash'],
     [isUuid(props.taxonomyVersionId), 'ATTEMPT_TAXONOMY_INVALID', 'taxonomyVersionId must be a uuid', 'taxonomyVersionId'],
     [isJsonObject(props.deliveryPolicy), 'ATTEMPT_DELIVERY_POLICY_INVALID', 'deliveryPolicy must be a JSON object', 'deliveryPolicy'],
-    [isUuid(props.sessionId), 'ATTEMPT_SESSION_INVALID', 'an attempt records the session it was sat in', 'sessionId'],
+    [isSessionRef(props.sessionRef), 'ATTEMPT_SESSION_INVALID', 'an attempt records the session it was sat in, as a canonical key', 'sessionRef'],
     [isNonBlank(props.shiftId), 'ATTEMPT_SHIFT_INVALID', 'an attempt records the shift it belongs to', 'shiftId'],
     [isPositiveInteger(props.durationMs), 'ATTEMPT_DURATION_INVALID', 'durationMs must be a positive whole number', 'durationMs'],
     [isUtcTimestamp(props.windowClosesAt), 'ATTEMPT_WINDOW_INVALID', 'windowClosesAt must be a UTC timestamp with milliseconds', 'windowClosesAt'],

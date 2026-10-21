@@ -14,7 +14,7 @@ import {
 import { freezeJson, isJsonObject } from './json-document.js';
 import { err, ok, type Result } from './result.js';
 import { isFrozen, transition, FORM_STATES, type FormState, type FormTrigger } from './form-state.js';
-import { isNonBlank, isPositiveInteger, isUtcTimestamp, isUuid } from './uuid.js';
+import { isNonBlank, isSessionRef, isPositiveInteger, isUtcTimestamp, isUuid } from './uuid.js';
 
 /**
  * `Form` — a fixed, pre-assembled examination paper (DOMAIN-MODEL §6).
@@ -81,12 +81,15 @@ export interface Form {
   readonly examProfileVersionId: string;
   readonly formType: FormType;
   /**
-   * The sitting this form is published for (a shift, in multi-shift terms). The
-   * exposure ledger keys on it, so per-item exposure carries the session
-   * identity §12 says it cannot be reconstructed without. Server-side fact,
-   * fixed when the form is created.
+   * The sittings this form is published for (ADR-0032). A session is a named
+   * sitting and its identity is this canonical key; the form is where it is
+   * declared. The exposure ledger holds a row per slot per session, and an
+   * attempt's session must be one of these — by a foreign key, so it *is* one
+   * and does not merely agree. Sorted, so the same sittings are the same form.
+   * Server-side fact, fixed when the form is created. Every session shares the
+   * form's window (D56).
    */
-  readonly sessionRef: string;
+  readonly sessionRefs: readonly string[];
   /**
    * How the composition measures against the profile blueprint. A JSON object
    * with a boolean `satisfied`; the rest is form assembly's to define, and an
@@ -114,7 +117,8 @@ export type FormErrorCode =
   | 'FORM_ID_INVALID'
   | 'FORM_PROFILE_INVALID'
   | 'FORM_TYPE_INVALID'
-  | 'FORM_SESSION_INVALID'
+  | 'FORM_SESSIONS_INVALID'
+  | 'FORM_SESSION_NOT_PUBLISHED_FOR'
   | 'FORM_CONFORMANCE_INVALID'
   | 'FORM_SECTIONS_INVALID'
   | 'FORM_SLOT_INVALID'
@@ -139,7 +143,7 @@ export interface CreateFormProps {
   readonly formId: string;
   readonly examProfileVersionId: string;
   readonly formType: FormType;
-  readonly sessionRef: string;
+  readonly sessionRefs: readonly string[];
   readonly blueprintConformance: Readonly<Record<string, unknown>>;
   readonly sections: readonly FormSection[];
 }
@@ -213,8 +217,8 @@ export function createForm(props: CreateFormProps): Result<Form, FormError> {
   if (!(FORM_TYPES as readonly string[]).includes(props.formType)) {
     return err(invalid('FORM_TYPE_INVALID', 'formType is mock or diagnostic', 'formType'));
   }
-  if (!isNonBlank(props.sessionRef)) {
-    return err(invalid('FORM_SESSION_INVALID', 'a form names the session it is published for', 'sessionRef'));
+  if (!Array.isArray(props.sessionRefs) || props.sessionRefs.length === 0 || !props.sessionRefs.every(isSessionRef) || new Set(props.sessionRefs).size !== props.sessionRefs.length) {
+    return err(invalid('FORM_SESSIONS_INVALID', 'a form names the sessions it is published for: one or more, each a distinct canonical key (ADR-0032)', 'sessionRefs'));
   }
   if (!isJsonObject(props.blueprintConformance) || typeof props.blueprintConformance['satisfied'] !== 'boolean') {
     return err(invalid('FORM_CONFORMANCE_INVALID', 'blueprintConformance is an object with a boolean `satisfied`', 'blueprintConformance'));
@@ -227,7 +231,7 @@ export function createForm(props: CreateFormProps): Result<Form, FormError> {
       formId: props.formId,
       examProfileVersionId: props.examProfileVersionId,
       formType: props.formType,
-      sessionRef: props.sessionRef,
+      sessionRefs: Object.freeze([...props.sessionRefs].sort()),
       blueprintConformance: freezeJson({ ...props.blueprintConformance }),
       state: 'draft' as const,
       publishedAt: null,
@@ -266,7 +270,7 @@ export function substituteSlot(
     formId: form.formId,
     examProfileVersionId: form.examProfileVersionId,
     formType: form.formType,
-    sessionRef: form.sessionRef,
+    sessionRefs: form.sessionRefs,
     blueprintConformance: form.blueprintConformance,
     sections: form.sections.map((section) => ({
       ...section,
@@ -372,6 +376,9 @@ export function createAttemptFromForm(form: Form, props: AttemptFromFormProps, n
         'scheduleWindow',
       ),
     );
+  }
+  if (!form.sessionRefs.includes(props.sessionRef)) {
+    return err(preconditionFailedError('FORM_SESSION_NOT_PUBLISHED_FOR', 'the form was not published for that session', 'sessionRef'));
   }
   return createAttempt({
     ...props,

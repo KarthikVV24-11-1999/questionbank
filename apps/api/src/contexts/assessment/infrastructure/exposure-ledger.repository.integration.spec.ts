@@ -42,7 +42,7 @@ const ledgerRows = async () => (await database.pool.query('SELECT count(*)::int 
 const secondForm = (formId: string, sessionRef = 'second-session') =>
   aDraftForm({
     formId,
-    sessionRef,
+    sessionRefs: [sessionRef],
     sections: [
       {
         ordinal: 1,
@@ -125,6 +125,7 @@ describe('publication writes the ledger, in the same transaction as the state ch
     const reader = new PostgresExposureLedger(broken);
     expect(expectError(await reader.countsByItemVersion([])).code).toBe('PERSISTENCE_REJECTED');
     expect(expectError(await reader.entriesForForm(id(TAG.form))).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await reader.exposureBySession([])).code).toBe('PERSISTENCE_REJECTED');
     await broken.end().catch(() => undefined);
   });
 });
@@ -155,6 +156,67 @@ describe('what the ledger answers', () => {
       { session_ref: '2026-01-27/shift-2', n: 1 },
       { session_ref: 'another-shift', n: 1 },
     ]);
+  });
+});
+
+describe('exposure joined to the attempts that sat it, per session (ADR-0032)', () => {
+  const SHIFT_1 = '2026-01-27/shift-1';
+  const SHIFT_2 = '2026-01-27/shift-2';
+  const attempt = (n: number, sessionRef: string) => anAttempt({ attemptId: id(TAG.attempt, n), studentId: id(TAG.student, n), sessionRef });
+
+  async function sit(attempts: PostgresAttemptRepository, n: number, sessionRef: string): Promise<void> {
+    const created = attempt(n, sessionRef);
+    expectValue(await attempts.create(created));
+    await database.pool.query(`UPDATE assessment.attempt SET state = 'in_progress', started_at = $2, deadline_at = $3 WHERE attempt_id = $1`, [
+      created.attemptId,
+      '2026-10-21T09:00:00Z',
+      '2026-10-21T12:00:00Z',
+    ]);
+  }
+
+  it('gets the right answer per session over one form published for two', async () => {
+    const form = await storeActiveForm(database.pool, { sessionRefs: [SHIFT_1, SHIFT_2] });
+    const attempts = new PostgresAttemptRepository(database.pool);
+    // three students sit shift 1, one sits shift 2, and one creates an attempt in shift 2 that never starts
+    await sit(attempts, 1, SHIFT_1);
+    await sit(attempts, 2, SHIFT_1);
+    await sit(attempts, 3, SHIFT_1);
+    await sit(attempts, 4, SHIFT_2);
+    expectValue(await attempts.create(attempt(5, SHIFT_2)));
+
+    const rows = expectValue(await ledger.exposureBySession([id(TAG.itemVersion, 1), id(TAG.itemVersion, 2)]));
+    expect(rows.map((r) => [r.itemVersionId, r.sessionRef, r.placements, r.attemptsSat])).toEqual([
+      [id(TAG.itemVersion, 1), SHIFT_1, 1, 3],
+      [id(TAG.itemVersion, 1), SHIFT_2, 1, 1],
+      [id(TAG.itemVersion, 2), SHIFT_1, 1, 3],
+      [id(TAG.itemVersion, 2), SHIFT_2, 1, 1],
+    ]);
+    expect(form.sessionRefs).toEqual([SHIFT_1, SHIFT_2]);
+    expect(Object.keys(rows[0]!).sort()).toEqual(['attemptsSat', 'itemVersionId', 'placements', 'sessionRef']);
+  });
+
+  it('keeps sessions apart: an item placed in two forms of one session counts once per form, and another session is untouched', async () => {
+    await storeActiveForm(database.pool, { sessionRefs: [SHIFT_1] });
+    const second = secondForm(id(TAG.form, 2), SHIFT_1);
+    expectValue(await forms.save(second));
+    expectValue(await forms.publish(second.formId, PUBLISHED_AT));
+    const rows = expectValue(await ledger.exposureBySession([id(TAG.itemVersion, 1)]));
+    expect(rows.map((r) => [r.sessionRef, r.placements, r.attemptsSat])).toEqual([[SHIFT_1, 2, 0]]);
+  });
+
+  it('reports a session nobody has sat as zero attempts, and an unplaced version as nothing', async () => {
+    await storeActiveForm(database.pool, { sessionRefs: [SHIFT_1, SHIFT_2] });
+    const rows = expectValue(await ledger.exposureBySession([id(TAG.itemVersion, 1), id(TAG.itemVersion, 99)]));
+    expect(rows.map((r) => [r.sessionRef, r.attemptsSat])).toEqual([[SHIFT_1, 0], [SHIFT_2, 0]]);
+    expect(expectValue(await ledger.exposureBySession([]))).toEqual([]);
+  });
+
+  it('writes a ledger row per slot per session at publication, and the rows say which session', async () => {
+    const form = await storeActiveForm(database.pool, { sessionRefs: [SHIFT_1, SHIFT_2] });
+    expect(await ledgerRows()).toBe(12);
+    const entries = expectValue(await ledger.entriesForForm(form.formId));
+    expect(entries.filter((e) => e.sessionRef === SHIFT_1)).toHaveLength(6);
+    expect(entries.filter((e) => e.sessionRef === SHIFT_2)).toHaveLength(6);
   });
 });
 

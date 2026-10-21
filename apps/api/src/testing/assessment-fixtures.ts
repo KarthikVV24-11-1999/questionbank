@@ -9,7 +9,7 @@ export function id(tag: number, n = 1): string {
 
 export const TAG = { attempt: 0xa1, student: 0xa2, form: 0xa3, profile: 0xa4, taxonomy: 0xa5, session: 0xa6, slot: 0xb1, item: 0xb2, itemVersion: 0xb3, stimulus: 0xb4, event: 0xc1 } as const;
 
-/** The sitting the fixture forms are published for. */
+/** The sitting the fixture forms are published for, and the one the fixture attempts sit. */
 export const SESSION_REF = '2026-01-27/shift-2';
 
 export const MARKING_HASH = 'a'.repeat(64);
@@ -34,7 +34,7 @@ export function attemptProps(overrides: Partial<CreateAttemptProps> = {}): Creat
     markingRuleSetHash: MARKING_HASH,
     taxonomyVersionId: id(TAG.taxonomy),
     deliveryPolicy: { timing: 'strict', navigation: 'free', pausable: false },
-    sessionId: id(TAG.session),
+    sessionRef: SESSION_REF,
     shiftId: '2026-01-27/shift-2',
     slots: slots(),
     durationMs: 3 * 3_600_000,
@@ -67,7 +67,7 @@ export function formProps(overrides: Partial<CreateFormProps> = {}): CreateFormP
     formId: id(TAG.form),
     examProfileVersionId: id(TAG.profile),
     formType: 'mock',
-    sessionRef: SESSION_REF,
+    sessionRefs: [SESSION_REF],
     blueprintConformance: { satisfied: true, sections: 2 },
     sections: [
       { ordinal: 1, sectionSpecRef: 'physics-a', slots: all.slice(0, 3) },

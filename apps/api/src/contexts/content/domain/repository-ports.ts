@@ -487,3 +487,19 @@ export interface PublishedCataloguePage {
 export interface PublishedCatalogueReader {
   list(criteria: PublishedCatalogueCriteria): Promise<Result<PublishedCataloguePage, RepositoryError>>;
 }
+
+/**
+ * Where a *specific* published version lives, by its own id. A form pins item
+ * and stimulus versions, and a package built from a form must serve exactly
+ * those: resolving by the item's id would return whatever is current today,
+ * which is the drift INV-04 exists to forbid. A version that was published and
+ * has since been superseded, suspended or retired is still the version an
+ * attempt was pinned to, so it is still found; a version that was **never**
+ * published is not.
+ */
+export interface PublishedVersionReader {
+  /** The owning item of a version that has been published, or `NOT_FOUND`. */
+  itemOfPublishedVersion(itemVersionId: string): Promise<Result<string, RepositoryError>>;
+  /** The owning stimulus of a version that has been published, or `NOT_FOUND`. */
+  stimulusOfPublishedVersion(stimulusVersionId: string): Promise<Result<string, RepositoryError>>;
+}

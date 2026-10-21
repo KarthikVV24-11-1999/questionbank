@@ -9,7 +9,6 @@ interface FormRow {
   readonly form_id: string;
   readonly exam_profile_version_id: string;
   readonly form_type: 'mock' | 'diagnostic';
-  readonly session_ref: string;
   readonly state: FormState;
   readonly blueprint_conformance: Record<string, unknown>;
   readonly published_at: Date | null;
@@ -95,17 +94,22 @@ export class PostgresFormRepository implements FormRepository {
 
       if (stored === undefined) {
         await client.query(
-          `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, session_ref, blueprint_conformance)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [form.formId, form.examProfileVersionId, form.formType, form.sessionRef, JSON.stringify(form.blueprintConformance)],
+          `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, blueprint_conformance)
+           VALUES ($1, $2, $3, $4)`,
+          [form.formId, form.examProfileVersionId, form.formType, JSON.stringify(form.blueprintConformance)],
         );
       } else {
         await client.query(
-          `UPDATE assessment.form SET exam_profile_version_id = $2, form_type = $3, session_ref = $4, blueprint_conformance = $5 WHERE form_id = $1`,
-          [form.formId, form.examProfileVersionId, form.formType, form.sessionRef, JSON.stringify(form.blueprintConformance)],
+          `UPDATE assessment.form SET exam_profile_version_id = $2, form_type = $3, blueprint_conformance = $4 WHERE form_id = $1`,
+          [form.formId, form.examProfileVersionId, form.formType, JSON.stringify(form.blueprintConformance)],
         );
         await client.query('DELETE FROM assessment.form_slot WHERE form_id = $1', [form.formId]);
         await client.query('DELETE FROM assessment.form_section WHERE form_id = $1', [form.formId]);
+        await client.query('DELETE FROM assessment.form_session WHERE form_id = $1', [form.formId]);
+      }
+
+      for (const sessionRef of form.sessionRefs) {
+        await client.query('INSERT INTO assessment.form_session (form_id, session_ref) VALUES ($1, $2)', [form.formId, sessionRef]);
       }
 
       for (const section of form.sections) {
@@ -313,7 +317,7 @@ export class PostgresFormRepository implements FormRepository {
 
   async #read(client: PoolClient, formId: string): Promise<Result<Form, RepositoryError>> {
     const header = await client.query<FormRow>(
-      `SELECT form_id, exam_profile_version_id, form_type, session_ref, state, blueprint_conformance, published_at, opens_at, closes_at
+      `SELECT form_id, exam_profile_version_id, form_type, state, blueprint_conformance, published_at, opens_at, closes_at
          FROM assessment.form WHERE form_id = $1`,
       [formId],
     );
@@ -322,6 +326,10 @@ export class PostgresFormRepository implements FormRepository {
 
     const sections = await client.query<SectionRow>(
       'SELECT ordinal, section_spec_ref FROM assessment.form_section WHERE form_id = $1 ORDER BY ordinal',
+      [formId],
+    );
+    const sessions = await client.query<{ session_ref: string }>(
+      'SELECT session_ref FROM assessment.form_session WHERE form_id = $1 ORDER BY session_ref',
       [formId],
     );
     const slots = await client.query<SlotRow>(
@@ -334,7 +342,7 @@ export class PostgresFormRepository implements FormRepository {
       formId: row.form_id,
       examProfileVersionId: row.exam_profile_version_id,
       formType: row.form_type,
-      sessionRef: row.session_ref,
+      sessionRefs: sessions.rows.map((session) => session.session_ref),
       blueprintConformance: row.blueprint_conformance,
       state: row.state,
       publishedAt: row.published_at === null ? null : row.published_at.toISOString(),

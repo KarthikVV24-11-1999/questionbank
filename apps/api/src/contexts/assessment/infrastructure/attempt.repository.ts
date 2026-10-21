@@ -14,7 +14,7 @@ interface AttemptRow {
   readonly marking_rule_set_hash: string;
   readonly taxonomy_version_id: string;
   readonly delivery_policy: Record<string, unknown>;
-  readonly session_id: string;
+  readonly session_ref: string;
   readonly shift_id: string;
   readonly duration_ms: string;
   readonly window_closes_at: Date;
@@ -37,7 +37,7 @@ interface SlotRow {
 }
 
 const SELECT_ATTEMPT = `SELECT attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash,
-       taxonomy_version_id, delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at,
+       taxonomy_version_id, delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at,
        state, started_at, deadline_at, submitted_at, submission_reason, idempotency_key, abandoned_at
   FROM assessment.attempt`;
 
@@ -75,7 +75,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
       await client.query(
         `INSERT INTO assessment.attempt
            (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-            delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
+            delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           attempt.attemptId,
@@ -86,7 +86,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
           attempt.markingRuleSetHash,
           attempt.taxonomyVersionId,
           JSON.stringify(attempt.deliveryPolicy),
-          attempt.sessionId,
+          attempt.sessionRef,
           attempt.shiftId,
           attempt.durationMs,
           attempt.windowClosesAt,
@@ -194,7 +194,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
       markingRuleSetHash: row.marking_rule_set_hash,
       taxonomyVersionId: row.taxonomy_version_id,
       deliveryPolicy: row.delivery_policy,
-      sessionId: row.session_id,
+      sessionRef: row.session_ref,
       shiftId: row.shift_id,
       slots: slots.rows.map<AttemptSlot>((slot) => ({
         slotId: slot.slot_id,

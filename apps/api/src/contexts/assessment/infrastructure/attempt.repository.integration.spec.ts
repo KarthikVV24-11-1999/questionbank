@@ -47,7 +47,7 @@ describe('creating and finding an attempt', () => {
     expect(found.deliveryPolicy['timing']).toBe('strict');
     expect(found.deliveryPolicy['navigation']).toBe('free');
     expect(found.deliveryPolicy['pausable']).toBe(false);
-    expect(found.sessionId).toBe('000000a6-0000-4000-8000-000000000001');
+    expect(found.sessionRef).toBe('2026-01-27/shift-2');
     expect(found.shiftId).toBe('2026-01-27/shift-2');
     expect(found.durationMs).toBe(10_800_000);
     expect(found.windowClosesAt).toBe('2026-10-21T12:00:00.000Z');
@@ -56,7 +56,7 @@ describe('creating and finding an attempt', () => {
     expect([found.startedAt, found.deadline, found.submission, found.abandonedAt]).toEqual([null, null, null, null]);
     expect(Object.keys(found).sort()).toEqual([
       'abandonedAt', 'attemptId', 'createdAt', 'deadline', 'deliveryPolicy', 'durationMs', 'examProfileVersionId', 'formId',
-      'markingRuleSetHash', 'mode', 'sessionId', 'shiftId', 'slots', 'startedAt', 'state', 'studentId', 'submission',
+      'markingRuleSetHash', 'mode', 'sessionRef', 'shiftId', 'slots', 'startedAt', 'state', 'studentId', 'submission',
       'taxonomyVersionId', 'windowClosesAt',
     ]);
 

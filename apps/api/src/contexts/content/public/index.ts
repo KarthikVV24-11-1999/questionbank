@@ -103,8 +103,10 @@ export type {
   DeliverySolutionView,
   DeliveryStimulusView,
   GetPublishedItem,
+  GetPublishedItemVersion,
   GetPublishedSolution,
   GetPublishedStimulus,
+  GetPublishedStimulusVersion,
 } from '../application/queries/delivery-queries.js';
 
 export type {

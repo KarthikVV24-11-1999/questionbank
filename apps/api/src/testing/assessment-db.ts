@@ -13,6 +13,10 @@ export interface SeedOptions {
   readonly studentId?: string;
   readonly mode?: 'mock' | 'diagnostic';
   readonly publish?: boolean;
+  /** The sittings the form is published for. Defaults to the fixture's one. */
+  readonly sessions?: readonly string[];
+  /** The session an attempt is sat in. Defaults to the fixture's. */
+  readonly sessionRef?: string;
   /** With `publish`, whether to also schedule and open the form (the default), or leave it published. */
   readonly open?: boolean;
   /** Shifts the slot ids so a second form can coexist with the first. */
@@ -26,10 +30,13 @@ export async function seedForm(pool: Pool, options: SeedOptions = {}): Promise<s
   const formId = options.formId ?? id(TAG.form);
   const mode = options.mode ?? 'mock';
   await pool.query(
-    `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, session_ref, blueprint_conformance)
-     VALUES ($1, $2, $3, $4, '{"satisfied": true}')`,
-    [formId, id(TAG.profile), mode, SESSION_REF],
+    `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, blueprint_conformance)
+     VALUES ($1, $2, $3, '{"satisfied": true}')`,
+    [formId, id(TAG.profile), mode],
   );
+  for (const sessionRef of options.sessions ?? [SESSION_REF]) {
+    await pool.query('INSERT INTO assessment.form_session (form_id, session_ref) VALUES ($1, $2)', [formId, sessionRef]);
+  }
   await pool.query(`INSERT INTO assessment.form_section (form_id, ordinal, section_spec_ref) VALUES ($1, 1, 'a'), ($1, 2, 'b')`, [formId]);
   for (const [i, slot] of formSlots().entries()) {
     await pool.query(
@@ -46,8 +53,9 @@ export async function seedForm(pool: Pool, options: SeedOptions = {}): Promise<s
     );
     await pool.query(
       `INSERT INTO assessment.exposure_ledger_entry (form_id, slot_id, item_id, item_version_id, session_ref, is_anchor, written_at)
-       SELECT form_id, slot_id, item_id, item_version_id, $2, is_anchor, $3 FROM assessment.form_slot WHERE form_id = $1`,
-      [formId, SESSION_REF, NOW_ISO],
+       SELECT s.form_id, s.slot_id, s.item_id, s.item_version_id, fs.session_ref, s.is_anchor, $2
+         FROM assessment.form_slot s JOIN assessment.form_session fs ON fs.form_id = s.form_id WHERE s.form_id = $1`,
+      [formId, NOW_ISO],
     );
     await pool.query(`UPDATE assessment.form SET state = 'published', published_at = $2 WHERE form_id = $1`, [formId, NOW_ISO]);
     if (options.open !== false) {
@@ -66,9 +74,9 @@ export async function seedAttempt(pool: Pool, options: SeedOptions = {}): Promis
   await pool.query(
     `INSERT INTO assessment.attempt
        (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-        delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
+        delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, '{"timing": "strict"}', $8, 'shift-1', 10800000, '2026-10-21T12:00:00Z', '2026-10-21T08:00:00Z')`,
-    [attemptId, options.studentId ?? id(TAG.student), options.mode ?? 'mock', formId, id(TAG.profile), MARKING_HASH, id(TAG.taxonomy), id(TAG.session)],
+    [attemptId, options.studentId ?? id(TAG.student), options.mode ?? 'mock', formId, id(TAG.profile), MARKING_HASH, id(TAG.taxonomy), options.sessionRef ?? SESSION_REF],
   );
   for (const slot of formSlots()) {
     await pool.query(
@@ -129,4 +137,4 @@ export async function refusal(run: () => Promise<unknown>): Promise<string> {
   throw new Error('expected the database to refuse');
 }
 
-export const ASSESSMENT_TABLES = ['anchor_pool_member', 'attempt', 'attempt_slot', 'exposure_ledger_entry', 'form', 'form_section', 'form_slot', 'response_event'];
+export const ASSESSMENT_TABLES = ['anchor_pool_member', 'attempt', 'attempt_slot', 'exposure_ledger_entry', 'form', 'form_section', 'form_session', 'form_slot', 'response_event'];

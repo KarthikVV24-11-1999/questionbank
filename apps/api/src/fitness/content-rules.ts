@@ -36,6 +36,7 @@ export const CONTENT_RULES = [
   'INV01_AI_REACHES_CONTENT',
   'INV14_RENDERED_MARKUP_FIELD',
   'ADR0009_AUTHORING_MODULE_REACHABLE_FROM_DELIVERY',
+  'M6_25_PACKAGING_REACHES_KEY_MATERIAL',
   'ADR0008_MISSING_THRESHOLD',
   'ADR0008_WEAK_THRESHOLD',
   'ADR0008_THRESHOLD_NAMES_A_DELETED_MODULE',
@@ -206,6 +207,28 @@ export function checkAuthoringUnreachableFromDelivery(
       .filter((module) => reachable.includes(module))
       .map((module) => ({
         rule: 'ADR0009_AUTHORING_MODULE_REACHABLE_FROM_DELIVERY' as const,
+        subject: entry,
+        detail: `reaches ${module}`,
+      }));
+  });
+}
+
+/**
+ * M6-25 — nothing that builds a form package reaches a module that makes or
+ * carries an answer key. The byte scan proves the bytes are clean today; this
+ * proves the code that makes them cannot come to hold a key without the build
+ * failing first. By import graph, so a helper in between does not hide it.
+ */
+export function checkPackagingReachesNoKeyMaterial(
+  packagingEntries: readonly string[],
+  keyModules: readonly string[],
+): ContentViolation[] {
+  return packagingEntries.flatMap((entry) => {
+    const reachable = modulesReachableFrom(entry);
+    return keyModules
+      .filter((module) => reachable.includes(module))
+      .map((module) => ({
+        rule: 'M6_25_PACKAGING_REACHES_KEY_MATERIAL' as const,
         subject: entry,
         detail: `reaches ${module}`,
       }));
@@ -533,6 +556,8 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/infrastructure/stimulus.repository.ts',
   // M6-14. What assembly may choose from. A leak here is an answer key in a listing of the whole bank.
   'src/contexts/content/infrastructure/published-catalogue.reader.ts',
+  // M6-24. Finds a pinned version by its own id; a wrong answer here serves the wrong paper.
+  'src/contexts/content/infrastructure/published-versions.reader.ts',
   'src/contexts/content/application/queries/catalogue-queries.ts',
 ] as const;
 

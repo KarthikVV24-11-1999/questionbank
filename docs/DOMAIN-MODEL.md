@@ -325,7 +325,7 @@ A Value Object of `{ kind: human | ai_agent | system, id, roleContext }`. Every 
 **Purpose** Record every presentation of an item — required now for equating later (PRD §15 M5).
 **Responsibilities** Append-only exposure accounting; support pool eligibility rules and exposure caps.
 **Relationships** References `ItemVersionId`, `FormId?`, `AttemptId`.
-**Key attributes** `itemVersionId` · `entries[]` (`{ attemptRef, formRef?, sessionRef?, presentedAt, mode }`) · `totalExposure` · `exposureByWindow`
+**Key attributes** `itemVersionId` · `entries[]` (`{ attemptRef, formRef?, sessionRef?, presentedAt, mode }`; *a `sessionRef` is a named sitting the form was published for, one entry per slot per session — ADR-0032*) · `totalExposure` · `exposureByWindow`
 
 ### ⬢ FormStatistics · AR
 **Purpose** Cohort-level distribution for a form — the basis of percentile and, later, equating.

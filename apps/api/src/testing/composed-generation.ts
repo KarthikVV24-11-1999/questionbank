@@ -25,7 +25,7 @@ import { fixedClock, uuidFactory } from './generation-context.js';
  * the provider (no live adapter exists, so a spec passes the recorded one), the
  * pre-check configuration, the clock and the identifiers.
  */
-const CONFIG: AppConfig = {
+export const COMPOSED_CONFIG: AppConfig = {
   databaseUrl: 'unused-because-pool-is-overridden',
   port: 3000,
   nodeEnv: 'test',
@@ -62,7 +62,7 @@ export interface ComposeOptions {
 
 export async function composeGeneration(database: TestDatabase, options: ComposeOptions = {}): Promise<ComposedGeneration> {
   const app = await createApplication(
-    { ...CONFIG, ...(options.precheckConfig === undefined ? {} : { generationPrecheckConfig: options.precheckConfig }) },
+    { ...COMPOSED_CONFIG, ...(options.precheckConfig === undefined ? {} : { generationPrecheckConfig: options.precheckConfig }) },
     {
       pool: database.pool,
       telemetry: createRecordingTelemetry(),

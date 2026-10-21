@@ -1,0 +1,426 @@
+openapi: 3.1.0
+info:
+  title: Question Bank — Assessment API
+  version: 1.0.0
+  description: |
+    The assessment context's operator HTTP contract (BACKEND-ARCHITECTURE §3).
+    Every operation names its handler in `x-handler`, which the contract spec
+    reconciles against the registry.
+
+    **An operator assembles a draft form, reads it, publishes it and schedules
+    it.** Nothing here is student-facing, and nothing here carries an answer
+    key: a form pins item *versions* by id and holds no content, so these are
+    not authoring-family routes (ADR-0009) and are held to the opposite rule —
+    the contract spec serializes real responses and scans them for key material
+    (F6, F35). The family lives under `/v1/assessment/` and no document may
+    declare a `/v1/authoring/` path for it.
+
+    **`SweepWindows` has no route.** It applies the clock to stored state — opens
+    due forms, closes ended ones, abandons attempts a closed window left — and a
+    command only a scheduler would call has none, as `SweepReviewAgeing` and
+    generation's pipeline-only handlers set the precedent. There is no scheduler
+    (D36).
+
+    **An impossible blueprint and an exhausted search are different responses.**
+    `ASSEMBLY_INFEASIBLE` is `422`: no arrangement of the eligible items meets the
+    named constraint, so asking again changes nothing. `ASSEMBLY_SEARCH_EXHAUSTED`
+    is `503` and retryable: the search gave up at its step budget without having
+    shown the blueprint impossible. Both name the blocking `constraint`.
+servers:
+  - url: https://api.questionbank.example
+    description: Production
+
+x-assessment-routes:
+  - /v1/assessment/forms
+  - /v1/assessment/forms/{formId}
+  - /v1/assessment/forms/{formId}/publication
+  - /v1/assessment/forms/{formId}/schedule
+  - /v1/assessment/forms/{formId}/package
+  - /v1/assessment/package-signing-key
+
+tags:
+  - name: forms
+
+paths:
+  /v1/assessment/forms:
+    post:
+      operationId: assembleDraftForm
+      x-handler: AssembleDraftForm
+      summary: Assemble a draft form from the published catalogue against a blueprint
+      tags: [forms]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssembleDraftFormRequest' }
+      responses:
+        '201':
+          description: The draft was assembled and stored, with how well its soft constraints were met.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssembledDraft' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422':
+          description: ASSEMBLY_INFEASIBLE — no arrangement of the eligible items satisfies the named constraint.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetails' }
+        '503':
+          description: ASSEMBLY_SEARCH_EXHAUSTED — the search gave up at its step budget; retry with a larger one.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  /v1/assessment/forms/{formId}:
+    get:
+      operationId: getForm
+      x-handler: GetForm
+      summary: One form, with the item versions its slots pin
+      tags: [forms]
+      parameters:
+        - $ref: '#/components/parameters/FormId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The form.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Form' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/forms/{formId}/publication:
+    post:
+      operationId: publishForm
+      x-handler: PublishForm
+      summary: Publish a draft, freezing it and counting its exposure
+      description: |
+        Needs step-up. In one transaction the anchor floor is checked against the
+        pool, the exposure ledger is written and the state changes, or none of them
+        happens. Publishing a published form returns it and writes nothing.
+      tags: [forms]
+      parameters:
+        - $ref: '#/components/parameters/FormId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The form is published.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Form' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/forms/{formId}/schedule:
+    post:
+      operationId: scheduleForm
+      x-handler: ScheduleForm
+      summary: Give a published form its window, sealing it until the window opens
+      tags: [forms]
+      parameters:
+        - $ref: '#/components/parameters/FormId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduleFormRequest' }
+      responses:
+        '200':
+          description: The form is scheduled.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Form' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/forms/{formId}/package:
+    get:
+      operationId: getFormPackage
+      x-handler: GetFormPackage
+      summary: The signed package a device downloads to sit an active form
+      description: |
+        The one student-facing route in this document. The body is the package's
+        exact bytes — canonical JSON, byte-identical for the same form — and
+        **the signature covers those bytes, not a parsed form of them**: a
+        device verifies `X-Package-Signature` (Ed25519, base64) over the body as
+        received, against the public key from `/v1/assessment/package-signing-key`
+        (`X-Package-Key-Id` says which). `X-Package-Digest` is the SHA-256 of the
+        same bytes and doubles as the `ETag`.
+
+        It carries no answer key and no solution: the package is made from the
+        delivery views of the item versions the form pinned, and a scan of the
+        served bytes for key material is part of the proof (F6, F35, M6-25). A form
+        that is not active, or whose window is not open at this moment, is `412`.
+        With no signing key configured the route is `503`, never an unsigned body.
+      tags: [forms]
+      parameters:
+        - $ref: '#/components/parameters/FormId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The package, as the bytes that were signed.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+            X-Package-Digest: { description: 'sha256=<hex> of the body', schema: { type: string } }
+            X-Package-Signature: { description: Ed25519 signature over the body, base64, schema: { type: string } }
+            X-Package-Key-Id: { description: Which key signed it, schema: { type: string } }
+            ETag: { description: The digest, quoted, schema: { type: string } }
+          content:
+            application/vnd.questionbank.form-package+json:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/package-signing-key:
+    get:
+      operationId: getPackageSigningKey
+      x-handler: GetPackageSigningKey
+      summary: The public key packages are signed with
+      description: SPKI DER, base64. The seed never leaves configuration.
+      tags: [forms]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The key.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PackageSigningKey' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+components:
+  parameters:
+    FormId:
+      name: formId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string }
+
+  headers:
+    CorrelationId:
+      description: Echoed on every response, error or not (§8).
+      schema: { type: string }
+
+  responses:
+    Problem:
+      description: RFC 9457 Problem Details.
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  schemas:
+    PackageSigningKey:
+      type: object
+      required: [algorithm, keyId, publicKey]
+      properties:
+        algorithm: { type: string, enum: [Ed25519] }
+        keyId: { type: string }
+        publicKey: { type: string, description: SPKI DER, base64 }
+
+    ErrorCode:
+      type: string
+      enum:
+        [
+          Validation,
+          Authentication,
+          Authorization,
+          Entitlement,
+          NotFound,
+          Conflict,
+          PreconditionFailed,
+          RuleViolation,
+          RateLimited,
+          Unavailable,
+        ]
+
+    ProblemDetails:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, retryable, correlationId]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        retryable: { type: boolean }
+        correlationId: { type: string }
+        reason:
+          type: string
+          description: The specific refusal (for example ASSEMBLY_INFEASIBLE), where `code` is only its kind.
+        constraint:
+          type: string
+          description: The hard constraint an assembly could not meet.
+
+    ItemType:
+      type: string
+      enum: [SINGLE_CORRECT_MCQ, MULTIPLE_CORRECT_MCQ, MATCHING, NUMERIC]
+
+    DifficultyBand:
+      type: string
+      enum: [foundational, moderate, challenging, advanced]
+
+    SectionBlueprint:
+      type: object
+      additionalProperties: false
+      required: [ordinal, sectionSpecRef, itemCount, typeMix, marksPerItem, difficultyTarget]
+      properties:
+        ordinal: { type: integer, minimum: 0 }
+        sectionSpecRef: { type: string }
+        itemCount: { type: integer, minimum: 1 }
+        typeMix:
+          type: object
+          propertyNames: { $ref: '#/components/schemas/ItemType' }
+          additionalProperties: { type: integer, minimum: 0 }
+        marksPerItem: { type: integer, minimum: 1 }
+        difficultyTarget:
+          type: object
+          propertyNames: { $ref: '#/components/schemas/DifficultyBand' }
+          additionalProperties: { type: integer, minimum: 0 }
+
+    Blueprint:
+      type: object
+      additionalProperties: false
+      required: [examProfileVersionId, formType, totalMarks, difficultyTolerance, sections]
+      properties:
+        examProfileVersionId: { type: string, format: uuid }
+        formType: { type: string, enum: [mock, diagnostic] }
+        totalMarks: { type: integer, minimum: 1 }
+        difficultyTolerance: { type: integer, minimum: 0 }
+        sections:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/SectionBlueprint' }
+
+    AssembleDraftFormRequest:
+      type: object
+      additionalProperties: false
+      required: [blueprint, sessionRefs]
+      properties:
+        blueprint: { $ref: '#/components/schemas/Blueprint' }
+        sessionRefs:
+          type: array
+          minItems: 1
+          items: { type: string }
+        subject: { type: string }
+        maxSteps: { type: integer, minimum: 1 }
+
+    ScheduleFormRequest:
+      type: object
+      additionalProperties: false
+      required: [opensAt, closesAt]
+      properties:
+        opensAt: { type: string, format: date-time }
+        closesAt: { type: string, format: date-time }
+
+    FormSlot:
+      type: object
+      additionalProperties: false
+      required: [slotId, ordinal, itemId, itemVersionId, marksAvailable, isAnchor]
+      properties:
+        slotId: { type: string, format: uuid }
+        ordinal: { type: integer }
+        itemId: { type: string, format: uuid }
+        itemVersionId: { type: string, format: uuid }
+        stimulusVersionId: { type: string, format: uuid }
+        marksAvailable: { type: integer }
+        isAnchor: { type: boolean }
+
+    FormSection:
+      type: object
+      additionalProperties: false
+      required: [ordinal, sectionSpecRef, slots]
+      properties:
+        ordinal: { type: integer }
+        sectionSpecRef: { type: string }
+        slots:
+          type: array
+          items: { $ref: '#/components/schemas/FormSlot' }
+
+    Form:
+      type: object
+      additionalProperties: false
+      required: [formId, examProfileVersionId, formType, state, sessionRefs, blueprintConformance, sections]
+      properties:
+        formId: { type: string, format: uuid }
+        examProfileVersionId: { type: string, format: uuid }
+        formType: { type: string, enum: [mock, diagnostic] }
+        state: { type: string, enum: [draft, published, embargoed, active, closed] }
+        sessionRefs:
+          type: array
+          items: { type: string }
+        publishedAt: { type: string, format: date-time }
+        scheduleWindow:
+          type: object
+          additionalProperties: false
+          required: [opensAt, closesAt]
+          properties:
+            opensAt: { type: string, format: date-time }
+            closesAt: { type: string, format: date-time }
+        blueprintConformance: { type: object }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/FormSection' }
+
+    AssembledDraft:
+      type: object
+      additionalProperties: false
+      required: [form, soft, unevaluated]
+      properties:
+        form: { $ref: '#/components/schemas/Form' }
+        soft:
+          type: object
+          additionalProperties: false
+          required: [difficultyShortfall, withinDifficultyTolerance, distinctConcepts, meanExposure]
+          properties:
+            difficultyShortfall: { type: integer }
+            withinDifficultyTolerance: { type: boolean }
+            distinctConcepts: { type: integer }
+            meanExposure: { type: number }
+        unevaluated:
+          type: array
+          description: Published item versions content could not certify duplicate-free, left out of the pool (D55).
+          items: { type: string, format: uuid }

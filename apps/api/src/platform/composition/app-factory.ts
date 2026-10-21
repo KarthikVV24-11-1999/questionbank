@@ -21,8 +21,9 @@ import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
 import { HealthModule } from '../http/health.module.js';
-import { contentForGeneration, register as registerContent } from '../../contexts/content/public/composition.js';
+import { contentForAssessment, contentForGeneration, register as registerContent } from '../../contexts/content/public/composition.js';
 import { curriculumForGeneration, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
+import { register as registerAssessment } from '../../contexts/assessment/public/composition.js';
 import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
 import { register as registerScoring } from '../../contexts/scoring/public/composition.js';
 
@@ -60,6 +61,7 @@ export interface CreateApplicationOverrides {
   readonly curriculumRegister?: typeof registerCurriculum;
   readonly scoringRegister?: typeof registerScoring;
   readonly generationRegister?: typeof registerGeneration;
+  readonly assessmentRegister?: typeof registerAssessment;
   /**
    * The provider generation proposes and judges through. Absent in production, where
    * no live adapter exists yet and generation is composed with one that answers
@@ -126,6 +128,7 @@ export async function createApplication(
   const curriculumRegister = overrides.curriculumRegister ?? registerCurriculum;
   const scoringRegister = overrides.scoringRegister ?? registerScoring;
   const generationRegister = overrides.generationRegister ?? registerGeneration;
+  const assessmentRegister = overrides.assessmentRegister ?? registerAssessment;
 
   const contentDeps = {
     pool,
@@ -161,7 +164,18 @@ export async function createApplication(
     ...(config.generationPrecheckConfig === undefined ? {} : { precheckConfig: config.generationPrecheckConfig }),
   });
 
-  const rootImports = [contentModule, curriculumModule, scoringModule, generationModule, HealthModule.register(pool)];
+  // Assessment is downstream of content too: it receives the two handlers content names for it, and nothing flows back.
+  const assessmentModule = assessmentRegister({
+    pool,
+    clock,
+    identifiers,
+    audit,
+    principals,
+    content: contentForAssessment(contentDeps),
+    ...(config.formPackageSigningKey === undefined ? {} : { packageSigningKey: config.formPackageSigningKey }),
+  });
+
+  const rootImports = [contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
   // `app.close()` never double-closes a connection the caller still owns
