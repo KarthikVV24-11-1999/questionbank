@@ -345,6 +345,25 @@ carrying one of these through to a reviewer. The work is a bracket-balance rule 
 for optional arguments, or a ruling that the item is valid.
 **Cited** `apps/api/src/testing/eval/eval-corpus.ts`
 
+### D53 — An attempt that is created and never started has no terminal state
+
+ASSESSMENT-ENGINE §5's diagram runs `created` to `in_progress` to `abandoned`, so `abandon` is
+reachable only from `in_progress`. `attempt-state.ts` implements that faithfully, and in doing so
+exposes the gap: an attempt whose package was downloaded but which the student never began stays
+`created` for good. Nothing expires it and nothing abandons it.
+
+That collides with §5's own integrity rule that there is **one active mock attempt per student**. If
+a `created` attempt counts as active, a student who opens a mock and walks away cannot start another
+one, and the rule that exists to remove ambiguity creates it instead.
+
+Fixing it means either an `abandon` edge from `created`, or a rule that a `created` attempt past its
+window is not active. Both change an approved document, so neither was taken in passing.
+
+**Trigger** Track B implementing "one active mock attempt per student", which is where the collision
+first bites, or the first attempt that needs expiring from `created`.
+**Cited** `packages/attempt-engine/src/attempt-state.ts`
+
+
 ## Closed
 
 ### D46 — A candidate that failed a blocking check stayed `proposed` for good *(closed at M5-40)*

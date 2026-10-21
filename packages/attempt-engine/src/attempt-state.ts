@@ -14,7 +14,15 @@ export type AttemptState = (typeof ATTEMPT_STATES)[number];
 export const ATTEMPT_TRIGGERS = ['start', 'submit_manual', 'submit_expiry', 'submit_recovered', 'abandon'] as const;
 export type AttemptTrigger = (typeof ATTEMPT_TRIGGERS)[number];
 
-/** `null` is a prohibited transition. */
+/**
+ * `null` is a prohibited transition.
+ *
+ * **`created` has no terminal edge — debt D53.** The spec's diagram reaches
+ * `abandoned` only from `in_progress`, so an attempt whose package was
+ * downloaded but never started stays `created` for good. That is faithful to
+ * the diagram, and it collides with the same section's "one active mock
+ * attempt per student" rule; changing either is a decision above this file.
+ */
 const TRANSITIONS: Readonly<Record<AttemptState, Readonly<Record<AttemptTrigger, AttemptState | null>>>> = {
   created: {
     start: 'in_progress',
