@@ -11,7 +11,8 @@ import { stripComments } from './source-scan.js';
  *
  *   F15 — no hand-written API call; everything through the generated client (M0-17)
  *   F24 — no colour literal outside the token layer (§9 rule 16, M0-18)
- *   F26 — the attempt engine imports no framework (M0-25) — its subject does not exist yet
+ *   F26 — the attempt engine imports no framework and reads no ambient clock, randomness or I/O
+ *         (M0-25; subject `packages/attempt-engine` since M6-01)
  */
 export interface HandwrittenFetchViolation {
   readonly rule: 'F15_HANDWRITTEN_FETCH';
@@ -37,6 +38,9 @@ function walk(directory: string): string[] {
     return [];
   }
   return entries.flatMap((entry) => {
+    // A package's own dependencies are not its source, and are symlinks into
+    // the store, so walking them scans other people's code.
+    if (entry === 'node_modules') return [];
     const path = join(directory, entry);
     if (statSync(path).isDirectory()) return walk(path);
     return path.endsWith('.ts') || path.endsWith('.tsx') ? [path] : [];
@@ -157,13 +161,10 @@ export interface FrameworkImportViolation {
 }
 
 /**
- * ROADMAP M0 lists F26 — the offline attempt engine (`packages/attempt-engine`,
- * M6's) imports no framework. **The package does not exist yet.** The honest
- * options were "report blocked" or "a gate that catches the package the
- * instant it appears"; this is the second. Its status is
- * `Pass (rule proven) / no subject` — not a plain pass, because a rule that
- * has never seen a violation of the shipped tree is not proven by the
- * shipped tree being clean.
+ * ROADMAP M0 lists F26 — the offline attempt engine (`packages/attempt-engine`)
+ * imports no framework. The gate ran with nothing to gate from M0 until the
+ * package was created in M6-01; it now scans a real package, and the planted
+ * violations in `fitness-fixtures/` are what prove it can still go red.
  */
 export const ATTEMPT_ENGINE_PACKAGES = ['packages/attempt-engine'] as const;
 
@@ -218,4 +219,46 @@ export function checkAttemptEngineFrameworkFree(
   const unconfirmedPackages = matchingReal.filter((pkg) => !named.includes(pkg));
 
   return { violations, presentPackages, unconfirmedPackages };
+}
+
+export interface AmbientEffectViolation {
+  readonly rule: 'F26_AMBIENT_EFFECT_IN_ATTEMPT_ENGINE';
+  readonly file: string;
+  readonly detail: string;
+}
+
+/**
+ * The engine is pure: time, randomness and I/O all enter as parameters.
+ * Anything below in non-test source is that rule broken — a wall-clock read
+ * (the clock is user-settable, so the engine enforces against monotonic
+ * readings it is handed), a timer the engine would own, randomness, the
+ * network, storage, or the host process.
+ */
+const AMBIENT_EFFECT_PATTERN =
+  /\bDate\b|\bperformance\s*\.|\bsetTimeout\b|\bsetInterval\b|\bsetImmediate\b|\brequestAnimationFrame\b|\bMath\s*\.\s*random\b|\bcrypto\s*\.|\bfetch\s*\(|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|from\s+['"]node:|\bprocess\s*\.|\bglobalThis\b/u;
+
+/**
+ * Scans each named package's non-test source. Spec files are exempt on
+ * purpose: a test stubs the clock to prove the engine ignores it, and that
+ * is the one place a clock may be named.
+ */
+export function checkAttemptEnginePure(
+  root: string,
+  options: { readonly packages?: readonly string[] } = {},
+): { readonly violations: readonly AmbientEffectViolation[]; readonly scannedFiles: number } {
+  const violations: AmbientEffectViolation[] = [];
+  let scannedFiles = 0;
+  for (const pkg of options.packages ?? ATTEMPT_ENGINE_PACKAGES) {
+    const files = walk(join(root, pkg))
+      .map((file) => relative(root, file).replaceAll('\\', '/'))
+      .filter((file) => !/\.spec\.tsx?$/u.test(file));
+    for (const file of files) {
+      scannedFiles += 1;
+      const match = AMBIENT_EFFECT_PATTERN.exec(stripComments(readFileSync(join(root, file), 'utf8')));
+      if (match !== null) {
+        violations.push({ rule: 'F26_AMBIENT_EFFECT_IN_ATTEMPT_ENGINE', file, detail: match[0] });
+      }
+    }
+  }
+  return { violations, scannedFiles };
 }

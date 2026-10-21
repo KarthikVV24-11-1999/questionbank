@@ -1,9 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ATTEMPT_ENGINE_PACKAGES,
+  checkAttemptEnginePure,
   checkAttemptEngineFrameworkFree,
   checkNoColorLiterals,
   checkNoHandwrittenFetch,
@@ -184,11 +186,17 @@ describe('F24 — the scan covers the decision bar (M4-42)', () => {
   });
 });
 
-describe('F26 — the attempt engine imports no framework (M0-25) — its subject does not exist yet', () => {
-  it("packages/attempt-engine is absent, and the check says so rather than passing over an empty scan silently", () => {
+describe('F26 — the attempt engine imports no framework and reads no ambient clock or I/O (M0-25, M6-01)', () => {
+  it('packages/attempt-engine exists, is scanned, and is clean', () => {
     const { presentPackages, violations } = checkAttemptEngineFrameworkFree(REPO_ROOT);
-    expect(presentPackages).toEqual([]);
+    expect(presentPackages).toEqual(['packages/attempt-engine']);
     expect(violations).toEqual([]);
+  });
+
+  it('the purity scan reads real files in the real package and finds nothing ambient', () => {
+    const { violations, scannedFiles } = checkAttemptEnginePure(REPO_ROOT);
+    expect(violations).toEqual([]);
+    expect(scannedFiles).toBeGreaterThan(0);
   });
 
   it('no unconfirmed attempt-engine-shaped package exists in packages/', () => {
@@ -197,12 +205,70 @@ describe('F26 — the attempt engine imports no framework (M0-25) — its subjec
     expect(ATTEMPT_ENGINE_PACKAGES).toContain('packages/attempt-engine');
   });
 
-  it('the rule is proven working before it has a real subject: a planted React import fails it', () => {
+  it('a planted React import fails the rule', () => {
     const { violations, presentPackages } = checkAttemptEngineFrameworkFree(REPO_ROOT, {
       packages: ['apps/api/src/fitness-fixtures/as-attempt-engine'],
     });
     expect(presentPackages).toEqual(['apps/api/src/fitness-fixtures/as-attempt-engine']);
     expect(violations.some((v) => v.rule === 'F26_FRAMEWORK_IMPORT_IN_ATTEMPT_ENGINE')).toBe(true);
+  });
+
+  it('the real package, copied with a planted default React import added, goes red', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'f26-'));
+    try {
+      cpSync(join(REPO_ROOT, 'packages/attempt-engine/src'), join(scratch, 'packages/attempt-engine/src'), {
+        recursive: true,
+      });
+      cpSync(
+        join(REPO_ROOT, 'apps/api/src/fitness-fixtures/as-attempt-engine/planted-default-react-import.tsx'),
+        join(scratch, 'packages/attempt-engine/src/planted-default-react-import.tsx'),
+      );
+      const { violations } = checkAttemptEngineFrameworkFree(scratch);
+      expect(violations.map((v) => v.file)).toEqual(['packages/attempt-engine/src/planted-default-react-import.tsx']);
+      // and the same copy without the plant is clean, so the red is the plant's
+      rmSync(join(scratch, 'packages/attempt-engine/src/planted-default-react-import.tsx'));
+      expect(checkAttemptEngineFrameworkFree(scratch).violations).toEqual([]);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('a planted Date.now() fails the purity rule', () => {
+    const { violations } = checkAttemptEnginePure(REPO_ROOT, {
+      packages: ['apps/api/src/fitness-fixtures/as-attempt-engine-impure'],
+    });
+    const wallClock = violations.find((v) => v.file.endsWith('planted-wall-clock.ts'));
+    expect(wallClock?.rule).toBe('F26_AMBIENT_EFFECT_IN_ATTEMPT_ENGINE');
+    expect(wallClock?.detail).toBe('Date');
+  });
+
+  it('the real package, copied with a planted Date.now() added, goes red; without it, clean', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'f26-pure-'));
+    try {
+      cpSync(join(REPO_ROOT, 'packages/attempt-engine/src'), join(scratch, 'packages/attempt-engine/src'), {
+        recursive: true,
+      });
+      expect(checkAttemptEnginePure(scratch).violations).toEqual([]);
+      cpSync(
+        join(REPO_ROOT, 'apps/api/src/fitness-fixtures/as-attempt-engine-impure/planted-wall-clock.ts'),
+        join(scratch, 'packages/attempt-engine/src/planted-wall-clock.ts'),
+      );
+      expect(checkAttemptEnginePure(scratch).violations.map((v) => v.file)).toEqual([
+        'packages/attempt-engine/src/planted-wall-clock.ts',
+      ]);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('a planted fetch() fails the purity rule', () => {
+    const { violations } = checkAttemptEnginePure(REPO_ROOT, {
+      packages: ['apps/api/src/fitness-fixtures/as-attempt-engine-impure'],
+    });
+    expect(violations.map((v) => v.file.split('/').at(-1)).sort()).toEqual([
+      'planted-network-call.ts',
+      'planted-wall-clock.ts',
+    ]);
   });
 
   it('a real attempt-engine-shaped package not in the named list fails the check', () => {

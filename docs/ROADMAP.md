@@ -200,7 +200,11 @@ verification (F41) · authorization negative-path 100%
 
 **Goal** The hardest technical milestone and the product's reliability promise.
 
-⚠️ **Phase 5 (Assessment & Adaptive Engine) design must complete before this starts** — the scoring runtime, session integrity model, and exposure/equating data capture are specified there and are currently undesigned.
+> **Correction, 2026-10-20.** This milestone used to open with a warning that Phase 5 design had to complete first
+> and was "currently undesigned". It is designed: `ASSESSMENT-ENGINE.md` covers the marking rule language, scoring
+> execution, response projection, the attempt state machine, form assembly and equating, and its §14 closes with
+> "Unblocks: Roadmap M6". The warning was left over and is withdrawn. M6 inherits the five assumptions and five
+> unresolved questions §14 lists.
 
 **Deliverables**
 - `Form` assembly against blueprint; exposure ledger; scheduling and embargo

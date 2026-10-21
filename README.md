@@ -38,9 +38,9 @@ convention: a planted import reaching past a barrel is asserted to fail.
 
 `domain/` in every context is pure: no I/O, no framework, no clock, no randomness.
 
-Six workspace projects: `apps/api` (the backend), `apps/studio` (internal authoring/review frontend),
+Seven workspace projects: `apps/api` (the backend), `apps/studio` (internal authoring/review frontend),
 `packages/content-renderer` (the one renderer authoring and delivery both use), `packages/contracts`
-(generated OpenAPI types, Zod schemas, the typed client), `packages/domain-types` (the shared kernel), and
+(generated OpenAPI types, Zod schemas, the typed client), `packages/domain-types` (the shared kernel), `packages/attempt-engine` (the offline attempt engine), and
 `tools/seed` (deterministic fixture-data loader). See [How to test it](#how-to-test-it) for each one's own
 README.
 
@@ -206,6 +206,7 @@ each project's own README for what it actually contains:
 | [`packages/content-renderer`](packages/content-renderer/README.md) | The one `ContentRenderer` implementation shared by authoring preview and student delivery |
 | [`packages/contracts`](packages/contracts/README.md) | Generated OpenAPI types, Zod schemas, and the typed HTTP client |
 | [`packages/domain-types`](packages/domain-types/README.md) | The shared kernel — types every context may depend on |
+| [`packages/attempt-engine`](packages/attempt-engine/README.md) | The offline attempt engine — pure, no framework, no I/O, no clock |
 | [`tools/seed`](tools/seed/README.md) | The deterministic fixture-data loader |
 
 **`apps/api` also has a `fitness` script** (`corepack pnpm --filter @questionbank/api fitness`) — the

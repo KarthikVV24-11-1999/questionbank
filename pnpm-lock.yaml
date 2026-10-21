@@ -154,6 +154,21 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(jsdom@25.0.1)(lightningcss@1.33.0)(yaml@2.9.0)
 
+  packages/attempt-engine:
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      '@vitest/coverage-v8':
+        specifier: ^3.2.7
+        version: 3.2.7(vitest@3.2.7(@types/node@22.20.1)(jsdom@25.0.1)(lightningcss@1.33.0)(yaml@2.9.0))
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(jsdom@25.0.1)(lightningcss@1.33.0)(yaml@2.9.0)
+
   packages/content-renderer:
     devDependencies:
       '@testing-library/dom':

@@ -37,6 +37,7 @@ jobs:
       - run: corepack pnpm --filter @questionbank/contracts test
       - run: corepack pnpm --filter @questionbank/content-renderer test
       - run: corepack pnpm --filter @questionbank/domain-types test
+      - run: corepack pnpm --filter @questionbank/attempt-engine test
 
   integration:
     runs-on: ubuntu-latest
