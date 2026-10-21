@@ -13,6 +13,7 @@ import {
 } from './assessment-error.js';
 import { freezeJson, isJsonObject } from './json-document.js';
 import { err, ok, type Result } from './result.js';
+import { isFrozen, transition, FORM_STATES, type FormState, type FormTrigger } from './form-state.js';
 import { isNonBlank, isPositiveInteger, isUtcTimestamp, isUuid } from './uuid.js';
 
 /**
@@ -35,7 +36,7 @@ import { isNonBlank, isPositiveInteger, isUtcTimestamp, isUuid } from './uuid.js
  *
  *  - **anchor items in every form** — `FormSlot.isAnchor`, a boolean on every
  *    slot (never absent), and publication refuses a form where fewer than 15%
- *    of the slots are anchors (F50);
+ *    of the slots are anchors from the anchor pool (F50);
  *  - **per-item exposure with form and session identity** — a slot here gives
  *    the form identity and the item version; the attempt gives the session.
  *    The ledger that aggregates them is form assembly's;
@@ -52,8 +53,7 @@ import { isNonBlank, isPositiveInteger, isUtcTimestamp, isUuid } from './uuid.js
 export const FORM_TYPES = ['mock', 'diagnostic'] as const;
 export type FormType = (typeof FORM_TYPES)[number];
 
-export const FORM_STATES = ['draft', 'published'] as const;
-export type FormState = (typeof FORM_STATES)[number];
+export { FORM_STATES, FORM_TRIGGERS, type FormState, type FormTrigger } from './form-state.js';
 
 /** F50: a published form is at least this share anchor items (ASSESSMENT-ENGINE §6, §10). */
 export const MINIMUM_ANCHOR_PERCENT = 15;
@@ -81,6 +81,13 @@ export interface Form {
   readonly examProfileVersionId: string;
   readonly formType: FormType;
   /**
+   * The sitting this form is published for (a shift, in multi-shift terms). The
+   * exposure ledger keys on it, so per-item exposure carries the session
+   * identity §12 says it cannot be reconstructed without. Server-side fact,
+   * fixed when the form is created.
+   */
+  readonly sessionRef: string;
+  /**
    * How the composition measures against the profile blueprint. A JSON object
    * with a boolean `satisfied`; the rest is form assembly's to define, and an
    * older report must stay readable (hence the schema version the table keeps).
@@ -88,13 +95,26 @@ export interface Form {
   readonly blueprintConformance: Readonly<Record<string, unknown>>;
   readonly state: FormState;
   readonly publishedAt: string | null;
+  /**
+   * When attempts may be sat: set when the form is scheduled and fixed from
+   * then on. **Server-side fact** — an operator schedules it, the database
+   * holds it, and an attempt's own window is copied from it (and checked
+   * against it by a key), so nothing a client sends can move it.
+   */
+  readonly scheduleWindow: ScheduleWindow | null;
   readonly sections: readonly FormSection[];
+}
+
+export interface ScheduleWindow {
+  readonly opensAt: string;
+  readonly closesAt: string;
 }
 
 export type FormErrorCode =
   | 'FORM_ID_INVALID'
   | 'FORM_PROFILE_INVALID'
   | 'FORM_TYPE_INVALID'
+  | 'FORM_SESSION_INVALID'
   | 'FORM_CONFORMANCE_INVALID'
   | 'FORM_SECTIONS_INVALID'
   | 'FORM_SLOT_INVALID'
@@ -103,8 +123,15 @@ export type FormErrorCode =
   | 'FORM_IS_PUBLISHED'
   | 'FORM_NOT_CONFORMING'
   | 'FORM_ANCHOR_SHARE_TOO_LOW'
+  | 'FORM_ANCHOR_FLAG_DISAGREES_WITH_POOL'
   | 'FORM_NOT_PUBLISHED'
-  | 'FORM_STORED_STATE_INVALID';
+  | 'FORM_STORED_STATE_INVALID'
+  | 'FORM_TRANSITION_PROHIBITED'
+  | 'FORM_WINDOW_INVALID'
+  | 'FORM_WINDOW_NOT_YET_OPEN'
+  | 'FORM_WINDOW_STILL_OPEN'
+  | 'FORM_NOT_OPEN_FOR_ATTEMPTS'
+  | 'FORM_WINDOW_CLOSED';
 
 export type FormError = AssessmentError<FormErrorCode>;
 
@@ -112,6 +139,7 @@ export interface CreateFormProps {
   readonly formId: string;
   readonly examProfileVersionId: string;
   readonly formType: FormType;
+  readonly sessionRef: string;
   readonly blueprintConformance: Readonly<Record<string, unknown>>;
   readonly sections: readonly FormSection[];
 }
@@ -185,6 +213,9 @@ export function createForm(props: CreateFormProps): Result<Form, FormError> {
   if (!(FORM_TYPES as readonly string[]).includes(props.formType)) {
     return err(invalid('FORM_TYPE_INVALID', 'formType is mock or diagnostic', 'formType'));
   }
+  if (!isNonBlank(props.sessionRef)) {
+    return err(invalid('FORM_SESSION_INVALID', 'a form names the session it is published for', 'sessionRef'));
+  }
   if (!isJsonObject(props.blueprintConformance) || typeof props.blueprintConformance['satisfied'] !== 'boolean') {
     return err(invalid('FORM_CONFORMANCE_INVALID', 'blueprintConformance is an object with a boolean `satisfied`', 'blueprintConformance'));
   }
@@ -196,16 +227,18 @@ export function createForm(props: CreateFormProps): Result<Form, FormError> {
       formId: props.formId,
       examProfileVersionId: props.examProfileVersionId,
       formType: props.formType,
+      sessionRef: props.sessionRef,
       blueprintConformance: freezeJson({ ...props.blueprintConformance }),
       state: 'draft' as const,
       publishedAt: null,
+      scheduleWindow: null,
       sections: freezeSections(props.sections),
     }),
   );
 }
 
 function refusePublished(form: Form): FormError | null {
-  return form.state === 'published'
+  return isFrozen(form.state)
     ? ruleViolationError('FORM_IS_PUBLISHED', 'a published form is immutable; substitution is a draft-state operation only (D-006)', 'state')
     : null;
 }
@@ -233,12 +266,23 @@ export function substituteSlot(
     formId: form.formId,
     examProfileVersionId: form.examProfileVersionId,
     formType: form.formType,
+    sessionRef: form.sessionRef,
     blueprintConformance: form.blueprintConformance,
     sections: form.sections.map((section) => ({
       ...section,
       slots: section.slots.map((slot) => (slot.slotId === slotId ? { ...slot, ...replacement } : slot)),
     })),
   });
+}
+
+/**
+ * F50's arithmetic, in one place: at least `MINIMUM_ANCHOR_PERCENT` of the slots
+ * are anchors, compared in whole numbers so no rounding can turn a miss into a
+ * pass. The database holds the same rule as `assessment.anchor_floor_met`, and
+ * a spec holds the two to the same answer over a grid of forms.
+ */
+export function meetsAnchorFloor(anchors: number, total: number): boolean {
+  return total > 0 && anchors * 100 >= total * MINIMUM_ANCHOR_PERCENT;
 }
 
 /** F50 — the share of slots that are anchor items, as a whole percentage rounded down. */
@@ -248,12 +292,19 @@ export function anchorPercent(form: Form): number {
 }
 
 /**
- * Publishes a draft, freezing it. A form that does not meet its blueprint, or
- * that is less than 15% anchor items, is refused: the second is what makes
- * every later cross-form comparison possible, and a form published without it
- * is permanently unequatable (§12).
+ * Publishes a draft, freezing it.
+ *
+ * **The anchor check is made against the pool, not against the form's own
+ * say-so.** A slot's `isAnchor` flag is a claim by whoever composed the form;
+ * what makes an item an anchor is membership of the pool at the moment of
+ * publication. So the flag must agree with the pool in both directions — a
+ * slot claiming to be an anchor that is not in the pool, and a pool member
+ * left unflagged, are each refused, because either would put the wrong number
+ * into every later equating — and the 15% floor (F50) is then counted over the
+ * pool's own members. A form below it is refused here, not warned about: one
+ * published without anchors can never be equated to anything (§10).
  */
-export function publishForm(form: Form, now: string): Result<Form, FormError> {
+export function publishForm(form: Form, now: string, activeAnchors: ReadonlySet<string>): Result<Form, FormError> {
   if (!isUtcTimestamp(now)) return err(invalid('FORM_NOW_INVALID', 'now must be a UTC timestamp with milliseconds', 'now'));
   const refused = refusePublished(form);
   if (refused !== null) return err(refused);
@@ -261,7 +312,18 @@ export function publishForm(form: Form, now: string): Result<Form, FormError> {
     return err(preconditionFailedError('FORM_NOT_CONFORMING', 'the form does not satisfy its blueprint', 'blueprintConformance'));
   }
   const slots = slotsOf(form);
-  if (slots.filter((slot) => slot.isAnchor).length * 100 < slots.length * MINIMUM_ANCHOR_PERCENT) {
+  const disagreeing = slots.find((slot) => slot.isAnchor !== activeAnchors.has(slot.itemVersionId));
+  if (disagreeing !== undefined) {
+    return err(
+      preconditionFailedError(
+        'FORM_ANCHOR_FLAG_DISAGREES_WITH_POOL',
+        `slot ${disagreeing.slotId} is ${disagreeing.isAnchor ? '' : 'not '}flagged an anchor but its item version is ${disagreeing.isAnchor ? 'not ' : ''}in the anchor pool`,
+        'sections',
+      ),
+    );
+  }
+  const anchors = slots.filter((slot) => slot.isAnchor).length;
+  if (!meetsAnchorFloor(anchors, slots.length)) {
     return err(
       preconditionFailedError(
         'FORM_ANCHOR_SHARE_TOO_LOW',
@@ -284,16 +346,32 @@ export function pinSlots(form: Form): readonly AttemptSlot[] {
   }));
 }
 
-export type AttemptFromFormProps = Omit<CreateAttemptProps, 'mode' | 'formId' | 'examProfileVersionId' | 'slots'>;
+export type AttemptFromFormProps = Omit<CreateAttemptProps, 'mode' | 'formId' | 'examProfileVersionId' | 'slots' | 'windowClosesAt'>;
 
 /**
- * Creates an attempt against a published form: the form supplies the mode, its
- * identity, the profile version and every slot's pinned version. A draft is
- * still changing underneath, so it cannot be sat.
+ * Creates an attempt against a form that is open: `active`, with `now` inside
+ * its window. The form supplies the mode, its identity, the profile version,
+ * every slot's pinned version **and the attempt's window**, so the window an
+ * attempt is held to is the form's and not anything a caller passed.
+ *
+ * Both the state and the clock are asked, on purpose. The state is a record
+ * that something opened the form, and the sweep that opens and closes windows
+ * is not running yet (D36), so the state can lag; the clock is the truth the
+ * window means. An attempt needs both to agree.
  */
-export function createAttemptFromForm(form: Form, props: AttemptFromFormProps): Result<Attempt, FormError | AttemptError> {
-  if (form.state !== 'published') {
-    return err(preconditionFailedError('FORM_NOT_PUBLISHED', 'an attempt is created against a published form', 'formId'));
+export function createAttemptFromForm(form: Form, props: AttemptFromFormProps, now: string): Result<Attempt, FormError | AttemptError> {
+  if (!isUtcTimestamp(now)) return err(invalid('FORM_NOW_INVALID', 'now must be a UTC timestamp with milliseconds', 'now'));
+  if (form.state !== 'active' || form.scheduleWindow === null) {
+    return err(preconditionFailedError('FORM_NOT_OPEN_FOR_ATTEMPTS', `an attempt is created against an active form; this one is ${form.state}`, 'formId'));
+  }
+  if (now >= form.scheduleWindow.closesAt || now < form.scheduleWindow.opensAt) {
+    return err(
+      preconditionFailedError(
+        now < form.scheduleWindow.opensAt ? 'FORM_WINDOW_NOT_YET_OPEN' : 'FORM_WINDOW_CLOSED',
+        'the form\'s window is not open at this moment',
+        'scheduleWindow',
+      ),
+    );
   }
   return createAttempt({
     ...props,
@@ -301,13 +379,55 @@ export function createAttemptFromForm(form: Form, props: AttemptFromFormProps): 
     formId: form.formId,
     examProfileVersionId: form.examProfileVersionId,
     slots: pinSlots(form),
+    windowClosesAt: form.scheduleWindow.closesAt,
   });
 }
 
+function prohibited(form: Form, trigger: FormTrigger): FormError {
+  return ruleViolationError('FORM_TRANSITION_PROHIBITED', `a ${form.state} form cannot ${trigger}`, 'state');
+}
+
+/**
+ * Gives a published form its window and seals it until the window opens. The
+ * window is a fact about the sitting and is supplied by whoever schedules it;
+ * it must end after it starts, and cannot already be over.
+ */
+export function scheduleForm(form: Form, window: ScheduleWindow, now: string): Result<Form, FormError> {
+  if (!isUtcTimestamp(now)) return err(invalid('FORM_NOW_INVALID', 'now must be a UTC timestamp with milliseconds', 'now'));
+  const next = transition(form.state, 'schedule');
+  if (next === null) return err(prohibited(form, 'schedule'));
+  if (!isUtcTimestamp(window.opensAt) || !isUtcTimestamp(window.closesAt) || window.opensAt >= window.closesAt || window.closesAt <= now) {
+    return err(invalid('FORM_WINDOW_INVALID', 'a window starts before it ends, and ends in the future', 'scheduleWindow'));
+  }
+  return ok(Object.freeze({ ...form, state: next, scheduleWindow: Object.freeze({ opensAt: window.opensAt, closesAt: window.closesAt }) }));
+}
+
+/** Opens a scheduled form once its window has begun. */
+export function openForm(form: Form, now: string): Result<Form, FormError> {
+  if (!isUtcTimestamp(now)) return err(invalid('FORM_NOW_INVALID', 'now must be a UTC timestamp with milliseconds', 'now'));
+  const next = transition(form.state, 'open');
+  if (next === null) return err(prohibited(form, 'open'));
+  if (now < (form.scheduleWindow as ScheduleWindow).opensAt) {
+    return err(preconditionFailedError('FORM_WINDOW_NOT_YET_OPEN', 'the window has not begun', 'scheduleWindow'));
+  }
+  return ok(Object.freeze({ ...form, state: next }));
+}
+
+/** Closes an open form once its window has ended. */
+export function closeForm(form: Form, now: string): Result<Form, FormError> {
+  if (!isUtcTimestamp(now)) return err(invalid('FORM_NOW_INVALID', 'now must be a UTC timestamp with milliseconds', 'now'));
+  const next = transition(form.state, 'close');
+  if (next === null) return err(prohibited(form, 'close'));
+  if (now < (form.scheduleWindow as ScheduleWindow).closesAt) {
+    return err(preconditionFailedError('FORM_WINDOW_STILL_OPEN', 'the window has not ended', 'scheduleWindow'));
+  }
+  return ok(Object.freeze({ ...form, state: next }));
+}
 
 export interface FormSnapshot extends CreateFormProps {
   readonly state: FormState;
   readonly publishedAt: string | null;
+  readonly scheduleWindow: ScheduleWindow | null;
 }
 
 /**
@@ -319,12 +439,23 @@ export interface FormSnapshot extends CreateFormProps {
 export function restoreForm(snapshot: FormSnapshot): Result<Form, FormError> {
   const created = createForm(snapshot);
   if (!created.ok) return created;
+  const window = snapshot.scheduleWindow;
+  const scheduled = snapshot.state === 'embargoed' || snapshot.state === 'active' || snapshot.state === 'closed';
   const consistent =
     (FORM_STATES as readonly string[]).includes(snapshot.state) &&
-    (snapshot.state === 'published') === (snapshot.publishedAt !== null) &&
-    (snapshot.publishedAt === null || isUtcTimestamp(snapshot.publishedAt));
+    (snapshot.state !== 'draft') === (snapshot.publishedAt !== null) &&
+    (snapshot.publishedAt === null || isUtcTimestamp(snapshot.publishedAt)) &&
+    scheduled === (window !== null) &&
+    (window === null || (isUtcTimestamp(window.opensAt) && isUtcTimestamp(window.closesAt) && window.opensAt < window.closesAt));
   if (!consistent) {
-    return err(invalid('FORM_STORED_STATE_INVALID', 'the stored state and publication time do not agree', 'state'));
+    return err(invalid('FORM_STORED_STATE_INVALID', 'the stored state, publication time and window do not agree', 'state'));
   }
-  return ok(Object.freeze({ ...created.value, state: snapshot.state, publishedAt: snapshot.publishedAt }));
+  return ok(
+    Object.freeze({
+      ...created.value,
+      state: snapshot.state,
+      publishedAt: snapshot.publishedAt,
+      scheduleWindow: window === null ? null : Object.freeze({ opensAt: window.opensAt, closesAt: window.closesAt }),
+    }),
+  );
 }

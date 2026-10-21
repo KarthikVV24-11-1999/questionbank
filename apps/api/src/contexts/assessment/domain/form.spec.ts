@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { TAG, aDraftForm, aPublishedForm, formProps, formSlots, id } from '../../../testing/assessment-fixtures.js';
+import { TAG, WINDOW, WITHIN_WINDOW, aClosedForm, aDraftForm, aPublishedForm, aScheduledForm, anActiveForm, formProps, formSlots, id, poolOf } from '../../../testing/assessment-fixtures.js';
 import * as formModule from './form.js';
 import {
   FORM_STATES,
   FORM_TYPES,
   MINIMUM_ANCHOR_PERCENT,
   anchorPercent,
+  closeForm,
   createAttemptFromForm,
   createForm,
+  openForm,
+  scheduleForm,
+  meetsAnchorFloor,
   pinSlots,
   publishForm,
   restoreForm,
@@ -59,7 +63,7 @@ describe('creating a form', () => {
 
   it('names the vocabularies it accepts', () => {
     expect([...FORM_TYPES]).toEqual(['mock', 'diagnostic']);
-    expect([...FORM_STATES]).toEqual(['draft', 'published']);
+    expect([...FORM_STATES]).toEqual(['draft', 'published', 'embargoed', 'active', 'closed']);
   });
 
   const slot = (overrides: Partial<FormSlot>): FormSlot => ({ ...formSlots()[0]!, ...overrides });
@@ -71,6 +75,8 @@ describe('creating a form', () => {
     ['a bad form id', { formId: 'nope' }, 'FORM_ID_INVALID'],
     ['a bad profile version', { examProfileVersionId: 'nope' }, 'FORM_PROFILE_INVALID'],
     ['an unknown form type', { formType: 'practice' as 'mock' }, 'FORM_TYPE_INVALID'],
+    ['no session to publish for (§12)', { sessionRef: ' ' }, 'FORM_SESSION_INVALID'],
+    ['a missing session (§12)', { sessionRef: undefined as unknown as string }, 'FORM_SESSION_INVALID'],
     ['conformance that is not an object', { blueprintConformance: [] as unknown as Record<string, unknown> }, 'FORM_CONFORMANCE_INVALID'],
     ['conformance with no satisfied flag', { blueprintConformance: {} }, 'FORM_CONFORMANCE_INVALID'],
     ['no sections', { sections: [] }, 'FORM_SECTIONS_INVALID'],
@@ -118,12 +124,12 @@ describe('F50 — a published form is at least 15% anchor items', () => {
 
   it('publishes at the floor and above: 1 of 6 is 16%', () => {
     expect(anchorPercent(withAnchors([true]))).toBe(16);
-    expect(publishForm(withAnchors([true]), NOW).ok).toBe(true);
-    expect(publishForm(withAnchors([true, true, true, true, true, true]), NOW).ok).toBe(true);
+    expect(publishForm(withAnchors([true]), NOW, poolOf(withAnchors([true]))).ok).toBe(true);
+    expect(publishForm(withAnchors([true, true, true, true, true, true]), NOW, poolOf(withAnchors([true, true, true, true, true, true]))).ok).toBe(true);
   });
 
   it('refuses a form with no anchors at all', () => {
-    const error = expectError(publishForm(withAnchors([]), NOW));
+    const error = expectError(publishForm(withAnchors([]), NOW, new Set()));
     expect(error.code).toBe('FORM_ANCHOR_SHARE_TOO_LOW');
     expect(error.kind).toBe('PreconditionFailed');
     expect(error.message).toContain('0%');
@@ -143,43 +149,71 @@ describe('F50 — a published form is at least 15% anchor items', () => {
       }));
       return aDraftForm({ sections: [{ ordinal: 1, sectionSpecRef: 'a', slots }] });
     };
-    expect(publishForm(make(3), NOW).ok).toBe(true);
-    expect(expectError(publishForm(make(2), NOW)).code).toBe('FORM_ANCHOR_SHARE_TOO_LOW');
+    expect(publishForm(make(3), NOW, poolOf(make(3))).ok).toBe(true);
+    expect(expectError(publishForm(make(2), NOW, poolOf(make(2)))).code).toBe('FORM_ANCHOR_SHARE_TOO_LOW');
     expect(anchorPercent(make(3))).toBe(15);
     expect(anchorPercent(make(2))).toBe(10);
   });
 
   it('is checked on the same arithmetic the percent is reported with: no rounding up into a pass', () => {
     // 7 slots, 1 anchor = 14.28…%: below the floor even though it rounds to 14, and 15 would round differently
-    const slots: FormSlot[] = Array.from({ length: 7 }, (_, i) => ({ ...formSlots()[0]!, slotId: id(TAG.slot, i + 1), ordinal: i + 1, itemId: id(TAG.item, i + 1), isAnchor: i === 0 }));
+    const slots: FormSlot[] = Array.from({ length: 7 }, (_, i) => ({ ...formSlots()[0]!, slotId: id(TAG.slot, i + 1), ordinal: i + 1, itemId: id(TAG.item, i + 1), itemVersionId: id(TAG.itemVersion, i + 1), isAnchor: i === 0 }));
     const form = aDraftForm({ sections: [{ ordinal: 1, sectionSpecRef: 'a', slots }] });
     expect(anchorPercent(form)).toBe(14);
-    expect(expectError(publishForm(form, NOW)).code).toBe('FORM_ANCHOR_SHARE_TOO_LOW');
+    expect(expectError(publishForm(form, NOW, poolOf(form))).code).toBe('FORM_ANCHOR_SHARE_TOO_LOW');
+  });
+});
+
+describe('F50 — the anchors are counted against the pool, not against the form\'s own say-so', () => {
+  it('refuses a slot flagged an anchor whose item version is not in the pool', () => {
+    const form = withAnchors([true]);
+    const error = expectError(publishForm(form, NOW, new Set()));
+    expect(error.code).toBe('FORM_ANCHOR_FLAG_DISAGREES_WITH_POOL');
+    expect(error.kind).toBe('PreconditionFailed');
+    expect(error.message).toContain('flagged an anchor but its item version is not in the anchor pool');
+  });
+
+  it('refuses a pool member left unflagged: it would be miscounted in every later equating', () => {
+    const form = withAnchors([true]);
+    const error = expectError(publishForm(form, NOW, new Set([...poolOf(form), slotsOf(form)[3]!.itemVersionId])));
+    expect(error.code).toBe('FORM_ANCHOR_FLAG_DISAGREES_WITH_POOL');
+    expect(error.message).toContain('not flagged an anchor but its item version is in the anchor pool');
+  });
+
+  it('a form full of flagged non-members cannot pass the floor by flagging itself', () => {
+    const allFlagged = withAnchors([true, true, true, true, true, true]);
+    expect(expectError(publishForm(allFlagged, NOW, new Set())).code).toBe('FORM_ANCHOR_FLAG_DISAGREES_WITH_POOL');
+  });
+
+  it('meetsAnchorFloor is exact in whole numbers', () => {
+    expect([meetsAnchorFloor(3, 20), meetsAnchorFloor(2, 20), meetsAnchorFloor(1, 7), meetsAnchorFloor(1, 6), meetsAnchorFloor(0, 0)]).toEqual([
+      true, false, false, true, false,
+    ]);
   });
 });
 
 describe('publishing', () => {
   it('freezes a conforming draft and stamps when', () => {
-    const published = expectValue(publishForm(aDraftForm(), NOW));
+    const published = expectValue(publishForm(aDraftForm(), NOW, poolOf(aDraftForm())));
     expect(published.state).toBe('published');
     expect(published.publishedAt).toBe(NOW);
     expect(Object.isFrozen(published)).toBe(true);
   });
 
   it('refuses a form that does not satisfy its blueprint', () => {
-    const error = expectError(publishForm(aDraftForm({ blueprintConformance: { satisfied: false } }), NOW));
+    const error = expectError(publishForm(aDraftForm({ blueprintConformance: { satisfied: false } }), NOW, poolOf(aDraftForm())));
     expect(error.code).toBe('FORM_NOT_CONFORMING');
     expect(error.kind).toBe('PreconditionFailed');
   });
 
   it('refuses a malformed now, and publishing twice', () => {
-    expect(expectError(publishForm(aDraftForm(), 'today')).code).toBe('FORM_NOW_INVALID');
-    expect(expectError(publishForm(aPublishedForm(), NOW)).code).toBe('FORM_IS_PUBLISHED');
+    expect(expectError(publishForm(aDraftForm(), 'today', new Set())).code).toBe('FORM_NOW_INVALID');
+    expect(expectError(publishForm(aPublishedForm(), NOW, new Set())).code).toBe('FORM_IS_PUBLISHED');
   });
 
   it('does not change the draft it was given', () => {
     const draft = aDraftForm();
-    publishForm(draft, NOW);
+    publishForm(draft, NOW, poolOf(draft));
     expect(draft.state).toBe('draft');
     expect(draft.publishedAt).toBeNull();
   });
@@ -230,12 +264,18 @@ describe('D-006 — immutable from publication, not from the first attempt', () 
     createForm: 'builder',
     createAttemptFromForm: 'builder',
     restoreForm: 'builder',
+    // moves the lifecycle past publication — the form's composition does not move
+    scheduleForm: 'lifecycle',
+    openForm: 'lifecycle',
+    closeForm: 'lifecycle',
+    FORM_TRIGGERS: 'value',
     FORM_TYPES: 'value',
     FORM_STATES: 'value',
     MINIMUM_ANCHOR_PERCENT: 'value',
     // reads
     slotsOf: 'read',
     anchorPercent: 'read',
+    meetsAnchorFloor: 'read',
     pinSlots: 'read',
   } as const;
 
@@ -261,7 +301,7 @@ describe('D-006 — immutable from publication, not from the first attempt', () 
   });
 });
 
-describe('an attempt is created from a published form', () => {
+describe('an attempt is created from an open form', () => {
   const attemptProps = {
     attemptId: id(TAG.attempt),
     studentId: id(TAG.student),
@@ -271,38 +311,122 @@ describe('an attempt is created from a published form', () => {
     sessionId: id(TAG.session),
     shiftId: 'shift-1',
     durationMs: 10_800_000,
-    windowClosesAt: '2026-10-22T12:00:00.000Z',
-    createdAt: '2026-10-22T08:00:00.000Z',
+    createdAt: '2026-10-21T08:00:00.000Z',
   };
 
-  it('copies the form\'s identity, profile, mode and every slot\'s pinned version', () => {
-    const form = aPublishedForm();
-    const attempt = expectValue(createAttemptFromForm(form, attemptProps));
+  it('copies the form\'s identity, profile, mode, every slot\'s pinned version and its window', () => {
+    const form = anActiveForm();
+    const attempt = expectValue(createAttemptFromForm(form, attemptProps, WITHIN_WINDOW));
     expect(attempt.formId).toBe(form.formId);
     expect(attempt.examProfileVersionId).toBe(form.examProfileVersionId);
     expect(attempt.mode).toBe('mock');
     expect(attempt.slots.map((s) => s.itemVersionId)).toEqual(slotsOf(form).map((s) => s.itemVersionId));
     expect(attempt.slots).toEqual(pinSlots(form));
+    expect(attempt.windowClosesAt).toBe(WINDOW.closesAt);
+  });
+
+  it('takes the window from the form: there is no way to hand it one', () => {
+    const smuggled = { ...attemptProps, windowClosesAt: '2099-01-01T00:00:00.000Z' } as never;
+    expect(expectValue(createAttemptFromForm(anActiveForm(), smuggled, WITHIN_WINDOW)).windowClosesAt).toBe(WINDOW.closesAt);
   });
 
   it('a diagnostic form makes a diagnostic attempt', () => {
-    const attempt = expectValue(createAttemptFromForm(aPublishedForm({ formType: 'diagnostic' }), attemptProps));
-    expect(attempt.mode).toBe('diagnostic');
+    expect(expectValue(createAttemptFromForm(anActiveForm({ formType: 'diagnostic' }), attemptProps, WITHIN_WINDOW)).mode).toBe('diagnostic');
   });
 
-  it('refuses a draft', () => {
-    const error = expectError(createAttemptFromForm(aDraftForm(), attemptProps));
-    expect(error.code).toBe('FORM_NOT_PUBLISHED');
-    expect(error.kind).toBe('PreconditionFailed');
+  it('refuses every state but active, naming it', () => {
+    for (const form of [aDraftForm(), aPublishedForm(), aScheduledForm(), aClosedForm()]) {
+      const error = expectError(createAttemptFromForm(form, attemptProps, WITHIN_WINDOW));
+      expect(error.code, form.state).toBe('FORM_NOT_OPEN_FOR_ATTEMPTS');
+      expect(error.kind).toBe('PreconditionFailed');
+      expect(error.message).toContain(form.state);
+    }
+  });
+
+  it('refuses an active form outside its window, whichever side, even though its state says active', () => {
+    const form = anActiveForm();
+    expect(expectError(createAttemptFromForm(form, attemptProps, '2026-10-21T07:59:59.999Z')).code).toBe('FORM_WINDOW_NOT_YET_OPEN');
+    expect(expectError(createAttemptFromForm(form, attemptProps, WINDOW.closesAt)).code).toBe('FORM_WINDOW_CLOSED');
+    expect(createAttemptFromForm(form, attemptProps, WINDOW.opensAt).ok).toBe(true);
+    expect(createAttemptFromForm(form, attemptProps, '2026-10-21T11:59:59.999Z').ok).toBe(true);
+  });
+
+  it('refuses a malformed now', () => {
+    expect(expectError(createAttemptFromForm(anActiveForm(), attemptProps, 'noon')).code).toBe('FORM_NOW_INVALID');
   });
 
   it('passes the attempt\'s own validation through', () => {
-    expect(expectError(createAttemptFromForm(aPublishedForm(), { ...attemptProps, shiftId: '' })).code).toBe('ATTEMPT_SHIFT_INVALID');
+    expect(expectError(createAttemptFromForm(anActiveForm(), { ...attemptProps, shiftId: '' }, WITHIN_WINDOW)).code).toBe('ATTEMPT_SHIFT_INVALID');
+  });
+});
+
+describe('scheduling, opening and closing', () => {
+  const NOW_SCHEDULING = '2026-10-21T07:30:00.000Z';
+
+  it('schedules a published form: it gains its window and the embargoed state, and is otherwise untouched', () => {
+    const published = aPublishedForm();
+    const scheduled = expectValue(scheduleForm(published, WINDOW, NOW_SCHEDULING));
+    expect(scheduled.state).toBe('embargoed');
+    expect(scheduled.scheduleWindow).toEqual(WINDOW);
+    expect(scheduled.publishedAt).toBe(published.publishedAt);
+    expect(slotsOf(scheduled)).toEqual(slotsOf(published));
+    expect(Object.isFrozen(scheduled)).toBe(true);
+    expect(Object.isFrozen(scheduled.scheduleWindow)).toBe(true);
+    expect(published.scheduleWindow).toBeNull();
+  });
+
+  it('refuses a window that ends before it starts, one already over, and malformed ones', () => {
+    const published = aPublishedForm();
+    for (const window of [
+      { opensAt: WINDOW.closesAt, closesAt: WINDOW.opensAt },
+      { opensAt: WINDOW.opensAt, closesAt: WINDOW.opensAt },
+      { opensAt: 'soon', closesAt: WINDOW.closesAt },
+      { opensAt: WINDOW.opensAt, closesAt: 'later' },
+    ]) {
+      expect(expectError(scheduleForm(published, window, NOW_SCHEDULING)).code, JSON.stringify(window)).toBe('FORM_WINDOW_INVALID');
+    }
+    expect(expectError(scheduleForm(published, WINDOW, '2026-10-21T12:00:00.000Z')).code).toBe('FORM_WINDOW_INVALID');
+    expect(scheduleForm(published, WINDOW, '2026-10-21T11:59:59.999Z').ok).toBe(true);
+  });
+
+  it('opens a scheduled form once its window has begun, and not before', () => {
+    const scheduled = aScheduledForm();
+    expect(expectError(openForm(scheduled, '2026-10-21T07:59:59.999Z')).code).toBe('FORM_WINDOW_NOT_YET_OPEN');
+    expect(expectValue(openForm(scheduled, WINDOW.opensAt)).state).toBe('active');
+  });
+
+  it('closes an open form once its window has ended, and not before', () => {
+    const active = anActiveForm();
+    expect(expectError(closeForm(active, '2026-10-21T11:59:59.999Z')).code).toBe('FORM_WINDOW_STILL_OPEN');
+    const closed = expectValue(closeForm(active, WINDOW.closesAt));
+    expect(closed.state).toBe('closed');
+    expect(closed.scheduleWindow).toEqual(WINDOW);
+  });
+
+  it('refuses a malformed now on each', () => {
+    expect(expectError(scheduleForm(aPublishedForm(), WINDOW, 'x')).code).toBe('FORM_NOW_INVALID');
+    expect(expectError(openForm(aScheduledForm(), 'x')).code).toBe('FORM_NOW_INVALID');
+    expect(expectError(closeForm(anActiveForm(), 'x')).code).toBe('FORM_NOW_INVALID');
+  });
+
+  it('refuses each from any state its table does not allow, naming the pair', () => {
+    expect(expectError(scheduleForm(aDraftForm(), WINDOW, NOW_SCHEDULING)).code).toBe('FORM_TRANSITION_PROHIBITED');
+    expect(expectError(scheduleForm(aScheduledForm(), WINDOW, NOW_SCHEDULING)).message).toContain('embargoed');
+    expect(expectError(openForm(aPublishedForm(), WITHIN_WINDOW)).code).toBe('FORM_TRANSITION_PROHIBITED');
+    expect(expectError(openForm(anActiveForm(), WITHIN_WINDOW)).code).toBe('FORM_TRANSITION_PROHIBITED');
+    expect(expectError(closeForm(aScheduledForm(), WINDOW.closesAt)).code).toBe('FORM_TRANSITION_PROHIBITED');
+    expect(expectError(closeForm(aClosedForm(), WINDOW.closesAt)).code).toBe('FORM_TRANSITION_PROHIBITED');
+  });
+
+  it('every state past draft refuses a substitution, not just published: a form never thaws', () => {
+    for (const form of [aPublishedForm(), aScheduledForm(), anActiveForm(), aClosedForm()]) {
+      expect(expectError(substituteSlot(form, slotsOf(form)[0]!.slotId, { itemId: id(TAG.item, 50), itemVersionId: id(TAG.itemVersion, 50), stimulusVersionId: null, isAnchor: false })).code, form.state).toBe('FORM_IS_PUBLISHED');
+    }
   });
 });
 
 describe('restoring a form from storage', () => {
-  const snapshot = (overrides: Partial<FormSnapshot> = {}): FormSnapshot => ({ ...formProps(), state: 'draft', publishedAt: null, ...overrides });
+  const snapshot = (overrides: Partial<FormSnapshot> = {}): FormSnapshot => ({ ...formProps(), state: 'draft', publishedAt: null, scheduleWindow: null, ...overrides });
 
   it('restores a draft and a published form with their state and publication time', () => {
     expect(expectValue(restoreForm(snapshot())).state).toBe('draft');
@@ -317,6 +441,23 @@ describe('restoring a form from storage', () => {
     const sections = [{ ordinal: 1, sectionSpecRef: 'a', slots: noAnchors }];
     const restored = expectValue(restoreForm(snapshot({ state: 'published', publishedAt: NOW, sections, blueprintConformance: { satisfied: false } })));
     expect(restored.state).toBe('published');
+  });
+
+  it('restores each scheduled state with its window', () => {
+    for (const state of ['embargoed', 'active', 'closed'] as const) {
+      const restored = expectValue(restoreForm(snapshot({ state, publishedAt: NOW, scheduleWindow: WINDOW })));
+      expect(restored.state).toBe(state);
+      expect(restored.scheduleWindow).toEqual(WINDOW);
+      expect(Object.isFrozen(restored.scheduleWindow)).toBe(true);
+    }
+  });
+
+  it('refuses a window that disagrees with the state: a scheduled state without one, or one without a scheduled state', () => {
+    expect(expectError(restoreForm(snapshot({ state: 'active', publishedAt: NOW }))).code).toBe('FORM_STORED_STATE_INVALID');
+    expect(expectError(restoreForm(snapshot({ state: 'published', publishedAt: NOW, scheduleWindow: WINDOW }))).code).toBe('FORM_STORED_STATE_INVALID');
+    expect(expectError(restoreForm(snapshot({ state: 'embargoed', publishedAt: NOW, scheduleWindow: { opensAt: WINDOW.closesAt, closesAt: WINDOW.opensAt } }))).code).toBe('FORM_STORED_STATE_INVALID');
+    expect(expectError(restoreForm(snapshot({ state: 'embargoed', publishedAt: NOW, scheduleWindow: { opensAt: 'x', closesAt: WINDOW.closesAt } }))).code).toBe('FORM_STORED_STATE_INVALID');
+    expect(expectError(restoreForm(snapshot({ state: 'embargoed', publishedAt: NOW, scheduleWindow: { opensAt: WINDOW.opensAt, closesAt: 'y' } }))).code).toBe('FORM_STORED_STATE_INVALID');
   });
 
   it('refuses a state that disagrees with the publication time, and a malformed one', () => {

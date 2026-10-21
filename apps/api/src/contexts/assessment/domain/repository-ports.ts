@@ -1,7 +1,9 @@
 import type { AssessmentError } from './assessment-error.js';
+import type { AnchorPoolMember } from './anchor-pool.js';
 import type { Attempt } from './attempt.js';
 import type { AttemptState } from './attempt-state.js';
-import type { Form } from './form.js';
+import type { ExposureEntry } from './exposure.js';
+import type { Form, FormError, ScheduleWindow } from './form.js';
 import type { ResponseEvent } from './response-event.js';
 import type { Result } from './result.js';
 
@@ -22,6 +24,42 @@ export interface FormRepository {
   save(form: Form): Promise<Result<Form, RepositoryError>>;
 
   findById(formId: string): Promise<Result<Form, RepositoryError>>;
+
+  /**
+   * Publishes a stored draft — the one path that does. In **one transaction**:
+   * the anchor floor is checked against the pool as it stands, the exposure
+   * ledger is written, and the form's state changes; if any of the three
+   * cannot happen, none of them does. A form already published is returned as
+   * it is and writes nothing, so publishing twice cannot count a form twice.
+   */
+  publish(formId: string, now: string): Promise<Result<Form, RepositoryError | FormError>>;
+
+  /** published → embargoed: gives the form its window. Refused from any other state. */
+  schedule(formId: string, window: ScheduleWindow, now: string): Promise<Result<Form, RepositoryError | FormError>>;
+
+  /** embargoed → active, once the window has begun. */
+  open(formId: string, now: string): Promise<Result<Form, RepositoryError | FormError>>;
+
+  /** active → closed, once the window has ended. */
+  close(formId: string, now: string): Promise<Result<Form, RepositoryError | FormError>>;
+
+  /**
+   * What a sweep would act on: scheduled forms whose window has begun, and open
+   * ones whose window has ended. **Nothing calls these on a schedule** — there
+   * is no scheduler (D36); the operations exist so that whatever eventually
+   * does has something to call.
+   */
+  findDueToOpen(now: string, limit: number): Promise<Result<readonly Form[], RepositoryError>>;
+  findDueToClose(now: string, limit: number): Promise<Result<readonly Form[], RepositoryError>>;
+}
+
+/** Reads of the exposure ledger. There is deliberately no write here: publication is the only writer. */
+export interface ExposureLedger {
+  /** How many forms each item version has been placed in. A version never placed is absent, not zero. */
+  countsByItemVersion(itemVersionIds: readonly string[]): Promise<Result<ReadonlyMap<string, number>, RepositoryError>>;
+
+  /** Every row a form wrote, in slot order. */
+  entriesForForm(formId: string): Promise<Result<readonly ExposureEntry[], RepositoryError>>;
 }
 
 export interface AttemptRepository {
@@ -44,6 +82,15 @@ export interface AttemptRepository {
 
   /** The student's active mock attempt — `created` or `in_progress` — if they have one. */
   findActiveMock(studentId: string): Promise<Result<Attempt | undefined, RepositoryError>>;
+
+  /**
+   * Live attempts — `created` or `in_progress` — whose window has closed, oldest
+   * first: the ones that may be abandoned if they hold no response. Whether one
+   * does is the response log's to say, so the caller asks `answeredSlotCount`
+   * and the domain's `abandonAttempt` decides. Nothing calls this on a schedule
+   * (D36).
+   */
+  findAbandonable(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>>;
 }
 
 export interface ResponseLog {
@@ -60,4 +107,15 @@ export interface ResponseLog {
 
   /** How many slots have a selected or changed answer among the events that count — the guard on abandoning. */
   answeredSlotCount(attemptId: string): Promise<Result<number, RepositoryError>>;
+}
+
+export interface AnchorPoolRepository {
+  /** Puts an item version in the pool. One already there — retired or not — is a `CONFLICT`: a version does not come back. */
+  add(member: AnchorPoolMember): Promise<Result<AnchorPoolMember, RepositoryError>>;
+
+  /** Retires a member, once. `NOT_FOUND` for a version never in the pool, `CONFLICT` for one already retired. */
+  retire(itemVersionId: string, now: string): Promise<Result<AnchorPoolMember, RepositoryError>>;
+
+  /** The members currently in the pool, oldest first. */
+  listActive(): Promise<Result<readonly AnchorPoolMember[], RepositoryError>>;
 }

@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { TAG, aPublishedForm, anAttempt, id } from '../../../testing/assessment-fixtures.js';
+import { TAG, anAttempt, id } from '../../../testing/assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
+import { storeActiveForm } from '../../../testing/assessment-store.js';
 import { startAttempt, submitAttempt, type Attempt } from '../domain/attempt.js';
 import { acceptResponseEvent, scoredEvents, type ResponseEventDraft } from '../domain/response-event.js';
 import { PostgresAttemptRepository } from './attempt.repository.js';
@@ -27,8 +28,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await database.pool.query('TRUNCATE assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
-  expectValue(await new PostgresFormRepository(database.pool).save(aPublishedForm()));
+  await database.pool.query('TRUNCATE assessment.exposure_ledger_entry, assessment.anchor_pool_member, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
+  await storeActiveForm(database.pool);
 });
 
 async function liveAttempt(): Promise<Attempt> {

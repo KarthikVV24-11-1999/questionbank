@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { TAG, aDraftForm, aPublishedForm, formSlots, id } from '../../../testing/assessment-fixtures.js';
+import { TAG, WINDOW, WITHIN_WINDOW, aDraftForm, aPublishedForm, formSlots, id } from '../../../testing/assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
-import { publishForm, slotsOf, substituteSlot } from '../domain/form.js';
+import { storePublishedForm } from '../../../testing/assessment-store.js';
+import { slotsOf, substituteSlot } from '../domain/form.js';
 import { PostgresFormRepository } from './form.repository.js';
 
 /** Real Postgres, never a double (ENGINEERING-HANDBOOK §5). */
@@ -22,7 +23,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await database.pool.query('TRUNCATE assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
+  await database.pool.query('TRUNCATE assessment.exposure_ledger_entry, assessment.anchor_pool_member, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
 });
 
 describe('saving and finding a form', () => {
@@ -40,7 +41,7 @@ describe('saving and finding a form', () => {
     expect(found.publishedAt).toBeNull();
     expect(found.blueprintConformance['satisfied']).toBe(true);
     expect(found.blueprintConformance['sections']).toBe(2);
-    expect(Object.keys(found).sort()).toEqual(['blueprintConformance', 'examProfileVersionId', 'formId', 'formType', 'publishedAt', 'sections', 'state']);
+    expect(Object.keys(found).sort()).toEqual(['blueprintConformance', 'examProfileVersionId', 'formId', 'formType', 'publishedAt', 'scheduleWindow', 'sections', 'sessionRef', 'state']);
 
     expect(found.sections.map((s) => [s.ordinal, s.sectionSpecRef])).toEqual([[1, 'physics-a'], [2, 'physics-b']]);
     const first = found.sections[0]!.slots[0]!;
@@ -60,11 +61,12 @@ describe('saving and finding a form', () => {
     expect(Object.isFrozen(found)).toBe(true);
   });
 
-  it('reads back a published form with its publication time', async () => {
-    expectValue(await repository.save(aPublishedForm()));
+  it('reads back a published form with its publication time and session', async () => {
+    await storePublishedForm(database.pool);
     const found = expectValue(await repository.findById(id(TAG.form)));
     expect(found.state).toBe('published');
     expect(found.publishedAt).toBe('2026-10-21T07:00:00.000Z');
+    expect(found.sessionRef).toBe('2026-01-27/shift-2');
     expect(slotsOf(found)).toHaveLength(6);
   });
 
@@ -105,25 +107,27 @@ describe('a draft is edited by saving it again', () => {
     expect(found.blueprintConformance['satisfied']).toBe(false);
   });
 
-  it('publishes a saved draft by saving the published form', async () => {
-    const draft = aDraftForm();
-    expectValue(await repository.save(draft));
-    expectValue(await repository.save(expectValue(publishForm(draft, '2026-10-21T07:00:00.000Z'))));
-    expect(expectValue(await repository.findById(id(TAG.form))).state).toBe('published');
+  it('does not publish through save: a published form arriving there is refused, and nothing is stored', async () => {
+    const failure = expectError(await repository.save(aPublishedForm()));
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+    expect(failure.message).toContain('publish()');
+    expect(expectError(await repository.findById(id(TAG.form))).kind).toBe('NotFound');
+    expectValue(await repository.save(aDraftForm()));
+    expect(expectError(await repository.save(aPublishedForm())).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectValue(await repository.findById(id(TAG.form))).state).toBe('draft');
   });
 });
 
 describe('a published form is never written again (D-006)', () => {
   it('saving the identical form is a no-op, and returns what is stored', async () => {
-    const form = aPublishedForm();
-    expectValue(await repository.save(form));
+    const form = await storePublishedForm(database.pool);
     const again = expectValue(await repository.save(form));
     expect(again.publishedAt).toBe(form.publishedAt);
     expect(slotsOf(again)).toHaveLength(6);
   });
 
   it('refuses a different form under the same id as a conflict, leaving the stored one untouched', async () => {
-    expectValue(await repository.save(aPublishedForm()));
+    await storePublishedForm(database.pool);
     const different = aDraftForm({ formType: 'diagnostic' });
     expect(expectError(await repository.save(different)).code).toBe('CONFLICT');
     const changedSlot = aPublishedForm({
@@ -137,9 +141,116 @@ describe('a published form is never written again (D-006)', () => {
   });
 
   it('treats a differently-ordered but identical conformance report as the same form', async () => {
-    expectValue(await repository.save(aPublishedForm({ blueprintConformance: { satisfied: true, sections: 2 } })));
+    await storePublishedForm(database.pool, { blueprintConformance: { satisfied: true, sections: 2 } });
     const reordered = aPublishedForm({ blueprintConformance: { sections: 2, satisfied: true } });
     expectValue(await repository.save(reordered));
+  });
+});
+
+describe('scheduling, opening and closing', () => {
+  const NOW_SCHEDULING = '2026-10-21T07:30:00.000Z';
+
+  it('schedules a published form and reads the window back, field by field', async () => {
+    await storePublishedForm(database.pool);
+    const scheduled = expectValue(await repository.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING));
+    expect(scheduled.state).toBe('embargoed');
+    const found = expectValue(await repository.findById(id(TAG.form)));
+    expect(found.state).toBe('embargoed');
+    expect(found.scheduleWindow?.opensAt).toBe('2026-10-21T08:00:00.000Z');
+    expect(found.scheduleWindow?.closesAt).toBe('2026-10-21T12:00:00.000Z');
+    expect(found.publishedAt).toBe('2026-10-21T07:00:00.000Z');
+    expect(slotsOf(found)).toHaveLength(6);
+  });
+
+  it('opens it once the window begins and closes it once the window ends, each a move the domain decided', async () => {
+    await storePublishedForm(database.pool);
+    expectValue(await repository.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING));
+    expect(expectError(await repository.open(id(TAG.form), '2026-10-21T07:59:59.000Z')).code).toBe('FORM_WINDOW_NOT_YET_OPEN');
+    expect(expectValue(await repository.open(id(TAG.form), WITHIN_WINDOW)).state).toBe('active');
+    expect(expectError(await repository.close(id(TAG.form), WITHIN_WINDOW)).code).toBe('FORM_WINDOW_STILL_OPEN');
+    const closed = expectValue(await repository.close(id(TAG.form), WINDOW.closesAt));
+    expect(closed.state).toBe('closed');
+    expect(expectValue(await repository.findById(id(TAG.form))).scheduleWindow?.closesAt).toBe(WINDOW.closesAt);
+  });
+
+  it('refuses a move from the wrong state and leaves the stored form as it was', async () => {
+    expectValue(await repository.save(aDraftForm()));
+    expect(expectError(await repository.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING)).code).toBe('FORM_TRANSITION_PROHIBITED');
+    expect(expectValue(await repository.findById(id(TAG.form))).state).toBe('draft');
+    expect(expectError(await repository.open(id(TAG.form), WITHIN_WINDOW)).code).toBe('FORM_TRANSITION_PROHIBITED');
+  });
+
+  it('is NotFound for a form that was never saved, on each move', async () => {
+    for (const result of [
+      await repository.schedule(id(TAG.form, 77), WINDOW, NOW_SCHEDULING),
+      await repository.open(id(TAG.form, 77), WITHIN_WINDOW),
+      await repository.close(id(TAG.form, 77), WINDOW.closesAt),
+    ]) {
+      expect(expectError(result).kind).toBe('NotFound');
+    }
+  });
+
+  it('lets only one of two simultaneous openings win: the other finds the form already open', async () => {
+    await storePublishedForm(database.pool);
+    expectValue(await repository.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING));
+    const results = await Promise.all([repository.open(id(TAG.form), WITHIN_WINDOW), repository.open(id(TAG.form), WITHIN_WINDOW)]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(expectError(results.find((r) => !r.ok)!).code).toBe('FORM_TRANSITION_PROHIBITED');
+  });
+
+  it('finds what a sweep would act on: scheduled forms whose window has begun, open ones whose window has ended', async () => {
+    await storePublishedForm(database.pool);
+    expectValue(await repository.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING));
+    expect(expectValue(await repository.findDueToOpen('2026-10-21T07:59:59.000Z', 10))).toEqual([]);
+    expect(expectValue(await repository.findDueToOpen(WINDOW.opensAt, 10)).map((f) => f.formId)).toEqual([id(TAG.form)]);
+    expect(expectValue(await repository.findDueToClose('2099-01-01T00:00:00.000Z', 10))).toEqual([]);
+    expectValue(await repository.open(id(TAG.form), WITHIN_WINDOW));
+    expect(expectValue(await repository.findDueToOpen(WINDOW.opensAt, 10))).toEqual([]);
+    expect(expectValue(await repository.findDueToClose('2026-10-21T11:59:59.000Z', 10))).toEqual([]);
+    const due = expectValue(await repository.findDueToClose(WINDOW.closesAt, 10));
+    expect(due.map((f) => [f.formId, f.state])).toEqual([[id(TAG.form), 'active']]);
+    expect(expectValue(await repository.findDueToClose(WINDOW.closesAt, 0))).toEqual([]);
+  });
+
+  it('reports a connection failure as a value', async () => {
+    const { Pool } = await import('pg');
+    const broken = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
+    broken.on('error', () => undefined);
+    const repo = new PostgresFormRepository(broken);
+    expect(expectError(await repo.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING)).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await repo.findDueToOpen(WINDOW.opensAt, 1)).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await repo.findDueToClose(WINDOW.opensAt, 1)).code).toBe('PERSISTENCE_REJECTED');
+    await broken.end().catch(() => undefined);
+  });
+
+  it('rolls a move back when the database refuses it, and reports the refusal as a value', async () => {
+    await storePublishedForm(database.pool);
+    // A trigger planted for this test only: the domain would allow the move, the database does not.
+    await database.pool.query(
+      `CREATE TRIGGER zz_refuse_everything BEFORE UPDATE ON assessment.form FOR EACH ROW EXECUTE FUNCTION platform.reject_any_mutation()`,
+    );
+    try {
+      expect(expectError(await repository.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING)).code).toBe('PERSISTENCE_REJECTED');
+    } finally {
+      await database.pool.query('DROP TRIGGER zz_refuse_everything ON assessment.form');
+    }
+    expect(expectValue(await repository.findById(id(TAG.form))).state).toBe('published');
+  });
+
+  it('refuses to move a stored form that no longer satisfies the domain', async () => {
+    await storePublishedForm(database.pool);
+    expectValue(await repository.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING));
+    const client = await database.pool.connect();
+    try {
+      await client.query('SET session_replication_role = replica');
+      await client.query('DELETE FROM assessment.exposure_ledger_entry');
+      await client.query('DELETE FROM assessment.form_slot WHERE section_ordinal = 2');
+    } finally {
+      await client.query('RESET session_replication_role');
+      client.release();
+    }
+    expect(expectError(await repository.open(id(TAG.form), WITHIN_WINDOW)).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await repository.findDueToOpen(WINDOW.opensAt, 5)).kind).toBe('Validation');
   });
 });
 
@@ -180,14 +291,31 @@ describe('what the store refuses', () => {
     expect(failure.message).toContain('FORM_SECTIONS_INVALID');
   });
 
-  it('reports a failure on the second read of a published form that is saved again', async () => {
-    const form = aPublishedForm();
-    expectValue(await repository.save(form));
-    await database.pool.query(`ALTER TABLE assessment.form_slot DISABLE TRIGGER form_slot_frozen_with_its_form`);
+  it('refuses to publish a stored draft that no longer satisfies the domain, and publishes nothing', async () => {
+    expectValue(await repository.save(aDraftForm()));
+    const client = await database.pool.connect();
     try {
-      await database.pool.query(`DELETE FROM assessment.form_slot`);
+      await client.query('SET session_replication_role = replica');
+      await client.query('DELETE FROM assessment.form_slot WHERE section_ordinal = 2');
     } finally {
-      await database.pool.query(`ALTER TABLE assessment.form_slot ENABLE TRIGGER form_slot_frozen_with_its_form`);
+      await client.query('RESET session_replication_role');
+      client.release();
+    }
+    const failure = expectError(await repository.publish(id(TAG.form), '2026-10-21T07:00:00.000Z'));
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+    expect((await database.pool.query('SELECT count(*)::int AS n FROM assessment.exposure_ledger_entry')).rows[0]).toEqual({ n: 0 });
+  });
+
+  it('reports a failure on the second read of a published form that is saved again', async () => {
+    const form = await storePublishedForm(database.pool);
+    // The database would never let this happen, so triggers and keys are set aside for one statement on one connection.
+    const client = await database.pool.connect();
+    try {
+      await client.query('SET session_replication_role = replica');
+      await client.query('DELETE FROM assessment.form_slot');
+    } finally {
+      await client.query('RESET session_replication_role');
+      client.release();
     }
     expect(expectError(await repository.save(form)).code).toBe('PERSISTENCE_REJECTED');
   });

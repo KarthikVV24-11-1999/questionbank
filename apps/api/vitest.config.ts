@@ -535,6 +535,60 @@ export default defineConfig({
         // accepted unpinned, or out of order, is what INV-01 and F28 exist to stop.
         // The assessment domain decides what a learner did and whether it counts: all of it is
         // correctness-bearing (ADR-0008), so every module carries the threshold.
+        'src/contexts/content/infrastructure/published-catalogue.reader.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/queries/catalogue-queries.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/anchor-pool.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/infrastructure/anchor-pool.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/blueprint.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/assembly.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/exposure.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/infrastructure/exposure-ledger.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/form-state.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/assessment/domain/result.ts': {
           branches: 100,
           lines: 100,

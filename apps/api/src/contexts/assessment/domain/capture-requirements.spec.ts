@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { TAG, aDraftForm, aPublishedForm, anAttempt, attemptProps, formSlots, id } from '../../../testing/assessment-fixtures.js';
+import { WITHIN_WINDOW, anActiveForm, TAG, aDraftForm, aPublishedForm, anAttempt, attemptProps, formSlots, id } from '../../../testing/assessment-fixtures.js';
 import { createAttempt, startAttempt } from './attempt.js';
 import { createForm, createAttemptFromForm, slotsOf } from './form.js';
 import { acceptResponseEvent } from './response-event.js';
@@ -36,9 +36,9 @@ describe('§12 capture requirements', () => {
   });
 
   it('per-item exposure with form and session identity: the form names every item version and the attempt names its session', () => {
-    const form = aPublishedForm();
+    const form = anActiveForm();
     expect(slotsOf(form).every((slot) => slot.itemVersionId.length > 0)).toBe(true);
-    const attempt = expectValue(createAttemptFromForm(form, { ...attemptProps(), createdAt: '2026-10-21T08:00:00.000Z' }));
+    const attempt = expectValue(createAttemptFromForm(form, { ...attemptProps(), createdAt: '2026-10-21T08:00:00.000Z' }, WITHIN_WINDOW));
     expect(attempt.formId).toBe(form.formId);
     expect(attempt.sessionId).toBe(id(TAG.session));
     expect(expectError(createAttempt(attemptProps({ sessionId: null as unknown as string }))).code).toBe('ATTEMPT_SESSION_INVALID');

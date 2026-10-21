@@ -8,7 +8,7 @@ import type { Pool } from 'pg';
 import { readCode } from '../../../fitness/source-scan.js';
 import { CONTENT_REGISTRY } from '../api/http-runner.js';
 import type { HandlerRegistry } from '../application/handler-registry.js';
-import { register, type ContentCompositionDeps } from './composition.js';
+import { contentForAssessment, register, type ContentCompositionDeps } from './composition.js';
 
 const CONTEXT_DIR = fileURLToPath(new URL('../', import.meta.url));
 
@@ -65,6 +65,36 @@ describe('content composition — what the generation pipeline is admitted to (M
 
     const admitting = [...registry.names].filter((name) => registry.get(name)?.policy.allowedRoles.includes('generation_pipeline')).sort();
     expect(admitting).toEqual(['CreateItemDraft', 'GetDuplicateCandidatesForProposal', 'SubmitItemForReview']);
+  });
+});
+
+describe('content composition — what the assessment context is admitted to (M6-14, M6-17)', () => {
+  // The set, against literals: assessment may enumerate the published catalogue and read duplicate
+  // candidates, and every other content act stays someone else's.
+  it('admits system to exactly these handlers, and no others', async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [register(validDeps())] }).compile();
+    const registry = moduleRef.get<HandlerRegistry>(CONTENT_REGISTRY);
+    const admitting = [...registry.names].filter((name) => registry.get(name)?.policy.allowedRoles.includes('system')).sort();
+    expect(admitting).toEqual([
+      'GetDuplicateCandidates',
+      'GetPublishedItem',
+      'GetPublishedSolution',
+      'GetPublishedStimulus',
+      'ListPublishedCatalogue',
+    ]);
+  });
+
+  it('hands assessment the two handlers and nothing else', () => {
+    const seam = contentForAssessment(validDeps());
+    expect(Object.keys(seam).sort()).toEqual(['duplicates', 'listCatalogue']);
+    expect(seam.listCatalogue.name).toBe('ListPublishedCatalogue');
+    expect(seam.duplicates.name).toBe('GetDuplicateCandidates');
+  });
+
+  it('refuses a seam built from incomplete wiring, as register does', () => {
+    const broken: { -readonly [K in keyof ContentCompositionDeps]?: ContentCompositionDeps[K] } = { ...validDeps() };
+    delete broken.pool;
+    expect(() => contentForAssessment(broken as ContentCompositionDeps)).toThrow(/pool/);
   });
 });
 

@@ -44,8 +44,8 @@ describe('the review policies, per DEC-M4-9 and DEC-M4-1', () => {
     }
   });
 
-  it('lets either role read duplicate candidates — the reviewer deciding, Content Ops overseeing (M4-32)', () => {
-    expect(GET_DUPLICATE_CANDIDATES_POLICY.allowedRoles).toEqual(['reviewer', 'content_ops']);
+  it('lets the reviewer deciding, Content Ops overseeing (M4-32) and form assembly as the system (M6-17) read duplicate candidates', () => {
+    expect(GET_DUPLICATE_CANDIDATES_POLICY.allowedRoles).toEqual(['reviewer', 'content_ops', 'system']);
   });
 
   it('lets either role call GetReviewerThroughput — the handler itself narrows a reviewer to their own decisions (M4-33)', () => {

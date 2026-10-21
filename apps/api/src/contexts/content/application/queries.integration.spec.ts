@@ -57,6 +57,9 @@ import {
 import { LIFECYCLE_STATES, type LifecycleState } from '../domain/item-lifecycle.js';
 
 const LIFECYCLE_STATES_UNDER_TEST = LIFECYCLE_STATES.filter((state) => state !== 'in_review');
+import { REJECTION_REASONS } from '../domain/review/rejection-taxonomy.js';
+import { ListPublishedCatalogueHandler } from './queries/catalogue-queries.js';
+import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import {
   GetPublishedItemHandler,
   GetPublishedSolutionHandler,
@@ -1139,5 +1142,147 @@ describe('ListSubmittedForReview, the review queue candidate source (M4-16)', ()
 
     await database.pool.query(`DELETE FROM content.item_version WHERE item_id = $1`, [itemId]);
     await database.pool.query(`DELETE FROM content.item WHERE item_id = $1`, [itemId]);
+  });
+});
+
+describe('M6-14 — the published catalogue lists what is published, with no key and no solution', () => {
+  const system: PrincipalRef = { kind: 'system', id: freshUuid(), roleContext: ['system'] };
+
+  /** A concept of its own per test, so a shared database cannot leak one test's items into another's. */
+  const conceptTagged = (conceptId: string, extra: string[] = []): Partial<AuthoredItemContent> => ({
+    taxonomyTags: [
+      { conceptIdentityId: conceptId, taxonomyVersionId: TAXONOMY_ID, weight: 1, isPrimary: true },
+      ...extra.map((id) => ({ conceptIdentityId: id, taxonomyVersionId: TAXONOMY_ID, weight: 0.5, isPrimary: false })),
+    ],
+  });
+
+  const catalogue = () => new ListPublishedCatalogueHandler({ catalogue: new PostgresPublishedCatalogue(database.pool) });
+  const listFor = async (conceptId: string, more: Record<string, unknown> = {}) =>
+    expectValue(await catalogue().handle({ conceptIdentityIds: [conceptId], ...more }, as(system)));
+
+  it('lists a published item with every selection fact, and not a draft, an in-review, a suspended or a retired one', async () => {
+    const concept = freshUuid();
+    const published = await publishItem(await draftItem(conceptTagged(concept)));
+    await draftItem(conceptTagged(concept)); // a draft
+    const inReview = await draftItem(conceptTagged(concept));
+    expectValue(await new SubmitItemForReviewHandler(lifecycle()).handle({ itemId: inReview.itemId }, as(author)));
+    const suspended = await publishItem(await draftItem(conceptTagged(concept)));
+    expectValue(await new SuspendItemHandler(lifecycle()).handle({ itemId: suspended.itemId, justification: 'checking a report' }, asOps()));
+    const retired = await publishItem(await draftItem(conceptTagged(concept)));
+    expectValue(await new RetireItemHandler(lifecycle()).handle({ itemId: retired.itemId, retirementReason: 'superseded' }, asOps()));
+
+    const page = await listFor(concept);
+    expect(page.entries.map((entry) => entry.itemId)).toEqual([published.itemId]);
+
+    const entry = page.entries[0]!;
+    const version = published.versions[0]!;
+    expect(entry.itemVersionId).toBe(version.versionId);
+    expect(entry.versionNo).toBe(version.versionNo);
+    expect(entry.itemType).toBe('SINGLE_CORRECT_MCQ');
+    expect(entry.difficultyBand).toBe('moderate');
+    expect(entry.subject).toBe('physics');
+    expect(entry.taxonomyVersionId).toBe(TAXONOMY_ID);
+    expect(entry.primaryConceptIdentityId).toBe(concept);
+    expect(entry.conceptIdentityIds).toEqual([concept]);
+    expect('stimulusVersionId' in entry).toBe(false);
+  });
+
+  it('each non-published state is asserted absent on its own, so one cannot hide another', async () => {
+    const concept = freshUuid();
+    const draft = await draftItem(conceptTagged(concept));
+    expect((await listFor(concept)).entries).toEqual([]);
+    expectValue(await new SubmitItemForReviewHandler(lifecycle()).handle({ itemId: draft.itemId }, as(author)));
+    expect((await listFor(concept)).entries).toEqual([]);
+    expectValue(
+      await new RecordItemReviewDecisionHandler(lifecycle()).handle(
+        { itemId: draft.itemId, itemVersionId: draft.versions[0]!.versionId, outcome: 'request_changes', candidatesShownIds: [], justification: 'unit missing', reasonCode: REJECTION_REASONS[0]!.code },
+        as(reviewer),
+      ),
+    );
+    expect((await listFor(concept)).entries).toEqual([]);
+  });
+
+  it('a suspended item is absent although it still names the version it published', async () => {
+    const concept = freshUuid();
+    const item = await publishItem(await draftItem(conceptTagged(concept)));
+    expect((await listFor(concept)).entries).toHaveLength(1);
+    expectValue(await new SuspendItemHandler(lifecycle()).handle({ itemId: item.itemId, justification: 'checking a report' }, asOps()));
+    const stored = await database.pool.query(`SELECT current_published_version_id FROM content.item WHERE item_id = $1`, [item.itemId]);
+    expect(stored.rows[0].current_published_version_id).not.toBeNull();
+    expect((await listFor(concept)).entries).toEqual([]);
+  });
+
+  it('carries no answer key and no solution body: a serialized real result is scanned, for each item type', async () => {
+    const concept = freshUuid();
+    await publishItem(await draftItem(conceptTagged(concept)));
+    await publishItem(await draftItem({ ...conceptTagged(concept), responseSpec: numericSpec() }, author, 'NUMERIC'));
+    const page = await listFor(concept);
+    expect(page.entries).toHaveLength(2);
+
+    const serialized = JSON.stringify(page);
+    expect(scanForKeyMaterial(page)).toEqual([]);
+    for (const leaked of ['9.81', 'm/s^2', 'Resolve the weight', 'Energy method', 'Forgot to resolve', 'A block slides', 'stem', 'options', 'steps']) {
+      expect(serialized, leaked).not.toContain(leaked);
+    }
+    // Not vacuous: the same items' authoring views do carry material the scan looks for.
+    const [authoringItem] = (await database.pool.query(`SELECT item_id FROM content.item WHERE item_id = $1`, [page.entries[0]!.itemId])).rows;
+    const authoring = expectValue(
+      await new GetItemVersionForAuthoringHandler(authoringQueries()).handle(
+        { itemId: authoringItem.item_id, itemVersionId: page.entries[0]!.itemVersionId },
+        as(author),
+      ),
+    );
+    expect(scanForKeyMaterial(authoring).length).toBeGreaterThan(0);
+  });
+
+  it('nothing about blueprints, sections or marks appears in what it returns or accepts', async () => {
+    const concept = freshUuid();
+    await publishItem(await draftItem(conceptTagged(concept)));
+    const serialized = JSON.stringify(await listFor(concept));
+    for (const word of ['blueprint', 'section', 'marks', 'totalMarks', 'tolerance']) expect(serialized, word).not.toContain(word);
+  });
+
+  it('filters by the item\'s own facts: type, difficulty band, concept and subject', async () => {
+    const concept = freshUuid();
+    const other = freshUuid();
+    const mcq = await publishItem(await draftItem({ ...conceptTagged(concept), difficultyEstimate: 'advanced' }));
+    const numeric = await publishItem(await draftItem({ ...conceptTagged(concept, [other]), responseSpec: numericSpec() }, author, 'NUMERIC'));
+
+    const ids = async (more: Record<string, unknown>) => (await listFor(concept, more)).entries.map((entry) => entry.itemId).sort();
+    expect(await ids({})).toEqual([mcq.itemId, numeric.itemId].sort());
+    expect(await ids({ itemTypes: ['NUMERIC'] })).toEqual([numeric.itemId]);
+    expect(await ids({ difficultyBands: ['advanced'] })).toEqual([mcq.itemId]);
+    expect(await ids({ subject: 'physics' })).toEqual([mcq.itemId, numeric.itemId].sort());
+    expect(await ids({ subject: 'chemistry' })).toEqual([]);
+    const byOther = expectValue(await catalogue().handle({ conceptIdentityIds: [other] }, as(system)));
+    expect(byOther.entries.map((entry) => entry.itemId)).toEqual([numeric.itemId]);
+    expect([...byOther.entries[0]!.conceptIdentityIds].sort()).toEqual([concept, other].sort());
+    expect(byOther.entries[0]!.primaryConceptIdentityId).toBe(concept);
+  });
+
+  it('pages by keyset without duplicating or skipping, and reports no cursor on the last page', async () => {
+    const concept = freshUuid();
+    const published = [];
+    for (let i = 0; i < 5; i += 1) published.push((await publishItem(await draftItem(conceptTagged(concept)))).itemId);
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await listFor(concept, { limit: 2, ...(cursor === undefined ? {} : { cursor }) });
+      seen.push(...page.entries.map((entry) => entry.itemId));
+      cursor = page.nextCursor;
+      pages += 1;
+    } while (cursor !== undefined);
+    expect(seen).toEqual([...published].sort());
+    expect(pages).toBe(3);
+  });
+
+  it('reports a store failure as a value', async () => {
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
+    pool.on('error', () => undefined);
+    const broken = new ListPublishedCatalogueHandler({ catalogue: new PostgresPublishedCatalogue(pool) });
+    expect(expectError(await broken.handle({}, as(system))).code).toBe('PERSISTENCE_REJECTED');
+    await pool.end().catch(() => undefined);
   });
 });

@@ -1,5 +1,5 @@
 import { createAttempt, type Attempt, type AttemptSlot, type CreateAttemptProps } from '../contexts/assessment/domain/attempt.js';
-import { createForm, publishForm, type CreateFormProps, type Form, type FormSlot } from '../contexts/assessment/domain/form.js';
+import { closeForm, createForm, openForm, publishForm, scheduleForm, slotsOf as slotsOfForm, type CreateFormProps, type Form, type FormSlot } from '../contexts/assessment/domain/form.js';
 import { expectValue } from './expect-result.js';
 
 /** Deterministic uuids: `n` in the last group, a tag in the first, so two kinds never collide. */
@@ -8,6 +8,9 @@ export function id(tag: number, n = 1): string {
 }
 
 export const TAG = { attempt: 0xa1, student: 0xa2, form: 0xa3, profile: 0xa4, taxonomy: 0xa5, session: 0xa6, slot: 0xb1, item: 0xb2, itemVersion: 0xb3, stimulus: 0xb4, event: 0xc1 } as const;
+
+/** The sitting the fixture forms are published for. */
+export const SESSION_REF = '2026-01-27/shift-2';
 
 export const MARKING_HASH = 'a'.repeat(64);
 
@@ -64,6 +67,7 @@ export function formProps(overrides: Partial<CreateFormProps> = {}): CreateFormP
     formId: id(TAG.form),
     examProfileVersionId: id(TAG.profile),
     formType: 'mock',
+    sessionRef: SESSION_REF,
     blueprintConformance: { satisfied: true, sections: 2 },
     sections: [
       { ordinal: 1, sectionSpecRef: 'physics-a', slots: all.slice(0, 3) },
@@ -77,6 +81,29 @@ export function aDraftForm(overrides: Partial<CreateFormProps> = {}): Form {
   return expectValue(createForm(formProps(overrides)));
 }
 
+/** The anchor pool that agrees with a form's own flags: exactly the item versions it flags as anchors. */
+export function poolOf(form: Form): ReadonlySet<string> {
+  return new Set(slotsOfForm(form).filter((slot) => slot.isAnchor).map((slot) => slot.itemVersionId));
+}
+
+/** The window the fixture attempts are sat in; their own `windowClosesAt` is the form's. */
+export const WINDOW = { opensAt: '2026-10-21T08:00:00.000Z', closesAt: '2026-10-21T12:00:00.000Z' } as const;
+/** A moment inside that window. */
+export const WITHIN_WINDOW = '2026-10-21T09:00:00.000Z';
+
 export function aPublishedForm(overrides: Partial<CreateFormProps> = {}): Form {
-  return expectValue(publishForm(aDraftForm(overrides), '2026-10-21T07:00:00.000Z'));
+  const draft = aDraftForm(overrides);
+  return expectValue(publishForm(draft, '2026-10-21T07:00:00.000Z', poolOf(draft)));
+}
+
+export function aScheduledForm(overrides: Partial<CreateFormProps> = {}): Form {
+  return expectValue(scheduleForm(aPublishedForm(overrides), WINDOW, '2026-10-21T07:30:00.000Z'));
+}
+
+export function anActiveForm(overrides: Partial<CreateFormProps> = {}): Form {
+  return expectValue(openForm(aScheduledForm(overrides), WITHIN_WINDOW));
+}
+
+export function aClosedForm(overrides: Partial<CreateFormProps> = {}): Form {
+  return expectValue(closeForm(anActiveForm(overrides), '2026-10-21T12:00:00.000Z'));
 }

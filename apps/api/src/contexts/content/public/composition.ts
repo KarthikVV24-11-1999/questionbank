@@ -81,6 +81,8 @@ import { ApproveWithEditsHandler } from '../application/review/handlers/reviewer
 import { SweepReviewAgeingHandler } from '../application/review/handlers/ageing-handlers.js';
 import { RefreshFingerprintsHandler } from '../application/review/handlers/fingerprint-handlers.js';
 import { GetDuplicateCandidatesForProposalHandler, GetDuplicateCandidatesHandler } from '../application/review/queries/duplicate-queries.js';
+import { ListPublishedCatalogueHandler } from '../application/queries/catalogue-queries.js';
+import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import { GetQueueHealthHandler, GetReviewerThroughputHandler } from '../application/review/queries/queue-queries.js';
 import { validateProposedContent } from '../application/proposal-validation.js';
 
@@ -176,6 +178,7 @@ function assemble(deps: ContentCompositionDeps) {
   const reviewAssignments = new PostgresReviewAssignmentRepository(deps.pool);
   const reviewEscalations = new PostgresReviewEscalationRepository(deps.pool);
   const fingerprints = new PostgresFingerprintRepository(deps.pool);
+  const catalogue = new PostgresPublishedCatalogue(deps.pool);
   const transactions = new PostgresTransactionRunner(deps.pool);
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
@@ -208,6 +211,7 @@ function assemble(deps: ContentCompositionDeps) {
     assignments: reviewAssignments,
     escalations: reviewEscalations,
     fingerprints,
+    catalogue,
     reviewPolicy,
     transactions,
   };
@@ -269,6 +273,7 @@ export function register(deps: ContentCompositionDeps): DynamicModule {
     new GetPublishedItemHandler(bag),
     new GetPublishedStimulusHandler(bag),
     new GetPublishedSolutionHandler(bag),
+    new ListPublishedCatalogueHandler(bag),
     // Review queries (M4-32, M4-33)
     new GetDuplicateCandidatesHandler(bag),
     new GetDuplicateCandidatesForProposalHandler(bag),
@@ -311,5 +316,29 @@ export function contentForGeneration(deps: ContentCompositionDeps): ContentForGe
     submitForReview: new SubmitItemForReviewHandler(bag),
     duplicatesForProposal: new GetDuplicateCandidatesForProposalHandler(bag),
     validateProposal: validateProposedContent,
+  };
+}
+
+/**
+ * What the assessment context consumes from content, and nothing more: the
+ * published catalogue, so form assembly has a corpus it can enumerate, and the
+ * duplicate-candidates query, so "no near-duplicates within one form" uses
+ * content's own detection rather than a second implementation of it (a rule
+ * implemented twice drifts).
+ *
+ * The same assembly `register` uses, so what assessment reads is what a student
+ * is served. Adding a third handler here is a deliberate change to what
+ * assessment may ask of content, and is reviewed as one.
+ */
+export interface ContentForAssessment {
+  readonly listCatalogue: ListPublishedCatalogueHandler;
+  readonly duplicates: GetDuplicateCandidatesHandler;
+}
+
+export function contentForAssessment(deps: ContentCompositionDeps): ContentForAssessment {
+  const bag = assemble(deps);
+  return {
+    listCatalogue: new ListPublishedCatalogueHandler(bag),
+    duplicates: new GetDuplicateCandidatesHandler(bag),
   };
 }

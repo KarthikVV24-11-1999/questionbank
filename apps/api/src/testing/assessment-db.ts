@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { MARKING_HASH, TAG, formSlots, id } from './assessment-fixtures.js';
+import { MARKING_HASH, SESSION_REF, TAG, formSlots, id } from './assessment-fixtures.js';
 
 /**
  * Raw SQL helpers for specs that attack the assessment schema directly. They
@@ -13,6 +13,8 @@ export interface SeedOptions {
   readonly studentId?: string;
   readonly mode?: 'mock' | 'diagnostic';
   readonly publish?: boolean;
+  /** With `publish`, whether to also schedule and open the form (the default), or leave it published. */
+  readonly open?: boolean;
   /** Shifts the slot ids so a second form can coexist with the first. */
   readonly variant?: number;
 }
@@ -24,9 +26,9 @@ export async function seedForm(pool: Pool, options: SeedOptions = {}): Promise<s
   const formId = options.formId ?? id(TAG.form);
   const mode = options.mode ?? 'mock';
   await pool.query(
-    `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, blueprint_conformance)
-     VALUES ($1, $2, $3, '{"satisfied": true}')`,
-    [formId, id(TAG.profile), mode],
+    `INSERT INTO assessment.form (form_id, exam_profile_version_id, form_type, session_ref, blueprint_conformance)
+     VALUES ($1, $2, $3, $4, '{"satisfied": true}')`,
+    [formId, id(TAG.profile), mode, SESSION_REF],
   );
   await pool.query(`INSERT INTO assessment.form_section (form_id, ordinal, section_spec_ref) VALUES ($1, 1, 'a'), ($1, 2, 'b')`, [formId]);
   for (const [i, slot] of formSlots().entries()) {
@@ -37,7 +39,22 @@ export async function seedForm(pool: Pool, options: SeedOptions = {}): Promise<s
     );
   }
   if (options.publish !== false) {
+    // Publication, as the database requires it: the pool has the anchor, the ledger has every slot, then the state moves.
+    await pool.query(
+      `INSERT INTO assessment.anchor_pool_member (item_version_id, exposure_cap, added_at) VALUES ($1, 40, '2026-10-01T00:00:00Z') ON CONFLICT DO NOTHING`,
+      [id(TAG.itemVersion, 1)],
+    );
+    await pool.query(
+      `INSERT INTO assessment.exposure_ledger_entry (form_id, slot_id, item_id, item_version_id, session_ref, is_anchor, written_at)
+       SELECT form_id, slot_id, item_id, item_version_id, $2, is_anchor, $3 FROM assessment.form_slot WHERE form_id = $1`,
+      [formId, SESSION_REF, NOW_ISO],
+    );
     await pool.query(`UPDATE assessment.form SET state = 'published', published_at = $2 WHERE form_id = $1`, [formId, NOW_ISO]);
+    if (options.open !== false) {
+      // Scheduled and opened, since attempts are created only on an active form; the window is the one the fixture attempts carry.
+      await pool.query(`UPDATE assessment.form SET state = 'embargoed', opens_at = '2026-10-21T08:00:00Z', closes_at = '2026-10-21T12:00:00Z' WHERE form_id = $1`, [formId]);
+      await pool.query(`UPDATE assessment.form SET state = 'active' WHERE form_id = $1`, [formId]);
+    }
   }
   return formId;
 }
@@ -112,4 +129,4 @@ export async function refusal(run: () => Promise<unknown>): Promise<string> {
   throw new Error('expected the database to refuse');
 }
 
-export const ASSESSMENT_TABLES = ['attempt', 'attempt_slot', 'form', 'form_section', 'form_slot', 'response_event'];
+export const ASSESSMENT_TABLES = ['anchor_pool_member', 'attempt', 'attempt_slot', 'exposure_ledger_entry', 'form', 'form_section', 'form_slot', 'response_event'];

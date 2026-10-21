@@ -294,7 +294,9 @@ export function submitAttempt(
  * one must be told how many slots were answered, since the responses live in
  * the log and not on the attempt.
  *
- * Nothing yet *calls* this when a window closes — D54.
+ * The window now exists on the form (M6-20) and the repository can find the attempts
+ * it has left behind (`findAbandonable`); nothing yet *calls* this on a schedule,
+ * because there is no scheduler — D36. D54 is closed.
  */
 export function abandonAttempt(attempt: Attempt, now: string, answeredSlots: number): Result<Attempt, AttemptError> {
   const bad = badNow(now);

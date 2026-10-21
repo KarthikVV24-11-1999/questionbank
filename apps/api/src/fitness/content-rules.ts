@@ -531,6 +531,9 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/infrastructure/review/review-escalation.repository.ts',
   'src/contexts/content/infrastructure/solution.repository.ts',
   'src/contexts/content/infrastructure/stimulus.repository.ts',
+  // M6-14. What assembly may choose from. A leak here is an answer key in a listing of the whole bank.
+  'src/contexts/content/infrastructure/published-catalogue.reader.ts',
+  'src/contexts/content/application/queries/catalogue-queries.ts',
 ] as const;
 
 export function checkCoverageThresholds(

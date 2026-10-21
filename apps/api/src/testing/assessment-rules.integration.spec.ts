@@ -1,8 +1,10 @@
 import type { PoolClient } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ATTEMPT_STATES, canMove, type AttemptState } from '../contexts/assessment/domain/attempt-state.js';
+import { restoreAttempt, type AttemptSnapshot } from '../contexts/assessment/domain/attempt.js';
+import { FORM_STATES, canMove as canMoveForm, type FormState } from '../contexts/assessment/domain/form-state.js';
 import { insertEvent, refusal, seedAttempt, seedForm, startAttemptRow, submitAttemptRow } from './assessment-db.js';
-import { TAG, id } from './assessment-fixtures.js';
+import { TAG, attemptProps, id } from './assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from './database.js';
 
 /**
@@ -31,7 +33,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await database.pool.query(
-    'TRUNCATE assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE',
+    'TRUNCATE assessment.exposure_ledger_entry, assessment.anchor_pool_member, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE',
   );
 });
 
@@ -182,6 +184,13 @@ describe('a published form is immutable (D-006)', () => {
     await asApp(async (client) => {
       await client.query(`UPDATE assessment.form_slot SET item_version_id = $2 WHERE slot_id = $1`, [id(TAG.slot, 1), id(TAG.itemVersion, 41)]);
       await client.query(`DELETE FROM assessment.form_slot WHERE slot_id = $1`, [id(TAG.slot, 6)]);
+      // Publication as the database requires it: the edited anchor is in the pool and the ledger has every remaining slot.
+      await client.query(`INSERT INTO assessment.anchor_pool_member (item_version_id, exposure_cap, added_at) VALUES ($1, 40, now())`, [id(TAG.itemVersion, 41)]);
+      await client.query(
+        `INSERT INTO assessment.exposure_ledger_entry (form_id, slot_id, item_id, item_version_id, session_ref, is_anchor, written_at)
+         SELECT form_id, slot_id, item_id, item_version_id, '2026-01-27/shift-2', is_anchor, now() FROM assessment.form_slot WHERE form_id = $1`,
+        [formId],
+      );
       await client.query(`UPDATE assessment.form SET state = 'published', published_at = now() WHERE form_id = $1`, [formId]);
     });
     const { rows } = await database.pool.query(`SELECT count(*)::int AS n FROM assessment.form_slot WHERE form_id = $1`, [formId]);
@@ -198,9 +207,27 @@ describe('a published form is immutable (D-006)', () => {
     expect(changed).toBe(6);
   });
 
-  it('refuses an attempt against a form that is still a draft', async () => {
-    const formId = await seedForm(database.pool, { publish: false });
-    expect(await refusal(() => seedAttempt(database.pool, { formId }))).toContain('assessment_attempt_requires_published_form');
+  it('refuses an attempt against a form that is not active: a draft, a published one, a closed one', async () => {
+    const draft = await seedForm(database.pool, { publish: false });
+    expect(await refusal(() => seedAttempt(database.pool, { formId: draft }))).toContain('assessment_attempt_requires_active_form');
+    const published = await seedForm(database.pool, { formId: id(TAG.form, 2), variant: 1, open: false });
+    expect(await refusal(() => seedAttempt(database.pool, { formId: published, attemptId: id(TAG.attempt, 2) }))).toContain('assessment_attempt_requires_active_form');
+    const closed = await seedForm(database.pool, { formId: id(TAG.form, 3), variant: 2 });
+    await database.pool.query(`UPDATE assessment.form SET state = 'closed' WHERE form_id = $1`, [closed]);
+    expect(await refusal(() => seedAttempt(database.pool, { formId: closed, attemptId: id(TAG.attempt, 3) }))).toContain('assessment_attempt_requires_active_form');
+  });
+
+  it('refuses an attempt whose window is not the form\'s, so no client-supplied window can stand', async () => {
+    const formId = await seedForm(database.pool);
+    const message = await refusal(() =>
+      database.pool.query(
+        `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
+           delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
+         VALUES ($1, 'mock', $2, $3, $4, $5, '{}', $6, 's', 1000, '2099-01-01T00:00:00Z', now())`,
+        [id(TAG.student), formId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), id(TAG.session)],
+      ),
+    );
+    expect(message).toContain('attempt_window_is_the_forms');
   });
 });
 
@@ -259,7 +286,7 @@ describe('an attempt moves only along the state machine, and keeps its pin', () 
         `INSERT INTO assessment.attempt
            (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
             delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
-         VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 'shift-1', 1000, now(), now())`,
+         VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 'shift-1', 1000, '2026-10-21T12:00:00Z', now())`,
         [attemptId, id(TAG.student, 50), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), id(TAG.session)],
       );
       if (state !== 'created') {
@@ -376,5 +403,168 @@ describe('a response is classified by the attempt\'s state, in the database', ()
       submitting.release();
     }
     expect(await stored()).toEqual([false]);
+  });
+});
+
+describe('a published form moves only along its lifecycle, and its window is fixed', () => {
+  const WINDOW_SQL = `opens_at = '2026-10-21T08:00:00Z', closes_at = '2026-10-21T12:00:00Z'`;
+
+  it('moves published → embargoed → active → closed, one step at a time, and no other way', async () => {
+    const formId = await seedForm(database.pool, { open: false });
+    const move = (set: string) => () => database.pool.query(`UPDATE assessment.form SET ${set} WHERE form_id = $1`, [formId]);
+    expect(await refusal(move(`state = 'active', ${WINDOW_SQL}`))).toContain('assessment_form_transition_prohibited');
+    await database.pool.query(`UPDATE assessment.form SET state = 'embargoed', ${WINDOW_SQL} WHERE form_id = $1`, [formId]);
+    await database.pool.query(`UPDATE assessment.form SET state = 'active' WHERE form_id = $1`, [formId]);
+    await database.pool.query(`UPDATE assessment.form SET state = 'closed' WHERE form_id = $1`, [formId]);
+    expect(await refusal(move(`state = 'active'`))).toContain('assessment_form_transition_prohibited');
+  });
+
+  it('refuses to move a scheduled form\'s window', async () => {
+    const formId = await seedForm(database.pool);
+    const message = await refusal(() =>
+      database.pool.query(`UPDATE assessment.form SET state = 'closed', closes_at = '2026-10-21T13:00:00Z' WHERE form_id = $1`, [formId]),
+    );
+    expect(message).toContain('assessment_form_window_is_fixed');
+  });
+
+  it('refuses a window that ends before it starts, and one on a form that is not scheduled', async () => {
+    const formId = await seedForm(database.pool, { open: false });
+    expect(await refusal(() => database.pool.query(`UPDATE assessment.form SET state = 'embargoed', opens_at = '2026-10-21T12:00:00Z', closes_at = '2026-10-21T08:00:00Z' WHERE form_id = $1`, [formId]))).toContain('form_window_matches_state');
+    expect(await refusal(() => database.pool.query(`UPDATE assessment.form SET state = 'embargoed' WHERE form_id = $1`, [formId]))).toContain('form_window_matches_state');
+  });
+
+  it('still refuses to change the composition in any scheduled state', async () => {
+    const formId = await seedForm(database.pool);
+    expect(await refusal(() => database.pool.query(`UPDATE assessment.form SET form_type = 'diagnostic' WHERE form_id = $1`, [formId]))).toContain('only its state and window move');
+    expect(await refusal(() => database.pool.query(`UPDATE assessment.form SET session_ref = 'x' WHERE form_id = $1`, [formId]))).toContain('only its state and window move');
+    expect(await refusal(() => database.pool.query(`UPDATE assessment.form_slot SET marks_available = 9 WHERE form_id = $1`, [formId]))).toContain('assessment_published_form_is_immutable');
+    expect(await refusal(() => database.pool.query(`DELETE FROM assessment.form WHERE form_id = $1`, [formId]))).toContain('never deleted');
+  });
+
+  // Two implementations of one rule (rule 5): the domain's table and this trigger are
+  // held to the same answer over every pair of states.
+  describe('agrees with the domain over every pair of states', () => {
+    const SET: Record<FormState, string> = {
+      draft: `state = 'draft', published_at = NULL, opens_at = NULL, closes_at = NULL`,
+      published: `state = 'published', published_at = '2026-10-21T07:00:00Z', opens_at = NULL, closes_at = NULL`,
+      embargoed: `state = 'embargoed', published_at = '2026-10-21T07:00:00Z', ${WINDOW_SQL}`,
+      active: `state = 'active', published_at = '2026-10-21T07:00:00Z', ${WINDOW_SQL}`,
+      closed: `state = 'closed', published_at = '2026-10-21T07:00:00Z', ${WINDOW_SQL}`,
+    };
+
+    const PAIRS = FORM_STATES.flatMap((from) => FORM_STATES.map((to) => [from, to] as const));
+
+    it('covers all 25 pairs', () => {
+      expect(PAIRS).toHaveLength(25);
+    });
+
+    it.each(PAIRS)('%s → %s', async (from, to) => {
+      await seedForm(database.pool, { publish: false });
+      const outcome = await rolledBack(async (client) => {
+        // Put the form in `from` with every guard set aside, then put the guards back and attempt the move.
+        await client.query('SET LOCAL session_replication_role = replica');
+        await client.query(`UPDATE assessment.form SET ${SET[from]}`);
+        await client.query('SET LOCAL session_replication_role = DEFAULT');
+        // Publication's own preconditions are not what this asks about.
+        await client.query('ALTER TABLE assessment.form DISABLE TRIGGER form_publication_guarded');
+        try {
+          await client.query(`UPDATE assessment.form SET ${SET[to]}`);
+          return 'allowed';
+        } catch (error) {
+          const message = (error as Error).message;
+          return message.includes('assessment_form_transition_prohibited') || message.includes('assessment_published_form_is_immutable') ? 'refused' : message;
+        }
+      });
+      // draft → draft is not a move at all but an edit of a draft, which the database rightly allows.
+      const expected = from === 'draft' && to === 'draft' ? 'allowed' : canMoveForm(from, to) ? 'allowed' : 'refused';
+      expect(outcome).toBe(expected);
+    });
+  });
+});
+
+describe('the attempt state-shape rule: the database\'s check and the domain\'s restore agree (rule 5)', () => {
+  // The rule lives twice — the table's CHECK and `restoreAttempt` — so both are asked the same
+  // question over every combination: each of four states with each of six lifecycle columns
+  // present or absent, 256 rows. Partial submissions (one or two of time, reason and key) have
+  // no domain representation at all, so for those the database must refuse and the domain
+  // cannot even be asked.
+  const COLUMNS = ['started_at', 'deadline_at', 'submitted_at', 'submission_reason', 'idempotency_key', 'abandoned_at'] as const;
+  const VALUE: Record<(typeof COLUMNS)[number], string> = {
+    started_at: `'2026-10-21T09:00:00Z'`,
+    deadline_at: `'2026-10-21T12:00:00Z'`,
+    submitted_at: `'2026-10-21T10:00:00Z'`,
+    submission_reason: `'manual'`,
+    idempotency_key: `'k1'`,
+    abandoned_at: `'2026-10-21T12:30:00Z'`,
+  };
+
+  const combos = ATTEMPT_STATES.flatMap((state) =>
+    Array.from({ length: 64 }, (_, bits) => ({ state, present: COLUMNS.map((_, i) => (bits >> i) % 2 === 1) })),
+  );
+
+  function snapshotOf(state: AttemptState, present: readonly boolean[]): AttemptSnapshot | null {
+    const [started, deadline, submittedAt, reason, key, abandoned] = present as [boolean, boolean, boolean, boolean, boolean, boolean];
+    // all three of a submission, or none: a partial one is not a thing the domain can hold
+    if (!(submittedAt === reason && reason === key)) return null;
+    return {
+      ...attemptProps(),
+      state,
+      startedAt: started ? '2026-10-21T09:00:00.000Z' : null,
+      deadline: deadline ? '2026-10-21T12:00:00.000Z' : null,
+      submission: submittedAt ? { reason: 'manual', idempotencyKey: 'k1', submittedAt: '2026-10-21T10:00:00.000Z' } : null,
+      abandonedAt: abandoned ? '2026-10-21T12:30:00.000Z' : null,
+    };
+  }
+
+  it('covers 256 combinations, a good share on each side of the line', () => {
+    expect(combos).toHaveLength(256);
+  });
+
+  it('answers the same for every combination the domain can represent, and the database refuses every one it cannot', async () => {
+    await seedForm(database.pool);
+    const disagreements: string[] = [];
+    let accepted = 0;
+    let refused = 0;
+    await rolledBack(async (client) => {
+      for (const [index, { state, present }] of combos.entries()) {
+        const sets = COLUMNS.map((column, i) => (present[i] ? VALUE[column] : 'NULL'));
+        await client.query('SAVEPOINT combo');
+        let databaseAccepts = true;
+        try {
+          await client.query(
+            `INSERT INTO assessment.attempt
+               (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
+                delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at, state,
+                started_at, deadline_at, submitted_at, submission_reason, idempotency_key, abandoned_at)
+             VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 's', 1000, '2026-10-21T12:00:00Z', now(), '${state}', ${sets.join(', ')})`,
+            [id(TAG.attempt, 1000 + index), id(TAG.student, 1000 + index), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), id(TAG.session)],
+          );
+        } catch {
+          databaseAccepts = false;
+        }
+        await client.query('ROLLBACK TO SAVEPOINT combo');
+        if (databaseAccepts) accepted += 1;
+        else refused += 1;
+
+        const snapshot = snapshotOf(state, present);
+        const label = `${state} ${present.map((p, i) => (p ? COLUMNS[i] : '')).filter(Boolean).join('+') || '(none)'}`;
+        if (snapshot === null) {
+          if (databaseAccepts) disagreements.push(`${label}: a partial submission was accepted by the database`);
+        } else if (restoreAttempt(snapshot).ok !== databaseAccepts) {
+          disagreements.push(`${label}: database ${databaseAccepts ? 'accepts' : 'refuses'}, domain ${databaseAccepts ? 'refuses' : 'accepts'}`);
+        }
+      }
+    });
+    expect(disagreements).toEqual([]);
+    // not vacuous: both sides of the line are well populated
+    expect(accepted).toBe(5); // created, in_progress, submitted, and abandoned with and without a start
+    expect(refused).toBe(251);
+  });
+
+  it('the domain is shown able to disagree: a snapshot the database would refuse is refused by it too, and vice versa', () => {
+    const submittedWithoutStart = snapshotOf('submitted', [false, false, true, true, true, false])!;
+    expect(restoreAttempt(submittedWithoutStart).ok).toBe(false);
+    const fine = snapshotOf('submitted', [true, true, true, true, true, false])!;
+    expect(restoreAttempt(fine).ok).toBe(true);
   });
 });

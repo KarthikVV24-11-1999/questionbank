@@ -107,6 +107,12 @@ export type {
   GetPublishedStimulus,
 } from '../application/queries/delivery-queries.js';
 
+export type {
+  ListPublishedCatalogue,
+  PublishedCatalogueEntryView,
+  PublishedCatalogueView,
+} from '../application/queries/catalogue-queries.js';
+
 // ── Review queries (M4-32, M4-33, DEC-M4-2, DEC-M4-13) ──────────────────────
 export type {
   DuplicateCandidate,

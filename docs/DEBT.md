@@ -138,9 +138,17 @@ ships, and calling it hourly is the successor. Consequences are stated where the
 derives overdue items from `ageState` rather than from `review_escalation`, which only the unscheduled
 sweep populates, and `notifiedAt` absent means "not yet swept", never "not overdue".
 
+**Since M6-20 the same absence covers more.** Form windows are opened and closed by operations
+(`PostgresFormRepository.open` and `close`, found by `findDueToOpen` and `findDueToClose`), and live attempts
+whose window has closed are abandoned by `abandonAttempt` (found by `findAbandonable`). All of them exist and
+are tested; none is invoked on a schedule, so a window's `active` or `closed` state can lag the clock — which
+is why creating an attempt asks both the state and the clock — and a never-started attempt stays live until
+something abandons it.
+
 **Trigger** A deployed environment with a scheduler.
 **Cited** `application/review/handlers/ageing-handlers.ts`, `application/review/queries/queue-queries.ts`,
-`contexts/content/domain/repository-ports.ts`, `fitness/platform-rules.ts`
+`contexts/content/domain/repository-ports.ts`, `fitness/platform-rules.ts`,
+`contexts/assessment/domain/repository-ports.ts`
 
 ### D37 — The review workspace cannot show a solution
 
@@ -345,19 +353,35 @@ carrying one of these through to a reviewer. The work is a bracket-balance rule 
 for optional arguments, or a ruling that the item is valid.
 **Cited** `apps/api/src/testing/eval/eval-corpus.ts`
 
-### D54 — Nothing abandons a created attempt when its window closes
+### D55 — A published item may have no fingerprint, so assembly cannot certify it duplicate-free
 
-ADR-0030 gave `created` an `abandon` edge, guarded on the attempt's window having closed, and the
-domain implements that guard. No process yet applies it: there is no scheduler and no window-closing
-event, so a student whose mock window closed with a never-started attempt stays blocked from starting
-another mock until something abandons it by hand.
+Content's duplicate detection compares fingerprints, and fingerprints are written for items **in review**: when a
+reviewer claims one, and by the refresh over the review queue. An item that reached `published` without passing
+through that — or whose fingerprint was never written — is reported `not_evaluated` by `GetDuplicateCandidates`.
+Form assembly must not treat "unknown" as "no duplicates", so the corpus adapter leaves such a version out of the
+candidates and names it in `unevaluated`; the pool the assembler sees is smaller than the published catalogue by
+exactly those.
 
-**Trigger** The scheduling track giving a form's window a closing moment the system acts on, or the first
-student reporting a mock they cannot start because of an attempt they never began.
-**Cited** `apps/api/src/contexts/assessment/domain/attempt.ts`
+**Trigger** The first published item reported in `unevaluated` on a real catalogue, or content widening its
+fingerprint refresh to published versions — which would make this entry go away.
+**Cited** `apps/api/src/contexts/assessment/infrastructure/content-corpus.ts`
 
 
 ## Closed
+
+### D54 — Nothing abandons a created attempt when its window closes *(closed at M6-20)*
+
+ADR-0030 gave `created` an `abandon` edge, guarded on the attempt's window having closed, and left the
+other half undone: a window that closes and something that acts on it.
+
+Closed by M6-20. A form now has a schedule window — a server-side fact fixed when it is scheduled, copied
+to every attempt on it and tied to it by a foreign key, so no client supplies one — and the attempt
+repository finds the live attempts a closed window left behind (`findAbandonable`) for the domain's
+`abandonAttempt` to decide. What is **not** built is anything that calls them on a schedule: that is
+[D36](#d36--no-scheduler-so-the-ageing-sweep-is-never-invoked) again, which now also covers opening and
+closing form windows and abandoning attempts.
+
+**Cited** `apps/api/src/contexts/assessment/domain/attempt.ts`
 
 ### D53 — An attempt that is created and never started has no terminal state *(closed at M6-09)*
 

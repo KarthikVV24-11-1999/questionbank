@@ -50,9 +50,9 @@ const APPEND_ONLY_CONTENT_TABLES = [
   'content.review_candidate_shown',
   'content.review_escalation',
 ];
-const UPDATE_ONLY_CONTENT_TABLES = ['content.review_assignment', 'assessment.attempt'];
-/** The assessment response log and the slots an attempt pinned: written once, never changed (M6-12). */
-const APPEND_ONLY_ASSESSMENT_TABLES = ['assessment.response_event', 'assessment.attempt_slot'];
+const UPDATE_ONLY_CONTENT_TABLES = ['content.review_assignment', 'assessment.attempt', 'assessment.anchor_pool_member'];
+/** The assessment response log, the slots an attempt pinned and the exposure ledger: written once, never changed (M6-12, M6-18). */
+const APPEND_ONLY_ASSESSMENT_TABLES = ['assessment.response_event', 'assessment.attempt_slot', 'assessment.exposure_ledger_entry'];
 
 /**
  * Every schema the application owns, read from the catalogue rather than

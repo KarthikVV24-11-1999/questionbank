@@ -50,6 +50,8 @@ const DELIVERY_SURFACES = [
   'src/contexts/content/api/dto/delivery-schemas.ts',
   'src/contexts/content/api/content.controller.ts',
   'src/contexts/content/application/queries/delivery-queries.ts',
+  // M6-14: a listing is where a key leaks by accident, so it is a named delivery surface too.
+  'src/contexts/content/application/queries/catalogue-queries.ts',
   'src/contexts/content/domain/events/content-events.ts',
 ];
 
@@ -78,7 +80,7 @@ describe('F6/F35 — the key is on the authoring surface and nowhere else (ADR-0
     for (const module of [...DELIVERY_SURFACES, ...AUTHORING_SURFACES]) {
       expect(existsSync(join(API_ROOT, module)), module).toBe(true);
     }
-    expect(DELIVERY_SURFACES.length + AUTHORING_SURFACES.length).toBe(6);
+    expect(DELIVERY_SURFACES.length + AUTHORING_SURFACES.length).toBe(7);
   });
 
   it('holds on the real tree, in both directions', () => {
@@ -606,6 +608,8 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
     F48: ['src/fitness/scoring-rules.spec.ts', 'F48'],
     F49: ['../../packages/attempt-engine/src/projection.spec.ts', 'F49'],
     F50: ['src/contexts/assessment/domain/form.spec.ts', 'F50'],
+    // The same floor, held at the database as the paired check (M6-19); the two are held to one answer over a grid.
+    F50_DB: ['src/testing/assessment-publication.integration.spec.ts', 'F50'],
     /**
      * M4-42's four outstanding rows. Each is an existing gate whose *subject*
      * M4 widened — a review handler, a review route, a review workspace
@@ -624,7 +628,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
       return !existsSync(path) || !readFileSync(path, 'utf8').includes(phrase);
     });
     expect(wrong).toEqual([]);
-    expect(Object.keys(GATES)).toHaveLength(19);
+    expect(Object.keys(GATES)).toHaveLength(20);
   });
 
   // The phrase check is shown to fail, or it is a second existence check.

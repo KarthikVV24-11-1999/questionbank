@@ -45,12 +45,41 @@ describe('what content offers generation', () => {
     }
   });
 
-  it('a composition module exports its register, its seam for generation, and nothing else at runtime', () => {
-    expect(Object.keys(contentComposition).sort()).toEqual(['contentForGeneration', 'register']);
+  it('a composition module exports its register, its seams for generation and assessment, and nothing else at runtime', () => {
+    expect(Object.keys(contentComposition).sort()).toEqual(['contentForAssessment', 'contentForGeneration', 'register']);
   });
 
   it('refuses a seam built without a dependency, as register does', () => {
     expect(() => contentComposition.contentForGeneration({ pool } as never)).toThrow(/missing required dependency/u);
+  });
+});
+
+describe('what content offers assessment (M6-14, M6-17)', () => {
+  const offered = contentComposition.contentForAssessment({
+    pool,
+    clock,
+    identifiers,
+    audit,
+    principals,
+    mediaStore: createMediaStore({ mediaStorageRoot: './var/media-test', nodeEnv: 'test' }),
+    idempotency: new InMemoryIdempotencyStore(),
+    reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
+  });
+
+  it('is exactly two handlers: the catalogue and the duplicate candidates', () => {
+    expect(Object.keys(offered).sort()).toEqual(['duplicates', 'listCatalogue']);
+    expect([offered.listCatalogue.name, offered.duplicates.name]).toEqual(['ListPublishedCatalogue', 'GetDuplicateCandidates']);
+  });
+
+  it('admits the system to both, and a learner to neither', () => {
+    for (const handler of [offered.listCatalogue, offered.duplicates]) {
+      expect(handler.policy.allowedRoles, handler.name).toContain('system');
+      expect(handler.policy.allowedRoles, handler.name).not.toContain('learner');
+    }
+  });
+
+  it('refuses a seam built without a dependency, as register does', () => {
+    expect(() => contentComposition.contentForAssessment({ pool } as never)).toThrow(/missing required dependency/u);
   });
 });
 

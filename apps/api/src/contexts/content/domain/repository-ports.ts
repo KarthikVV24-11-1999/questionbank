@@ -434,3 +434,56 @@ export interface ReviewEscalationRepository {
     itemVersionIds: readonly string[],
   ): Promise<Result<ReadonlyMap<string, string>, RepositoryError>>;
 }
+
+/**
+ * One row of the published catalogue: a published, non-retired item's current
+ * version and the facts a consumer needs to *choose* it. **Only facts content
+ * itself holds** — what the item is, how hard it was authored to be, what it is
+ * about and whether it hangs on a passage.
+ *
+ * Nothing here is a blueprint concept. How many items a section wants, what
+ * they are worth in marks, how the difficulty should be spread — those are the
+ * consumer's, and a field added here to serve one of them would make the next
+ * blueprint change an edit to content. There is no answer key and no solution
+ * either, which is why a listing is exactly where a key leaks by accident.
+ */
+export interface PublishedCatalogueEntry {
+  readonly itemId: string;
+  readonly itemVersionId: string;
+  readonly versionNo: number;
+  readonly itemType: ItemVersion['itemType'];
+  readonly difficultyBand: ItemVersion['difficultyEstimate'];
+  readonly subject: string;
+  readonly taxonomyVersionId: string;
+  /** The concept the item is mainly about. */
+  readonly primaryConceptIdentityId: string;
+  /** Every concept it is tagged with, the primary one included, in a stable order. */
+  readonly conceptIdentityIds: readonly string[];
+  readonly stimulusVersionId?: string;
+}
+
+/** Filters on those same facts, and nothing else. */
+export interface PublishedCatalogueCriteria {
+  readonly subject?: string;
+  readonly itemTypes?: readonly ItemVersion['itemType'][];
+  readonly difficultyBands?: readonly ItemVersion['difficultyEstimate'][];
+  readonly conceptIdentityIds?: readonly string[];
+  /** Keyset cursor: the last `itemId` of the previous page. */
+  readonly cursor?: string;
+  readonly limit: number;
+}
+
+export interface PublishedCataloguePage {
+  readonly entries: readonly PublishedCatalogueEntry[];
+  readonly nextCursor?: string;
+}
+
+/**
+ * Enumerates what is published. **Published means `published`**: a draft, an
+ * item in review, one with changes requested, a suspended one and a retired one
+ * are none of them listed, because each of them is either not yet or no longer
+ * something to put in front of a student.
+ */
+export interface PublishedCatalogueReader {
+  list(criteria: PublishedCatalogueCriteria): Promise<Result<PublishedCataloguePage, RepositoryError>>;
+}

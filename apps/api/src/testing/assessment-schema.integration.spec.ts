@@ -27,7 +27,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await database.pool.query('TRUNCATE assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
+  await database.pool.query('TRUNCATE assessment.exposure_ledger_entry, assessment.anchor_pool_member, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
 });
 
 async function rows<T>(query: string, params: readonly unknown[] = []): Promise<T[]> {
@@ -66,7 +66,10 @@ describe('the assessment schema is its own', () => {
     expect(keys.filter((key) => key.from_schema !== 'assessment' || key.to_schema !== 'assessment')).toEqual([]);
     expect(keys.map((key) => `${key.from_table}->${key.to_table}`)).toEqual([
       'attempt->form',
+      'attempt->form',
       'attempt_slot->attempt',
+      'exposure_ledger_entry->form',
+      'exposure_ledger_entry->form_slot',
       'form_section->form',
       'form_slot->form_section',
       'response_event->attempt_slot',
@@ -118,14 +121,15 @@ describe('§12 — what cannot be reconstructed later cannot be null', () => {
          VALUES ($1, $2, 1, 90, $3, $4, 4)`, [id(TAG.slot, 90), formId, id(TAG.item, 90), id(TAG.itemVersion, 90)])),
     ).toContain('is_anchor');
 
-    await database.pool.query(`UPDATE assessment.form SET state = 'published', published_at = now() WHERE form_id = $1`, [formId]);
+    // a published form to hang the attempts on: published the way the database requires, through its pool and ledger
+    const publishedId = await seedForm(database.pool, { formId: id(TAG.form, 2), variant: 1 });
     const insert = (column: string, value: unknown) =>
       database.pool.query(
         `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
            delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
          SELECT $1, 'mock', $2, $3, $4, $5, '{}', ${column === 'session_id' ? '$6::uuid' : `'${id(TAG.session)}'::uuid`},
                 ${column === 'shift_id' ? '$6' : `'shift-1'`}, 1000, now(), now()`,
-        [id(TAG.student), formId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), value],
+        [id(TAG.student), publishedId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), value],
       );
     expect(await refusal(() => insert('session_id', null))).toContain('session_id');
     expect(await refusal(() => insert('shift_id', null))).toContain('shift_id');

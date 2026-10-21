@@ -71,10 +71,15 @@ export const GET_QUEUE_HEALTH_POLICY: AuthorizationPolicy = policy('GetQueueHeal
 /** M4-32, DEC-M4-2's operational half. Maintenance, the same surface as `SweepReviewAgeing` — nothing a reviewer triggers. */
 export const REFRESH_FINGERPRINTS_POLICY: AuthorizationPolicy = policy('RefreshFingerprints', DRAFT_OVERSIGHT_ROLES);
 
-/** M4-32. Both roles that touch a claimed item read its duplicate signal — the reviewer deciding, and Content Ops overseeing. */
+/**
+ * M4-32. Both roles that touch a claimed item read its duplicate signal — the reviewer deciding, and Content Ops overseeing.
+ * M6-17 adds `system`: form assembly asks the same question of the items it is choosing between, and uses content's own
+ * detection rather than a second implementation of it. It reads; it decides nothing about any item.
+ */
 export const GET_DUPLICATE_CANDIDATES_POLICY: AuthorizationPolicy = policy('GetDuplicateCandidates', [
   ROLES.reviewer,
   ROLES.contentOps,
+  ROLES.system,
 ]);
 
 /**

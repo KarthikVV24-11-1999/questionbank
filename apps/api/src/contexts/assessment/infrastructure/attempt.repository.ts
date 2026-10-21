@@ -161,6 +161,24 @@ export class PostgresAttemptRepository implements AttemptRepository {
     }
   }
 
+  async findAbandonable(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>> {
+    try {
+      const { rows } = await this.#pool.query<AttemptRow>(
+        `${SELECT_ATTEMPT} WHERE state IN ('created', 'in_progress') AND window_closes_at <= $1 ORDER BY window_closes_at, attempt_id LIMIT $2`,
+        [now, limit],
+      );
+      const attempts: Attempt[] = [];
+      for (const row of rows) {
+        const hydrated = await this.#hydrate(row);
+        if (!hydrated.ok) return hydrated;
+        attempts.push(hydrated.value);
+      }
+      return ok(Object.freeze(attempts));
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+  }
+
   async #hydrate(row: AttemptRow): Promise<Result<Attempt, RepositoryError>> {
     const slots = await this.#pool.query<SlotRow>(
       `SELECT slot_id, ordinal, item_id, item_version_id, stimulus_version_id

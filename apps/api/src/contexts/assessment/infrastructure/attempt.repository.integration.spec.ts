@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { TAG, aDraftForm, aPublishedForm, anAttempt, attemptProps, formSlots, id } from '../../../testing/assessment-fixtures.js';
+import { TAG, WITHIN_WINDOW, aDraftForm, anActiveForm, anAttempt, attemptProps, formSlots, id } from '../../../testing/assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
+import { storeActiveForm } from '../../../testing/assessment-store.js';
 import { abandonAttempt, createAttempt, startAttempt, submitAttempt } from '../domain/attempt.js';
 import { createAttemptFromForm } from '../domain/form.js';
 import { PostgresAttemptRepository } from './attempt.repository.js';
@@ -26,8 +27,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await database.pool.query('TRUNCATE assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
-  expectValue(await forms.save(aPublishedForm()));
+  await database.pool.query('TRUNCATE assessment.exposure_ledger_entry, assessment.anchor_pool_member, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
+  await storeActiveForm(database.pool);
 });
 
 describe('creating and finding an attempt', () => {
@@ -72,8 +73,9 @@ describe('creating and finding an attempt', () => {
   });
 
   it('creates from a published form and keeps the version pins the form had', async () => {
-    const form = aPublishedForm();
-    const fromForm = expectValue(createAttemptFromForm(form, { ...attemptProps(), createdAt: '2026-10-21T08:00:00.000Z' }));
+    const form = anActiveForm();
+    const { windowClosesAt: _supplied, ...withoutWindow } = attemptProps();
+    const fromForm = expectValue(createAttemptFromForm(form, { ...withoutWindow, createdAt: '2026-10-21T08:00:00.000Z' }, WITHIN_WINDOW));
     expectValue(await attempts.create(fromForm));
     const found = expectValue(await attempts.findById(id(TAG.attempt)));
     expect(found.slots.map((s) => s.itemVersionId)).toEqual([1, 2, 3, 4, 5, 6].map((n) => id(TAG.itemVersion, n)));
@@ -106,7 +108,7 @@ describe('creating and finding an attempt', () => {
     expectValue(await forms.save(draft));
     const failure = expectError(await attempts.create(anAttempt({ attemptId: id(TAG.attempt, 4), formId: id(TAG.form, 2) })));
     expect(failure.code).toBe('PERSISTENCE_REJECTED');
-    expect(failure.message).toContain('assessment_attempt_requires_published_form');
+    expect(failure.message).toContain('assessment_attempt_requires_active_form');
   });
 });
 
@@ -212,6 +214,56 @@ describe('moving along the state machine', () => {
   });
 });
 
+describe('finding attempts a closed window leaves behind', () => {
+  const AFTER = '2026-10-21T12:00:00.000Z';
+
+  it('finds live attempts whose window has closed, and not ones whose window is still open', async () => {
+    expectValue(await attempts.create(anAttempt()));
+    expect(expectValue(await attempts.findAbandonable('2026-10-21T11:59:59.999Z', 10))).toEqual([]);
+    const found = expectValue(await attempts.findAbandonable(AFTER, 10));
+    expect(found.map((a) => [a.attemptId, a.state])).toEqual([[id(TAG.attempt), 'created']]);
+  });
+
+  it('finds an in-progress attempt too, and the caller decides about its responses', async () => {
+    const created = anAttempt();
+    expectValue(await attempts.create(created));
+    expectValue(await attempts.save(expectValue(startAttempt(created, '2026-10-21T09:00:00.000Z')), 'created'));
+    const found = expectValue(await attempts.findAbandonable(AFTER, 10));
+    expect(found[0]!.state).toBe('in_progress');
+  });
+
+  it('does not find a submitted or an abandoned attempt, and honours the limit', async () => {
+    const created = anAttempt();
+    expectValue(await attempts.create(created));
+    expectValue(await attempts.save(expectValue(abandonAttempt(created, AFTER, 0)), 'created'));
+    expect(expectValue(await attempts.findAbandonable(AFTER, 10))).toEqual([]);
+    expectValue(await attempts.create(anAttempt({ attemptId: id(TAG.attempt, 2) })));
+    expect(expectValue(await attempts.findAbandonable(AFTER, 0))).toEqual([]);
+  });
+
+  it('closes the loop D54 left open: a created attempt whose window closed is found and then abandoned', async () => {
+    expectValue(await attempts.create(anAttempt()));
+    const [stale] = expectValue(await attempts.findAbandonable(AFTER, 10));
+    expectValue(await attempts.save(expectValue(abandonAttempt(stale!, AFTER, 0)), 'created'));
+    expect(expectValue(await attempts.findActiveMock(id(TAG.student)))).toBeUndefined();
+    expectValue(await attempts.create(anAttempt({ attemptId: id(TAG.attempt, 2) })));
+  });
+
+  it('refuses to load a stored attempt that no longer satisfies the domain', async () => {
+    expectValue(await attempts.create(anAttempt()));
+    await database.pool.query('ALTER TABLE assessment.attempt DISABLE TRIGGER attempt_guarded_update');
+    await database.pool.query('ALTER TABLE assessment.attempt DROP CONSTRAINT attempt_state_shape');
+    try {
+      await database.pool.query(`UPDATE assessment.attempt SET state = 'in_progress'`);
+      expect(expectError(await attempts.findAbandonable(AFTER, 10)).code).toBe('PERSISTENCE_REJECTED');
+    } finally {
+      await database.pool.query(`UPDATE assessment.attempt SET state = 'created'`);
+      await database.pool.query(SHAPE_CHECK);
+      await database.pool.query('ALTER TABLE assessment.attempt ENABLE TRIGGER attempt_guarded_update');
+    }
+  });
+});
+
 describe('what the store refuses', () => {
   it('reports a connection failure as a value', async () => {
     const { Pool } = await import('pg');
@@ -222,6 +274,7 @@ describe('what the store refuses', () => {
     expect(expectError(await broken.save(anAttempt(), 'created')).code).toBe('PERSISTENCE_REJECTED');
     expect(expectError(await broken.findById(id(TAG.attempt))).code).toBe('PERSISTENCE_REJECTED');
     expect(expectError(await broken.findActiveMock(id(TAG.student))).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await broken.findAbandonable('2026-10-21T12:00:00.000Z', 1)).code).toBe('PERSISTENCE_REJECTED');
     await pool.end().catch(() => undefined);
   });
 
