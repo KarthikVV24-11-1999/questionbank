@@ -38,7 +38,7 @@ describe('generation is downstream of content, and nothing points back (ADR-0025
     const contexts = new Set(
       upstreamContextFiles(API_ROOT).map((file) => /^src\/contexts\/([^/]+)\//u.exec(file)?.[1]),
     );
-    expect([...contexts].sort()).toEqual(['content', 'curriculum', 'scoring']);
+    expect([...contexts].sort()).toEqual(['assessment', 'content', 'curriculum', 'scoring']);
     expect(contexts.has(GENERATION_CONTEXT)).toBe(false);
   });
 });

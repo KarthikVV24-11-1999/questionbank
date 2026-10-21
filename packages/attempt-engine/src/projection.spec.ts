@@ -174,7 +174,7 @@ const arrivalOrderProjection: Projector = (events) => {
   };
 };
 
-describe('determinism — the load-bearing property', () => {
+describe('F49 — response projection is deterministic over shuffled event arrival order (ASSESSMENT-ENGINE §13)', () => {
   it('projects a shuffled but equivalent log to exactly the same answers, over many seeds', () => {
     expect(isDeterministic(projectResponses)).toBe(true);
   });

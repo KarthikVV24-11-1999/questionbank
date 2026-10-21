@@ -16,7 +16,7 @@ const EXPECTED_TRANSITIONS: readonly (readonly [AttemptState, AttemptTrigger, At
   ['created', 'submit_manual', null],
   ['created', 'submit_expiry', null],
   ['created', 'submit_recovered', null],
-  ['created', 'abandon', null],
+  ['created', 'abandon', 'abandoned'],
   ['in_progress', 'start', null],
   ['in_progress', 'submit_manual', 'submitted'],
   ['in_progress', 'submit_expiry', 'submitted'],
@@ -58,15 +58,20 @@ describe('the transition matrix', () => {
     expect(transition(from, trigger)).toBe(to);
   });
 
-  it('only three transitions leave in_progress and only one leaves created', () => {
+  it('exactly six transitions are permitted: one start, three submissions and an abandon from each live state', () => {
     const allowed = EXPECTED_TRANSITIONS.filter(([, , to]) => to !== null).map(([from, trigger]) => `${from}/${trigger}`);
     expect(allowed).toEqual([
       'created/start',
+      'created/abandon',
       'in_progress/submit_manual',
       'in_progress/submit_expiry',
       'in_progress/submit_recovered',
       'in_progress/abandon',
     ]);
+  });
+
+  it('created has a terminal edge (D53, ADR-0030): an attempt never started can end', () => {
+    expect(transition('created', 'abandon')).toBe('abandoned');
   });
 
   it('submitted and abandoned are terminal: no trigger leaves them', () => {

@@ -1,0 +1,208 @@
+import type { Pool, PoolClient } from 'pg';
+import { err, ok, type Result } from '../domain/result.js';
+import { restoreAttempt, type Attempt, type AttemptSlot, type SubmissionReason } from '../domain/attempt.js';
+import type { AttemptState } from '../domain/attempt-state.js';
+import type { AttemptRepository, RepositoryError } from '../domain/repository-ports.js';
+import { conflict, fromDatabaseError, notFound, persistenceRejected } from './repository-errors.js';
+
+interface AttemptRow {
+  readonly attempt_id: string;
+  readonly student_id: string;
+  readonly mode: 'mock' | 'diagnostic';
+  readonly form_id: string;
+  readonly exam_profile_version_id: string;
+  readonly marking_rule_set_hash: string;
+  readonly taxonomy_version_id: string;
+  readonly delivery_policy: Record<string, unknown>;
+  readonly session_id: string;
+  readonly shift_id: string;
+  readonly duration_ms: string;
+  readonly window_closes_at: Date;
+  readonly created_at: Date;
+  readonly state: AttemptState;
+  readonly started_at: Date | null;
+  readonly deadline_at: Date | null;
+  readonly submitted_at: Date | null;
+  readonly submission_reason: SubmissionReason | null;
+  readonly idempotency_key: string | null;
+  readonly abandoned_at: Date | null;
+}
+
+interface SlotRow {
+  readonly slot_id: string;
+  readonly ordinal: number;
+  readonly item_id: string;
+  readonly item_version_id: string;
+  readonly stimulus_version_id: string | null;
+}
+
+const SELECT_ATTEMPT = `SELECT attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash,
+       taxonomy_version_id, delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at,
+       state, started_at, deadline_at, submitted_at, submission_reason, idempotency_key, abandoned_at
+  FROM assessment.attempt`;
+
+const iso = (value: Date | null): string | null => (value === null ? null : value.toISOString());
+
+/**
+ * An attempt is written once with its slots, then only moves along the state
+ * machine. The unique index that holds "one active mock per student" does its
+ * work here: two attempts created at once for one student cannot both succeed,
+ * and the loser is told so as a `CONFLICT` rather than finding out later.
+ */
+export class PostgresAttemptRepository implements AttemptRepository {
+  readonly #pool: Pool;
+
+  constructor(pool: Pool) {
+    this.#pool = pool;
+  }
+
+  async create(attempt: Attempt): Promise<Result<Attempt, RepositoryError>> {
+    let client: PoolClient;
+    try {
+      client = await this.#pool.connect();
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+    // `#insert` returns a value whatever happens (it catches), so the connection is released on every path.
+    const outcome = await this.#insert(client, attempt);
+    client.release();
+    return outcome;
+  }
+
+  async #insert(client: PoolClient, attempt: Attempt): Promise<Result<Attempt, RepositoryError>> {
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO assessment.attempt
+           (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
+            delivery_policy, session_id, shift_id, duration_ms, window_closes_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          attempt.attemptId,
+          attempt.studentId,
+          attempt.mode,
+          attempt.formId,
+          attempt.examProfileVersionId,
+          attempt.markingRuleSetHash,
+          attempt.taxonomyVersionId,
+          JSON.stringify(attempt.deliveryPolicy),
+          attempt.sessionId,
+          attempt.shiftId,
+          attempt.durationMs,
+          attempt.windowClosesAt,
+          attempt.createdAt,
+        ],
+      );
+      for (const slot of attempt.slots) {
+        await client.query(
+          `INSERT INTO assessment.attempt_slot (attempt_id, slot_id, ordinal, item_id, item_version_id, stimulus_version_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [attempt.attemptId, slot.slotId, slot.ordinal, slot.itemId, slot.itemVersionId, slot.stimulusVersionId],
+        );
+      }
+      await client.query('COMMIT');
+      return ok(attempt);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      return err(fromDatabaseError(error));
+    }
+  }
+
+  async save(attempt: Attempt, expected: AttemptState): Promise<Result<Attempt, RepositoryError>> {
+    try {
+      const { rowCount } = await this.#pool.query(
+        `UPDATE assessment.attempt
+            SET state = $3, started_at = $4, deadline_at = $5, submitted_at = $6,
+                submission_reason = $7, idempotency_key = $8, abandoned_at = $9
+          WHERE attempt_id = $1 AND state = $2`,
+        [
+          attempt.attemptId,
+          expected,
+          attempt.state,
+          attempt.startedAt,
+          attempt.deadline,
+          attempt.submission?.submittedAt ?? null,
+          attempt.submission?.reason ?? null,
+          attempt.submission?.idempotencyKey ?? null,
+          attempt.abandonedAt,
+        ],
+      );
+      if (rowCount === 1) return ok(attempt);
+      const present = await this.#pool.query('SELECT state FROM assessment.attempt WHERE attempt_id = $1', [attempt.attemptId]);
+      return present.rows.length === 0
+        ? err(notFound('attempt', attempt.attemptId))
+        : err(conflict(`the attempt is no longer ${expected}`, 'state'));
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+  }
+
+  async findById(attemptId: string): Promise<Result<Attempt, RepositoryError>> {
+    try {
+      const { rows } = await this.#pool.query<AttemptRow>(`${SELECT_ATTEMPT} WHERE attempt_id = $1`, [attemptId]);
+      const row = rows[0];
+      return row === undefined ? err(notFound('attempt', attemptId)) : await this.#hydrate(row);
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+  }
+
+  async findActiveMock(studentId: string): Promise<Result<Attempt | undefined, RepositoryError>> {
+    try {
+      const { rows } = await this.#pool.query<AttemptRow>(
+        `${SELECT_ATTEMPT} WHERE student_id = $1 AND mode = 'mock' AND state IN ('created', 'in_progress')`,
+        [studentId],
+      );
+      const row = rows[0];
+      if (row === undefined) return ok(undefined);
+      return await this.#hydrate(row);
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+  }
+
+  async #hydrate(row: AttemptRow): Promise<Result<Attempt, RepositoryError>> {
+    const slots = await this.#pool.query<SlotRow>(
+      `SELECT slot_id, ordinal, item_id, item_version_id, stimulus_version_id
+         FROM assessment.attempt_slot WHERE attempt_id = $1 ORDER BY ordinal`,
+      [row.attempt_id],
+    );
+    const restored = restoreAttempt({
+      attemptId: row.attempt_id,
+      studentId: row.student_id,
+      mode: row.mode,
+      formId: row.form_id,
+      examProfileVersionId: row.exam_profile_version_id,
+      markingRuleSetHash: row.marking_rule_set_hash,
+      taxonomyVersionId: row.taxonomy_version_id,
+      deliveryPolicy: row.delivery_policy,
+      sessionId: row.session_id,
+      shiftId: row.shift_id,
+      slots: slots.rows.map<AttemptSlot>((slot) => ({
+        slotId: slot.slot_id,
+        ordinal: slot.ordinal,
+        itemId: slot.item_id,
+        itemVersionId: slot.item_version_id,
+        stimulusVersionId: slot.stimulus_version_id,
+      })),
+      durationMs: Number(row.duration_ms),
+      windowClosesAt: row.window_closes_at.toISOString(),
+      createdAt: row.created_at.toISOString(),
+      state: row.state,
+      startedAt: iso(row.started_at),
+      deadline: iso(row.deadline_at),
+      submission:
+        row.submitted_at === null
+          ? null
+          : {
+              reason: row.submission_reason as SubmissionReason,
+              idempotencyKey: row.idempotency_key as string,
+              submittedAt: row.submitted_at.toISOString(),
+            },
+      abandonedAt: iso(row.abandoned_at),
+    });
+    return restored.ok
+      ? ok(restored.value)
+      : err(persistenceRejected(`stored attempt ${row.attempt_id} no longer satisfies the domain: ${restored.error.code}`, restored.error.location));
+  }
+}

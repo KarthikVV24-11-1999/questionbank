@@ -161,6 +161,11 @@ created ──▶ in_progress ──┬──▶ submitted    (manual)
 | Session expiry never ends an attempt | The attempt token is bound to the attempt, not the session |
 | Recovery restores full state with elapsed time accounted | No recovery path may yield a lower score than the captured responses warrant |
 
+> **Correction, 2026-10-21 (ADR-0030).** The diagram above reaches `abandoned` only from `in_progress`, which left
+> an attempt created and never started with no way to end — and collided with the one-active-mock rule. `created`
+> also has an `abandon` edge, with the same condition: window closed, no responses. "Active" means `created` or
+> `in_progress`, a fact about the stored state and not about the clock.
+
 ---
 
 ## 6. Form Assembly

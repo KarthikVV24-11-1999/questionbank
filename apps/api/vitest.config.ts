@@ -533,6 +533,80 @@ export default defineConfig({
         },
         // M5 Track A. Correctness-bearing by ADR-0008: a candidate that can be
         // accepted unpinned, or out of order, is what INV-01 and F28 exist to stop.
+        // The assessment domain decides what a learner did and whether it counts: all of it is
+        // correctness-bearing (ADR-0008), so every module carries the threshold.
+        'src/contexts/assessment/domain/result.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/uuid.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/assessment-error.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/json-document.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/attempt-state.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/attempt.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/response-event.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/domain/form.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/infrastructure/repository-errors.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/infrastructure/form.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/infrastructure/attempt.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/infrastructure/response-log.repository.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/generation/domain/result.ts': {
           branches: 100,
           lines: 100,

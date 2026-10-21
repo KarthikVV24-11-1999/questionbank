@@ -604,6 +604,8 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
     F46: ['src/contexts/curriculum/domain/value-objects/marking-rule-set.spec.ts', 'ALWAYS'],
     F47: ['src/fitness/scoring-rules.spec.ts', 'F47'],
     F48: ['src/fitness/scoring-rules.spec.ts', 'F48'],
+    F49: ['../../packages/attempt-engine/src/projection.spec.ts', 'F49'],
+    F50: ['src/contexts/assessment/domain/form.spec.ts', 'F50'],
     /**
      * M4-42's four outstanding rows. Each is an existing gate whose *subject*
      * M4 widened — a review handler, a review route, a review workspace
@@ -622,7 +624,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
       return !existsSync(path) || !readFileSync(path, 'utf8').includes(phrase);
     });
     expect(wrong).toEqual([]);
-    expect(Object.keys(GATES)).toHaveLength(17);
+    expect(Object.keys(GATES)).toHaveLength(19);
   });
 
   // The phrase check is shown to fail, or it is a second existence check.

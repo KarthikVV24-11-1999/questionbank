@@ -345,26 +345,30 @@ carrying one of these through to a reviewer. The work is a bracket-balance rule 
 for optional arguments, or a ruling that the item is valid.
 **Cited** `apps/api/src/testing/eval/eval-corpus.ts`
 
-### D53 — An attempt that is created and never started has no terminal state
+### D54 — Nothing abandons a created attempt when its window closes
 
-ASSESSMENT-ENGINE §5's diagram runs `created` to `in_progress` to `abandoned`, so `abandon` is
-reachable only from `in_progress`. `attempt-state.ts` implements that faithfully, and in doing so
-exposes the gap: an attempt whose package was downloaded but which the student never began stays
-`created` for good. Nothing expires it and nothing abandons it.
+ADR-0030 gave `created` an `abandon` edge, guarded on the attempt's window having closed, and the
+domain implements that guard. No process yet applies it: there is no scheduler and no window-closing
+event, so a student whose mock window closed with a never-started attempt stays blocked from starting
+another mock until something abandons it by hand.
 
-That collides with §5's own integrity rule that there is **one active mock attempt per student**. If
-a `created` attempt counts as active, a student who opens a mock and walks away cannot start another
-one, and the rule that exists to remove ambiguity creates it instead.
-
-Fixing it means either an `abandon` edge from `created`, or a rule that a `created` attempt past its
-window is not active. Both change an approved document, so neither was taken in passing.
-
-**Trigger** Track B implementing "one active mock attempt per student", which is where the collision
-first bites, or the first attempt that needs expiring from `created`.
-**Cited** `packages/attempt-engine/src/attempt-state.ts`
+**Trigger** The scheduling track giving a form's window a closing moment the system acts on, or the first
+student reporting a mock they cannot start because of an attempt they never began.
+**Cited** `apps/api/src/contexts/assessment/domain/attempt.ts`
 
 
 ## Closed
+
+### D53 — An attempt that is created and never started has no terminal state *(closed at M6-09)*
+
+ASSESSMENT-ENGINE §5's diagram reached `abandoned` only from `in_progress`, so an attempt created and
+never started stayed `created` for good, which collided with the same section's one-active-mock rule.
+
+Closed by [ADR-0030](adr/ADR-0030-a-created-attempt-can-be-abandoned-and-active-is-a-state.md): `created`
+gets an `abandon` edge guarded on the window having closed, and "active" is defined by state alone so the
+rule can be a partial unique index. The window-closing half is not built; that is D54.
+
+**Cited** `packages/attempt-engine/src/attempt-state.ts`, `apps/api/src/contexts/assessment/domain/attempt-state.ts`
 
 ### D46 — A candidate that failed a blocking check stayed `proposed` for good *(closed at M5-40)*
 

@@ -197,8 +197,12 @@ describe('abandoning', () => {
     }
   });
 
-  it('is refused from created, submitted and abandoned by the transition table', () => {
-    for (const attempt of [createAttempt('a1'), submitted(), abandoned()]) {
+  it('closes a created attempt that was never started (D53, ADR-0030)', () => {
+    expect(ok(abandonAttempt(createAttempt('a1'))).state).toBe('abandoned');
+  });
+
+  it('is refused from submitted and abandoned by the transition table', () => {
+    for (const attempt of [submitted(), abandoned()]) {
       expect(abandonAttempt(attempt)).toMatchObject({ ok: false, reason: 'transition_prohibited', trigger: 'abandon' });
     }
   });

@@ -2,7 +2,8 @@
  * The attempt state machine (ASSESSMENT-ENGINE §5):
  *
  *   created ──▶ in_progress ──┬──▶ submitted   (manual | expiry | recovered)
- *                             └──▶ abandoned   (window closed, no responses)
+ *      │                      └──▶ abandoned   (window closed, no responses)
+ *      └───────────────────────────▶ abandoned   (window closed, never started)
  *
  * The transition table and the permission table are both written out in
  * full, one entry per pair, and typed so that a missing pair is a compile
@@ -17,11 +18,12 @@ export type AttemptTrigger = (typeof ATTEMPT_TRIGGERS)[number];
 /**
  * `null` is a prohibited transition.
  *
- * **`created` has no terminal edge — debt D53.** The spec's diagram reaches
- * `abandoned` only from `in_progress`, so an attempt whose package was
- * downloaded but never started stays `created` for good. That is faithful to
- * the diagram, and it collides with the same section's "one active mock
- * attempt per student" rule; changing either is a decision above this file.
+ * **`created` can be abandoned (ADR-0030, closing D53).** The diagram in
+ * ASSESSMENT-ENGINE §5 reached `abandoned` only from `in_progress`, which left
+ * an attempt that was downloaded and never started with no way to end. Its
+ * condition — "window closed, no responses" — is met exactly by such an
+ * attempt, so the edge exists; `created` is a state, and a state-only notion
+ * of "active" is what lets one active mock per student be enforced.
  */
 const TRANSITIONS: Readonly<Record<AttemptState, Readonly<Record<AttemptTrigger, AttemptState | null>>>> = {
   created: {
@@ -29,7 +31,7 @@ const TRANSITIONS: Readonly<Record<AttemptState, Readonly<Record<AttemptTrigger,
     submit_manual: null,
     submit_expiry: null,
     submit_recovered: null,
-    abandon: null,
+    abandon: 'abandoned',
   },
   in_progress: {
     start: null,

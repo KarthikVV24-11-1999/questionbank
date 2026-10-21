@@ -50,7 +50,9 @@ const APPEND_ONLY_CONTENT_TABLES = [
   'content.review_candidate_shown',
   'content.review_escalation',
 ];
-const UPDATE_ONLY_CONTENT_TABLES = ['content.review_assignment'];
+const UPDATE_ONLY_CONTENT_TABLES = ['content.review_assignment', 'assessment.attempt'];
+/** The assessment response log and the slots an attempt pinned: written once, never changed (M6-12). */
+const APPEND_ONLY_ASSESSMENT_TABLES = ['assessment.response_event', 'assessment.attempt_slot'];
 
 /**
  * Every schema the application owns, read from the catalogue rather than
@@ -82,6 +84,7 @@ describe('F5 — every JSONB column in every application schema has a version si
     // silently stopped reaching would shrink this, not pass.
     expect(Object.fromEntries([...jsonbBySchema].sort())).toEqual({
       ai: 3,
+      assessment: 3,
       content: 10,
       curriculum: 9,
       platform: 1,
@@ -136,11 +139,11 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
     expect(rows[0]?.canLogin).toBe(false);
   });
 
-  it('holds exactly the expected privilege set — SELECT/INSERT/UPDATE/DELETE on content/curriculum/scoring, SELECT/INSERT only on platform and ai', async () => {
+  it('holds exactly the expected privilege set — SELECT/INSERT/UPDATE/DELETE on content/curriculum/scoring, SELECT/INSERT only on platform, ai and the assessment log', async () => {
     const { rows } = await database.pool.query<GrantRow & { schema: string }>(
       `SELECT table_schema AS "schema", table_name AS "table", privilege_type AS "privilege", grantee AS "grantee"
          FROM information_schema.role_table_grants
-        WHERE grantee = $1 AND table_schema IN ('content', 'curriculum', 'scoring', 'platform', 'ai')`,
+        WHERE grantee = $1 AND table_schema IN ('content', 'curriculum', 'scoring', 'platform', 'ai', 'assessment')`,
       [APP_ROLE],
     );
 
@@ -156,7 +159,12 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
 
     for (const [table, privileges] of byTable) {
       expect(privileges.has('TRUNCATE'), table).toBe(false);
-      if (table.startsWith('platform.') || table.startsWith('ai.') || APPEND_ONLY_CONTENT_TABLES.includes(table)) {
+      if (
+        table.startsWith('platform.') ||
+        table.startsWith('ai.') ||
+        APPEND_ONLY_CONTENT_TABLES.includes(table) ||
+        APPEND_ONLY_ASSESSMENT_TABLES.includes(table)
+      ) {
         expect([...privileges].sort(), table).toEqual(['INSERT', 'SELECT']);
       } else if (UPDATE_ONLY_CONTENT_TABLES.includes(table)) {
         // review_assignment (M4-21): claimed, released, reassigned and
