@@ -7,7 +7,7 @@ import { addMilliseconds, isNonBlank, isNonNegativeInteger, isPositiveInteger, i
 describe('errors', () => {
   it('uses only kinds from the platform taxonomy', () => {
     expect(ASSESSMENT_ERROR_KINDS.filter((kind) => !ERROR_KINDS.includes(kind))).toEqual([]);
-    expect(ASSESSMENT_ERROR_KINDS).toHaveLength(5);
+    expect(ASSESSMENT_ERROR_KINDS).toHaveLength(6);
   });
 
   it.each([

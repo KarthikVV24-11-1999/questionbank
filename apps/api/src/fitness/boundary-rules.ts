@@ -1,12 +1,14 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { admittedPackages } from './pure-package-rules.js';
 import { importsOf } from './source-scan.js';
 
 /**
  * Architecture rules enforced as a fitness function (ENGINEERING-HANDBOOK §9).
  *
  *   F1 — cross-module imports go through `public/` barrels only
- *   F2 — `domain/` imports nothing but itself and the shared kernel
+ *   F2 — `domain/` imports nothing but itself, the shared kernel and a package meeting the
+ *        purity criterion in `pure-package-rules.ts` (ADR-0035)
  *
  * dependency-cruiser is the tool the task names, but it refuses to run on the
  * Node version in use here, so the rules are evaluated directly instead. The
@@ -26,6 +28,12 @@ export interface BoundaryCheckOptions {
   readonly excludePatterns?: readonly RegExp[];
   /** What counts as the domain layer. Overridden only to test the rule itself. */
   readonly domainPattern?: RegExp;
+  /**
+   * The workspace whose `packages/` hold the packages a `domain/` may import when they
+   * meet the purity criterion (ADR-0035). Defaults to the repository two levels above the
+   * root; overridden only to prove the criterion against a planted workspace.
+   */
+  readonly workspaceRoot?: string;
 }
 
 const DEFAULT_EXCLUDES = [/\.spec\.ts$/u, /^src\/testing\//u, /^src\/fitness-fixtures\//u, /^src\/fitness\//u];
@@ -102,6 +110,8 @@ export function checkBoundaries(root: string, options: BoundaryCheckOptions = {}
   const excludes = options.excludePatterns ?? DEFAULT_EXCLUDES;
   const domainPattern = options.domainPattern ?? /^src\/contexts\/[^/]+\/domain\//u;
   const violations: BoundaryViolation[] = [];
+  // Computed once per run, from the tree: a package that stops being pure stops being admitted.
+  const admitted = admittedPackages(options.workspaceRoot ?? resolve(root, '..', '..'));
 
   const files = includes
     .flatMap((directory) => walk(join(root, directory)))
@@ -133,12 +143,12 @@ export function checkBoundaries(root: string, options: BoundaryCheckOptions = {}
       if (insideDomain) {
         const staysInDomain =
           owningContext !== null && resolved?.startsWith(`src/contexts/${owningContext}/domain/`) === true;
-        if (!staysInDomain && !isSharedKernel(importPath) && !isPureNodeBuiltin(importPath)) {
+        if (!staysInDomain && !isSharedKernel(importPath) && !isPureNodeBuiltin(importPath) && !admitted.has(importPath)) {
           violations.push({
             rule: 'F2_DOMAIN_IMPORTS_NOTHING',
             file,
             importPath,
-            message: `${file} imports ${importPath}; domain/ imports nothing but itself and the shared kernel`,
+            message: `${file} imports ${importPath}; domain/ imports nothing but itself, the shared kernel and packages meeting the purity criterion`,
           });
         }
 

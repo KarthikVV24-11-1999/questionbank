@@ -20,6 +20,7 @@ import type { ApplicationContext } from '../ports.js';
 import {
   GetConceptPrerequisitesQuery,
   GetConceptSubtreeQuery,
+  GetExamProfilePinsQuery,
   GetExamProfileVersionQuery,
   GetMigrationDryRunQuery,
   GetTaxonomyVersionQuery,
@@ -410,5 +411,37 @@ describe('migration dry-run query', () => {
         await new GetMigrationDryRunQuery(deps).handle({ migrationId: randomUUID() }, contextFor(staff)),
       ).kind,
     ).toBe('NotFound');
+  });
+});
+
+describe('GetExamProfilePins — the seam read assessment makes (M6-30)', () => {
+  it('gives what an attempt pins and nothing else: the taxonomy, the marking hash, the length and the delivery policy', async () => {
+    const pins = expectValue(await new GetExamProfilePinsQuery(deps).handle({ profileVersionId }, contextFor(learner)));
+    expect(pins).toEqual({
+      profileVersionId,
+      state: 'published',
+      taxonomyVersionId: versionId,
+      markingRuleSetHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      totalDurationMinutes: 180,
+      sectionLocking: false,
+      autoSubmitOnExpiry: true,
+      crossSectionNavigation: true,
+      allowMarkForReview: true,
+      allowAnswerChange: true,
+      allowClearResponse: true,
+    });
+    // the public view of the same profile is unchanged: the seam added a read, not a field
+    const view = expectValue(await new GetExamProfileVersionQuery(deps).handle({ profileVersionId }, contextFor(learner)));
+    expect(Object.keys(view).sort()).toEqual(['academicYear', 'aggregateVersion', 'examId', 'itemTypeAllowances', 'markingRuleSet', 'markingRuleSetHash', 'profileVersionId', 'sections', 'state', 'taxonomyVersionId', 'totalMarks']);
+    expect(pins.markingRuleSetHash).toBe(view.markingRuleSetHash);
+  });
+
+  it('is for the readers curriculum names, and is NotFound for a profile that does not exist', async () => {
+    expect(expectError(await new GetExamProfilePinsQuery(deps).handle({ profileVersionId }, contextFor(stranger))).code).toBe('NOT_PERMITTED');
+    expect(expectError(await new GetExamProfilePinsQuery(deps).handle({ profileVersionId: randomUUID() }, contextFor(learner))).kind).toBe('NotFound');
+  });
+
+  it('is not one of the routed queries: it has no route, so the contracted public surface stays as it was', () => {
+    expect(HandlerRegistry.of(curriculumQueries(deps)).names).not.toContain('GetExamProfilePins');
   });
 });

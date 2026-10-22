@@ -12,7 +12,7 @@ import type { Result } from './result.js';
  * the dependency points inward. Infrastructure implements these; nothing here
  * knows how anything is stored.
  */
-export type RepositoryError = AssessmentError<'CONFLICT' | 'NOT_FOUND' | 'PERSISTENCE_REJECTED'>;
+export type RepositoryError = AssessmentError<'CONFLICT' | 'NOT_FOUND' | 'PERSISTENCE_REJECTED' | 'STORE_UNAVAILABLE'>;
 
 export interface FormRepository {
   /**
@@ -86,7 +86,10 @@ export interface AttemptRepository {
    * index, whoever raced whom; an attempt against a draft form is
    * `PERSISTENCE_REJECTED`.
    */
-  create(attempt: Attempt): Promise<Result<Attempt, RepositoryError>>;
+  create(attempt: Attempt, creationKey?: string): Promise<Result<Attempt, RepositoryError>>;
+
+  /** The attempt a student already created under this key, if any — what makes a retried create return the same attempt. */
+  findByCreationKey(studentId: string, creationKey: string): Promise<Result<Attempt | undefined, RepositoryError>>;
 
   /**
    * Records a move along the state machine. `expected` is the state the caller

@@ -1,3 +1,4 @@
+import type { Attempt } from '../domain/attempt.js';
 import type { Form } from '../domain/form.js';
 
 /**
@@ -64,5 +65,51 @@ export function toFormView(form: Form): FormView {
         }),
       ),
     ),
+  });
+}
+
+
+/**
+ * An attempt as its student sees it. **The deadline is the server's**, and `serverNow` lets the device compute its
+ * offset once and enforce locally against monotonic time. No slot, item version or key: the package carries what is shown.
+ */
+export interface AttemptView {
+  readonly attemptId: string;
+  readonly formId: string;
+  readonly mode: string;
+  readonly state: string;
+  readonly sessionRef: string;
+  readonly shiftId: string;
+  readonly slotCount: number;
+  readonly durationMs: number;
+  readonly windowClosesAt: string;
+  readonly startedAt: string | null;
+  readonly deadline: string | null;
+  readonly serverNow: string;
+  readonly submission: { readonly reason: string; readonly submittedAt: string; readonly pastDeadline: boolean } | null;
+}
+
+export function toAttemptView(attempt: Attempt, serverNow: string): AttemptView {
+  return Object.freeze({
+    attemptId: attempt.attemptId,
+    formId: attempt.formId,
+    mode: attempt.mode,
+    state: attempt.state,
+    sessionRef: attempt.sessionRef,
+    shiftId: attempt.shiftId,
+    slotCount: attempt.slots.length,
+    durationMs: attempt.durationMs,
+    windowClosesAt: attempt.windowClosesAt,
+    startedAt: attempt.startedAt,
+    deadline: attempt.deadline,
+    serverNow,
+    submission:
+      attempt.submission === null
+        ? null
+        : Object.freeze({
+            reason: attempt.submission.reason,
+            submittedAt: attempt.submission.submittedAt,
+            pastDeadline: attempt.deadline !== null && attempt.submission.submittedAt >= attempt.deadline,
+          }),
   });
 }

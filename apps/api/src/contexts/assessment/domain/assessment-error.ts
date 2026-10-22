@@ -29,6 +29,8 @@ export const ASSESSMENT_ERROR_KINDS = [
   'PreconditionFailed',
   /** The lifecycle itself forbids it — a transition the table does not allow, editing a published form. */
   'RuleViolation',
+  /** The store could not be reached. Retryable, and never the caller's fault — a device holds its events and tries again. */
+  'Unavailable',
 ] as const satisfies readonly ErrorKind[];
 
 export type AssessmentErrorKind = (typeof ASSESSMENT_ERROR_KINDS)[number];
@@ -64,3 +66,5 @@ export const preconditionFailedError = <Code extends string>(code: Code, message
   assessmentError('PreconditionFailed', code, message, location);
 export const ruleViolationError = <Code extends string>(code: Code, message: string, location?: string) =>
   assessmentError('RuleViolation', code, message, location);
+export const unavailableError = <Code extends string>(code: Code, message: string, location?: string) =>
+  assessmentError('Unavailable', code, message, location);

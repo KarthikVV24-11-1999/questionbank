@@ -100,8 +100,19 @@ describe('what curriculum offers generation', () => {
     expect(offered.taxonomyVersion.policy.allowedRoles).toContain('generation_pipeline');
   });
 
-  it('a composition module exports its register, its seam for generation, its in-memory executor, and nothing else at runtime', () => {
-    expect(Object.keys(curriculumComposition).sort()).toEqual(['InMemoryMigrationExecutor', 'curriculumForGeneration', 'register']);
+  it('a composition module exports its register, its two seams, its in-memory executor, and nothing else at runtime', () => {
+    expect(Object.keys(curriculumComposition).sort()).toEqual(['InMemoryMigrationExecutor', 'curriculumForAssessment', 'curriculumForGeneration', 'register']);
+  });
+});
+
+describe('what curriculum offers assessment', () => {
+  const offered = curriculumComposition.curriculumForAssessment({ pool, clock, identifiers, audit, principals });
+
+  it('is exactly one read, for learners among others, and no command', () => {
+    expect(Object.keys(offered)).toEqual(['examProfilePins']);
+    expect(offered.examProfilePins.name).toBe('GetExamProfilePins');
+    expect(offered.examProfilePins.policy.allowedRoles).toContain('learner');
+    expect(offered.examProfilePins.policy.allowedRoles).not.toContain('generation_pipeline');
   });
 });
 

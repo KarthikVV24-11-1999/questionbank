@@ -22,7 +22,7 @@ import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
 import { HealthModule } from '../http/health.module.js';
 import { contentForAssessment, contentForGeneration, register as registerContent } from '../../contexts/content/public/composition.js';
-import { curriculumForGeneration, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
+import { curriculumForAssessment, curriculumForGeneration, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
 import { register as registerAssessment } from '../../contexts/assessment/public/composition.js';
 import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
 import { register as registerScoring } from '../../contexts/scoring/public/composition.js';
@@ -172,6 +172,7 @@ export async function createApplication(
     audit,
     principals,
     content: contentForAssessment(contentDeps),
+    curriculum: curriculumForAssessment(curriculumDeps),
     ...(config.formPackageSigningKey === undefined ? {} : { packageSigningKey: config.formPackageSigningKey }),
   });
 

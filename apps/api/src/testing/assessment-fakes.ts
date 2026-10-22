@@ -7,7 +7,7 @@ import type { AttemptRepository, FormRepository, RepositoryError, ResponseLog } 
 import type { ResponseEvent } from '../contexts/assessment/domain/response-event.js';
 import type { JsonValue } from '../contexts/assessment/domain/form-package.js';
 import { Ed25519PackageSigner } from '../contexts/assessment/infrastructure/package-signer.js';
-import type { FormContentReader, FormCorpus, LoadedCorpus } from '../contexts/assessment/application/ports.js';
+import type { AttemptPins, AttemptPinSource, FormContentReader, FormCorpus, LoadedCorpus } from '../contexts/assessment/application/ports.js';
 import type { ApplicationError } from '../contexts/assessment/application/authorization.js';
 
 /**
@@ -76,12 +76,23 @@ export class InMemoryForms implements FormRepository {
 
 export class InMemoryAttempts implements AttemptRepository {
   readonly stored = new Map<string, Attempt>();
+  readonly creationKeys = new Map<string, string>();
   /** Attempt ids whose save is refused as stale. */
   readonly stale = new Set<string>();
+  /** When true, `findActiveMock` reports none even if one exists — so the store's own refusal is what a test meets. */
+  blindToActiveMock = false;
 
-  async create(attempt: Attempt): Promise<Result<Attempt, RepositoryError>> {
+  async create(attempt: Attempt, creationKey?: string): Promise<Result<Attempt, RepositoryError>> {
+    const live = [...this.stored.values()].find((a) => a.studentId === attempt.studentId && a.mode === 'mock' && (a.state === 'created' || a.state === 'in_progress'));
+    if (attempt.mode === 'mock' && live !== undefined) return err(conflictError('CONFLICT', 'a concurrent write got there first (attempt_one_active_mock_per_student)', 'attempt_one_active_mock_per_student'));
     this.stored.set(attempt.attemptId, attempt);
+    if (creationKey !== undefined) this.creationKeys.set(`${attempt.studentId}/${creationKey}`, attempt.attemptId);
     return ok(attempt);
+  }
+
+  async findByCreationKey(studentId: string, creationKey: string): Promise<Result<Attempt | undefined, RepositoryError>> {
+    const id = this.creationKeys.get(`${studentId}/${creationKey}`);
+    return ok(id === undefined ? undefined : this.stored.get(id));
   }
 
   async save(attempt: Attempt, expected: AttemptState): Promise<Result<Attempt, RepositoryError>> {
@@ -97,8 +108,9 @@ export class InMemoryAttempts implements AttemptRepository {
     return found === undefined ? err(notFoundError('NOT_FOUND', 'no attempt', 'attempt')) : ok(found);
   }
 
-  async findActiveMock(): Promise<Result<Attempt | undefined, RepositoryError>> {
-    return ok(undefined);
+  async findActiveMock(studentId?: string): Promise<Result<Attempt | undefined, RepositoryError>> {
+    if (this.blindToActiveMock) return ok(undefined);
+    return ok([...this.stored.values()].find((a) => a.studentId === studentId && a.mode === 'mock' && (a.state === 'created' || a.state === 'in_progress')));
   }
 
   failFindWith: RepositoryError | null = null;
@@ -113,16 +125,34 @@ export class InMemoryAttempts implements AttemptRepository {
   }
 }
 
+/**
+ * The response log as the database keeps it: idempotent on the event id, a different event under a used
+ * id is a conflict, and an event is classified against the attempt's state when it is stored — `submitted`
+ * makes it late, anything but in-progress or submitted refuses it. Given the attempts so that classification
+ * can be made; without them every event counts.
+ */
 export class InMemoryResponses implements ResponseLog {
   readonly answered = new Map<string, number>();
+  readonly events = new Map<string, ResponseEvent>();
   failFor: string | null = null;
 
+  constructor(private readonly attempts?: InMemoryAttempts) {}
+
   async append(event: ResponseEvent): Promise<Result<ResponseEvent, RepositoryError>> {
-    return ok(event);
+    const prior = this.events.get(event.eventId);
+    if (prior !== undefined) {
+      const same = JSON.stringify([prior.slotId, prior.sequence, prior.kind, prior.answer, prior.clientMonotonicMs, prior.deviceRef]) === JSON.stringify([event.slotId, event.sequence, event.kind, event.answer, event.clientMonotonicMs, event.deviceRef]);
+      return same ? ok(prior) : err(conflictError('CONFLICT', 'an event with this id was already recorded with different content', 'eventId'));
+    }
+    const state = this.attempts?.stored.get(event.attemptId)?.state ?? 'in_progress';
+    if (state !== 'in_progress' && state !== 'submitted') return err(conflictError('PERSISTENCE_REJECTED', `assessment_attempt_not_accepting_responses: attempt is ${state}`, 'assessment_attempt_not_accepting_responses'));
+    const stored = Object.freeze({ ...event, afterSubmission: state === 'submitted' });
+    this.events.set(event.eventId, stored);
+    return ok(stored);
   }
 
-  async findByAttempt(): Promise<Result<readonly ResponseEvent[], RepositoryError>> {
-    return ok([]);
+  async findByAttempt(attemptId: string): Promise<Result<readonly ResponseEvent[], RepositoryError>> {
+    return ok([...this.events.values()].filter((e) => e.attemptId === attemptId).sort((a, b) => a.sequence - b.sequence || (a.eventId < b.eventId ? -1 : 1)));
   }
 
   async answeredSlotCount(attemptId: string): Promise<Result<number, RepositoryError>> {
@@ -166,3 +196,21 @@ export class InMemoryContent implements FormContentReader {
 /** A fixed seed, so a test can pin a signature; never a real key. */
 export const TEST_SIGNING_SEED = Buffer.alloc(32, 7).toString('base64');
 export const aSigner = (seed = TEST_SIGNING_SEED) => new Ed25519PackageSigner(seed);
+
+/** The pins an attempt copies from a profile: a three-hour sitting, as JEE Main's is. */
+export const TEST_PINS: AttemptPins = Object.freeze({
+  taxonomyVersionId: '000000a5-0000-4000-8000-000000000001',
+  markingRuleSetHash: 'a'.repeat(64),
+  durationMs: 3 * 3_600_000,
+  deliveryPolicy: Object.freeze({ timing: Object.freeze({ totalDurationMinutes: 180 }) }),
+});
+
+export class StubPins implements AttemptPinSource {
+  readonly asked: string[] = [];
+  failWith: ApplicationError | null = null;
+
+  async pinsFor(examProfileVersionId: string): Promise<Result<AttemptPins, ApplicationError>> {
+    this.asked.push(examProfileVersionId);
+    return this.failWith === null ? ok(TEST_PINS) : err(this.failWith);
+  }
+}

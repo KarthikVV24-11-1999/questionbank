@@ -3,13 +3,18 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { toProblemDetails, validationProblem } from '../contexts/assessment/api/problem-details.js';
-import { assembleDraftFormSchema, formIdSchema, scheduleFormSchema } from '../contexts/assessment/api/dto/assessment-schemas.js';
+import { assembleDraftFormSchema, attemptIdSchema, createAttemptSchema, formIdSchema, ingestEventsSchema, scheduleFormSchema, submitAttemptSchema } from '../contexts/assessment/api/dto/assessment-schemas.js';
 import { composeAssessmentHandlers } from '../contexts/assessment/application/compose-handlers.js';
 import { HandlerRegistry, type Handler } from '../contexts/assessment/application/handler-registry.js';
 import {
   ASSEMBLE_DRAFT_FORM_POLICY,
   GET_FORM_PACKAGE_POLICY,
   GET_PACKAGE_SIGNING_KEY_POLICY,
+  CREATE_ATTEMPT_POLICY,
+  START_ATTEMPT_POLICY,
+  GET_ATTEMPT_POLICY,
+  INGEST_RESPONSE_EVENTS_POLICY,
+  SUBMIT_ATTEMPT_POLICY,
   GET_FORM_POLICY,
   PUBLISH_FORM_POLICY,
   SCHEDULE_FORM_POLICY,
@@ -17,7 +22,7 @@ import {
 } from '../contexts/assessment/application/policies.js';
 import { BLUEPRINT_DIFFICULTY_BANDS, BLUEPRINT_ITEM_TYPES } from '../contexts/assessment/domain/blueprint.js';
 import { FORM_STATES } from '../contexts/assessment/domain/form-state.js';
-import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, aSigner } from '../testing/assessment-fakes.js';
+import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, StubPins, aSigner } from '../testing/assessment-fakes.js';
 import { ROLES } from '../platform/auth/roles.js';
 
 const read = (relative: string): string => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
@@ -39,8 +44,8 @@ const document = (name: string): OpenApi => parse(read(`../../../../packages/con
 
 const declaredHandlers = Object.values(SPEC.paths).flatMap((item) => Object.values(item).map((operation) => operation['x-handler'] as string));
 const OPERATOR_HANDLERS = ['AssembleDraftForm', 'GetForm', 'PublishForm', 'ScheduleForm'];
-const STUDENT_HANDLERS = ['GetFormPackage', 'GetPackageSigningKey'];
-const POLICIES = [ASSEMBLE_DRAFT_FORM_POLICY, GET_FORM_PACKAGE_POLICY, GET_PACKAGE_SIGNING_KEY_POLICY, GET_FORM_POLICY, PUBLISH_FORM_POLICY, SCHEDULE_FORM_POLICY, SWEEP_WINDOWS_POLICY];
+const STUDENT_HANDLERS = ['GetFormPackage', 'GetPackageSigningKey', 'CreateAttempt', 'StartAttempt', 'GetAttempt', 'IngestResponseEvents', 'SubmitAttempt'];
+const POLICIES = [CREATE_ATTEMPT_POLICY, START_ATTEMPT_POLICY, GET_ATTEMPT_POLICY, INGEST_RESPONSE_EVENTS_POLICY, SUBMIT_ATTEMPT_POLICY, ASSEMBLE_DRAFT_FORM_POLICY, GET_FORM_PACKAGE_POLICY, GET_PACKAGE_SIGNING_KEY_POLICY, GET_FORM_POLICY, PUBLISH_FORM_POLICY, SCHEDULE_FORM_POLICY, SWEEP_WINDOWS_POLICY];
 const POLICY_BY_NAME = Object.fromEntries(POLICIES.map((entry) => [entry.name, entry]));
 
 /** The set difference both ways: what the document lists that it lacks, and what it has that the list lacks. */
@@ -51,8 +56,8 @@ function routeDrift(spec: Pick<OpenApi, 'paths' | 'x-assessment-routes'>): { rea
 }
 
 describe('F15 — every endpoint reconciles with a real handler', () => {
-  it('names a handler on every operation, and exactly these six: four an operator calls, two a student does', () => {
-    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(6);
+  it('names a handler on every operation, and exactly these eleven: four an operator calls, seven a student does', () => {
+    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(11);
     expect([...declaredHandlers].sort()).toEqual([...OPERATOR_HANDLERS, ...STUDENT_HANDLERS].sort());
   });
 
@@ -78,7 +83,7 @@ describe('F15 — every endpoint reconciles with a real handler', () => {
 
   it('registers every declared handler without boot failing', () => {
     const handlers = declaredHandlers.map((name) => ({ name, policy: POLICY_BY_NAME[name]!, async handle() { return { ok: true as const, value: undefined }; } }));
-    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(6);
+    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(11);
   });
 });
 
@@ -94,6 +99,7 @@ describe('the sweep has no route (D36)', () => {
       identifiers: { next: () => 'id' },
       audit: { record: async () => undefined },
       signer: aSigner(),
+      pins: new StubPins(),
     });
     const unrouted = registry.names.filter((name) => !declaredHandlers.includes(name));
     expect(unrouted).toEqual(['SweepWindows']);
@@ -111,7 +117,7 @@ describe('INV-01 — who may reach what', () => {
     }
   });
 
-  it('admits a learner to exactly the two student routes, and no guest to either', () => {
+  it('admits a learner to exactly the student routes, and no guest to either', () => {
     for (const name of STUDENT_HANDLERS) {
       expect(POLICY_BY_NAME[name]!.allowedRoles, name).toContain(ROLES.learner);
       expect(POLICY_BY_NAME[name]!.allowedRoles, name).not.toContain(ROLES.guest);
@@ -241,5 +247,39 @@ describe('Problem Details', () => {
 
   it('builds a validation problem', () => {
     expect(validationProblem('bad', 'corr')).toMatchObject({ status: 400, code: 'Validation', detail: 'bad' });
+  });
+});
+
+describe('the attempt routes\' validators', () => {
+  const attempt = '00000000-0000-4000-8000-000000000001';
+  const event = { eventId: 'e1', slot: 's1', sequence: 1, monotonicMs: 10, kind: 'select', answer: 'a' };
+
+  it('maps a device\'s events into drafts, defaulting the attempt and the answer', () => {
+    const parsed = ingestEventsSchema.parse({ attemptId: attempt, deviceRef: 'd', events: [event, { eventId: 'e2', attemptId: 'other', slot: 's1', sequence: 2, monotonicMs: 20, kind: 'visit' }] });
+    expect(parsed.events).toEqual([
+      { eventId: 'e1', attemptId: attempt, slotId: 's1', sequence: 1, kind: 'select', answer: 'a', clientMonotonicMs: 10, deviceRef: 'd' },
+      { eventId: 'e2', attemptId: 'other', slotId: 's1', sequence: 2, kind: 'visit', answer: null, clientMonotonicMs: 20, deviceRef: 'd' },
+    ]);
+  });
+
+  it('checks the envelope and leaves each event to the domain: an event with nonsense in it still passes through', () => {
+    expect(ingestEventsSchema.safeParse({ attemptId: attempt, deviceRef: 'd', events: [{ kind: 'ponder' }] }).success).toBe(true);
+    for (const bad of [{ events: [] }, { deviceRef: '' }, { events: [event], extra: 1 }, { events: Array.from({ length: 201 }, () => event) }]) {
+      expect(ingestEventsSchema.safeParse({ attemptId: attempt, deviceRef: 'd', events: [event], ...bad }).success).toBe(false);
+    }
+  });
+
+  it('ignores what a client sends that it cannot set, rather than refusing it', () => {
+    const parsed = createAttemptSchema.parse({ formId: attempt, sessionRef: 's', idempotencyKey: 'k', deadline: 'x', durationMs: 1, state: 'in_progress' });
+    expect(Object.keys(parsed).sort()).toEqual(['formId', 'idempotencyKey', 'sessionRef']);
+    expect(createAttemptSchema.safeParse({ formId: attempt, sessionRef: 's' }).success).toBe(false);
+  });
+
+  it('requires a reason from the three, and a key', () => {
+    expect(submitAttemptSchema.safeParse({ attemptId: attempt, reason: 'manual', idempotencyKey: 'k' }).success).toBe(true);
+    for (const bad of [{ reason: 'whenever' }, { idempotencyKey: '' }, { surprise: 1 }]) {
+      expect(submitAttemptSchema.safeParse({ attemptId: attempt, reason: 'manual', idempotencyKey: 'k', ...bad }).success).toBe(false);
+    }
+    expect(attemptIdSchema.safeParse({ attemptId: 'nope' }).success).toBe(false);
   });
 });

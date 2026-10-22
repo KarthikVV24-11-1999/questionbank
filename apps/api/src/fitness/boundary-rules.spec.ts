@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import { checkBoundaries, importsOf } from './boundary-rules.js';
+import { admittedPackages, assessPackage, assessWorkspace } from './pure-package-rules.js';
 import * as barrel from '../contexts/curriculum/public/index.js';
 
 const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -320,5 +322,61 @@ describe('the content barrel (M3-31)', () => {
       violation.file.startsWith('src/contexts/content/domain/'),
     );
     expect(violations).toEqual([]);
+  });
+});
+
+describe('ADR-0035 — a domain may import a package that meets the purity criterion, and only such a package', () => {
+  const FIXTURE_WORKSPACE = join(API_ROOT, 'src/fitness-fixtures/as-admission');
+  const WORKSPACE_ROOT = join(API_ROOT, '../..');
+  const planted = (file: string) =>
+    checkBoundaries(API_ROOT, {
+      include: ['src/fitness-fixtures/as-admission/domain'],
+      excludePatterns: [],
+      domainPattern: /^src\/fitness-fixtures\/as-admission\/domain\//u,
+      workspaceRoot: FIXTURE_WORKSPACE,
+    }).filter((violation) => violation.file.endsWith(file));
+
+  it('admits the attempt engine in the real workspace, and not the packages that carry a framework, a dependency or I/O', () => {
+    const real = new Map(assessWorkspace(WORKSPACE_ROOT).map((admission) => [admission.name, admission]));
+    expect(real.get('@questionbank/attempt-engine')).toMatchObject({ admitted: true, reasons: [] });
+    expect(real.get('@questionbank/content-renderer')?.admitted).toBe(false);
+    expect(real.get('@questionbank/contracts')?.admitted).toBe(false);
+    expect([...admittedPackages(WORKSPACE_ROOT)].sort()).toContain('@questionbank/attempt-engine');
+  });
+
+  it('lets a domain module import a pure package', () => {
+    expect(planted('imports-pure-kit.ts')).toEqual([]);
+  });
+
+  describe('is red on a package that does not meet the criterion — one planted per clause', () => {
+    it('a package that reads the wall clock', () => {
+      expect(planted('imports-impure-clock.ts').map((violation) => violation.rule)).toEqual(['F2_DOMAIN_IMPORTS_NOTHING']);
+      expect(assessPackage(join(FIXTURE_WORKSPACE, 'packages/impure-clock')).reasons.join(' ')).toContain('Date');
+    });
+
+    it('a package that declares a runtime dependency', () => {
+      expect(planted('imports-impure-deps.ts').map((violation) => violation.rule)).toEqual(['F2_DOMAIN_IMPORTS_NOTHING']);
+      expect(assessPackage(join(FIXTURE_WORKSPACE, 'packages/impure-deps')).reasons.join(' ')).toContain('left-pad');
+    });
+
+    it('a package whose source imports a builtin', () => {
+      expect(planted('imports-impure-import.ts').map((violation) => violation.rule)).toEqual(['F2_DOMAIN_IMPORTS_NOTHING']);
+      expect(assessPackage(join(FIXTURE_WORKSPACE, 'packages/impure-import')).reasons.join(' ')).toContain('node:fs');
+    });
+  });
+
+  it('still refuses a name no workspace package carries, and a deep import into an admitted one', () => {
+    const violations = checkBoundaries(API_ROOT, {
+      include: ['src/fitness-fixtures/as-admission/domain'],
+      excludePatterns: [],
+      domainPattern: /^src\/fitness-fixtures\/as-admission\/domain\//u,
+      workspaceRoot: join(FIXTURE_WORKSPACE, 'packages/pure-kit'),
+    });
+    expect(violations.filter((violation) => violation.file.endsWith('imports-pure-kit.ts')).map((violation) => violation.rule)).toEqual(['F2_DOMAIN_IMPORTS_NOTHING']);
+  });
+
+  it('spells the criterion out in one place and reads the same patterns F26 holds the engine to', () => {
+    const source = readFileSync(join(API_ROOT, 'src/fitness/pure-package-rules.ts'), 'utf8');
+    expect(source).toContain("from './frontend-rules.js'");
   });
 });

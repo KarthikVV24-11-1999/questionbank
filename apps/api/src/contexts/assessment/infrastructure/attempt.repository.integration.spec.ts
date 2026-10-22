@@ -270,11 +270,11 @@ describe('what the store refuses', () => {
     const pool = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
     pool.on('error', () => undefined);
     const broken = new PostgresAttemptRepository(pool);
-    expect(expectError(await broken.create(anAttempt())).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await broken.save(anAttempt(), 'created')).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await broken.findById(id(TAG.attempt))).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await broken.findActiveMock(id(TAG.student))).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await broken.findAbandonable('2026-10-21T12:00:00.000Z', 1)).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await broken.create(anAttempt())).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.save(anAttempt(), 'created')).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.findById(id(TAG.attempt))).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.findActiveMock(id(TAG.student))).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.findAbandonable('2026-10-21T12:00:00.000Z', 1)).code).toBe('STORE_UNAVAILABLE');
     await pool.end().catch(() => undefined);
   });
 

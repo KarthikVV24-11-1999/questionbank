@@ -8,6 +8,7 @@ const deps = (): AssessmentCompositionDeps => ({
   identifiers: { next: () => 'id' },
   audit: { record: async () => undefined },
   principals: { resolve: () => null },
+  curriculum: { examProfilePins: { handle: async () => ({ ok: false, error: { kind: 'NotFound', code: 'x', message: 'x' } }) } },
   content: {
     listCatalogue: { handle: async () => ({ ok: true, value: { entries: [] } }) },
     duplicates: { handle: async () => ({ ok: false, error: { kind: 'x', code: 'x', message: 'x' } }) },
@@ -24,7 +25,7 @@ describe('assessment composition', () => {
   });
 
   it('refuses at runtime for each required key, one at a time, even reached through a cast', () => {
-    for (const key of ['pool', 'clock', 'identifiers', 'audit', 'principals', 'content'] as const) {
+    for (const key of ['pool', 'clock', 'identifiers', 'audit', 'principals', 'content', 'curriculum'] as const) {
       const broken: Partial<Record<keyof AssessmentCompositionDeps, unknown>> = { ...deps() };
       delete broken[key];
       expect(() => register(broken as AssessmentCompositionDeps), key).toThrow(key);

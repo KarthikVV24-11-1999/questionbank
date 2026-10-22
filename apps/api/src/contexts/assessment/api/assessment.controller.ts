@@ -5,7 +5,7 @@ import type { ZodType } from 'zod';
 import type { ApplicationError } from '../application/authorization.js';
 import type { Handler, HandlerRegistry } from '../application/handler-registry.js';
 import type { ApplicationContext } from '../application/ports.js';
-import { assembleDraftFormSchema, formIdSchema, scheduleFormSchema } from './dto/assessment-schemas.js';
+import { assembleDraftFormSchema, attemptIdSchema, createAttemptSchema, formIdSchema, ingestEventsSchema, scheduleFormSchema, submitAttemptSchema } from './dto/assessment-schemas.js';
 import { statusForKind, toProblemDetails, validationProblem } from './problem-details.js';
 
 /** What a package is served as: its own type, so nothing mistakes it for an API response. */
@@ -70,7 +70,7 @@ export class AssessmentController {
     @Res() response: Response,
   ): Promise<void> {
     await this.run(response, headers, 'ScheduleForm', 200, () =>
-      this.parse(scheduleFormSchema, { ...(typeof body === 'object' && body !== null ? body : {}), formId }),
+      this.parse(scheduleFormSchema, { ...this.object(body), formId }),
     );
   }
 
@@ -86,9 +86,50 @@ export class AssessmentController {
     await this.run(response, headers, 'GetFormPackage', 200, () => this.parse(formIdSchema, { formId }), (value) => this.sendPackage(response, value));
   }
 
+  @Post('/v1/assessment/attempts')
+  async createAttempt(@Body() body: unknown, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'CreateAttempt', 201, () => this.parse(createAttemptSchema, { ...this.object(body), idempotencyKey: headers['idempotency-key'] }), undefined, (value) =>
+      (value as { replayed: boolean }).replayed ? 200 : 201,
+    );
+  }
+
+  @Get('/v1/assessment/attempts/:attemptId')
+  async getAttempt(@Param('attemptId') attemptId: string, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetAttempt', 200, () => this.parse(attemptIdSchema, { attemptId }));
+  }
+
+  @Post('/v1/assessment/attempts/:attemptId/start')
+  async startAttempt(@Param('attemptId') attemptId: string, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'StartAttempt', 200, () => this.parse(attemptIdSchema, { attemptId }));
+  }
+
+  @Post('/v1/assessment/attempts/:attemptId/events')
+  async ingestEvents(
+    @Param('attemptId') attemptId: string,
+    @Body() body: unknown,
+    @Headers() headers: Record<string, string>,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.run(response, headers, 'IngestResponseEvents', 200, () => this.parse(ingestEventsSchema, { ...this.object(body), attemptId }));
+  }
+
+  @Post('/v1/assessment/attempts/:attemptId/submission')
+  async submitAttempt(
+    @Param('attemptId') attemptId: string,
+    @Body() body: unknown,
+    @Headers() headers: Record<string, string>,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.run(response, headers, 'SubmitAttempt', 200, () => this.parse(submitAttemptSchema, { ...this.object(body), attemptId, idempotencyKey: headers['idempotency-key'] }));
+  }
+
   @Get('/v1/assessment/package-signing-key')
   async getPackageSigningKey(@Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
     await this.run(response, headers, 'GetPackageSigningKey', 200, () => ({ success: true, data: {} }));
+  }
+
+  private object(body: unknown): Record<string, unknown> {
+    return typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
   }
 
   private sendPackage(response: Response, value: unknown): void {
@@ -115,6 +156,7 @@ export class AssessmentController {
     successStatus: number,
     build: () => ParseOutcome,
     respond?: (value: unknown) => void,
+    statusFor?: (value: unknown) => number,
   ): Promise<void> {
     // Echoed on every response, error or not (§8).
     const correlationId = headers['x-correlation-id'] ?? randomUUID();
@@ -153,7 +195,7 @@ export class AssessmentController {
       respond(result.value);
       return;
     }
-    response.status(successStatus).json(result.value);
+    response.status(statusFor === undefined ? successStatus : statusFor(result.value)).json(result.value);
   }
 
   private fail(response: Response, error: ApplicationError, correlationId: string): void {

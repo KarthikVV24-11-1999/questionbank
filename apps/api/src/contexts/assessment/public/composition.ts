@@ -7,6 +7,7 @@ import type { AuditRecorder, Clock, IdentifierFactory } from '../application/por
 import { PostgresAnchorPoolRepository } from '../infrastructure/anchor-pool.repository.js';
 import { PostgresAttemptRepository } from '../infrastructure/attempt.repository.js';
 import { ContentCorpus, type CatalogueHandler, type DuplicatesHandler } from '../infrastructure/content-corpus.js';
+import { CurriculumPinSource, type ProfilePinsHandler } from '../infrastructure/curriculum-pin-source.js';
 import { ContentFormReader } from '../infrastructure/content-form-reader.js';
 import { PostgresExposureLedger } from '../infrastructure/exposure-ledger.repository.js';
 import { PostgresFormRepository } from '../infrastructure/form.repository.js';
@@ -35,6 +36,8 @@ export interface AssessmentCompositionDeps {
    * package routes answer as unavailable rather than serving bytes nothing vouches for.
    */
   readonly packageSigningKey?: string;
+  /** Curriculum's one read assessment makes — `curriculumForAssessment`, passed through. */
+  readonly curriculum: { readonly examProfilePins: ProfilePinsHandler };
   /** Content's handlers assessment may call — content's `contentForAssessment`, passed through. */
   readonly content: {
     readonly listCatalogue: CatalogueHandler;
@@ -44,7 +47,7 @@ export interface AssessmentCompositionDeps {
   };
 }
 
-const REQUIRED_DEPS_KEYS = ['pool', 'clock', 'identifiers', 'audit', 'principals', 'content'] as const satisfies readonly (keyof AssessmentCompositionDeps)[];
+const REQUIRED_DEPS_KEYS = ['pool', 'clock', 'identifiers', 'audit', 'principals', 'content', 'curriculum'] as const satisfies readonly (keyof AssessmentCompositionDeps)[];
 
 export function register(deps: AssessmentCompositionDeps): DynamicModule {
   for (const key of REQUIRED_DEPS_KEYS) {
@@ -64,6 +67,7 @@ export function register(deps: AssessmentCompositionDeps): DynamicModule {
       exposure: new PostgresExposureLedger(deps.pool),
     }),
     content: new ContentFormReader({ itemVersion: deps.content.itemVersion, stimulusVersion: deps.content.stimulusVersion }),
+    pins: new CurriculumPinSource(deps.curriculum.examProfilePins),
     clock: deps.clock,
     identifiers: deps.identifiers,
     audit: deps.audit,

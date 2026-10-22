@@ -145,6 +145,11 @@ are tested; none is invoked on a schedule, so a window's `active` or `closed` st
 is why creating an attempt asks both the state and the clock — and a never-started attempt stays live until
 something abandons it.
 
+**Since M6 Track E, one more.** An attempt whose deadline passes is submitted only if its device sends the expiry
+submission; if the device never returns, nothing submits it. That is the same missing caller as the rest — the sweep
+that abandons attempts a closed window left does not submit the ones an expired deadline left — and the attempt stays
+`in_progress`, counting against its student's one active mock, until something acts.
+
 **Trigger** A deployed environment with a scheduler.
 **Cited** `application/review/handlers/ageing-handlers.ts`, `application/review/queries/queue-queries.ts`,
 `contexts/content/domain/repository-ports.ts`, `fitness/platform-rules.ts`,
@@ -411,6 +416,18 @@ a given form's package should be verified with.
 **Trigger** The first need to replace the key, or a deployment with a key-management service: the public-key route then
 lists the keys in force, and a device keeps each it has seen.
 **Cited** `apps/api/src/contexts/assessment/infrastructure/package-signer.ts`
+
+
+### D60 — Submitting an attempt requests no scoring
+
+`SubmitAttempt` moves the attempt to `submitted`, once, however many times it is retried (the submission is idempotent on its
+key and the state change is one transition, audited once). It emits nothing: no outbox message is written and nothing is
+told to score. "Submitting twice scores once" is therefore true only in the sense that nothing is scored, and the guarantee
+that matters — that scoring is requested exactly once per submission — is untested because it does not exist.
+
+**Trigger** The outbox relay (D17): submission writes its event in the same transaction as the state change, and the relay's
+consumer is what asks scoring to run. Until then a result cannot be produced.
+**Cited** `apps/api/src/contexts/assessment/application/handlers/attempt-handlers.ts`
 
 
 ## Closed

@@ -144,9 +144,9 @@ describe('what the store refuses', () => {
     const broken = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
     broken.on('error', () => undefined);
     const repo = new PostgresAnchorPoolRepository(broken);
-    expect(expectError(await repo.add(member(1))).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await repo.retire(id(TAG.itemVersion, 1), '2026-11-01T00:00:00.000Z')).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await repo.listActive()).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await repo.add(member(1))).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await repo.retire(id(TAG.itemVersion, 1), '2026-11-01T00:00:00.000Z')).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await repo.listActive()).code).toBe('STORE_UNAVAILABLE');
     await broken.end().catch(() => undefined);
   });
 });

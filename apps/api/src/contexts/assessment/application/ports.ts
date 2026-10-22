@@ -86,3 +86,19 @@ export interface PackageSigner {
   readonly publicKey: string;
   sign(bytes: Uint8Array): SignedPackage;
 }
+
+/** What an attempt copies from the exam profile version its form was built for (INV-04), and the length of the sitting. */
+export interface AttemptPins {
+  readonly taxonomyVersionId: string;
+  readonly markingRuleSetHash: string;
+  readonly durationMs: number;
+  readonly deliveryPolicy: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Where the pins come from. An outbound port: the adapter behind it calls curriculum through the
+ * seam the composition root passes, and the application layer names no curriculum handler.
+ */
+export interface AttemptPinSource {
+  pinsFor(examProfileVersionId: string, context: ApplicationContext): Promise<Result<AttemptPins, ApplicationError>>;
+}

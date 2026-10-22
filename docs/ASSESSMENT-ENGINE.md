@@ -133,6 +133,8 @@ The `ResponseEvent` log is authoritative; "the answer" is derived.
 | A duplicate `event_id` is silently ignored | Idempotent replay is the sync protocol's core property. |
 | Events arriving after submission are recorded but excluded from scoring | Preserve the record; protect the result. |
 
+*Note, M6 Track E ([ADR-0035](adr/ADR-0035-rel-06-lives-in-the-attempt-engine-and-a-pure-package-may-enter-a-domain.md)).* The server's merge is the engine's, not a second implementation: the server's domain imports `mergeLogs` and `projectResponses` from the attempt engine, which a domain may do because the package is pure. An event arriving after submission is answered `late` rather than refused ([ADR-0036](adr/ADR-0036-the-attempt-lifecycle-is-the-students-and-an-outage-is-a-503.md)).
+
 ---
 
 ## 5. Attempt State Machine

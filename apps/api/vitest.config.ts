@@ -685,6 +685,24 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        'src/contexts/assessment/domain/response-log.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/application/handlers/attempt-handlers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/infrastructure/curriculum-pin-source.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/assessment/domain/result.ts': {
           branches: 100,
           lines: 100,

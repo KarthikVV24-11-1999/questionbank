@@ -37,9 +37,15 @@ x-assessment-routes:
   - /v1/assessment/forms/{formId}/schedule
   - /v1/assessment/forms/{formId}/package
   - /v1/assessment/package-signing-key
+  - /v1/assessment/attempts
+  - /v1/assessment/attempts/{attemptId}
+  - /v1/assessment/attempts/{attemptId}/start
+  - /v1/assessment/attempts/{attemptId}/events
+  - /v1/assessment/attempts/{attemptId}/submission
 
 tags:
   - name: forms
+  - name: attempts
 
 paths:
   /v1/assessment/forms:
@@ -223,8 +229,180 @@ paths:
         '403': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 
+  /v1/assessment/attempts:
+    post:
+      operationId: createAttempt
+      x-handler: CreateAttempt
+      summary: A student creates an attempt on an active form
+      description: |
+        Needs `Idempotency-Key`: the same key again returns the attempt it already made (`200`) and never a second
+        (`201` is the first). The key naming a different form or session is `409 IDEMPOTENCY_KEY_REUSED`.
+
+        Refused, each with its own `reason`: the form is not active (`FORM_NOT_OPEN_FOR_ATTEMPTS`), its window is not
+        open at this moment (`FORM_WINDOW_NOT_YET_OPEN`, `FORM_WINDOW_CLOSED`), the session was not one the form was
+        published for (`FORM_SESSION_NOT_PUBLISHED_FOR`), or the student already has an active mock attempt
+        (`409 ACTIVE_MOCK_ATTEMPT_EXISTS`, naming it). **The deadline, duration and window are the server's**: a body
+        that sends one has it ignored.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAttemptRequest' }
+      responses:
+        '201':
+          description: The attempt was created.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedAttempt' }
+        '200':
+          description: This key had already created the attempt; here it is.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedAttempt' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/attempts/{attemptId}:
+    get:
+      operationId: getAttempt
+      x-handler: GetAttempt
+      summary: The student's own attempt, with the server's clock reading
+      description: Someone else's attempt is `404`, the same answer as one that does not exist.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The attempt.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attempt' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/attempts/{attemptId}/start:
+    post:
+      operationId: startAttempt
+      x-handler: StartAttempt
+      summary: Start the attempt and anchor its deadline
+      description: |
+        The deadline is the server's clock plus the sitting's length, fixed here and never recomputed. Starting a
+        started attempt returns it as it is.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The attempt, started.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attempt' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/attempts/{attemptId}/events:
+    post:
+      operationId: ingestResponseEvents
+      x-handler: IngestResponseEvents
+      summary: Send a batch of response events, answered one by one
+      description: |
+        Append-only and idempotent on `eventId`: sending an event again changes nothing, and delivery in any order
+        converges to the same log. Each event is answered: `accepted`, `late` (the attempt was already submitted — kept,
+        excluded from scoring), `replayed` (already held), or `rejected` with a `code`. `acknowledged` lists the ids a
+        device may drop from its queue; a rejected event is not among them. An attempt that is not in progress or
+        submitted takes no events at all (`422 ATTEMPT_NOT_ACCEPTING_RESPONSES`).
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventBatch' }
+      responses:
+        '200':
+          description: One answer per event.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestReport' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/attempts/{attemptId}/submission:
+    post:
+      operationId: submitAttempt
+      x-handler: SubmitAttempt
+      summary: Submit the attempt
+      description: |
+        Needs `Idempotency-Key`: the same key again returns the submission that exists and changes nothing; a different
+        key on a submitted attempt is `409`. The reason is the caller's and is never relabelled: `expiry` is refused
+        before the deadline, and a `manual` submission after it is recorded as `manual` with `pastDeadline` true.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitRequest' }
+      responses:
+        '200':
+          description: The attempt, submitted.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attempt' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
 components:
   parameters:
+    AttemptId:
+      name: attemptId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
     FormId:
       name: formId
       in: path
@@ -251,6 +429,90 @@ components:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
 
   schemas:
+    CreateAttemptRequest:
+      type: object
+      required: [formId, sessionRef]
+      properties:
+        formId: { type: string, format: uuid }
+        sessionRef: { type: string, minLength: 1 }
+        shiftId: { type: string, minLength: 1, description: Defaults to the session. }
+
+    Attempt:
+      type: object
+      required: [attemptId, formId, mode, state, sessionRef, shiftId, slotCount, durationMs, windowClosesAt, startedAt, deadline, serverNow, submission]
+      properties:
+        attemptId: { type: string, format: uuid }
+        formId: { type: string, format: uuid }
+        mode: { type: string, enum: [mock, diagnostic] }
+        state: { type: string, enum: [created, in_progress, submitted, abandoned] }
+        sessionRef: { type: string }
+        shiftId: { type: string }
+        slotCount: { type: integer }
+        durationMs: { type: integer }
+        windowClosesAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        deadline: { type: [string, 'null'], format: date-time, description: The server's, fixed at start. }
+        serverNow: { type: string, format: date-time, description: For the device to compute its clock offset once. }
+        submission:
+          type: [object, 'null']
+          required: [reason, submittedAt, pastDeadline]
+          properties:
+            reason: { type: string, enum: [manual, expiry, recovered] }
+            submittedAt: { type: string, format: date-time }
+            pastDeadline: { type: boolean }
+
+    CreatedAttempt:
+      type: object
+      required: [attempt, replayed]
+      properties:
+        attempt: { $ref: '#/components/schemas/Attempt' }
+        replayed: { type: boolean }
+
+    EventBatch:
+      type: object
+      required: [deviceRef, events]
+      properties:
+        deviceRef: { type: string, minLength: 1 }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: object
+            description: An event as the attempt engine produces it. Validated one by one, not as a whole.
+            properties:
+              eventId: { type: string, format: uuid }
+              attemptId: { type: string, format: uuid }
+              slot: { type: string, format: uuid }
+              sequence: { type: integer, minimum: 0 }
+              monotonicMs: { type: integer, minimum: 0 }
+              kind: { type: string, enum: [select, change, clear, visit, leave, flag, unflag] }
+              answer: {}
+
+    IngestReport:
+      type: object
+      required: [attemptId, state, results, acknowledged]
+      properties:
+        attemptId: { type: string, format: uuid }
+        state: { type: string }
+        results:
+          type: array
+          items:
+            type: object
+            required: [eventId, outcome]
+            properties:
+              eventId: { type: string }
+              outcome: { type: string, enum: [accepted, late, replayed, rejected] }
+              code: { type: string }
+              message: { type: string }
+        acknowledged: { type: array, items: { type: string } }
+
+    SubmitRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [manual, expiry, recovered] }
+
     PackageSigningKey:
       type: object
       required: [algorithm, keyId, publicKey]

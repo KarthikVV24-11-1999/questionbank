@@ -51,3 +51,56 @@ export const scheduleFormSchema = z
     closesAt: z.string().datetime({ offset: false }),
   })
   .strict();
+
+/**
+ * The student's attempt routes (M6-30 to M6-34).
+ *
+ * **Nothing here can set a deadline, a duration or a window**, and this schema does not refuse them either: an
+ * unknown field is dropped, so a client that sends `deadline` or `durationMs` is ignored rather than rejected —
+ * the server's own are what the attempt carries, and a spec sends them to prove it. The idempotency key is the
+ * `Idempotency-Key` header, joined to the body by the controller.
+ */
+const idempotencyKey = z.string().min(1).max(200);
+
+export const createAttemptSchema = z.object({
+  formId: uuid,
+  sessionRef: z.string().min(1),
+  shiftId: z.string().min(1).optional(),
+  idempotencyKey,
+});
+
+export const attemptIdSchema = z.object({ attemptId: uuid }).strict();
+
+export const submitAttemptSchema = z
+  .object({
+    attemptId: uuid,
+    reason: z.enum(['manual', 'expiry', 'recovered']),
+    idempotencyKey,
+  })
+  .strict();
+
+/**
+ * A batch of events from a device, in the shape the attempt engine produces (`slot`, `monotonicMs`). Only the
+ * envelope is checked here: each event is validated one by one by the domain, so one malformed event is refused
+ * alone, with its reason, and the rest of a three-hour log is not rejected with it.
+ */
+export const ingestEventsSchema = z
+  .object({
+    attemptId: uuid,
+    deviceRef: z.string().min(1),
+    events: z.array(z.record(z.string(), z.unknown())).min(1).max(200),
+  })
+  .strict()
+  .transform(({ attemptId, deviceRef, events }) => ({
+    attemptId,
+    events: events.map((event) => ({
+      eventId: event['eventId'] as string,
+      attemptId: (event['attemptId'] ?? attemptId) as string,
+      slotId: event['slot'] as string,
+      sequence: event['sequence'] as number,
+      kind: event['kind'] as 'select',
+      answer: (event['answer'] ?? null) as string | number | readonly (string | number)[] | null,
+      clientMonotonicMs: event['monotonicMs'] as number,
+      deviceRef,
+    })),
+  }));

@@ -1,4 +1,3 @@
-import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { expectValue } from '../../testing/expect-result.js';
 import { formProps } from '../../testing/assessment-fixtures.js';
@@ -122,7 +121,7 @@ function fullForm(repeat: number) {
 const measure = (repeat: number) => {
   const { active, items, stimuli } = fullForm(repeat);
   const built = expectValue(buildFormPackage(active, { items, stimuli }));
-  return { raw: built.bytes.length, gzip: gzipSync(built.bytes).length, slots: built.slotIds.length, stimuli: stimuli.size };
+  return { raw: built.bytes.length, slots: built.slotIds.length, stimuli: stimuli.size };
 };
 
 describe('M6-27 — the package size budget', () => {
@@ -133,19 +132,18 @@ describe('M6-27 — the package size budget', () => {
   });
 
   it('is at most 3 MB for a realistic 75-item form, and the figure is stated', () => {
-    const { raw, gzip, slots, stimuli } = measure(1);
-    // gzip is reported, not asserted against a budget: this generated text repeats itself, so it compresses far better than real prose would.
+    const { raw, slots, stimuli } = measure(1);
+    // Raw bytes only. A compressed figure would mean nothing here: the generated text repeats itself, so it would compress far better than prose does.
     // eslint-disable-next-line no-console
-    console.log(`M6-27 package size: ${slots} items, ${stimuli} stimuli — ${raw} bytes (${(raw / 1024).toFixed(1)} KiB) raw, ${gzip} bytes (${(gzip / 1024).toFixed(1)} KiB) gzip`);
+    console.log(`M6-27 package size: ${slots} items, ${stimuli} stimuli — ${raw} bytes (${(raw / 1024).toFixed(1)} KiB) raw`);
     expect(slots).toBe(75);
     expect(raw).toBeLessThanOrEqual(BUDGET_BYTES);
-    expect(gzip).toBeLessThan(raw);
   });
 
   it('still fits with every text ten times longer: the pass is not a pass by a hair', () => {
     const heavy = measure(10);
     // eslint-disable-next-line no-console
-    console.log(`M6-27 package size at ten times the text: ${heavy.raw} bytes (${(heavy.raw / 1024).toFixed(1)} KiB) raw, ${heavy.gzip} bytes gzip`);
+    console.log(`M6-27 package size at ten times the text: ${heavy.raw} bytes (${(heavy.raw / 1024).toFixed(1)} KiB) raw`);
     expect(heavy.raw).toBeLessThanOrEqual(BUDGET_BYTES);
     expect(heavy.raw).toBeGreaterThan(measure(1).raw);
   });

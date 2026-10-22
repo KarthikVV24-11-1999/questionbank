@@ -217,9 +217,9 @@ describe('scheduling, opening and closing', () => {
     const broken = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
     broken.on('error', () => undefined);
     const repo = new PostgresFormRepository(broken);
-    expect(expectError(await repo.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING)).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await repo.findDueToOpen(WINDOW.opensAt, 1)).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await repo.findDueToClose(WINDOW.opensAt, 1)).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await repo.schedule(id(TAG.form), WINDOW, NOW_SCHEDULING)).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await repo.findDueToOpen(WINDOW.opensAt, 1)).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await repo.findDueToClose(WINDOW.opensAt, 1)).code).toBe('STORE_UNAVAILABLE');
     await broken.end().catch(() => undefined);
   });
 
@@ -265,10 +265,10 @@ describe('what the store refuses', () => {
     expect((await database.pool.query(`SELECT count(*)::int AS n FROM assessment.form_section`)).rows[0]).toEqual({ n: 2 });
   });
 
-  it('reports a rejected write as a value, never an exception', async () => {
+  it('reports an unreachable store as a value on a write and on a read, never an exception', async () => {
     const closed = new PostgresFormRepository(await brokenPool());
-    expect(expectError(await closed.save(aDraftForm())).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await closed.findById(id(TAG.form))).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await closed.save(aDraftForm())).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await closed.findById(id(TAG.form))).code).toBe('STORE_UNAVAILABLE');
   });
 
   it('refuses to load a stored form that no longer satisfies the domain', async () => {

@@ -32,4 +32,17 @@ describe('repository errors', () => {
     expect(fromDatabaseError({ code: '23001', message: 'some other restriction' }).message).toBe('the store rejected the write (23001)');
     expect(fromDatabaseError({ code: '23001' }).message).toBe('the store rejected the write (23001)');
   });
+
+  it('reports a store that cannot be reached as Unavailable — retryable, and not a rejection of what was sent', () => {
+    for (const code of ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EHOSTUNREACH', '53300', '57P01', '57P02', '57P03', '08006', '08001']) {
+      expect(fromDatabaseError({ code, message: 'connect secret 10.0.0.1:5432' }), code).toEqual({
+        kind: 'Unavailable',
+        code: 'STORE_UNAVAILABLE',
+        message: 'the store could not be reached; try again',
+        location: 'store',
+      });
+    }
+    // an error that merely resembles one is not: a constraint is the caller's to hear about
+    expect(fromDatabaseError({ code: '23503', constraint: 'x' }).kind).toBe('Validation');
+  });
 });

@@ -121,11 +121,11 @@ describe('publication writes the ledger, in the same transaction as the state ch
     const { Pool } = await import('pg');
     const broken = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
     broken.on('error', () => undefined);
-    expect(expectError(await new PostgresFormRepository(broken).publish(id(TAG.form), PUBLISHED_AT)).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await new PostgresFormRepository(broken).publish(id(TAG.form), PUBLISHED_AT)).code).toBe('STORE_UNAVAILABLE');
     const reader = new PostgresExposureLedger(broken);
-    expect(expectError(await reader.countsByItemVersion([])).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await reader.entriesForForm(id(TAG.form))).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await reader.exposureBySession([])).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await reader.countsByItemVersion([])).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await reader.entriesForForm(id(TAG.form))).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await reader.exposureBySession([])).code).toBe('STORE_UNAVAILABLE');
     await broken.end().catch(() => undefined);
   });
 });

@@ -35,3 +35,15 @@ export const GET_FORM_PACKAGE_POLICY: AuthorizationPolicy = policy('GetFormPacka
 
 /** The public half of the package signing key. Public by nature; the policy only keeps it behind sign-in like every other route. */
 export const GET_PACKAGE_SIGNING_KEY_POLICY: AuthorizationPolicy = policy('GetPackageSigningKey', [ROLES.learner, ROLES.contentOps, ROLES.system]);
+
+/**
+ * A student's own attempt: creating it, starting it, reading it, sending events to it and submitting it. Each names
+ * `learner` and no one else — an operator does not sit a student's attempt and the system has nothing to do to one
+ * here — and each handler then checks the attempt is **the caller's own**, answering NotFound for anyone else's so
+ * its existence is not disclosed.
+ */
+export const CREATE_ATTEMPT_POLICY: AuthorizationPolicy = policy('CreateAttempt', [ROLES.learner]);
+export const START_ATTEMPT_POLICY: AuthorizationPolicy = policy('StartAttempt', [ROLES.learner]);
+export const GET_ATTEMPT_POLICY: AuthorizationPolicy = policy('GetAttempt', [ROLES.learner]);
+export const INGEST_RESPONSE_EVENTS_POLICY: AuthorizationPolicy = policy('IngestResponseEvents', [ROLES.learner]);
+export const SUBMIT_ATTEMPT_POLICY: AuthorizationPolicy = policy('SubmitAttempt', [ROLES.learner]);

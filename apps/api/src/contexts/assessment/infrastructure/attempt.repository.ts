@@ -56,7 +56,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
     this.#pool = pool;
   }
 
-  async create(attempt: Attempt): Promise<Result<Attempt, RepositoryError>> {
+  async create(attempt: Attempt, creationKey?: string): Promise<Result<Attempt, RepositoryError>> {
     let client: PoolClient;
     try {
       client = await this.#pool.connect();
@@ -64,19 +64,19 @@ export class PostgresAttemptRepository implements AttemptRepository {
       return err(fromDatabaseError(error));
     }
     // `#insert` returns a value whatever happens (it catches), so the connection is released on every path.
-    const outcome = await this.#insert(client, attempt);
+    const outcome = await this.#insert(client, attempt, creationKey);
     client.release();
     return outcome;
   }
 
-  async #insert(client: PoolClient, attempt: Attempt): Promise<Result<Attempt, RepositoryError>> {
+  async #insert(client: PoolClient, attempt: Attempt, creationKey: string | undefined): Promise<Result<Attempt, RepositoryError>> {
     try {
       await client.query('BEGIN');
       await client.query(
         `INSERT INTO assessment.attempt
            (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-            delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+            delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at, creation_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           attempt.attemptId,
           attempt.studentId,
@@ -91,6 +91,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
           attempt.durationMs,
           attempt.windowClosesAt,
           attempt.createdAt,
+          creationKey ?? null,
         ],
       );
       for (const slot of attempt.slots) {
@@ -142,6 +143,16 @@ export class PostgresAttemptRepository implements AttemptRepository {
       const { rows } = await this.#pool.query<AttemptRow>(`${SELECT_ATTEMPT} WHERE attempt_id = $1`, [attemptId]);
       const row = rows[0];
       return row === undefined ? err(notFound('attempt', attemptId)) : await this.#hydrate(row);
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+  }
+
+  async findByCreationKey(studentId: string, creationKey: string): Promise<Result<Attempt | undefined, RepositoryError>> {
+    try {
+      const { rows } = await this.#pool.query<AttemptRow>(`${SELECT_ATTEMPT} WHERE student_id = $1 AND creation_key = $2`, [studentId, creationKey]);
+      const row = rows[0];
+      return row === undefined ? ok(undefined) : await this.#hydrate(row);
     } catch (error) {
       return err(fromDatabaseError(error));
     }

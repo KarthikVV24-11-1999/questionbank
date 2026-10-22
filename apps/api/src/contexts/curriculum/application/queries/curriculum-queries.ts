@@ -108,6 +108,29 @@ export interface GetExamProfileVersion {
   readonly profileVersionId: string;
 }
 
+/**
+ * What an attempt pins from an exam profile version, and nothing else (M6-30): the taxonomy,
+ * the marking rule set's hash, and the delivery policy the sitting is held to. A seam-only
+ * read — it has no route — so the contracted public view of a profile version is unchanged.
+ */
+export interface GetExamProfilePins {
+  readonly profileVersionId: string;
+}
+
+export interface ExamProfilePinsView {
+  readonly profileVersionId: string;
+  readonly state: string;
+  readonly taxonomyVersionId: string;
+  readonly markingRuleSetHash: string | null;
+  readonly totalDurationMinutes: number;
+  readonly sectionLocking: boolean;
+  readonly autoSubmitOnExpiry: boolean;
+  readonly crossSectionNavigation: boolean;
+  readonly allowMarkForReview: boolean;
+  readonly allowAnswerChange: boolean;
+  readonly allowClearResponse: boolean;
+}
+
 export interface ListExams {
   readonly limit?: number;
 }
@@ -328,6 +351,38 @@ export class GetExamProfileVersionQuery
       })),
       aggregateVersion: loaded.value.aggregateVersion,
     });
+  }
+}
+
+export class GetExamProfilePinsQuery implements Handler<GetExamProfilePins, ExamProfilePinsView> {
+  readonly name = 'GetExamProfilePins';
+  readonly policy = policy('GetExamProfilePins', READER);
+
+  constructor(private readonly deps: CurriculumQueryDependencies) {}
+
+  async handle(query: GetExamProfilePins, context: ApplicationContext): Promise<Result<ExamProfilePinsView, ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return permitted;
+
+    const loaded = await this.deps.profiles.findById(query.profileVersionId);
+    if (!loaded.ok) return err(toApplicationError(loaded.error));
+
+    const profile = loaded.value.aggregate;
+    return ok(
+      Object.freeze({
+        profileVersionId: profile.profileVersionId,
+        state: profile.state,
+        taxonomyVersionId: profile.taxonomyVersionId,
+        markingRuleSetHash: profile.markingRuleSetHash ?? null,
+        totalDurationMinutes: profile.timingPolicy.totalDurationMinutes,
+        sectionLocking: profile.timingPolicy.sectionLocking,
+        autoSubmitOnExpiry: profile.timingPolicy.autoSubmitOnExpiry,
+        crossSectionNavigation: profile.navigationPolicy.crossSectionNavigation,
+        allowMarkForReview: profile.navigationPolicy.allowMarkForReview,
+        allowAnswerChange: profile.navigationPolicy.allowAnswerChange,
+        allowClearResponse: profile.navigationPolicy.allowClearResponse,
+      }),
+    );
   }
 }
 

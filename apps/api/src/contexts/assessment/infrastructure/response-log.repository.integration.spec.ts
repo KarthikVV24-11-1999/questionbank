@@ -228,9 +228,9 @@ describe('what the store refuses', () => {
     const broken = new PostgresResponseLog(pool);
     const attempt = await liveAttempt();
     const event = expectValue(acceptResponseEvent(attempt, draft(1), RECEIVED));
-    expect(expectError(await broken.append(event)).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await broken.findByAttempt(id(TAG.attempt))).code).toBe('PERSISTENCE_REJECTED');
-    expect(expectError(await broken.answeredSlotCount(id(TAG.attempt))).code).toBe('PERSISTENCE_REJECTED');
+    expect(expectError(await broken.append(event)).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.findByAttempt(id(TAG.attempt))).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.answeredSlotCount(id(TAG.attempt))).code).toBe('STORE_UNAVAILABLE');
     await pool.end().catch(() => undefined);
   });
 });

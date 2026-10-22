@@ -1,4 +1,4 @@
-import { conflictError, notFoundError, validationError } from '../domain/assessment-error.js';
+import { conflictError, notFoundError, unavailableError, validationError } from '../domain/assessment-error.js';
 import type { RepositoryError } from '../domain/repository-ports.js';
 
 /**
@@ -26,6 +26,19 @@ interface DatabaseError {
 }
 
 const UNIQUE_VIOLATION = '23505';
+
+/**
+ * The store could not be reached, or refused the connection: the process is gone, the connection dropped, the server
+ * is shutting down or out of connections. Network error codes from the driver, and SQLSTATE class 08 (connection
+ * exception), 57P (operator intervention) and 53300 (too many connections). **Not the caller's fault**: answered as
+ * `Unavailable`, which is retryable, so a device holds its events and sends them again — never as a rejection of
+ * the events themselves.
+ */
+const UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EHOSTUNREACH', '53300', '57P01', '57P02', '57P03']);
+
+function isUnreachable(code: string | undefined): boolean {
+  return code !== undefined && (UNREACHABLE_CODES.has(code) || code.startsWith('08'));
+}
 const RESTRICT_VIOLATION = '23001';
 
 /**
@@ -38,6 +51,7 @@ const RESTRICT_VIOLATION = '23001';
  */
 export function fromDatabaseError(error: unknown): RepositoryError {
   const { code, constraint, message } = error as DatabaseError;
+  if (isUnreachable(code)) return unavailableError('STORE_UNAVAILABLE', 'the store could not be reached; try again', 'store');
   if (code === UNIQUE_VIOLATION) {
     return conflict(`a concurrent write got there first (${constraint ?? 'unique key'})`, constraint ?? 'unique key');
   }

@@ -168,7 +168,7 @@ export interface FrameworkImportViolation {
  */
 export const ATTEMPT_ENGINE_PACKAGES = ['packages/attempt-engine'] as const;
 
-const FRAMEWORK_IMPORT_PATTERN = /from\s+['"](react|react-dom|@nestjs\/[^'"]*)['"]|\bdocument\s*\.|(?<![.\w])window\s*\./u;
+export const FRAMEWORK_IMPORT_PATTERN = /from\s+['"](react|react-dom|@nestjs\/[^'"]*)['"]|\bdocument\s*\.|(?<![.\w])window\s*\./u;
 
 function packagesMatchingAttemptEngine(root: string, packagesDir: string): readonly string[] {
   let entries: string[];
@@ -234,7 +234,7 @@ export interface AmbientEffectViolation {
  * readings it is handed), a timer the engine would own, randomness, the
  * network, storage, or the host process.
  */
-const AMBIENT_EFFECT_PATTERN =
+export const AMBIENT_EFFECT_PATTERN =
   /\bDate\b|\bperformance\s*\.|\bsetTimeout\b|\bsetInterval\b|\bsetImmediate\b|\brequestAnimationFrame\b|\bMath\s*\.\s*random\b|\bcrypto\s*\.|\bfetch\s*\(|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|from\s+['"]node:|\bprocess\s*\.|\bglobalThis\b/u;
 
 /**

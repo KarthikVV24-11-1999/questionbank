@@ -36,6 +36,7 @@ import type { TaxonomyMapping } from '../domain/taxonomy-mapping.js';
 import {
   GetConceptPrerequisitesQuery,
   GetConceptSubtreeQuery,
+  GetExamProfilePinsQuery,
   GetExamProfileVersionQuery,
   GetMigrationDryRunQuery,
   GetTaxonomyVersionQuery,
@@ -168,4 +169,17 @@ export interface CurriculumForGeneration {
 
 export function curriculumForGeneration(deps: CurriculumCompositionDeps): CurriculumForGeneration {
   return { taxonomyVersion: new GetTaxonomyVersionQuery(assemble(deps)) };
+}
+
+/**
+ * What assessment consumes from curriculum: the pins an attempt copies from an exam profile
+ * version (M6-30). Read-only, built from the same assembly `register` uses, and handed over by
+ * the composition root — assessment imports nothing from curriculum.
+ */
+export interface CurriculumForAssessment {
+  readonly examProfilePins: GetExamProfilePinsQuery;
+}
+
+export function curriculumForAssessment(deps: CurriculumCompositionDeps): CurriculumForAssessment {
+  return { examProfilePins: new GetExamProfilePinsQuery(assemble(deps)) };
 }
