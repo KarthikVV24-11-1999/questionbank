@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../platform/config/config.js';
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
 import { SESSION_REF, TAG, WINDOW, WITHIN_WINDOW, aClosedForm, aDraftForm, aPublishedForm, aScheduledForm, anActiveForm, formProps, formSlots, id, poolOf } from '../../../testing/assessment-fixtures.js';
@@ -315,6 +316,7 @@ describe('an attempt is created from an open form', () => {
     sessionRef: SESSION_REF,
     shiftId: 'shift-1',
     durationMs: 10_800_000,
+    intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
     createdAt: '2026-10-21T08:00:00.000Z',
   };
 

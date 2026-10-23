@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../platform/config/config.js';
 import { createAttempt, type Attempt, type AttemptSlot, type CreateAttemptProps } from '../contexts/assessment/domain/attempt.js';
 import { closeForm, createForm, openForm, publishForm, scheduleForm, slotsOf as slotsOfForm, type CreateFormProps, type Form, type FormSlot } from '../contexts/assessment/domain/form.js';
 import { expectValue } from './expect-result.js';
@@ -38,6 +39,7 @@ export function attemptProps(overrides: Partial<CreateAttemptProps> = {}): Creat
     shiftId: '2026-01-27/shift-2',
     slots: slots(),
     durationMs: 3 * 3_600_000,
+    intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
     windowClosesAt: '2026-10-21T12:00:00.000Z',
     createdAt: '2026-10-21T08:00:00.000Z',
     ...overrides,

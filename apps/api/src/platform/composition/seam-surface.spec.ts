@@ -45,8 +45,8 @@ describe('what content offers generation', () => {
     }
   });
 
-  it('a composition module exports its register, its seams for generation and assessment, and nothing else at runtime', () => {
-    expect(Object.keys(contentComposition).sort()).toEqual(['contentForAssessment', 'contentForGeneration', 'register']);
+  it('a composition module exports its register, its seams for generation and assessment, its scheduled jobs, and nothing else at runtime', () => {
+    expect(Object.keys(contentComposition).sort()).toEqual(['contentForAssessment', 'contentForGeneration', 'contentJobs', 'register']);
   });
 
   it('refuses a seam built without a dependency, as register does', () => {
@@ -66,17 +66,18 @@ describe('what content offers assessment (M6-14, M6-17)', () => {
     reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
   });
 
-  it('is exactly four handlers: the catalogue, the duplicate candidates, and the two version reads', () => {
-    expect(Object.keys(offered).sort()).toEqual(['duplicates', 'itemVersion', 'listCatalogue', 'stimulusVersion']);
-    expect([offered.listCatalogue.name, offered.duplicates.name, offered.itemVersion.name, offered.stimulusVersion.name]).toEqual([
+  it('is exactly five handlers: the catalogue, the duplicate candidates, the two version reads and the answer keys for scoring', () => {
+    expect(Object.keys(offered).sort()).toEqual(['answerKeys', 'duplicates', 'itemVersion', 'listCatalogue', 'stimulusVersion']);
+    expect([offered.listCatalogue.name, offered.duplicates.name, offered.itemVersion.name, offered.stimulusVersion.name, offered.answerKeys.name]).toEqual([
       'ListPublishedCatalogue',
       'GetDuplicateCandidates',
       'GetPublishedItemVersion',
       'GetPublishedStimulusVersion',
+      'GetAnswerKeysForScoring',
     ]);
   });
 
-  it('admits the system to all four, and a learner only to the two reads of a delivered version', () => {
+  it('admits the system to all five, a learner only to the two reads of a delivered version, and the answer keys to the system and no one else', () => {
     for (const handler of [offered.listCatalogue, offered.duplicates, offered.itemVersion, offered.stimulusVersion]) {
       expect(handler.policy.allowedRoles, handler.name).toContain('system');
     }
@@ -84,6 +85,7 @@ describe('what content offers assessment (M6-14, M6-17)', () => {
     expect(offered.duplicates.policy.allowedRoles).not.toContain('learner');
     expect(offered.itemVersion.policy.allowedRoles).toContain('learner');
     expect(offered.stimulusVersion.policy.allowedRoles).toContain('learner');
+    expect(offered.answerKeys.policy.allowedRoles).toEqual(['system']);
   });
 
   it('refuses a seam built without a dependency, as register does', () => {
@@ -108,11 +110,13 @@ describe('what curriculum offers generation', () => {
 describe('what curriculum offers assessment', () => {
   const offered = curriculumComposition.curriculumForAssessment({ pool, clock, identifiers, audit, principals });
 
-  it('is exactly one read, for learners among others, and no command', () => {
-    expect(Object.keys(offered)).toEqual(['examProfilePins']);
-    expect(offered.examProfilePins.name).toBe('GetExamProfilePins');
+  it('is exactly two reads — the pins an attempt copies, for learners among others, and the scoring rules, for the system — and no command', () => {
+    expect(Object.keys(offered).sort()).toEqual(['examProfilePins', 'scoringSpec']);
+    expect([offered.examProfilePins.name, offered.scoringSpec.name]).toEqual(['GetExamProfilePins', 'GetExamProfileScoringSpec']);
     expect(offered.examProfilePins.policy.allowedRoles).toContain('learner');
     expect(offered.examProfilePins.policy.allowedRoles).not.toContain('generation_pipeline');
+    // the marking rules are for scoring's consumer: the system's alone
+    expect(offered.scoringSpec.policy.allowedRoles).toEqual(['system']);
   });
 });
 

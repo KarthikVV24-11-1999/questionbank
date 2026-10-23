@@ -223,8 +223,8 @@ describe('a published form is immutable (D-006)', () => {
     const message = await refusal(() =>
       database.pool.query(
         `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-           delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
-         VALUES ($1, 'mock', $2, $3, $4, $5, '{}', $6, 's', 1000, '2099-01-01T00:00:00Z', now())`,
+           delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at)
+         VALUES ($1, 'mock', $2, $3, $4, $5, '{}', $6, 's', 1000, 1000, '2099-01-01T00:00:00Z', now())`,
         [id(TAG.student), formId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), SESSION_REF],
       ),
     );
@@ -274,8 +274,8 @@ describe('an attempt\'s session is one its form was published for (ADR-0032), re
       await client.query('ALTER TABLE assessment.attempt DROP CONSTRAINT attempt_session_is_one_the_form_was_published_for');
       await client.query(
         `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-           delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
-         VALUES ($1, 'mock', $2, $3, $4, $5, '{}', 'invented', 's', 1000, '2026-10-21T12:00:00Z', now())`,
+           delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at)
+         VALUES ($1, 'mock', $2, $3, $4, $5, '{}', 'invented', 's', 1000, 1000, '2026-10-21T12:00:00Z', now())`,
         [id(TAG.student), formId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy)],
       );
       return true;
@@ -338,8 +338,8 @@ describe('an attempt moves only along the state machine, and keeps its pin', () 
       await client.query(
         `INSERT INTO assessment.attempt
            (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-            delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
-         VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 'shift-1', 1000, '2026-10-21T12:00:00Z', now())`,
+            delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at)
+         VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 'shift-1', 1000, 1000, '2026-10-21T12:00:00Z', now())`,
         [attemptId, id(TAG.student, 50), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), SESSION_REF],
       );
       if (state !== 'created') {
@@ -586,9 +586,9 @@ describe('the attempt state-shape rule: the database\'s check and the domain\'s 
           await client.query(
             `INSERT INTO assessment.attempt
                (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-                delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at, state,
+                delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at, state,
                 started_at, deadline_at, submitted_at, submission_reason, idempotency_key, abandoned_at)
-             VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 's', 1000, '2026-10-21T12:00:00Z', now(), '${state}', ${sets.join(', ')})`,
+             VALUES ($1, $2, 'mock', $3, $4, $5, $6, '{}', $7, 's', 1000, 1000, '2026-10-21T12:00:00Z', now(), '${state}', ${sets.join(', ')})`,
             [id(TAG.attempt, 1000 + index), id(TAG.student, 1000 + index), id(TAG.form), id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), SESSION_REF],
           );
         } catch {

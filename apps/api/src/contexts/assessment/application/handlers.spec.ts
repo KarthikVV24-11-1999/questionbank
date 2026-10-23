@@ -1,6 +1,7 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../platform/config/config.js';
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, StubPins, aSigner } from '../../../testing/assessment-fakes.js';
+import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, StubPins, StubScoreRecords, aSigner } from '../../../testing/assessment-fakes.js';
 import { TAG, aDraftForm, aPublishedForm, anActiveForm, anAttempt, id, WINDOW, WITHIN_WINDOW } from '../../../testing/assessment-fixtures.js';
 import type { AssemblyCandidate } from '../domain/assembly.js';
 import { abandonAttempt, startAttempt } from '../domain/attempt.js';
@@ -37,6 +38,8 @@ function rig(overrides: { clock?: Date; corpus?: LoadedCorpus | ReturnType<typeo
     audit: { record: async (entry: AuditRecord) => void recorded.push(entry) },
     signer: aSigner(),
     pins: new StubPins(),
+    intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+    scoreRecord: new StubScoreRecords(),
   };
   return { deps, forms, attempts, responses, recorded };
 }
@@ -357,14 +360,14 @@ describe('SweepWindows — the operation a scheduler will call (D36)', () => {
 });
 
 describe('the composed registry', () => {
-  it('registers exactly the twelve handlers, each with a policy, and admits system to exactly five of them', () => {
+  it('registers exactly the fourteen handlers, each with a policy, and admits system to exactly six of them', () => {
     const registry = composeAssessmentHandlers(rig().deps);
-    expect([...registry.names].sort()).toEqual(['AssembleDraftForm', 'CreateAttempt', 'GetAttempt', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'IngestResponseEvents', 'PublishForm', 'ScheduleForm', 'StartAttempt', 'SubmitAttempt', 'SweepWindows']);
+    expect([...registry.names].sort()).toEqual(['AssembleDraftForm', 'CreateAttempt', 'GetAttempt', 'GetAttemptResult', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'IngestResponseEvents', 'PublishForm', 'ScheduleForm', 'StartAttempt', 'SubmitAttempt', 'SubmitExpiredAttempts', 'SweepWindows']);
     const admitting = (role: string) => registry.names.filter((name) => registry.get(name)?.policy.allowedRoles.includes(role)).sort();
-    expect(admitting('system')).toEqual(['AssembleDraftForm', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'SweepWindows']);
+    expect(admitting('system')).toEqual(['AssembleDraftForm', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'SubmitExpiredAttempts', 'SweepWindows']);
     expect(admitting('content_ops')).toEqual(['AssembleDraftForm', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'PublishForm', 'ScheduleForm']);
     // a student reaches the package of a form that is open, the key that verifies it, and their own attempt's lifecycle
-    expect(admitting('learner')).toEqual(['CreateAttempt', 'GetAttempt', 'GetFormPackage', 'GetPackageSigningKey', 'IngestResponseEvents', 'StartAttempt', 'SubmitAttempt']);
+    expect(admitting('learner')).toEqual(['CreateAttempt', 'GetAttempt', 'GetAttemptResult', 'GetFormPackage', 'GetPackageSigningKey', 'IngestResponseEvents', 'StartAttempt', 'SubmitAttempt']);
     for (const role of ['guest', 'author', 'reviewer', 'generation_pipeline']) expect(admitting(role), role).toEqual([]);
   });
 

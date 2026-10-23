@@ -357,7 +357,7 @@ label on the attempt and is not an identity.
 2. Whether practice responses contribute to calibration, or only mock responses. Mock-only is cleaner (controlled conditions) but slower to accumulate.
 3. Item-fit threshold for excluding items from the operational pool.
 4. Whether adaptive practice targets a fixed 0.70 or adapts the target to the learner's demonstrated frustration tolerance.
-5. Time-cap value for backgrounded intervals.
+5. Time-cap value for backgrounded intervals. *(M6 Track F, [ADR-0037](adr/ADR-0037-the-interval-cap-has-one-source-and-is-pinned-onto-the-attempt.md): given one source — configuration, pinned onto each attempt and told to the device — with a default of 120 seconds that is a guess (D61), not a finding. Still unresolved as a policy.)*
 
 **Unblocks:** Roadmap **M6** — the assessment delivery milestone can now start.
 

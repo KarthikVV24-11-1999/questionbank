@@ -98,6 +98,11 @@ export class AssessmentController {
     await this.run(response, headers, 'GetAttempt', 200, () => this.parse(attemptIdSchema, { attemptId }));
   }
 
+  @Get('/v1/assessment/attempts/:attemptId/result')
+  async getAttemptResult(@Param('attemptId') attemptId: string, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetAttemptResult', 200, () => this.parse(attemptIdSchema, { attemptId }));
+  }
+
   @Post('/v1/assessment/attempts/:attemptId/start')
   async startAttempt(@Param('attemptId') attemptId: string, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
     await this.run(response, headers, 'StartAttempt', 200, () => this.parse(attemptIdSchema, { attemptId }));

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadConfig, loadConfigFromProcessEnv } from './config.js';
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS, loadConfig, loadConfigFromProcessEnv } from './config.js';
 
 const VALID_KEY = 'a'.repeat(32);
 /** Distinct from VALID_KEY on purpose: config refuses the two being equal (M4-24, ADR-0020). */
@@ -39,6 +39,8 @@ describe('loadConfig — every key loads', () => {
         reviewEscalateAfterHours: 72,
         reviewLeaseHours: 4,
         reviewSampleRate: 0.05,
+        timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+        backgroundJobsEnabled: true,
       },
     });
   });
@@ -65,6 +67,8 @@ describe('loadConfig — every key loads', () => {
         reviewEscalateAfterHours: 72,
         reviewLeaseHours: 4,
         reviewSampleRate: 0.05,
+        timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+        backgroundJobsEnabled: true,
       },
     });
   });
@@ -394,5 +398,46 @@ describe('loadConfig — the form package signing key (M6-26)', () => {
       error: { key: 'formPackageSigningKey', message: 'FORM_PACKAGE_SIGNING_KEY must not equal AUTH_SIGNING_KEY or AUDIT_ANCHOR_KEY' },
     });
     expect(loadConfig(validEnv({ AUDIT_ANCHOR_KEY: seedAsAuth, FORM_PACKAGE_SIGNING_KEY: seedAsAuth })).ok).toBe(false);
+  });
+});
+
+describe('loadConfig — the time-on-item interval cap (M6-37)', () => {
+  it('defaults to the one exported value, and an unset or blank variable is the default', () => {
+    for (const env of [validEnv(), validEnv({ TIME_ON_ITEM_INTERVAL_CAP_MS: '' })]) {
+      const result = loadConfig(env);
+      expect(result.ok && result.value.timeOnItemIntervalCapMs).toBe(DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS);
+    }
+  });
+
+  it('takes a positive whole number of milliseconds', () => {
+    const result = loadConfig(validEnv({ TIME_ON_ITEM_INTERVAL_CAP_MS: '45000' }));
+    expect(result.ok && result.value.timeOnItemIntervalCapMs).toBe(45_000);
+  });
+
+  it('refuses zero, a fraction, a negative, text, and a number too large to be exact', () => {
+    for (const bad of ['0', '1.5', '-5', 'two minutes', '99999999999999999999']) {
+      expect(loadConfig(validEnv({ TIME_ON_ITEM_INTERVAL_CAP_MS: bad })), bad).toEqual({
+        ok: false,
+        error: { key: 'timeOnItemIntervalCapMs', message: 'TIME_ON_ITEM_INTERVAL_CAP_MS must be a positive whole number of milliseconds' },
+      });
+    }
+  });
+});
+
+describe('loadConfig — whether this process runs the background jobs (M6-42)', () => {
+  it('is on unless said otherwise, and takes true or false', () => {
+    expect(loadConfig(validEnv())).toMatchObject({ ok: true, value: { backgroundJobsEnabled: true } });
+    expect(loadConfig(validEnv({ BACKGROUND_JOBS_ENABLED: '' }))).toMatchObject({ ok: true, value: { backgroundJobsEnabled: true } });
+    expect(loadConfig(validEnv({ BACKGROUND_JOBS_ENABLED: 'false' }))).toMatchObject({ ok: true, value: { backgroundJobsEnabled: false } });
+    expect(loadConfig(validEnv({ BACKGROUND_JOBS_ENABLED: 'true' }))).toMatchObject({ ok: true, value: { backgroundJobsEnabled: true } });
+  });
+
+  it('refuses anything else, rather than guess', () => {
+    for (const bad of ['yes', '1', 'FALSE', 'off']) {
+      expect(loadConfig(validEnv({ BACKGROUND_JOBS_ENABLED: bad })), bad).toEqual({
+        ok: false,
+        error: { key: 'backgroundJobsEnabled', message: 'BACKGROUND_JOBS_ENABLED must be true or false' },
+      });
+    }
   });
 });

@@ -33,9 +33,9 @@ const DEFAULT_LIMIT = 200;
  * form's `active` or `closed` and an attempt's abandonment are records that
  * something acted on a moment; this is that something.
  *
- * **It is a command, not a timer.** There is no scheduler (D36), so nothing
- * calls it on a schedule, and it has no route: it is what a scheduler will call,
- * the way `SweepReviewAgeing` is. It is idempotent — a second run over the same
+ * **It is a command, not a timer.** It has no route: the in-process scheduler
+ * calls it (M6-42, D36), the way it calls `SweepReviewAgeing`, and a second
+ * scheduler instance racing the first is harmless because it is idempotent — a second run over the same
  * moment finds nothing left to do — and one move failing does not stop the rest.
  */
 export class SweepWindowsHandler implements Handler<SweepWindows, SweepReport> {

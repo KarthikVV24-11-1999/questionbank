@@ -1,15 +1,17 @@
 import { admitNewAttempt, isExpired, startAttempt, submitAttempt, type Attempt } from '../../domain/attempt.js';
 import { createAttemptFromForm } from '../../domain/form.js';
 import type { AttemptRepository, FormRepository, ResponseLog } from '../../domain/repository-ports.js';
+import type { AttemptSubmitted } from '../../domain/events/assessment-events.js';
 import { acceptResponseEvent, type ResponseEvent } from '../../domain/response-event.js';
 import { mergeIncoming } from '../../domain/response-log.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import { applicationError, authorize, fromAssessment, type ApplicationError, type AuthorizationPolicy } from '../authorization.js';
-import type { CreateAttempt, GetAttempt, IngestResponseEvents, StartAttempt, SubmitAttempt } from '../commands/attempt-commands.js';
+import type { CreateAttempt, GetAttempt, GetAttemptResult, IngestResponseEvents, StartAttempt, SubmitAttempt } from '../commands/attempt-commands.js';
 import type { Handler } from '../handler-registry.js';
 import {
   CREATE_ATTEMPT_POLICY,
   GET_ATTEMPT_POLICY,
+  GET_ATTEMPT_RESULT_POLICY,
   INGEST_RESPONSE_EVENTS_POLICY,
   START_ATTEMPT_POLICY,
   SUBMIT_ATTEMPT_POLICY,
@@ -17,11 +19,20 @@ import {
 import type { ApplicationContext, AttemptPinSource, AuditRecorder, Clock, IdentifierFactory } from '../ports.js';
 import { toAttemptView, type AttemptView } from '../views.js';
 
+/** What the result handler asks of scoring, in the shape assessment needs of it. */
+export interface ScoreRecordReader {
+  handle(query: { readonly attemptId: string; readonly ownerUserId: string }, context: ApplicationContext): Promise<Result<ResultScore, ApplicationError>>;
+}
+
 export interface AttemptDependencies {
+  /** The score record read (M6-41); the scoring consumer writes it. */
+  readonly scoreRecord: ScoreRecordReader;
   readonly forms: Pick<FormRepository, 'findById'>;
   readonly attempts: AttemptRepository;
   readonly responses: ResponseLog;
   readonly pins: AttemptPinSource;
+  /** The one configured cap on a visit's time on item, pinned onto each attempt created (M6-37). */
+  readonly intervalCapMs: number;
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
@@ -112,6 +123,7 @@ export class CreateAttemptHandler implements Handler<CreateAttempt, CreatedAttem
         sessionRef: command.sessionRef,
         shiftId: command.shiftId ?? command.sessionRef,
         durationMs: pins.value.durationMs,
+        intervalCapMs: this.deps.intervalCapMs,
         createdAt: now,
       },
       now,
@@ -327,7 +339,7 @@ export class IngestResponseEventsHandler implements Handler<IngestResponseEvents
  * sent before it is refused; a `manual` submission that arrives after the deadline is recorded as `manual`, with
  * `pastDeadline` set so the lateness is visible — not silently turned into an expiry, and not lost.
  *
- * Nothing is told to score the attempt yet: submission writes no outbox event (D60).
+ * The submission and the `AttemptSubmitted` event are one transaction, and a retry writes neither again (D60, closed).
  */
 export class SubmitAttemptHandler implements Handler<SubmitAttempt, AttemptView> {
   readonly name = 'SubmitAttempt';
@@ -351,7 +363,25 @@ export class SubmitAttemptHandler implements Handler<SubmitAttempt, AttemptView>
     if (!submitted.ok) return err(fromAssessment(submitted.error));
     if (owned.value.submission !== null) return ok(toAttemptView(submitted.value, now)); // a replay: nothing to write
 
-    const saved = await this.deps.attempts.save(submitted.value, 'in_progress');
+    // The state change and the event are one transaction: an attempt submitted is an attempt scoring will hear of (D60).
+    const event: AttemptSubmitted = {
+      eventType: 'AttemptSubmitted',
+      schemaVersion: 1,
+      occurredAt: now,
+      principal: { kind: context.principal.kind, id: context.principal.id },
+      correlationId: context.correlationId,
+      payload: {
+        attemptId: submitted.value.attemptId,
+        formId: submitted.value.formId,
+        studentId: submitted.value.studentId,
+        examProfileVersionId: submitted.value.examProfileVersionId,
+        markingRuleSetHash: submitted.value.markingRuleSetHash,
+        taxonomyVersionId: submitted.value.taxonomyVersionId,
+        reason: command.reason,
+        submittedAt: now,
+      },
+    };
+    const saved = await this.deps.attempts.save(submitted.value, 'in_progress', event);
     if (!saved.ok) {
       // A concurrent submit under the same key won: what it made is the answer.
       const current = await ownAttempt(this.deps, command.attemptId, context);
@@ -364,5 +394,54 @@ export class SubmitAttemptHandler implements Handler<SubmitAttempt, AttemptView>
     }
     await record(this.deps, context, 'SubmitAttempt', saved.value.attemptId);
     return ok(toAttemptView(saved.value, now));
+  }
+}
+
+/**
+ * A score as the student sees it. Built from scoring's own read model, which carries no answer key, no correct option and no solution
+ * — a score is explained by naming the rule that produced it, never by showing what the answer was — and marks as decimal text.
+ */
+export interface ResultScore {
+  readonly scoreRecordId: string;
+  readonly attemptId: string;
+  readonly generation: number;
+  readonly totalRaw: string;
+  readonly totalMaxAvailable: string;
+  readonly computedAt: string;
+  readonly sectionScores: readonly unknown[];
+  readonly itemOutcomes: readonly unknown[];
+}
+
+export interface AttemptResult {
+  readonly attemptId: string;
+  /** `pending` until a score record exists — including when scoring is failing and an operator has yet to look. */
+  readonly status: 'pending' | 'scored';
+  readonly score?: ResultScore;
+}
+
+/**
+ * The student's own result (M6-41). The attempt must be theirs (someone else's is `404`) and submitted (otherwise `412`: there is
+ * nothing to score). Scoring is asynchronous, so a submitted attempt with no score record is `pending`, not an error.
+ */
+export class GetAttemptResultHandler implements Handler<GetAttemptResult, AttemptResult> {
+  readonly name = 'GetAttemptResult';
+  readonly policy = GET_ATTEMPT_RESULT_POLICY;
+
+  constructor(private readonly deps: Pick<AttemptDependencies, 'attempts' | 'scoreRecord'>) {}
+
+  async handle(query: GetAttemptResult, context: ApplicationContext): Promise<Result<AttemptResult, ApplicationError>> {
+    const denied = gate(this.policy, context);
+    if (denied !== null) return err(denied);
+
+    const owned = await ownAttempt(this.deps as AttemptDependencies, query.attemptId, context);
+    if (!owned.ok) return owned;
+    if (owned.value.state !== 'submitted') {
+      return err(applicationError('PreconditionFailed', 'ATTEMPT_NOT_SUBMITTED', `a ${owned.value.state} attempt has no result`, 'state'));
+    }
+
+    const record = await this.deps.scoreRecord.handle({ attemptId: owned.value.attemptId, ownerUserId: owned.value.studentId }, context);
+    if (record.ok) return ok(Object.freeze({ attemptId: owned.value.attemptId, status: 'scored' as const, score: record.value }));
+    if (record.error.kind === 'NotFound') return ok(Object.freeze({ attemptId: owned.value.attemptId, status: 'pending' as const }));
+    return err(record.error);
   }
 }

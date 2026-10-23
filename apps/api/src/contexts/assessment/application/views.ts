@@ -82,6 +82,8 @@ export interface AttemptView {
   readonly shiftId: string;
   readonly slotCount: number;
   readonly durationMs: number;
+  /** The one cap on a visit's time on item, pinned for this attempt: the device projects with this value and no other. */
+  readonly intervalCapMs: number;
   readonly windowClosesAt: string;
   readonly startedAt: string | null;
   readonly deadline: string | null;
@@ -99,6 +101,7 @@ export function toAttemptView(attempt: Attempt, serverNow: string): AttemptView 
     shiftId: attempt.shiftId,
     slotCount: attempt.slots.length,
     durationMs: attempt.durationMs,
+    intervalCapMs: attempt.intervalCapMs,
     windowClosesAt: attempt.windowClosesAt,
     startedAt: attempt.startedAt,
     deadline: attempt.deadline,

@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../platform/config/config.js';
 import { describe, expect, it } from 'vitest';
 import { RESPONSE_EVENT_KINDS, type ResponseEvent } from './response-event.js';
 import { mergeIncoming, projectLog, toEngineEvent } from './response-log.js';
@@ -76,7 +77,7 @@ describe('merging what arrived into what is stored', () => {
 });
 
 describe('projecting a log', () => {
-  const options = { intervalCapMs: 60_000 };
+  const attempt = { attemptId: ATTEMPT, intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS };
 
   it('derives what the learner did from the events that counted, and leaves late ones out', () => {
     const events = [
@@ -87,17 +88,25 @@ describe('projecting a log', () => {
       make(5, 'flag'),
       make(6, 'change', 'z', { afterSubmission: true }),
     ];
-    const projection = projectLog(ATTEMPT, events, options);
+    const projection = projectLog(attempt, events);
     expect(projection.slots).toEqual([{ slot: SLOT, answer: 'b', answerChanges: 1, flagged: true, timeOnItemMs: 3_000 }]);
   });
 
+  it('reads the cap from the attempt: the same log projects differently under a different cap, and the server has no other source', () => {
+    const events = [make(1, 'visit'), make(100, 'leave')];
+    const under = (intervalCapMs: number) => projectLog({ attemptId: ATTEMPT, intervalCapMs }, events).slots[0]?.timeOnItemMs;
+    expect(under(5_000)).toBe(5_000);
+    expect(under(500_000)).toBe(99_000);
+    expect(projectLog.length).toBe(2);
+  });
+
   it('gives nothing for a log with nothing that counts', () => {
-    expect(projectLog(ATTEMPT, [], options).slots).toEqual([]);
-    expect(projectLog(ATTEMPT, [make(1, 'select', 'a', { afterSubmission: true })], options).slots).toEqual([]);
+    expect(projectLog(attempt, []).slots).toEqual([]);
+    expect(projectLog(attempt, [make(1, 'select', 'a', { afterSubmission: true })]).slots).toEqual([]);
   });
 
   it('projects nothing, rather than guess, from a stored log that contradicts itself', () => {
     const a = make(1, 'select', 'a');
-    expect(projectLog(ATTEMPT, [a, make(1, 'select', 'b', { eventId: a.eventId })], options).slots).toEqual([]);
+    expect(projectLog(attempt, [a, make(1, 'select', 'b', { eventId: a.eventId })]).slots).toEqual([]);
   });
 });

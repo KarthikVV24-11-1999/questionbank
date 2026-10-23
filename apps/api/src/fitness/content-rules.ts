@@ -465,6 +465,8 @@ export interface CoverageThreshold {
  */
 export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   'src/contexts/content/application/answer-key-projection.ts',
+  // The one door an answer key leaves content through, for scoring and nothing else (M6-40).
+  'src/contexts/content/application/queries/scoring-key-queries.ts',
   // Validates a proposal without storing it (M5-32): the same validateDraft, reached
   // from content that was never saved.
   'src/contexts/content/application/proposal-validation.ts',

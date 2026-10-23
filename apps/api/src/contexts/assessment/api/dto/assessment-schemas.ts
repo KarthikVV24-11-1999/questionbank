@@ -71,6 +71,8 @@ export const createAttemptSchema = z.object({
 
 export const attemptIdSchema = z.object({ attemptId: uuid }).strict();
 
+export const attemptResultSchema = attemptIdSchema;
+
 export const submitAttemptSchema = z
   .object({
     attemptId: uuid,

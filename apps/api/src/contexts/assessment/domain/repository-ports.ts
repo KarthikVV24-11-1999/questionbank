@@ -1,3 +1,4 @@
+import type { AssessmentEvent } from './events/assessment-events.js';
 import type { AssessmentError } from './assessment-error.js';
 import type { AnchorPoolMember } from './anchor-pool.js';
 import type { Attempt } from './attempt.js';
@@ -45,9 +46,8 @@ export interface FormRepository {
 
   /**
    * What a sweep would act on: scheduled forms whose window has begun, and open
-   * ones whose window has ended. **Nothing calls these on a schedule** — there
-   * is no scheduler (D36); the operations exist so that whatever eventually
-   * does has something to call.
+   * ones whose window has ended. The scheduler calls these (M6-42, D36); the
+   * state can lag the clock by the interval between its turns.
    */
   findDueToOpen(now: string, limit: number): Promise<Result<readonly Form[], RepositoryError>>;
   findDueToClose(now: string, limit: number): Promise<Result<readonly Form[], RepositoryError>>;
@@ -95,8 +95,11 @@ export interface AttemptRepository {
    * Records a move along the state machine. `expected` is the state the caller
    * read the attempt in: if another writer moved it since, nothing is written
    * and the answer is a `CONFLICT`, never a silent overwrite.
+   *
+   * An `event` is written to the outbox **in the same transaction** as the move, and only if the move happened: a move that
+   * lost a race writes no event, and an event the store refuses rolls the move back.
    */
-  save(attempt: Attempt, expected: AttemptState): Promise<Result<Attempt, RepositoryError>>;
+  save(attempt: Attempt, expected: AttemptState, event?: AssessmentEvent): Promise<Result<Attempt, RepositoryError>>;
 
   findById(attemptId: string): Promise<Result<Attempt, RepositoryError>>;
 
@@ -111,6 +114,9 @@ export interface AttemptRepository {
    * (D36).
    */
   findAbandonable(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>>;
+
+  /** In-progress attempts whose server-anchored deadline has passed as of `now`, earliest deadline first: the ones nothing but a sweep will submit if their device never comes back. */
+  findExpired(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>>;
 }
 
 export interface ResponseLog {

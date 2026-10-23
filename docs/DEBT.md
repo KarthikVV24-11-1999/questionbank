@@ -19,18 +19,6 @@ it, and inventing an entry to fill the hole would be recording a decision nobody
 
 ## Open
 
-### D17 — Nothing drains the outbox
-
-`platform.outbox_message` is written transactionally with the aggregate that produced the event, and
-no relay consumes it. The payload discipline that matters is already enforced — identifiers and
-version numbers only, never a stem, a key, a solution body or a reviewer's justification — precisely
-because the drain target is analytics (P4).
-
-**Trigger** The first consumer that needs events off the bus, or M7's learning loop, whichever comes
-first.
-**Cited** `contexts/content/domain/events/content-events.ts`, `infrastructure/outbox-emitter.ts`,
-`contexts/scoring/public/composition.ts`, `platform/persistence/audit-anchor.ts`
-
 ### D19 — Chemical structures are out of the renderer's scope
 
 Benzene rings, reaction schemes and mechanism arrows are authored as `MediaAsset` diagrams with
@@ -120,40 +108,49 @@ divergence is the defect, not the workaround.
 create response's shape for more than the created `itemId`.
 **Cited** `contexts/content/item-browser-live.integration.spec.ts`
 
-### D35 — No atomicity across an event boundary
+### D35 — Nothing makes a cross-context reaction atomic with the fact that caused it
 
-Nothing available today makes a cross-context reaction atomic with the fact that caused it. No relay
-or outbox pattern in this repository supplies it, which is why the review domain's open questions are
-stated as questions rather than answered with a mechanism that does not exist.
+A reaction in another context cannot be made atomic with the fact that caused it, and the review domain's open questions are stated as
+questions for that reason.
 
-**Trigger** A relay with a delivery guarantee strong enough to answer it (see D17).
+**The trigger fired at M6-38 and the entry is restated, not closed.** The relay supplies the pattern that answers the question *reliably*, not
+*atomically*: the fact and its event are one transaction (M6-39), a relay delivers the event at least once, and an idempotent consumer in the
+other context produces the effect once — so the reaction **eventually** follows the fact, and a failure between them is recoverable and visible
+(a dead letter) rather than silent. Assessment's submission → scoring is the working example, tested end to end. What a consumer cannot give
+is atomicity: for a moment the fact has happened and the reaction has not, and anything that reads in that moment sees it.
+
+The review domain's own questions are unanswered still; they are now answerable by the same pattern, and each is a decision about whether
+"eventually" is acceptable for it.
+
+**Trigger** The first review-domain reaction built on the relay, which decides its questions; or a need for true atomicity, which would be a
+different mechanism (one transaction across the contexts' tables, which the boundary rules forbid).
 **Cited** `contexts/content/domain/review/index.ts`
 
-### D36 — No scheduler, so the ageing sweep is never invoked
+### D36 — The scheduler runs in the process; what is still missing is only the deployment around it
 
-The sweep handler is built and tested; nothing calls it on a schedule, because no scheduler and no
-deployment exist. Its scheduled invocation is `Fail — blocked` under
-[ADR-0013](adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md) — the handler is what M4
-ships, and calling it hourly is the successor. Consequences are stated where they bite: queue health
-derives overdue items from `ageState` rather than from `review_escalation`, which only the unscheduled
-sweep populates, and `notifiedAt` absent means "not yet swept", never "not overdue".
+The sweeps are ordinary idempotent commands taking their moment as a parameter: the review ageing sweep, opening and closing form windows,
+abandoning attempts a closed window left, and submitting attempts whose deadline passed (the one Track E found missing). Until M6-42 nothing
+called them, recorded as waiting for "a deployed environment with a scheduler" and `Fail — blocked` under
+[ADR-0013](adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md).
 
-**Since M6-20 the same absence covers more.** Form windows are opened and closed by operations
-(`PostgresFormRepository.open` and `close`, found by `findDueToOpen` and `findDueToClose`), and live attempts
-whose window has closed are abandoned by `abandonAttempt` (found by `findAbandonable`). All of them exist and
-are tested; none is invoked on a schedule, so a window's `active` or `closed` state can lag the clock — which
-is why creating an attempt asks both the state and the clock — and a never-started attempt stays live until
-something abandons it.
+**M6-42 builds the caller** ([ADR-0038](adr/ADR-0038-the-outbox-relay-delivers-at-least-once-and-scoring-is-its-first-consumer.md)): an in-process
+`Scheduler` whose `tick(now)` runs whatever is due, drives the outbox relay and all four sweeps, and is started on real timers by `main.ts`. It is
+tested with time supplied, not slept through, and an expired attempt is submitted as an `expiry`. The blocked-on-a-deployment claim is therefore
+withdrawn for the trigger: it needs no scheduler product.
 
-**Since M6 Track E, one more.** An attempt whose deadline passes is submitted only if its device sends the expiry
-submission; if the device never returns, nothing submits it. That is the same missing caller as the rest — the sweep
-that abandons attempts a closed window left does not submit the ones an expired deadline left — and the attempt stays
-`in_progress`, counting against its student's one active mock, until something acts.
+**What is still missing, and is the debt:**
+- **No coordination.** Each instance runs its own copy. That is safe because the jobs claim (the relay, with `SKIP LOCKED`) or are idempotent
+  (the sweeps move state under a guard), so two instances race harmlessly — but there is no leader election, so N instances do N times the polling.
+- **No observation.** A job's failure is written to standard error and tried again at its next turn; nothing alerts, and no metric counts it.
+- **A started process.** The scheduler runs while the process does. A deployment that scales to zero, or runs the API only in short-lived
+  instances, would sweep only while one was up.
+- Queue health still derives overdue items from `ageState` rather than from `review_escalation` when the sweep has not run, and `notifiedAt`
+  absent means "not yet swept", never "not overdue" — true of any gap between sweeps.
 
-**Trigger** A deployed environment with a scheduler.
+**Trigger** A deployed environment: leader election or a dedicated worker if the polling is costly, and an alert on a failing job.
 **Cited** `application/review/handlers/ageing-handlers.ts`, `application/review/queries/queue-queries.ts`,
 `contexts/content/domain/repository-ports.ts`, `fitness/platform-rules.ts`,
-`contexts/assessment/domain/repository-ports.ts`
+`contexts/assessment/domain/repository-ports.ts`, `platform/scheduling/scheduler.ts`
 
 ### D37 — The review workspace cannot show a solution
 
@@ -193,24 +190,28 @@ compromise.
 as one of three triggers that would bring that runtime with it.
 **Cited** [ADR-0024](adr/ADR-0024-generation-is-typescript-until-the-ecosystem-is-needed.md)
 
-### D40 — Accepting a candidate is not atomic across the context boundary
+### D40 — Accepting a candidate is not atomic across the context boundary, and the relay has not changed that
 
-`AcceptCandidate` asks content to create a draft and submit it, then records the decision and its event
-in generation's own transaction. Two contexts means two transactions, and a failure between them leaves a
-content draft with no decision recorded against its candidate: the candidate is still `proposed`, and
-accepting it again would create a second draft. The error names the draft left behind, so an operator
-can find and withdraw it, and nothing is lost — but nothing prevents the duplicate either.
+`AcceptCandidate` asks content to create a draft and submit it, then records the decision and its event in generation's own transaction.
+Two contexts means two transactions, and a failure between them leaves a content draft with no decision recorded against its candidate: the
+candidate is still `proposed`, and accepting it again would create a second draft. The error names the draft left behind, so an operator can
+find and withdraw it, and nothing is lost — but nothing prevents the duplicate either. Accepting is also automatic (`DisposeCandidate`,
+ADR-0029), so the next battery run is a retry that creates the second draft by itself.
 
-**The exposure widened at M5-40.** Accepting is now also automatic: the battery acts on its own result
-(`DisposeCandidate`, ADR-0029), so a save that fails after content took the draft leaves the candidate
-`proposed` with every verdict recorded, and the next battery run — a retry, a scheduler's second pass —
-disposes of it again and creates a second draft. The report names the first (`disposition.failed`, with the
-draft in the error), and the operator's route is the same, but nothing in the code stops the retry. The
-trigger below is unchanged and is now the likelier one to arrive.
+**The trigger — the outbox relay existing — fired at M6-38, and this entry is restated, not closed.** The relay gives the mechanism that would
+close it: record the decision and a `CandidateAccepted` event in generation's one transaction, and let a consumer create the content draft.
+Two things stand between that and a closed entry, and neither is built:
 
-**Trigger** The first accept to fail after content succeeded in practice, or the outbox relay (D17)
-existing, at which point accept can be split into a content-side effect driven by the recorded decision
-instead of a call made before it.
+1. **The consumer would not be idempotent.** The relay delivers at least once, and content's `CreateItemDraft` has no idempotency key, so a
+   redelivery creates a second draft — the defect in a new place. It needs a key derived from the candidate (content's idempotency store already
+   serves `UpdateItemDraft`), and `SubmitItemForReview` must treat an item already in review as done.
+2. **Accepting would stop returning the draft.** An operator's accept returns the content item id; behind a consumer it cannot. The API and the
+   operator's surface would change.
+
+Until both are done the window is exactly as open as before, and the relay has narrowed it only in that a recovery path (a dead letter an
+operator can see) now exists for the *other* direction of the same shape.
+
+**Trigger** Content's draft creation taking an idempotency key, which is the work that lets accept be split.
 **Cited** `apps/api/src/contexts/generation/application/handlers/decision-handlers.ts`
 
 ### D41 — Content's other constructors still raise on structurally malformed input *(narrowed at M5-32)*
@@ -418,19 +419,73 @@ lists the keys in force, and a device keeps each it has seen.
 **Cited** `apps/api/src/contexts/assessment/infrastructure/package-signer.ts`
 
 
-### D60 — Submitting an attempt requests no scoring
 
-`SubmitAttempt` moves the attempt to `submitted`, once, however many times it is retried (the submission is idempotent on its
-key and the state change is one transition, audited once). It emits nothing: no outbox message is written and nothing is
-told to score. "Submitting twice scores once" is therefore true only in the sense that nothing is scored, and the guarantee
-that matters — that scoring is requested exactly once per submission — is untested because it does not exist.
+### D61 — The time-on-item interval cap is a guess
 
-**Trigger** The outbox relay (D17): submission writes its event in the same transaction as the state change, and the relay's
-consumer is what asks scoring to run. Until then a result cannot be produced.
-**Cited** `apps/api/src/contexts/assessment/application/handlers/attempt-handlers.ts`
+The longest one visit-to-leave interval may count towards an item's time is **120 seconds**, a default of the platform's own choosing:
+ASSESSMENT-ENGINE §14 lists the value as unresolved and nothing has measured it. Too low and a learner who thinks a long time on a hard
+question is credited with less than they spent; too high and an app left in the background inflates the item's time. It is one configured value,
+pinned onto each attempt ([ADR-0037](adr/ADR-0037-the-interval-cap-has-one-source-and-is-pinned-onto-the-attempt.md)), so changing it later is a
+setting and not a code change — but attempts already taken keep the value they were pinned with.
+
+**Trigger** Real response-time data: the distribution of visit-to-leave intervals once there are enough attempts, set against the cap.
+**Cited** `apps/api/src/platform/config/config.ts`
+
+### D62 — An answer is not validated against its item's kind when it is sent
+
+Ingestion accepts an answer that is a string, a number or a list of them, and checks nothing about whether that is a possible answer to *this*
+item: a matching item can be sent a bare number, a numeric item a list. The scoring consumer reads each answer as the kind its item takes (an
+option choice, a list of `left:right` pairs, the learner's own text for a number) and treats one it cannot read as **unattempted**. That is
+quiet: a device bug that sends the wrong shape costs the learner the mark without anyone being told.
+
+**Trigger** The first device build that sends a shape the item does not take, or ingestion learning the item type of a slot (it has the pin, and
+could ask content for the version's kind).
+**Cited** `apps/api/src/contexts/assessment/application/consumers/scoring-consumer.ts`
+
+### D63 — Scoring's own score-record route cannot be satisfied by a learner
+
+`GET /v1/attempts/{attemptId}/score-records/current` is for learners and operators, and a learner may read only their own record — which the
+query checks by comparing the principal with an `ownerUserId` the caller supplies. The route supplies none, and scoring does not know who owns
+an attempt, so a learner is always refused and only an operator can read through it. Found while building the student's result (M6-41), which is
+read through assessment instead: assessment knows the owner and supplies it.
+
+**Trigger** A client that wants the score without going through the attempt, or scoring learning attempt ownership (a read model fed by the
+outbox would give it).
+**Cited** `apps/api/src/contexts/scoring/api/scoring.controller.ts`
 
 
 ## Closed
+
+### D17 — Nothing drains the outbox *(closed at M6-38)*
+
+`platform.outbox_message` was written transactionally with the aggregate that produced the event, and no relay consumed it. The payload
+discipline that matters — identifiers and version numbers only, never a stem, a key, a solution body or a reviewer's justification — is
+there because the drain target is analytics (P4).
+
+Closed by M6-38 ([ADR-0038](adr/ADR-0038-the-outbox-relay-delivers-at-least-once-and-scoring-is-its-first-consumer.md)). `OutboxRelay` claims
+messages under a lease, hands them to the consumers registered for their type, and marks them published only when every consumer returned:
+**at least once**, in order per aggregate among live messages, with a back-off, a dead letter for a message that keeps failing, and a
+`requeue` for an operator. The effect happening at most once is the consumer's job. The payload discipline is now a gate on what it emits: a
+message that names a key field, a stem or solution field, or carries prose under any name, is dead-lettered before a consumer sees it.
+
+What is **not** drained is by design and not debt: a message whose type no consumer is registered for stays where it is. `AttemptSubmitted` has
+a consumer; the other contexts' events are waiting for theirs (M7's learning loop is the first named).
+
+**Cited** `apps/api/src/platform/outbox/relay.ts`, `contexts/content/domain/events/content-events.ts`, `infrastructure/outbox-emitter.ts`,
+`contexts/scoring/public/composition.ts`, `platform/persistence/audit-anchor.ts`
+
+### D60 — Submitting an attempt requests no scoring *(closed at M6-39)*
+
+`SubmitAttempt` moved the attempt to `submitted` and emitted nothing, so "submitting twice scores once" was true only because nothing was
+scored.
+
+Closed by M6-39 and M6-40. The state change and an `AttemptSubmitted` event are **one transaction** (proved by failing the second and seeing the
+first rolled back), written only by the move that happened — the loser of a race writes nothing, a retry writes nothing. Scoring consumes the
+event and scores exactly once per submission under retry, redelivery and concurrent delivery, which the integration spec asserts, including the
+case where scoring fails and an operator requeues it.
+
+**Cited** `apps/api/src/contexts/assessment/application/handlers/attempt-handlers.ts`
+
 
 ### D54 — Nothing abandons a created attempt when its window closes *(closed at M6-20)*
 

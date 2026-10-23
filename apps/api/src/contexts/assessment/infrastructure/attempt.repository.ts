@@ -3,6 +3,8 @@ import { err, ok, type Result } from '../domain/result.js';
 import { restoreAttempt, type Attempt, type AttemptSlot, type SubmissionReason } from '../domain/attempt.js';
 import type { AttemptState } from '../domain/attempt-state.js';
 import type { AttemptRepository, RepositoryError } from '../domain/repository-ports.js';
+import type { AssessmentEvent } from '../domain/events/assessment-events.js';
+import { AssessmentOutboxEmitter } from './outbox-emitter.js';
 import { conflict, fromDatabaseError, notFound, persistenceRejected } from './repository-errors.js';
 
 interface AttemptRow {
@@ -17,6 +19,7 @@ interface AttemptRow {
   readonly session_ref: string;
   readonly shift_id: string;
   readonly duration_ms: string;
+  readonly interval_cap_ms: number;
   readonly window_closes_at: Date;
   readonly created_at: Date;
   readonly state: AttemptState;
@@ -37,7 +40,7 @@ interface SlotRow {
 }
 
 const SELECT_ATTEMPT = `SELECT attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash,
-       taxonomy_version_id, delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at,
+       taxonomy_version_id, delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at,
        state, started_at, deadline_at, submitted_at, submission_reason, idempotency_key, abandoned_at
   FROM assessment.attempt`;
 
@@ -51,6 +54,7 @@ const iso = (value: Date | null): string | null => (value === null ? null : valu
  */
 export class PostgresAttemptRepository implements AttemptRepository {
   readonly #pool: Pool;
+  readonly #outbox = new AssessmentOutboxEmitter();
 
   constructor(pool: Pool) {
     this.#pool = pool;
@@ -75,8 +79,8 @@ export class PostgresAttemptRepository implements AttemptRepository {
       await client.query(
         `INSERT INTO assessment.attempt
            (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-            delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at, creation_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at, creation_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [
           attempt.attemptId,
           attempt.studentId,
@@ -89,6 +93,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
           attempt.sessionRef,
           attempt.shiftId,
           attempt.durationMs,
+          attempt.intervalCapMs,
           attempt.windowClosesAt,
           attempt.createdAt,
           creationKey ?? null,
@@ -109,9 +114,23 @@ export class PostgresAttemptRepository implements AttemptRepository {
     }
   }
 
-  async save(attempt: Attempt, expected: AttemptState): Promise<Result<Attempt, RepositoryError>> {
+  async save(attempt: Attempt, expected: AttemptState, event?: AssessmentEvent): Promise<Result<Attempt, RepositoryError>> {
+    let client: PoolClient;
     try {
-      const { rowCount } = await this.#pool.query(
+      client = await this.#pool.connect();
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+    // `#move` returns a value whatever happens (it catches), so the connection is released on every path.
+    const outcome = await this.#move(client, attempt, expected, event);
+    client.release();
+    return outcome;
+  }
+
+  async #move(client: PoolClient, attempt: Attempt, expected: AttemptState, event: AssessmentEvent | undefined): Promise<Result<Attempt, RepositoryError>> {
+    try {
+      await client.query('BEGIN');
+      const { rowCount } = await client.query(
         `UPDATE assessment.attempt
             SET state = $3, started_at = $4, deadline_at = $5, submitted_at = $6,
                 submission_reason = $7, idempotency_key = $8, abandoned_at = $9
@@ -128,12 +147,19 @@ export class PostgresAttemptRepository implements AttemptRepository {
           attempt.abandonedAt,
         ],
       );
-      if (rowCount === 1) return ok(attempt);
+      if (rowCount === 1) {
+        // Only a move that happened has an event: the winner of a race writes it, the loser rolls back with nothing.
+        if (event !== undefined) await this.#outbox.emit(client, event);
+        await client.query('COMMIT');
+        return ok(attempt);
+      }
+      await client.query('ROLLBACK');
       const present = await this.#pool.query('SELECT state FROM assessment.attempt WHERE attempt_id = $1', [attempt.attemptId]);
       return present.rows.length === 0
         ? err(notFound('attempt', attempt.attemptId))
         : err(conflict(`the attempt is no longer ${expected}`, 'state'));
     } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
       return err(fromDatabaseError(error));
     }
   }
@@ -190,6 +216,24 @@ export class PostgresAttemptRepository implements AttemptRepository {
     }
   }
 
+  async findExpired(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>> {
+    try {
+      const { rows } = await this.#pool.query<AttemptRow>(
+        `${SELECT_ATTEMPT} WHERE state = 'in_progress' AND deadline_at <= $1 ORDER BY deadline_at, attempt_id LIMIT $2`,
+        [now, limit],
+      );
+      const attempts: Attempt[] = [];
+      for (const row of rows) {
+        const hydrated = await this.#hydrate(row);
+        if (!hydrated.ok) return hydrated;
+        attempts.push(hydrated.value);
+      }
+      return ok(Object.freeze(attempts));
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+  }
+
   async #hydrate(row: AttemptRow): Promise<Result<Attempt, RepositoryError>> {
     const slots = await this.#pool.query<SlotRow>(
       `SELECT slot_id, ordinal, item_id, item_version_id, stimulus_version_id
@@ -215,6 +259,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
         stimulusVersionId: slot.stimulus_version_id,
       })),
       durationMs: Number(row.duration_ms),
+      intervalCapMs: row.interval_cap_ms,
       windowClosesAt: row.window_closes_at.toISOString(),
       createdAt: row.created_at.toISOString(),
       state: row.state,

@@ -1,13 +1,15 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../platform/config/config.js';
 import { describe, expect, it } from 'vitest';
 import { conflictError } from '../domain/assessment-error.js';
 import type { Attempt } from '../domain/attempt.js';
 import { err, ok } from '../domain/result.js';
-import { InMemoryAttempts, InMemoryForms, InMemoryResponses, StubPins } from '../../../testing/assessment-fakes.js';
+import { InMemoryAttempts, InMemoryForms, InMemoryResponses, StubPins, StubScoreRecords } from '../../../testing/assessment-fakes.js';
 import { SESSION_REF, TAG, anActiveForm, id } from '../../../testing/assessment-fixtures.js';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
 import {
   CreateAttemptHandler,
   GetAttemptHandler,
+  GetAttemptResultHandler,
   IngestResponseEventsHandler,
   MAX_EVENTS_PER_BATCH,
   StartAttemptHandler,
@@ -38,6 +40,8 @@ function rig() {
     attempts,
     responses,
     pins,
+    intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+    scoreRecord: new StubScoreRecords(),
     clock: { now: () => new Date(clock.at) },
     identifiers: { next: () => id(TAG.attempt, (n += 1)) },
     audit: { record: async (entry: AuditRecord) => void recorded.push(entry) },
@@ -221,6 +225,32 @@ describe('GetAttempt', () => {
     expect(expectValue(await new GetAttemptHandler(r.deps).handle({ attemptId }, ctx())).serverNow).toBe(r.clock.at);
     expect(expectError(await new GetAttemptHandler(r.deps).handle({ attemptId }, ctx('learner', id(TAG.student, 9)))).kind).toBe('NotFound');
     expect(expectError(await new GetAttemptHandler(r.deps).handle({ attemptId: id(TAG.attempt, 999) }, ctx())).kind).toBe('NotFound');
+  });
+});
+
+describe('GetAttemptResult', () => {
+  it('is pending until a score record exists, and the score once it does', async () => {
+    const r = rig();
+    const attemptId = await started(r);
+    await new SubmitAttemptHandler(r.deps).handle({ attemptId, reason: 'manual', idempotencyKey: 'k' }, ctx());
+    const handler = new GetAttemptResultHandler(r.deps);
+    expect(expectValue(await handler.handle({ attemptId }, ctx()))).toEqual({ attemptId, status: 'pending' });
+    (r.deps.scoreRecord as StubScoreRecords).records.set(attemptId, { scoreRecordId: 's', totalRaw: '10' });
+    const scored = expectValue(await handler.handle({ attemptId }, ctx()));
+    expect(scored).toMatchObject({ attemptId, status: 'scored', score: { totalRaw: '10' } });
+    expect((r.deps.scoreRecord as StubScoreRecords).asked).toEqual([{ attemptId, ownerUserId: STUDENT }, { attemptId, ownerUserId: STUDENT }]);
+  });
+
+  it('is the student\'s own and only once submitted, and passes on a failure of scoring that is not "not found"', async () => {
+    const r = rig();
+    const attemptId = await started(r);
+    const handler = new GetAttemptResultHandler(r.deps);
+    expect(expectError(await handler.handle({ attemptId }, ctx())).code).toBe('ATTEMPT_NOT_SUBMITTED');
+    expect(expectError(await handler.handle({ attemptId }, ctx('learner', id(TAG.student, 9)))).kind).toBe('NotFound');
+    expect(expectError(await handler.handle({ attemptId }, ctx('content_ops'))).kind).toBe('Authorization');
+    await new SubmitAttemptHandler(r.deps).handle({ attemptId, reason: 'manual', idempotencyKey: 'k' }, ctx());
+    (r.deps.scoreRecord as StubScoreRecords).failWith = { kind: 'Unavailable', code: 'STORE_UNAVAILABLE', message: 'down' };
+    expect(expectError(await handler.handle({ attemptId }, ctx())).code).toBe('STORE_UNAVAILABLE');
   });
 });
 

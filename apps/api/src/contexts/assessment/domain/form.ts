@@ -360,7 +360,7 @@ export type AttemptFromFormProps = Omit<CreateAttemptProps, 'mode' | 'formId' | 
  *
  * Both the state and the clock are asked, on purpose. The state is a record
  * that something opened the form, and the sweep that opens and closes windows
- * is not running yet (D36), so the state can lag; the clock is the truth the
+ * runs on an interval (D36), so the state can lag by one; the clock is the truth the
  * window means. An attempt needs both to agree.
  */
 export function createAttemptFromForm(form: Form, props: AttemptFromFormProps, now: string): Result<Attempt, FormError | AttemptError> {

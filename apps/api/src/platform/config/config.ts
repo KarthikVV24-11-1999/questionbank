@@ -42,6 +42,8 @@ export const CONFIG_KEYS = [
   'reviewSampleRate',
   'generationPrecheckConfig',
   'formPackageSigningKey',
+  'timeOnItemIntervalCapMs',
+  'backgroundJobsEnabled',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -95,7 +97,27 @@ export interface AppConfig {
    * audit key: a signature scheme of its own is the point.
    */
   readonly formPackageSigningKey?: string;
+  /**
+   * The longest one visit → leave interval may count towards an item's time (ASSESSMENT-ENGINE §4, §14 item 5): a
+   * learner who backgrounds the app mid-question produces a long interval that was not spent on the item, and the cap
+   * discards the excess. **The one source of the value** (M6-37). It is pinned onto each attempt when the attempt is
+   * created and told to the device in the attempt response, so a device and the server project one log with one cap
+   * and a later change here cannot make them disagree about an attempt already begun.
+   */
+  readonly timeOnItemIntervalCapMs: number;
+  /**
+   * Whether this process runs the background jobs — the outbox relay and the sweeps (M6-38, M6-42). On by default: every instance of
+   * the application drains the outbox and sweeps, which is safe because the jobs claim or are idempotent. Off for a process that should
+   * serve requests and do nothing else, or while something else is known to be doing the work.
+   */
+  readonly backgroundJobsEnabled: boolean;
 }
+
+/**
+ * The cap's default, exported because it is the only literal of the value in the tree: tests that need one take it from here. It is a guess,
+ * and recorded as one (D61).
+ */
+export const DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS = 120_000;
 
 export interface PrecheckPairing {
   readonly modelVersionId: string;
@@ -122,6 +144,8 @@ const DEFAULTS = {
   reviewEscalateAfterHours: '72',
   reviewLeaseHours: '4',
   reviewSampleRate: '0.05',
+  timeOnItemIntervalCapMs: String(DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS),
+  backgroundJobsEnabled: 'true',
 } as const;
 
 /** Environment variable name for each config key — the only mapping this module needs. */
@@ -142,6 +166,8 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   reviewSampleRate: 'REVIEW_SAMPLE_RATE',
   generationPrecheckConfig: 'GENERATION_PRECHECK_CONFIG',
   formPackageSigningKey: 'FORM_PACKAGE_SIGNING_KEY',
+  timeOnItemIntervalCapMs: 'TIME_ON_ITEM_INTERVAL_CAP_MS',
+  backgroundJobsEnabled: 'BACKGROUND_JOBS_ENABLED',
 };
 
 function fail(key: ConfigKey, message: string): ConfigResult<never> {
@@ -335,6 +361,20 @@ function parseGenerationPrecheckConfig(
   return { ok: true, value: parsed as GenerationPrecheckConfig };
 }
 
+function parseTimeOnItemIntervalCapMs(env: Readonly<Record<string, string | undefined>>): ConfigResult<number> {
+  const raw = withDefault(env, 'timeOnItemIntervalCapMs', DEFAULTS.timeOnItemIntervalCapMs);
+  if (!/^\d+$/u.test(raw) || Number(raw) < 1 || !Number.isSafeInteger(Number(raw))) {
+    return fail('timeOnItemIntervalCapMs', 'TIME_ON_ITEM_INTERVAL_CAP_MS must be a positive whole number of milliseconds');
+  }
+  return { ok: true, value: Number(raw) };
+}
+
+function parseBackgroundJobsEnabled(env: Readonly<Record<string, string | undefined>>): ConfigResult<boolean> {
+  const raw = withDefault(env, 'backgroundJobsEnabled', DEFAULTS.backgroundJobsEnabled);
+  if (raw !== 'true' && raw !== 'false') return fail('backgroundJobsEnabled', 'BACKGROUND_JOBS_ENABLED must be true or false');
+  return { ok: true, value: raw === 'true' };
+}
+
 const SIGNING_SEED_BYTES = 32;
 
 function parseFormPackageSigningKey(
@@ -405,6 +445,12 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   const formPackageSigningKey = parseFormPackageSigningKey(env, authSigningKey.value, auditAnchorKey.value);
   if (!formPackageSigningKey.ok) return formPackageSigningKey;
 
+  const timeOnItemIntervalCapMs = parseTimeOnItemIntervalCapMs(env);
+  if (!timeOnItemIntervalCapMs.ok) return timeOnItemIntervalCapMs;
+
+  const backgroundJobsEnabled = parseBackgroundJobsEnabled(env);
+  if (!backgroundJobsEnabled.ok) return backgroundJobsEnabled;
+
   return {
     ok: true,
     value: {
@@ -421,6 +467,8 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       reviewEscalateAfterHours: reviewEscalateAfterHours.value,
       reviewLeaseHours: reviewLeaseHours.value,
       reviewSampleRate: reviewSampleRate.value,
+      timeOnItemIntervalCapMs: timeOnItemIntervalCapMs.value,
+      backgroundJobsEnabled: backgroundJobsEnabled.value,
       ...(generationPrecheckConfig.value === undefined ? {} : { generationPrecheckConfig: generationPrecheckConfig.value }),
       ...(formPackageSigningKey.value === undefined ? {} : { formPackageSigningKey: formPackageSigningKey.value }),
     },

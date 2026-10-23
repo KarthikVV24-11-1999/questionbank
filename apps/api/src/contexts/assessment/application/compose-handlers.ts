@@ -2,6 +2,7 @@ import { HandlerRegistry } from './handler-registry.js';
 import {
   CreateAttemptHandler,
   GetAttemptHandler,
+  GetAttemptResultHandler,
   IngestResponseEventsHandler,
   StartAttemptHandler,
   SubmitAttemptHandler,
@@ -9,9 +10,10 @@ import {
 } from './handlers/attempt-handlers.js';
 import { AssembleDraftFormHandler, GetFormHandler, PublishFormHandler, ScheduleFormHandler, type FormDependencies } from './handlers/form-handlers.js';
 import { GetFormPackageHandler, GetPackageSigningKeyHandler, type PackageDependencies } from './handlers/package-handler.js';
+import { SubmitExpiredAttemptsHandler, type ExpiryDependencies } from './handlers/expiry-handler.js';
 import { SweepWindowsHandler, type SweepDependencies } from './handlers/sweep-handler.js';
 
-export type AssessmentDependencies = FormDependencies & SweepDependencies & PackageDependencies & AttemptDependencies;
+export type AssessmentDependencies = FormDependencies & SweepDependencies & PackageDependencies & AttemptDependencies & ExpiryDependencies;
 
 /**
  * Builds the registry. A handler without a policy throws here (F36), so a
@@ -27,9 +29,11 @@ export function composeAssessmentHandlers(deps: AssessmentDependencies): Handler
     new GetFormPackageHandler(deps),
     new GetPackageSigningKeyHandler(deps),
     new SweepWindowsHandler(deps),
+    new SubmitExpiredAttemptsHandler(deps),
     new CreateAttemptHandler(deps),
     new StartAttemptHandler(deps),
     new GetAttemptHandler(deps),
+    new GetAttemptResultHandler(deps),
     new IngestResponseEventsHandler(deps),
     new SubmitAttemptHandler(deps),
   ] as never);

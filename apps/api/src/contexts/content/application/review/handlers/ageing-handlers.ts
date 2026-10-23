@@ -37,11 +37,10 @@ import type { SweepReviewAgeing } from '../commands/ageing-commands.js';
  * handler does not track what it saw last time, because it does not need
  * to.
  *
- * **Tier 3, named verbatim, not attempted here (DEC-M4-15).** The
- * *scheduled invocation* — this handler run hourly, in a deployed
- * environment — is `Fail — blocked`: no scheduler, no deployment exist
- * anywhere in M4. **D36.** This handler is the whole of what M4 ships;
- * calling it on a schedule is the successor.
+ * **The scheduled invocation (DEC-M4-15).** M4 shipped only this handler and
+ * named the call `Fail — blocked`; the in-process scheduler makes it, hourly
+ * (M6-42, **D36**). What is still missing is the deployment around the
+ * scheduler, not the caller.
  */
 
 const PAGE_SIZE = 200;

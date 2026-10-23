@@ -38,8 +38,8 @@ import type { AttemptScored, AttemptsRescored } from '../domain/events/scoring-e
  * through one connection. This adapter opens its own short transaction per
  * publish instead: the event is durably written to `platform.outbox_message`,
  * but not atomically with the score record it describes. A crash between the
- * two leaves a score with no event, which the relay (D17, still unbuilt) will
- * need to reconcile against, not this file.
+ * two leaves a score with no event; the relay (D17, closed) delivers events and
+ * does not reconcile scores against them, which remains this adapter's limit.
  */
 export interface ScoringCompositionDeps {
   readonly pool: Pool;
@@ -112,4 +112,33 @@ export function register(deps: ScoringCompositionDeps): DynamicModule {
   ] as unknown as readonly Handler<never, unknown>[];
 
   return ScoringModule.register({ handlers, principals: deps.principals });
+}
+
+/**
+ * What the assessment context consumes from scoring (M6-40): the handler that scores an attempt, and the read of a score record.
+ * Both are built from the same assembly `register` uses — the same repository, the same publisher — so a score the consumer
+ * makes is the score the routes read. `AnswerKeyData` is what crosses into scoring and nothing else of an item does.
+ */
+export interface ScoringForAssessment {
+  readonly scoreAttempt: ScoreAttemptHandler;
+  readonly scoreRecord: GetScoreRecordHandler;
+}
+
+export function scoringForAssessment(deps: ScoringCompositionDeps): ScoringForAssessment {
+  for (const key of REQUIRED_DEPS_KEYS) {
+    if (deps[key] === undefined) {
+      throw new Error(`scoring composition is missing required dependency: ${key}`);
+    }
+  }
+  const records = new PostgresScoreRecordRepository(deps.pool);
+  return {
+    scoreAttempt: new ScoreAttemptHandler({
+      records,
+      events: new PostgresEventPublisher(deps.pool),
+      clock: deps.clock,
+      identifiers: deps.identifiers,
+      audit: deps.audit,
+    }),
+    scoreRecord: new GetScoreRecordHandler(records),
+  };
 }

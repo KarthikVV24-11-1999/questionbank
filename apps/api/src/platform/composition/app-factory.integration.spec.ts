@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../config/config.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
@@ -40,6 +41,8 @@ beforeAll(async () => {
     reviewEscalateAfterHours: 72,
     reviewLeaseHours: 4,
     reviewSampleRate: 0.05,
+    timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+    backgroundJobsEnabled: false,
     authIssuer: ISSUER,
     authTokenTtlSeconds: 3600,
     mediaStorageRoot: './var/media-test',

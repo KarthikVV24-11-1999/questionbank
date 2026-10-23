@@ -26,6 +26,11 @@ export interface GetForm {
 }
 
 /** Applies the clock to stored state: opens due forms, closes ended ones, abandons attempts a closed window left. */
+/** Submit every in-progress attempt whose deadline has passed, as an `expiry`. The scheduler's; there is no route. */
+export interface SubmitExpiredAttempts {
+  readonly limit?: number;
+}
+
 export interface SweepWindows {
   readonly limit?: number;
 }

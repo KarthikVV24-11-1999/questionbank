@@ -41,6 +41,7 @@ export class ScoringController {
     await this.run(response, headers, 'ScoreAttempt', 201, () => this.parse(scoreAttemptSchema, body));
   }
 
+  // A learner cannot satisfy this route's ownership check: it needs an owner the route does not know (D63). The student's own result is read through assessment.
   @Get('/v1/attempts/:attemptId/score-records/current')
   async getScoreRecord(
     @Param('attemptId') attemptId: string,

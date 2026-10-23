@@ -685,6 +685,48 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        'src/contexts/assessment/application/consumers/scoring-consumer.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/assessment/application/handlers/expiry-handler.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/application/queries/scoring-key-queries.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/platform/outbox/relay.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/platform/outbox/payload-discipline.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/platform/scheduling/scheduler.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/platform/scheduling/system-timers.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/assessment/domain/response-log.ts': {
           branches: 100,
           lines: 100,

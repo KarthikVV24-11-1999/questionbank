@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../config/config.js';
 import { readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +36,8 @@ const CONFIG: AppConfig = {
   reviewEscalateAfterHours: 72,
   reviewLeaseHours: 4,
   reviewSampleRate: 0.05,
+  timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+  backgroundJobsEnabled: false,
   authIssuer: 'questionbank',
   authTokenTtlSeconds: 3600,
   mediaStorageRoot: './var/media-test',

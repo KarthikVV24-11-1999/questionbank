@@ -24,6 +24,9 @@ export const SCHEDULE_FORM_POLICY: AuthorizationPolicy = policy('ScheduleForm', 
 export const GET_FORM_POLICY: AuthorizationPolicy = policy('GetForm', [ROLES.contentOps, ROLES.system]);
 
 /** The scheduler's: applying the clock to stored state is a machine's act (D36), and has no route. */
+/** Submitting an attempt whose deadline passed with no one to submit it: the scheduler's, a machine's act, with no route (D36). */
+export const SUBMIT_EXPIRED_ATTEMPTS_POLICY: AuthorizationPolicy = policy('SubmitExpiredAttempts', [ROLES.system]);
+
 export const SWEEP_WINDOWS_POLICY: AuthorizationPolicy = policy('SweepWindows', [ROLES.system]);
 
 /**
@@ -46,4 +49,5 @@ export const CREATE_ATTEMPT_POLICY: AuthorizationPolicy = policy('CreateAttempt'
 export const START_ATTEMPT_POLICY: AuthorizationPolicy = policy('StartAttempt', [ROLES.learner]);
 export const GET_ATTEMPT_POLICY: AuthorizationPolicy = policy('GetAttempt', [ROLES.learner]);
 export const INGEST_RESPONSE_EVENTS_POLICY: AuthorizationPolicy = policy('IngestResponseEvents', [ROLES.learner]);
+export const GET_ATTEMPT_RESULT_POLICY: AuthorizationPolicy = policy('GetAttemptResult', [ROLES.learner]);
 export const SUBMIT_ATTEMPT_POLICY: AuthorizationPolicy = policy('SubmitAttempt', [ROLES.learner]);

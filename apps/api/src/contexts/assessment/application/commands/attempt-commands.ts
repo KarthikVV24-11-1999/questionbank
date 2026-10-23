@@ -26,6 +26,10 @@ export interface IngestResponseEvents {
   readonly events: readonly ResponseEventDraft[];
 }
 
+export interface GetAttemptResult {
+  readonly attemptId: string;
+}
+
 export interface SubmitAttempt {
   readonly attemptId: string;
   readonly reason: SubmissionReason;

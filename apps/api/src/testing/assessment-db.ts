@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../platform/config/config.js';
 import type { Pool } from 'pg';
 import { MARKING_HASH, SESSION_REF, TAG, formSlots, id } from './assessment-fixtures.js';
 
@@ -74,9 +75,9 @@ export async function seedAttempt(pool: Pool, options: SeedOptions = {}): Promis
   await pool.query(
     `INSERT INTO assessment.attempt
        (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-        delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, '{"timing": "strict"}', $8, 'shift-1', 10800000, '2026-10-21T12:00:00Z', '2026-10-21T08:00:00Z')`,
-    [attemptId, options.studentId ?? id(TAG.student), options.mode ?? 'mock', formId, id(TAG.profile), MARKING_HASH, id(TAG.taxonomy), options.sessionRef ?? SESSION_REF],
+        delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, '{"timing": "strict"}', $8, 'shift-1', 10800000, $9, '2026-10-21T12:00:00Z', '2026-10-21T08:00:00Z')`,
+    [attemptId, options.studentId ?? id(TAG.student), options.mode ?? 'mock', formId, id(TAG.profile), MARKING_HASH, id(TAG.taxonomy), options.sessionRef ?? SESSION_REF, DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS],
   );
   for (const slot of formSlots()) {
     await pool.query(

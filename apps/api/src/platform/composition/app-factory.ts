@@ -21,11 +21,14 @@ import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
 import { HealthModule } from '../http/health.module.js';
-import { contentForAssessment, contentForGeneration, register as registerContent } from '../../contexts/content/public/composition.js';
+import { contentForAssessment, contentForGeneration, contentJobs, register as registerContent } from '../../contexts/content/public/composition.js';
 import { curriculumForAssessment, curriculumForGeneration, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
-import { register as registerAssessment } from '../../contexts/assessment/public/composition.js';
+import { assessmentConsumers, assessmentJobs, register as registerAssessment } from '../../contexts/assessment/public/composition.js';
 import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
-import { register as registerScoring } from '../../contexts/scoring/public/composition.js';
+import { register as registerScoring, scoringForAssessment } from '../../contexts/scoring/public/composition.js';
+import { OutboxRelay, DEFAULT_RELAY_POLICY, type RelayPolicy } from '../outbox/relay.js';
+import { Scheduler } from '../scheduling/scheduler.js';
+import { BACKGROUND, type Background } from './background.js';
 
 /**
  * The composition root (M0-12, DEC-M0-5). `createApplication` is the single
@@ -62,6 +65,8 @@ export interface CreateApplicationOverrides {
   readonly scoringRegister?: typeof registerScoring;
   readonly generationRegister?: typeof registerGeneration;
   readonly assessmentRegister?: typeof registerAssessment;
+  /** The relay's policy, for a test that wants a message to die in two attempts; production takes the default. */
+  readonly relayPolicy?: RelayPolicy;
   /**
    * The provider generation proposes and judges through. Absent in production, where
    * no live adapter exists yet and generation is composed with one that answers
@@ -164,8 +169,8 @@ export async function createApplication(
     ...(config.generationPrecheckConfig === undefined ? {} : { precheckConfig: config.generationPrecheckConfig }),
   });
 
-  // Assessment is downstream of content too: it receives the two handlers content names for it, and nothing flows back.
-  const assessmentModule = assessmentRegister({
+  // Assessment is downstream of content, curriculum and scoring too: it receives the handlers each names for it, and nothing flows back.
+  const assessmentDeps = {
     pool,
     clock,
     identifiers,
@@ -173,15 +178,28 @@ export async function createApplication(
     principals,
     content: contentForAssessment(contentDeps),
     curriculum: curriculumForAssessment(curriculumDeps),
+    scoring: scoringForAssessment({ pool, clock, identifiers, audit, principals }),
+    intervalCapMs: config.timeOnItemIntervalCapMs,
     ...(config.formPackageSigningKey === undefined ? {} : { packageSigningKey: config.formPackageSigningKey }),
-  });
+  };
+  const assessmentModule = assessmentRegister(assessmentDeps);
+
+  // What runs beside the server: the relay that hands outbox messages to their consumers, and the scheduler that drives it and the
+  // sweeps. Built here, started by the process (background.ts).
+  const relay = new OutboxRelay(pool, assessmentConsumers(assessmentDeps), overrides.relayPolicy ?? DEFAULT_RELAY_POLICY);
+  const scheduler = new Scheduler([
+    { name: 'outbox.drain', everyMs: 1_000, run: async (now) => void (await relay.drain(now)) },
+    ...assessmentJobs(assessmentDeps),
+    ...contentJobs(contentDeps),
+  ]);
+  const background: Background = { relay, scheduler };
 
   const rootImports = [contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
   // `app.close()` never double-closes a connection the caller still owns
   // (pool.ts: "`close` is what main.ts's graceful shutdown calls").
-  const rootProviders = poolOwnedByFactory ? [FactoryOwnedPoolCloser, { provide: Pool, useValue: pool }] : [];
+  const rootProviders: Provider[] = [{ provide: BACKGROUND, useValue: background }, ...(poolOwnedByFactory ? [FactoryOwnedPoolCloser, { provide: Pool, useValue: pool }] : [])];
 
   const app = await NestFactory.create(RootModule.register(rootImports, rootProviders), { logger: false });
   app.useGlobalInterceptors(new TelemetryInterceptor(telemetry));

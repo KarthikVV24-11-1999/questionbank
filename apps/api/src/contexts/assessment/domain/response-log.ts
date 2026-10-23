@@ -7,6 +7,7 @@ import {
   type ResponseLog as EngineLog,
 } from '@questionbank/attempt-engine';
 import { conflictError, type AssessmentError } from './assessment-error.js';
+import type { Attempt } from './attempt.js';
 import type { ResponseEvent } from './response-event.js';
 import { err, ok, type Result } from './result.js';
 
@@ -106,13 +107,16 @@ export function mergeIncoming(attemptId: string, stored: readonly ResponseEvent[
 }
 
 /**
- * What a log says the learner did, derived by the engine's projection over the events that
- * counted — those that reached the server before submission (§4). Scoring and analytics read this,
- * not the events, so what a device projects locally and what the server projects cannot differ.
+ * What a log says the learner did, derived by the engine's projection over the events that counted — those that reached
+ * the server before submission (§4). Scoring and analytics read this, not the events, so what a device projects locally
+ * and what the server derives cannot differ.
+ *
+ * **The cap is the attempt's own**, pinned when it was created and told to the device (M6-37): the server cannot choose
+ * one here, because it is not a parameter.
  */
-export function projectLog(attemptId: string, events: readonly ResponseEvent[], options: { readonly intervalCapMs: number }): Projection {
+export function projectLog(attempt: Pick<Attempt, 'attemptId' | 'intervalCapMs'>, events: readonly ResponseEvent[]): Projection {
   const counted = events.filter((event) => !event.afterSubmission);
-  const log = engineLog(attemptId, counted);
+  const log = engineLog(attempt.attemptId, counted);
   // Stored events were each accepted once under the same rule, so a stored log cannot conflict with itself.
-  return projectResponses(log.ok ? log.value.events : [], options);
+  return projectResponses(log.ok ? log.value.events : [], { intervalCapMs: attempt.intervalCapMs });
 }

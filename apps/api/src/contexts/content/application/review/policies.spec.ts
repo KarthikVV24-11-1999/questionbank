@@ -34,13 +34,15 @@ describe('the review policies, per DEC-M4-9 and DEC-M4-1', () => {
   });
 
   it('lets content_ops reassign, sweep, read queue health and refresh fingerprints, and only content_ops', () => {
-    for (const p of [
-      REASSIGN_REVIEW_POLICY,
-      SWEEP_REVIEW_AGEING_POLICY,
-      GET_QUEUE_HEALTH_POLICY,
-      REFRESH_FINGERPRINTS_POLICY,
-    ]) {
+    for (const p of [REASSIGN_REVIEW_POLICY, GET_QUEUE_HEALTH_POLICY, REFRESH_FINGERPRINTS_POLICY]) {
       expect(p.allowedRoles).toEqual(['content_ops']);
+    }
+  });
+
+  it('lets the sweep be called by the scheduler too — the system, on this one policy and no other review one (M6-42, D36)', () => {
+    expect(SWEEP_REVIEW_AGEING_POLICY.allowedRoles).toEqual(['content_ops', 'system']);
+    for (const p of REVIEW_POLICIES) {
+      if (p !== SWEEP_REVIEW_AGEING_POLICY && p.name !== 'GetDuplicateCandidates') expect(p.allowedRoles, p.name).not.toContain('system');
     }
   });
 
@@ -78,7 +80,8 @@ describe('the review policies, per DEC-M4-9 and DEC-M4-1', () => {
     expect(SOURCE).toMatch(/import \{ DRAFT_OVERSIGHT_ROLES, policy, type AuthorizationPolicy \} from '\.\.\/authorization\.js';/u);
     // The content_ops-only policies pass the imported constant by name, not a literal.
     expect(SOURCE).toMatch(/policy\('ReassignReview', DRAFT_OVERSIGHT_ROLES\)/u);
-    expect(SOURCE).toMatch(/policy\('SweepReviewAgeing', DRAFT_OVERSIGHT_ROLES\)/u);
+    // the sweep adds the system to the same imported constant, by spread — it still does not retype it
+    expect(SOURCE).toMatch(/policy\('SweepReviewAgeing', \[\.\.\.DRAFT_OVERSIGHT_ROLES, ROLES\.system\]\)/u);
     expect(SOURCE).toMatch(/policy\('GetQueueHealth', DRAFT_OVERSIGHT_ROLES\)/u);
     // Not a second literal ['content_ops'] passed to any policy() call — the
     // module's own prose is allowed to *mention* the string; only a call site

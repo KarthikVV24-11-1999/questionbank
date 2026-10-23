@@ -1,6 +1,9 @@
 import 'reflect-metadata';
 import { loadConfigFromProcessEnv } from './platform/config/config.js';
 import { createApplication } from './platform/composition/app-factory.js';
+import { BACKGROUND, type Background } from './platform/composition/background.js';
+import { SystemClock } from './platform/persistence/clock.js';
+import { systemTimers } from './platform/scheduling/system-timers.js';
 
 /**
  * The process (M0-13). Load config, exit non-zero with the config error's
@@ -22,10 +25,22 @@ export async function main(): Promise<void> {
   const app = await createApplication(config);
   await app.listen(config.port);
 
+  // The jobs that run beside the server — the outbox relay and the sweeps (M6-38, M6-42) — on real timers, here and nowhere else.
+  const clock = new SystemClock();
+  const stopJobs = config.backgroundJobsEnabled
+    ? app.get<Background>(BACKGROUND).scheduler.start(systemTimers, () => clock.now(), 1_000, (report) => {
+        for (const job of report.jobs.filter((outcome) => outcome.outcome === 'failed')) {
+          process.stderr.write(`${JSON.stringify({ level: 'error', event: 'background-job-failed', job: job.name, error: job.error, at: report.at })}\n`);
+        }
+      })
+    : (): void => undefined;
+
   let shuttingDown = false;
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
+    // Stopped before the application closes, so no job starts against a pool that is being ended.
+    stopJobs();
     // `app.close()` drains in-flight requests before resolving (Nest's own
     // shutdown lifecycle) and, for the pool this application built itself,
     // closes it too (app-factory.ts).

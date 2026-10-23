@@ -128,9 +128,9 @@ describe('§12 — what cannot be reconstructed later cannot be null', () => {
     const insert = (column: string, value: unknown) =>
       database.pool.query(
         `INSERT INTO assessment.attempt (student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-           delivery_policy, session_ref, shift_id, duration_ms, window_closes_at, created_at)
+           delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at)
          SELECT $1, 'mock', $2, $3, $4, $5, '{}', ${column === 'session_ref' ? '$6' : `'${SESSION_REF}'`},
-                ${column === 'shift_id' ? '$6' : `'shift-1'`}, 1000, '2026-10-21T12:00:00Z', now()`,
+                ${column === 'shift_id' ? '$6' : `'shift-1'`}, 1000, 1000, '2026-10-21T12:00:00Z', now()`,
         [id(TAG.student), publishedId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), value],
       );
     expect(await refusal(() => insert('session_ref', null))).toContain('session_ref');

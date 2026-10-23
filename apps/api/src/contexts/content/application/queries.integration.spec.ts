@@ -12,6 +12,7 @@ import {
 import { err, ok, type Result } from '../domain/result.js';
 import { notFoundError } from '../domain/content-error.js';
 import type { ItemRepository, PublishedVersionReader, StimulusRepository } from '../domain/repository-ports.js';
+import { GetAnswerKeysForScoringHandler } from './queries/scoring-key-queries.js';
 import { transitionItem, type Item } from '../domain/item.js';
 import type { FinalAnswerAssertion } from '../domain/solution.js';
 import type { ItemVersion } from '../domain/item-version.js';
@@ -1377,5 +1378,48 @@ describe('M6-24 — a specific published version, by its own id', () => {
       expect((await new GetPublishedItemVersionHandler(deliveryQueries()).handle({ itemVersionId: item.versions[0]!.versionId }, as(principal))).ok).toBe(true);
     }
     expect(expectError(await new GetPublishedItemVersionHandler(deliveryQueries()).handle({ itemVersionId: item.versions[0]!.versionId }, as({ kind: 'human', id: freshUuid(), roleContext: ['nobody'] }))).kind).toBe('Authorization');
+  });
+});
+
+describe('GetAnswerKeysForScoring — the one door a key leaves content through (M6-40)', () => {
+  const system: PrincipalRef = { kind: 'system', id: freshUuid(), roleContext: ['system'] };
+  const handler = () => new GetAnswerKeysForScoringHandler({ versions: new PostgresPublishedVersions(database.pool), items });
+
+  it('gives the key of a published version as the executor\'s own input, for the system, once per version asked for', async () => {
+    const item = await publishItem(await draftItem());
+    const versionId = item.versions[0]!.versionId;
+    const keys = expectValue(await handler().handle({ itemVersionIds: [versionId, versionId] }, as(system)));
+    expect(keys).toEqual([{ itemVersionId: versionId, itemType: 'SINGLE_CORRECT_MCQ', answerKey: { kind: 'SINGLE_CORRECT', optionId: 'b' } }]);
+    expect(Object.isFrozen(keys)).toBe(true);
+    expect(expectValue(await handler().handle({ itemVersionIds: [] }, as(system)))).toEqual([]);
+  });
+
+  it('is the system\'s alone: not a learner, an author, a reviewer, content ops or a guest', async () => {
+    const item = await publishItem(await draftItem());
+    for (const principal of [learner, author, reviewer, contentOps, { kind: 'human', id: freshUuid(), roleContext: ['guest'] } as PrincipalRef]) {
+      expect(expectError(await handler().handle({ itemVersionIds: [item.versions[0]!.versionId] }, as(principal))).kind, principal.roleContext.join()).toBe('Authorization');
+    }
+  });
+
+  it('gives nothing for a version that is not published, or does not exist, and fails closed when the reader and the repository disagree', async () => {
+    const draft = await draftItem();
+    expect(expectError(await handler().handle({ itemVersionIds: [draft.versions[0]!.versionId] }, as(system))).kind).toBe('NotFound');
+    expect(expectError(await handler().handle({ itemVersionIds: [freshUuid()] }, as(system))).kind).toBe('NotFound');
+
+    const published = await publishItem(await draftItem());
+    const missing = notFoundError('NOT_FOUND', 'gone');
+    const readerFor = (itemId: string): PublishedVersionReader => ({ itemOfPublishedVersion: async () => ok(itemId), stimulusOfPublishedVersion: async () => ok(itemId) });
+    const failingItems = { ...items, findById: async () => err(missing) } as unknown as ItemRepository;
+    expect(expectError(await new GetAnswerKeysForScoringHandler({ versions: readerFor(published.itemId), items: failingItems }).handle({ itemVersionIds: [freshUuid()] }, as(system))).kind).toBe('NotFound');
+    expect(expectError(await new GetAnswerKeysForScoringHandler({ versions: readerFor(published.itemId), items }).handle({ itemVersionIds: [freshUuid()] }, as(system))).kind).toBe('NotFound');
+  });
+
+  it('refuses a specification the executor would refuse, rather than hand scoring a key it cannot use', async () => {
+    const published = await publishItem(await draftItem());
+    const version = published.versions[0]!;
+    const corrupt = { ...published, versions: [{ ...version, responseSpec: { ...version.responseSpec, itemType: 'ESSAY' } }] } as unknown as Item;
+    const itemsOfCorrupt = { ...items, findById: async () => ok(corrupt) } as unknown as ItemRepository;
+    const refused = await new GetAnswerKeysForScoringHandler({ versions: new PostgresPublishedVersions(database.pool), items: itemsOfCorrupt }).handle({ itemVersionIds: [version.versionId] }, as(system));
+    expect(expectError(refused).code).toBe('ITEM_TYPE_NOT_SCORABLE');
   });
 });

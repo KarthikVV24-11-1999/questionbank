@@ -79,13 +79,15 @@ const submit = (who: Student, attemptId: string, reason: string, key: string, in
   http(instance).post(`/v1/assessment/attempts/${attemptId}/submission`).set('Authorization', who.auth).set('Idempotency-Key', key).send({ reason });
 
 /** A started attempt for a fresh student. */
-async function startedAttempt(): Promise<{ who: Student; attemptId: string }> {
+async function startedAttempt(): Promise<{ who: Student; attemptId: string; intervalCapMs: number }> {
   const who = student();
   const created = await createAttempt(who, `key-${randomUUID()}`);
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const attemptId = created.body.attempt.attemptId as string;
-  expect((await startAttempt(who, attemptId)).status).toBe(200);
-  return { who, attemptId };
+  const started = await startAttempt(who, attemptId);
+  expect(started.status).toBe(200);
+  // The device is told the cap in the response it already receives; it chooses none of its own.
+  return { who, attemptId, intervalCapMs: started.body.intervalCapMs as number };
 }
 
 let eventCounter = 0;
@@ -158,8 +160,8 @@ function unreachable(real: Pool): Pool {
   }) as Pool;
 }
 
-async function compose(pool: Pool): Promise<INestApplication> {
-  const instance = await createApplication(COMPOSED_CONFIG, {
+async function compose(pool: Pool, config: typeof COMPOSED_CONFIG = COMPOSED_CONFIG): Promise<INestApplication> {
+  const instance = await createApplication(config, {
     pool,
     telemetry: createRecordingTelemetry(),
     clock: { now: () => new Date(now) },
@@ -315,6 +317,29 @@ describe('M6-30 — an attempt is created on an active form, inside its window, 
     expect(rows[0].marking_rule_set_hash).toMatch(/^[0-9a-f]{64}$/u);
     expect(rows[0].marking_rule_set_hash).not.toBe('f'.repeat(64));
     expect(rows[0].delivery_policy.timing.totalDurationMinutes).toBe(180);
+  });
+
+  it('pins the configured interval cap on the attempt and tells the device; a later change to the configuration does not reach an attempt already begun (M6-37)', async () => {
+    const configured = COMPOSED_CONFIG.timeOnItemIntervalCapMs;
+    const who = student();
+    const created = await createAttempt(who, 'k-cap');
+    expect(created.body.attempt.intervalCapMs).toBe(configured);
+    expect((await startAttempt(who, created.body.attempt.attemptId)).body.intervalCapMs).toBe(configured);
+    expect((await database.pool.query('SELECT interval_cap_ms FROM assessment.attempt WHERE attempt_id = $1', [created.body.attempt.attemptId])).rows[0].interval_cap_ms).toBe(configured);
+
+    // the same system, reconfigured with another cap: the attempt already begun keeps its own, a new one gets the new value
+    const doubled = configured * 2;
+    const otherPool = new Pool({ connectionString: process.env['DATABASE_URL'] });
+    const reconfigured = await compose(otherPool, { ...COMPOSED_CONFIG, timeOnItemIntervalCapMs: doubled });
+    try {
+      const reread = await http(reconfigured).get(`/v1/assessment/attempts/${created.body.attempt.attemptId}`).set('Authorization', who.auth);
+      expect(reread.body.intervalCapMs).toBe(configured);
+      const fresh = await createAttempt(student(), 'k-cap-new', {}, reconfigured);
+      expect(fresh.body.attempt.intervalCapMs).toBe(doubled);
+    } finally {
+      await reconfigured.close();
+      await otherPool.end();
+    }
   });
 
   it('shows a student only their own attempt', async () => {
@@ -515,6 +540,8 @@ describe('M6-34 — submission: idempotent, honest about its reason, and closes 
     const other = await submit(who, attemptId, 'manual', 'another-key');
     expect([other.status, other.body.reason]).toEqual([409, 'ATTEMPT_SUBMITTED_UNDER_ANOTHER_KEY']);
     expect(await count(`SELECT count(*)::int AS n FROM platform.audit_record WHERE action = 'SubmitAttempt' AND target_id = $1`, [attemptId])).toBe(auditBefore + 1);
+    // and the event scoring will hear of: one, however many times the submission was sent (D60)
+    expect(await count(`SELECT count(*)::int AS n FROM platform.outbox_message WHERE event_type = 'AttemptSubmitted' AND aggregate_id = $1`, [attemptId])).toBe(1);
     expect((await database.pool.query('SELECT submitted_at, submission_reason, idempotency_key FROM assessment.attempt WHERE attempt_id = $1', [attemptId])).rows).toHaveLength(1);
   });
 
@@ -524,6 +551,7 @@ describe('M6-34 — submission: idempotent, honest about its reason, and closes 
     expect([a.status, b.status]).toEqual([200, 200]);
     expect(a.body.submission.submittedAt).toBe(b.body.submission.submittedAt);
     expect(await count(`SELECT count(*)::int AS n FROM platform.audit_record WHERE action = 'SubmitAttempt' AND target_id = $1`, [attemptId])).toBe(1);
+    expect(await count(`SELECT count(*)::int AS n FROM platform.outbox_message WHERE event_type = 'AttemptSubmitted' AND aggregate_id = $1`, [attemptId])).toBe(1);
   });
 
   it('refuses to submit what has not started', async () => {
@@ -611,7 +639,7 @@ describe('M6-33 — device switch: two devices, disjoint events, one union', () 
     const { projectResponses } = await import('@questionbank/attempt-engine');
     const { projectLog } = await import('../../contexts/assessment/domain/response-log.js');
     const { PostgresResponseLog } = await import('../../contexts/assessment/infrastructure/response-log.repository.js');
-    const { who, attemptId } = await startedAttempt();
+    const { who, attemptId, intervalCapMs } = await startedAttempt();
     const all = evening(attemptId, slotIds, 2);
     const deviceA = all.filter((_, i) => i % 3 !== 0);
     const deviceB = all.filter((_, i) => i % 3 === 0);
@@ -619,8 +647,8 @@ describe('M6-33 — device switch: two devices, disjoint events, one union', () 
     await sendEvents(who, attemptId, deviceA, app, 'device-a');
 
     const stored = expectValue(await new PostgresResponseLog(database.pool).findByAttempt(attemptId));
-    const options = { intervalCapMs: 120_000 };
-    const onServer = projectLog(attemptId, stored, options);
+    const options = { intervalCapMs };
+    const onServer = projectLog(expectValue(await new PostgresAttemptRepository(database.pool).findById(attemptId)), stored);
     const locally = projectResponses(
       all.map((event) => ({ eventId: event.eventId, attemptId, slot: event.slot, sequence: event.sequence, monotonicMs: event.monotonicMs, kind: event.kind, ...(event.answer === undefined ? {} : { answer: event.answer }) }) as never),
       options,
@@ -634,7 +662,7 @@ describe('M6-33 — device switch: two devices, disjoint events, one union', () 
 describe('M6-35 — a complete backend outage in the middle of an attempt loses nothing', () => {
   it('drives the engine\'s queue against real ingestion, with the server unreachable for the middle of the attempt', async () => {
     const engine = await import('@questionbank/attempt-engine');
-    const { who, attemptId } = await startedAttempt();
+    const { who, attemptId, intervalCapMs } = await startedAttempt();
 
     /*
      * WHAT "UNREACHABLE" IS HERE, plainly. Postgres is not stopped and the server process stays up. Two things are
@@ -788,8 +816,11 @@ describe('M6-35 — a complete backend outage in the middle of an attempt loses 
 
     const { projectLog } = await import('../../contexts/assessment/domain/response-log.js');
     const { PostgresResponseLog } = await import('../../contexts/assessment/infrastructure/response-log.repository.js');
-    const options = { intervalCapMs: 600_000 };
-    const serverView = projectLog(attemptId, expectValue(await new PostgresResponseLog(database.pool).findByAttempt(attemptId)), options);
+    // The device projects with the cap it was told; the server with the one pinned on the attempt. One value, read twice.
+    const pinned = expectValue(await new PostgresAttemptRepository(database.pool).findById(attemptId));
+    expect(pinned.intervalCapMs).toBe(intervalCapMs);
+    const options = { intervalCapMs };
+    const serverView = projectLog(pinned, expectValue(await new PostgresResponseLog(database.pool).findByAttempt(attemptId)));
     expect(serverView).toEqual(engine.projectAttempt(local, options));
     expect(serverView.slots).toHaveLength(slotIds.length);
     expect(serverView.slots.every((slot) => slot.answer === 'b')).toBe(true);

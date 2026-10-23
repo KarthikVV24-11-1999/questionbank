@@ -1,6 +1,7 @@
 import { err, ok, type Result } from '../contexts/assessment/domain/result.js';
 import { conflictError, notFoundError } from '../contexts/assessment/domain/assessment-error.js';
 import type { Attempt } from '../contexts/assessment/domain/attempt.js';
+import type { AssessmentEvent } from '../contexts/assessment/domain/events/assessment-events.js';
 import type { AttemptState } from '../contexts/assessment/domain/attempt-state.js';
 import { closeForm, openForm, publishForm, scheduleForm, type Form, type ScheduleWindow } from '../contexts/assessment/domain/form.js';
 import type { AttemptRepository, FormRepository, RepositoryError, ResponseLog } from '../contexts/assessment/domain/repository-ports.js';
@@ -95,11 +96,15 @@ export class InMemoryAttempts implements AttemptRepository {
     return ok(id === undefined ? undefined : this.stored.get(id));
   }
 
-  async save(attempt: Attempt, expected: AttemptState): Promise<Result<Attempt, RepositoryError>> {
+  /** Events written with a move, as the outbox would hold them: only for a move that happened. */
+  readonly events: AssessmentEvent[] = [];
+
+  async save(attempt: Attempt, expected: AttemptState, event?: AssessmentEvent): Promise<Result<Attempt, RepositoryError>> {
     if (this.stale.has(attempt.attemptId) || this.stored.get(attempt.attemptId)?.state !== expected) {
       return err(conflictError('CONFLICT', 'the attempt moved', 'state'));
     }
     this.stored.set(attempt.attemptId, attempt);
+    if (event !== undefined) this.events.push(event);
     return ok(attempt);
   }
 
@@ -114,6 +119,11 @@ export class InMemoryAttempts implements AttemptRepository {
   }
 
   failFindWith: RepositoryError | null = null;
+
+  async findExpired(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>> {
+    if (this.failFindWith !== null) return err(this.failFindWith);
+    return ok([...this.stored.values()].filter((a) => a.state === 'in_progress' && a.deadline !== null && a.deadline <= now).slice(0, limit));
+  }
 
   async findAbandonable(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>> {
     if (this.failFindWith !== null) return err(this.failFindWith);
@@ -212,5 +222,19 @@ export class StubPins implements AttemptPinSource {
   async pinsFor(examProfileVersionId: string): Promise<Result<AttemptPins, ApplicationError>> {
     this.asked.push(examProfileVersionId);
     return this.failWith === null ? ok(TEST_PINS) : err(this.failWith);
+  }
+}
+
+/** Scoring's read as the result handler uses it: a record per attempt, or NotFound while it is still pending. */
+export class StubScoreRecords {
+  readonly records = new Map<string, Record<string, unknown>>();
+  readonly asked: { attemptId: string; ownerUserId: string }[] = [];
+  failWith: ApplicationError | null = null;
+
+  async handle(query: { attemptId: string; ownerUserId: string }): Promise<Result<never, ApplicationError>> {
+    this.asked.push(query);
+    if (this.failWith !== null) return err(this.failWith);
+    const record = this.records.get(query.attemptId);
+    return (record === undefined ? err({ kind: 'NotFound', code: 'NOT_FOUND', message: 'no score record' }) : ok(record)) as never;
   }
 }

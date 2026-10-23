@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../platform/config/config.js';
 import type { Clock, IdentifierFactory } from '../contexts/generation/application/ports.js';
 import type { HandlerRegistry } from '../contexts/generation/application/handler-registry.js';
 import type { PrecheckConfig } from '../contexts/generation/application/prechecks/judge.js';
@@ -39,6 +40,8 @@ export const COMPOSED_CONFIG: AppConfig = {
   reviewEscalateAfterHours: 72,
   reviewLeaseHours: 4,
   reviewSampleRate: 0.05,
+  timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+  backgroundJobsEnabled: false,
 };
 
 export interface ComposedGeneration {

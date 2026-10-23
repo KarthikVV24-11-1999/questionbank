@@ -1,6 +1,7 @@
 import { err, ok, type Result } from '../../domain/result.js';
 import type { ConceptNode } from '../../domain/concept-node.js';
 import type { TaxonomyVersion } from '../../domain/taxonomy-version.js';
+import type { ExamProfileVersion } from '../../domain/exam-profile-version.js';
 import type { TaxonomyVersionRepository, RepositoryError } from '../../domain/repository-ports.js';
 import type { DrizzleExamRepository } from '../../infrastructure/exam.repository.js';
 import type { DrizzleExamProfileVersionRepository } from '../../infrastructure/exam-profile-version.repository.js';
@@ -129,6 +130,21 @@ export interface ExamProfilePinsView {
   readonly allowMarkForReview: boolean;
   readonly allowAnswerChange: boolean;
   readonly allowClearResponse: boolean;
+}
+
+/**
+ * What scoring needs of an exam profile version (M6-40): the marking rule set and how outcomes are aggregated, with the hash that
+ * pins them. A seam-only read for the assessment context's scoring consumer — the system's alone, with no route.
+ */
+export interface GetExamProfileScoringSpec {
+  readonly profileVersionId: string;
+}
+
+export interface ExamProfileScoringSpecView {
+  readonly profileVersionId: string;
+  readonly markingRuleSet: ReturnType<ExamProfileVersion['markingRuleSet']['toData']>;
+  readonly markingRuleSetHash: string | null;
+  readonly aggregation: ExamProfileVersion['aggregation'];
 }
 
 export interface ListExams {
@@ -381,6 +397,31 @@ export class GetExamProfilePinsQuery implements Handler<GetExamProfilePins, Exam
         allowMarkForReview: profile.navigationPolicy.allowMarkForReview,
         allowAnswerChange: profile.navigationPolicy.allowAnswerChange,
         allowClearResponse: profile.navigationPolicy.allowClearResponse,
+      }),
+    );
+  }
+}
+
+export class GetExamProfileScoringSpecQuery implements Handler<GetExamProfileScoringSpec, ExamProfileScoringSpecView> {
+  readonly name = 'GetExamProfileScoringSpec';
+  readonly policy = policy('GetExamProfileScoringSpec', [ROLES.system]);
+
+  constructor(private readonly deps: CurriculumQueryDependencies) {}
+
+  async handle(query: GetExamProfileScoringSpec, context: ApplicationContext): Promise<Result<ExamProfileScoringSpecView, ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return permitted;
+
+    const loaded = await this.deps.profiles.findById(query.profileVersionId);
+    if (!loaded.ok) return err(toApplicationError(loaded.error));
+
+    const profile = loaded.value.aggregate;
+    return ok(
+      Object.freeze({
+        profileVersionId: profile.profileVersionId,
+        markingRuleSet: profile.markingRuleSet.toData(),
+        markingRuleSetHash: profile.markingRuleSetHash ?? null,
+        aggregation: profile.aggregation,
       }),
     );
   }

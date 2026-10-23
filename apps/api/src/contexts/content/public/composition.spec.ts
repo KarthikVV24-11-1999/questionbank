@@ -83,12 +83,16 @@ describe('content composition — what the assessment context is admitted to (M6
       'GetPublishedStimulus',
       'GetPublishedStimulusVersion',
       'ListPublishedCatalogue',
+      // the scheduler's sweep (M6-42): the system on this one review policy
+      'SweepReviewAgeing',
     ]);
   });
 
-  it('hands assessment the four handlers and nothing else', () => {
+  it('hands assessment the five handlers and nothing else, the answer keys among them for the system alone', () => {
     const seam = contentForAssessment(validDeps());
-    expect(Object.keys(seam).sort()).toEqual(['duplicates', 'itemVersion', 'listCatalogue', 'stimulusVersion']);
+    expect(Object.keys(seam).sort()).toEqual(['answerKeys', 'duplicates', 'itemVersion', 'listCatalogue', 'stimulusVersion']);
+    expect(seam.answerKeys.name).toBe('GetAnswerKeysForScoring');
+    expect(seam.answerKeys.policy.allowedRoles).toEqual(['system']);
     expect(seam.listCatalogue.name).toBe('ListPublishedCatalogue');
     expect(seam.duplicates.name).toBe('GetDuplicateCandidates');
   });

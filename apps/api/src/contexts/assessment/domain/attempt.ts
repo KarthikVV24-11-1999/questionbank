@@ -84,6 +84,12 @@ export interface Attempt {
   readonly shiftId: string;
   readonly slots: readonly AttemptSlot[];
   readonly durationMs: number;
+  /**
+   * The cap on one visit → leave interval towards time on item (§4), pinned when the attempt is created from the one
+   * configured value and told to the device. Fixed for the attempt's life, so the device and the server project one
+   * log with one cap whatever is configured later (M6-37).
+   */
+  readonly intervalCapMs: number;
   /** After this the attempt can no longer be started, and — with no responses — can be abandoned. */
   readonly windowClosesAt: string;
   readonly createdAt: string;
@@ -108,6 +114,7 @@ export type AttemptErrorCode =
   | 'ATTEMPT_SHIFT_INVALID'
   | 'ATTEMPT_SLOTS_INVALID'
   | 'ATTEMPT_DURATION_INVALID'
+  | 'ATTEMPT_INTERVAL_CAP_INVALID'
   | 'ATTEMPT_WINDOW_INVALID'
   | 'ATTEMPT_CREATED_AT_INVALID'
   | 'ATTEMPT_NOW_INVALID'
@@ -135,6 +142,7 @@ export interface CreateAttemptProps {
   readonly shiftId: string;
   readonly slots: readonly AttemptSlot[];
   readonly durationMs: number;
+  readonly intervalCapMs: number;
   readonly windowClosesAt: string;
   readonly createdAt: string;
 }
@@ -185,6 +193,7 @@ export function createAttempt(props: CreateAttemptProps): Result<Attempt, Attemp
           .map((slot) => Object.freeze({ ...slot })),
       ),
       durationMs: props.durationMs,
+      intervalCapMs: props.intervalCapMs,
       windowClosesAt: props.windowClosesAt,
       createdAt: props.createdAt,
       state: 'created' as const,
@@ -209,6 +218,7 @@ function firstFault(props: CreateAttemptProps): AttemptError | null {
     [isSessionRef(props.sessionRef), 'ATTEMPT_SESSION_INVALID', 'an attempt records the session it was sat in, as a canonical key', 'sessionRef'],
     [isNonBlank(props.shiftId), 'ATTEMPT_SHIFT_INVALID', 'an attempt records the shift it belongs to', 'shiftId'],
     [isPositiveInteger(props.durationMs), 'ATTEMPT_DURATION_INVALID', 'durationMs must be a positive whole number', 'durationMs'],
+    [isPositiveInteger(props.intervalCapMs), 'ATTEMPT_INTERVAL_CAP_INVALID', 'intervalCapMs must be a positive whole number', 'intervalCapMs'],
     [isUtcTimestamp(props.windowClosesAt), 'ATTEMPT_WINDOW_INVALID', 'windowClosesAt must be a UTC timestamp with milliseconds', 'windowClosesAt'],
     [isUtcTimestamp(props.createdAt), 'ATTEMPT_CREATED_AT_INVALID', 'createdAt must be a UTC timestamp with milliseconds', 'createdAt'],
   ];
@@ -300,8 +310,7 @@ export function submitAttempt(
  * the log and not on the attempt.
  *
  * The window now exists on the form (M6-20) and the repository can find the attempts
- * it has left behind (`findAbandonable`); nothing yet *calls* this on a schedule,
- * because there is no scheduler — D36. D54 is closed.
+ * it has left behind (`findAbandonable`); the scheduler calls this (M6-42, D36). D54 is closed.
  */
 export function abandonAttempt(attempt: Attempt, now: string, answeredSlots: number): Result<Attempt, AttemptError> {
   const bad = badNow(now);

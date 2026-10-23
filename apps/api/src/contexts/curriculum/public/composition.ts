@@ -37,6 +37,7 @@ import {
   GetConceptPrerequisitesQuery,
   GetConceptSubtreeQuery,
   GetExamProfilePinsQuery,
+  GetExamProfileScoringSpecQuery,
   GetExamProfileVersionQuery,
   GetMigrationDryRunQuery,
   GetTaxonomyVersionQuery,
@@ -178,8 +179,11 @@ export function curriculumForGeneration(deps: CurriculumCompositionDeps): Curric
  */
 export interface CurriculumForAssessment {
   readonly examProfilePins: GetExamProfilePinsQuery;
+  /** The marking rules and aggregation scoring applies, for the system's scoring consumer alone (M6-40). */
+  readonly scoringSpec: GetExamProfileScoringSpecQuery;
 }
 
 export function curriculumForAssessment(deps: CurriculumCompositionDeps): CurriculumForAssessment {
-  return { examProfilePins: new GetExamProfilePinsQuery(assemble(deps)) };
+  const bag = assemble(deps);
+  return { examProfilePins: new GetExamProfilePinsQuery(bag), scoringSpec: new GetExamProfileScoringSpecQuery(bag) };
 }

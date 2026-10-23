@@ -55,7 +55,7 @@ describe('creating and finding an attempt', () => {
     expect(found.state).toBe('created');
     expect([found.startedAt, found.deadline, found.submission, found.abandonedAt]).toEqual([null, null, null, null]);
     expect(Object.keys(found).sort()).toEqual([
-      'abandonedAt', 'attemptId', 'createdAt', 'deadline', 'deliveryPolicy', 'durationMs', 'examProfileVersionId', 'formId',
+      'abandonedAt', 'attemptId', 'createdAt', 'deadline', 'deliveryPolicy', 'durationMs', 'examProfileVersionId', 'formId', 'intervalCapMs',
       'markingRuleSetHash', 'mode', 'sessionRef', 'shiftId', 'slots', 'startedAt', 'state', 'studentId', 'submission',
       'taxonomyVersionId', 'windowClosesAt',
     ]);
@@ -214,6 +214,89 @@ describe('moving along the state machine', () => {
   });
 });
 
+describe('a move and its event are one transaction (M6-39, D60)', () => {
+  const outboxRows = async () => (await database.pool.query('SELECT event_type, aggregate_type, aggregate_id, payload, principal_kind FROM platform.outbox_message')).rows;
+  const submittedEvent = (attempt: ReturnType<typeof anAttempt>, overrides: Record<string, unknown> = {}) =>
+    ({
+      eventType: 'AttemptSubmitted' as const,
+      schemaVersion: 1 as const,
+      occurredAt: '2026-10-21T12:00:00.000Z',
+      principal: { kind: 'human' as const, id: attempt.studentId },
+      correlationId: 'corr',
+      payload: {
+        attemptId: attempt.attemptId,
+        formId: attempt.formId,
+        studentId: attempt.studentId,
+        examProfileVersionId: attempt.examProfileVersionId,
+        markingRuleSetHash: attempt.markingRuleSetHash,
+        taxonomyVersionId: attempt.taxonomyVersionId,
+        reason: 'manual' as const,
+        submittedAt: '2026-10-21T12:00:00.000Z',
+      },
+      ...overrides,
+    });
+
+  async function inProgress() {
+    const created = anAttempt();
+    expectValue(await attempts.create(created));
+    const started = expectValue(startAttempt(created, '2026-10-21T09:00:00.000Z'));
+    expectValue(await attempts.save(started, 'created'));
+    return started;
+  }
+
+  beforeEach(async () => {
+    await database.pool.query('ALTER TABLE platform.outbox_message DISABLE TRIGGER outbox_message_event_immutable');
+    await database.pool.query('DELETE FROM platform.outbox_message');
+    await database.pool.query('ALTER TABLE platform.outbox_message ENABLE TRIGGER outbox_message_event_immutable');
+  });
+
+  it('writes the submission and its event together, with identifiers and nothing else in the payload', async () => {
+    const started = await inProgress();
+    const submitted = expectValue(submitAttempt(started, { reason: 'manual', idempotencyKey: 'k' }, '2026-10-21T12:00:00.000Z'));
+    expectValue(await attempts.save(submitted, 'in_progress', submittedEvent(started)));
+    expect(expectValue(await attempts.findById(id(TAG.attempt))).state).toBe('submitted');
+    const rows = await outboxRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event_type: 'AttemptSubmitted', aggregate_type: 'Attempt', aggregate_id: id(TAG.attempt), principal_kind: 'human' });
+    expect(Object.keys(rows[0].payload).sort()).toEqual(['attemptId', 'examProfileVersionId', 'formId', 'markingRuleSetHash', 'reason', 'studentId', 'submittedAt', 'taxonomyVersionId']);
+  });
+
+  it('rolls the submission back when the event is refused: the attempt is still in progress, and no half of it was written', async () => {
+    const started = await inProgress();
+    const submitted = expectValue(submitAttempt(started, { reason: 'manual', idempotencyKey: 'k' }, '2026-10-21T12:00:00.000Z'));
+    // the second write fails: a principal kind the outbox's own check refuses
+    const refused = await attempts.save(submitted, 'in_progress', submittedEvent(started, { principal: { kind: 'robot', id: started.studentId } }) as never);
+    expect(refused.ok).toBe(false);
+    const after = expectValue(await attempts.findById(id(TAG.attempt)));
+    expect(after.state).toBe('in_progress');
+    expect(after.submission).toBeNull();
+    expect(await outboxRows()).toEqual([]);
+    // and the same submission, with an event the store takes, then goes through: nothing was left in the way
+    expectValue(await attempts.save(submitted, 'in_progress', submittedEvent(started)));
+    expect(await outboxRows()).toHaveLength(1);
+  });
+
+  it('writes no event for a move that lost a race, and none for a move made without one', async () => {
+    const started = await inProgress();
+    const submitted = expectValue(submitAttempt(started, { reason: 'manual', idempotencyKey: 'k' }, '2026-10-21T12:00:00.000Z'));
+    expectValue(await attempts.save(submitted, 'in_progress', submittedEvent(started)));
+    // a second writer holding the same expectation: the attempt is no longer in progress, so it moves nothing and writes nothing
+    const loser = await attempts.save(submitted, 'in_progress', submittedEvent(started));
+    expect(expectError(loser).code).toBe('CONFLICT');
+    expect(await outboxRows()).toHaveLength(1);
+    const missing = expectError(await attempts.save({ ...submitted, attemptId: id(TAG.attempt, 99) }, 'in_progress', submittedEvent(started)));
+    expect(missing.code).toBe('NOT_FOUND');
+    expect(await outboxRows()).toHaveLength(1);
+  });
+
+  it('writes nothing to the outbox for a move that carries no event', async () => {
+    const created = anAttempt();
+    expectValue(await attempts.create(created));
+    expectValue(await attempts.save(expectValue(startAttempt(created, '2026-10-21T09:00:00.000Z')), 'created'));
+    expect(await outboxRows()).toEqual([]);
+  });
+});
+
 describe('finding attempts a closed window leaves behind', () => {
   const AFTER = '2026-10-21T12:00:00.000Z';
 
@@ -261,6 +344,53 @@ describe('finding attempts a closed window leaves behind', () => {
       await database.pool.query(SHAPE_CHECK);
       await database.pool.query('ALTER TABLE assessment.attempt ENABLE TRIGGER attempt_guarded_update');
     }
+  });
+});
+
+describe('finding attempts whose deadline has passed (M6-42)', () => {
+  async function startedAt(startedAtIso: string, n = 1) {
+    const created = anAttempt({ attemptId: id(TAG.attempt, n), studentId: id(TAG.student, n) });
+    expectValue(await attempts.create(created));
+    const started = expectValue(startAttempt(created, startedAtIso));
+    expectValue(await attempts.save(started, 'created'));
+    return started;
+  }
+
+  it('finds in-progress attempts at or past their deadline, earliest first, and not those still inside it', async () => {
+    const early = await startedAt('2026-10-21T08:00:00.000Z', 1); // deadline 11:00
+    const later = await startedAt('2026-10-21T09:00:00.000Z', 2); // deadline 12:00
+    await startedAt('2026-10-21T10:00:00.000Z', 3); // deadline 13:00
+    expect(expectValue(await attempts.findExpired('2026-10-21T10:59:59.999Z', 10))).toEqual([]);
+    expect(expectValue(await attempts.findExpired('2026-10-21T11:00:00.000Z', 10)).map((a) => a.attemptId)).toEqual([early.attemptId]);
+    expect(expectValue(await attempts.findExpired('2026-10-21T12:30:00.000Z', 10)).map((a) => a.attemptId)).toEqual([early.attemptId, later.attemptId]);
+    expect(expectValue(await attempts.findExpired('2026-10-21T12:30:00.000Z', 1)).map((a) => a.attemptId)).toEqual([early.attemptId]);
+  });
+
+  it('does not find an attempt that is not in progress: created, submitted or abandoned', async () => {
+    expectValue(await attempts.create(anAttempt({ attemptId: id(TAG.attempt, 1), studentId: id(TAG.student, 1) })));
+    const submitted = await startedAt('2026-10-21T08:00:00.000Z', 2);
+    expectValue(await attempts.save(expectValue(submitAttempt(submitted, { reason: 'manual', idempotencyKey: 'k' }, '2026-10-21T09:00:00.000Z')), 'in_progress'));
+    expect(expectValue(await attempts.findExpired('2027-01-01T00:00:00.000Z', 10))).toEqual([]);
+  });
+
+  it('refuses to load a stored attempt that no longer satisfies the domain, and reports an unreachable store as a value', async () => {
+    expectValue(await attempts.create(anAttempt()));
+    // The database would never let this row exist (a deadline with no start), so its guards are lifted for one statement and put back.
+    await database.pool.query('ALTER TABLE assessment.attempt DISABLE TRIGGER attempt_guarded_update');
+    await database.pool.query('ALTER TABLE assessment.attempt DROP CONSTRAINT attempt_state_shape');
+    try {
+      await database.pool.query(`UPDATE assessment.attempt SET state = 'in_progress', deadline_at = '2026-10-21T11:00:00Z'`);
+      expect(expectError(await attempts.findExpired('2027-01-01T00:00:00.000Z', 10)).code).toBe('PERSISTENCE_REJECTED');
+    } finally {
+      await database.pool.query(`UPDATE assessment.attempt SET state = 'created', deadline_at = NULL`);
+      await database.pool.query(SHAPE_CHECK);
+      await database.pool.query('ALTER TABLE assessment.attempt ENABLE TRIGGER attempt_guarded_update');
+    }
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
+    pool.on('error', () => undefined);
+    expect(expectError(await new PostgresAttemptRepository(pool).findExpired('2027-01-01T00:00:00.000Z', 1)).code).toBe('STORE_UNAVAILABLE');
+    await pool.end().catch(() => undefined);
   });
 });
 

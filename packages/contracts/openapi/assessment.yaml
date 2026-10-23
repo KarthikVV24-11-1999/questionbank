@@ -40,6 +40,7 @@ x-assessment-routes:
   - /v1/assessment/attempts
   - /v1/assessment/attempts/{attemptId}
   - /v1/assessment/attempts/{attemptId}/start
+  - /v1/assessment/attempts/{attemptId}/result
   - /v1/assessment/attempts/{attemptId}/events
   - /v1/assessment/attempts/{attemptId}/submission
 
@@ -297,6 +298,34 @@ paths:
         '403': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
 
+  /v1/assessment/attempts/{attemptId}/result:
+    get:
+      operationId: getAttemptResult
+      x-handler: GetAttemptResult
+      summary: The student's own result, once it is scored
+      description: |
+        Scoring is asynchronous (the outbox relay hands the submission to scoring), so a submitted attempt with no score yet is
+        `status: pending`, not an error — including while scoring is failing and an operator has yet to look. An attempt that is not
+        submitted has no result (`412`). Someone else's attempt is `404`. The score names the rule behind each mark and carries **no
+        answer key, no correct option and no solution**.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The result, or that it is not ready.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttemptResult' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+
   /v1/assessment/attempts/{attemptId}/start:
     post:
       operationId: startAttempt
@@ -439,7 +468,7 @@ components:
 
     Attempt:
       type: object
-      required: [attemptId, formId, mode, state, sessionRef, shiftId, slotCount, durationMs, windowClosesAt, startedAt, deadline, serverNow, submission]
+      required: [attemptId, formId, mode, state, sessionRef, shiftId, slotCount, durationMs, intervalCapMs, windowClosesAt, startedAt, deadline, serverNow, submission]
       properties:
         attemptId: { type: string, format: uuid }
         formId: { type: string, format: uuid }
@@ -449,6 +478,7 @@ components:
         shiftId: { type: string }
         slotCount: { type: integer }
         durationMs: { type: integer }
+        intervalCapMs: { type: integer, minimum: 1, description: The longest one visit-to-leave interval counts towards time on item. Pinned for this attempt; a device projects with this value and chooses none of its own. }
         windowClosesAt: { type: string, format: date-time }
         startedAt: { type: [string, 'null'], format: date-time }
         deadline: { type: [string, 'null'], format: date-time, description: The server's, fixed at start. }
@@ -460,6 +490,30 @@ components:
             reason: { type: string, enum: [manual, expiry, recovered] }
             submittedAt: { type: string, format: date-time }
             pastDeadline: { type: boolean }
+
+    AttemptResult:
+      type: object
+      required: [attemptId, status]
+      properties:
+        attemptId: { type: string, format: uuid }
+        status: { type: string, enum: [pending, scored] }
+        score:
+          type: object
+          required: [scoreRecordId, attemptId, generation, totalRaw, totalMaxAvailable, computedAt, sectionScores, itemOutcomes]
+          properties:
+            scoreRecordId: { type: string, format: uuid }
+            attemptId: { type: string, format: uuid }
+            generation: { type: integer }
+            totalRaw: { type: string, description: A decimal, never a float. }
+            totalMaxAvailable: { type: string }
+            computedAt: { type: string, format: date-time }
+            sectionScores: { type: array, items: { type: object, additionalProperties: true } }
+            itemOutcomes:
+              type: array
+              items:
+                type: object
+                required: [slotId, correctness, marksAwarded, marksAvailable, ruleAppliedId]
+                additionalProperties: true
 
     CreatedAttempt:
       type: object

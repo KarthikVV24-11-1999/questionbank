@@ -62,8 +62,11 @@ export const RECORD_REVIEW_DECISION_POLICY: AuthorizationPolicy = policy('Record
 /** Approve-with-edits (M4-29, DEC-M4-3) is a reviewer act — the reviewer edits, the author stays the author. */
 export const APPROVE_WITH_EDITS_POLICY: AuthorizationPolicy = policy('ApproveWithEdits', [ROLES.reviewer]);
 
-/** DEC-M4-15: a command any scheduler can call, restricted to the role that already owns escalation and queue health. */
-export const SWEEP_REVIEW_AGEING_POLICY: AuthorizationPolicy = policy('SweepReviewAgeing', DRAFT_OVERSIGHT_ROLES);
+/**
+ * DEC-M4-15: a command any scheduler can call, restricted to the role that already owns escalation and queue health — and, since the
+ * scheduler exists (M6-42, D36), the system, which is what a scheduler is. This one policy only: the system holds no other review role.
+ */
+export const SWEEP_REVIEW_AGEING_POLICY: AuthorizationPolicy = policy('SweepReviewAgeing', [...DRAFT_OVERSIGHT_ROLES, ROLES.system]);
 
 /** DEC-M4-13: capacity planning is Content Ops' surface. */
 export const GET_QUEUE_HEALTH_POLICY: AuthorizationPolicy = policy('GetQueueHealth', DRAFT_OVERSIGHT_ROLES);

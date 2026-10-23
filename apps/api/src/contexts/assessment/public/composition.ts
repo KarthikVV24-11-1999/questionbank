@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { ROLES } from '../../../platform/auth/roles.js';
 import type { DynamicModule } from '@nestjs/common';
 import type { PrincipalResolver } from '../api/assessment.controller.js';
 import { AssessmentModule } from '../api/assessment.module.js';
@@ -13,6 +14,11 @@ import { PostgresExposureLedger } from '../infrastructure/exposure-ledger.reposi
 import { PostgresFormRepository } from '../infrastructure/form.repository.js';
 import { Ed25519PackageSigner } from '../infrastructure/package-signer.js';
 import { PostgresResponseLog } from '../infrastructure/response-log.repository.js';
+import { ScoreSubmittedAttemptConsumer, type ScoringKeyReader, type ScoringSpecReader, type Scorer } from '../application/consumers/scoring-consumer.js';
+import type { ScoreRecordReader } from '../application/handlers/attempt-handlers.js';
+import { SubmitExpiredAttemptsHandler } from '../application/handlers/expiry-handler.js';
+import { SweepWindowsHandler } from '../application/handlers/sweep-handler.js';
+import type { ApplicationContext } from '../application/ports.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). `register` builds assessment's
@@ -31,32 +37,32 @@ export interface AssessmentCompositionDeps {
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
   readonly principals: PrincipalResolver;
+  /** The one configured cap on a visit's time on item; pinned onto each attempt (M6-37). */
+  readonly intervalCapMs: number;
   /**
    * The Ed25519 seed packages are signed with (M6-26), base64. Absent, and the
    * package routes answer as unavailable rather than serving bytes nothing vouches for.
    */
   readonly packageSigningKey?: string;
   /** Curriculum's one read assessment makes — `curriculumForAssessment`, passed through. */
-  readonly curriculum: { readonly examProfilePins: ProfilePinsHandler };
+  readonly curriculum: { readonly examProfilePins: ProfilePinsHandler; readonly scoringSpec: ScoringSpecReader };
+  /** Scoring's two handlers assessment uses — scoring's `scoringForAssessment`, passed through (M6-40). */
+  readonly scoring: { readonly scoreAttempt: Scorer; readonly scoreRecord: ScoreRecordReader };
   /** Content's handlers assessment may call — content's `contentForAssessment`, passed through. */
   readonly content: {
     readonly listCatalogue: CatalogueHandler;
     readonly duplicates: DuplicatesHandler;
     readonly itemVersion: ConstructorParameters<typeof ContentFormReader>[0]['itemVersion'];
     readonly stimulusVersion: ConstructorParameters<typeof ContentFormReader>[0]['stimulusVersion'];
+    /** The keys of pinned versions, for scoring and for nothing else (M6-40). */
+    readonly answerKeys: ScoringKeyReader;
   };
 }
 
-const REQUIRED_DEPS_KEYS = ['pool', 'clock', 'identifiers', 'audit', 'principals', 'content', 'curriculum'] as const satisfies readonly (keyof AssessmentCompositionDeps)[];
+const REQUIRED_DEPS_KEYS = ['pool', 'clock', 'identifiers', 'audit', 'principals', 'content', 'curriculum', 'scoring', 'intervalCapMs'] as const satisfies readonly (keyof AssessmentCompositionDeps)[];
 
-export function register(deps: AssessmentCompositionDeps): DynamicModule {
-  for (const key of REQUIRED_DEPS_KEYS) {
-    if (deps[key] === undefined) {
-      throw new Error(`assessment composition is missing required dependency: ${key}`);
-    }
-  }
-
-  const registry = composeAssessmentHandlers({
+function assemble(deps: AssessmentCompositionDeps) {
+  return {
     forms: new PostgresFormRepository(deps.pool),
     attempts: new PostgresAttemptRepository(deps.pool),
     responses: new PostgresResponseLog(deps.pool),
@@ -68,11 +74,100 @@ export function register(deps: AssessmentCompositionDeps): DynamicModule {
     }),
     content: new ContentFormReader({ itemVersion: deps.content.itemVersion, stimulusVersion: deps.content.stimulusVersion }),
     pins: new CurriculumPinSource(deps.curriculum.examProfilePins),
+    scoreRecord: deps.scoring.scoreRecord,
+    intervalCapMs: deps.intervalCapMs,
     clock: deps.clock,
     identifiers: deps.identifiers,
     audit: deps.audit,
     signer: deps.packageSigningKey === undefined ? undefined : new Ed25519PackageSigner(deps.packageSigningKey),
+  };
+}
+
+function checkDeps(deps: AssessmentCompositionDeps): void {
+  for (const key of REQUIRED_DEPS_KEYS) {
+    if (deps[key] === undefined) {
+      throw new Error(`assessment composition is missing required dependency: ${key}`);
+    }
+  }
+}
+
+/**
+ * What the outbox relay hands assessment's events to (M6-38, M6-40): `AttemptSubmitted` goes to the scoring consumer. Built from the
+ * same assembly `register` uses, so the attempt it scores is the attempt the routes wrote.
+ */
+export function assessmentConsumers(deps: AssessmentCompositionDeps): ReadonlyMap<string, readonly OutboxConsumerLike[]> {
+  checkDeps(deps);
+  const bag = assemble(deps);
+  const scoring = new ScoreSubmittedAttemptConsumer({
+    attempts: bag.attempts,
+    forms: bag.forms,
+    responses: bag.responses,
+    keys: deps.content.answerKeys,
+    spec: deps.curriculum.scoringSpec,
+    scorer: deps.scoring.scoreAttempt,
   });
+  return new Map([['AttemptSubmitted', [scoring]]]);
+}
+
+/**
+ * What the relay and the scheduler are handed, declared here by the shape this context produces: a context reaches `platform/` for the
+ * role vocabulary and nothing else (ADR-0026), so it names no platform type, and the root — which owns the relay and the scheduler —
+ * receives these structurally.
+ */
+export interface OutboxConsumerLike {
+  readonly name: string;
+  handle(envelope: { readonly messageId: string; readonly correlationId: string; readonly payload: Readonly<Record<string, unknown>> }): Promise<void>;
+}
+export interface BackgroundJobLike {
+  readonly name: string;
+  readonly everyMs: number;
+  run(now: Date): Promise<void>;
+}
+
+/** The identity the scheduler's jobs act under: the system's, in the one role their policies name. */
+const SCHEDULER_PRINCIPAL_ID = '00000000-0000-4000-8000-0000000000f1';
+
+/**
+ * What the scheduler runs for assessment (M6-42, D36): opening and closing form windows and abandoning attempts a closed window left
+ * (`SweepWindows`), and submitting the attempts whose deadline passed with no device to say so (`SubmitExpiredAttempts`). Ordinary
+ * idempotent commands, run as the system, each taking its moment from the clock; the scheduler decides only when to ask.
+ */
+export function assessmentJobs(deps: AssessmentCompositionDeps): readonly BackgroundJobLike[] {
+  checkDeps(deps);
+  const bag = assemble(deps);
+  const sweep = new SweepWindowsHandler(bag);
+  const expiry = new SubmitExpiredAttemptsHandler(bag);
+  const asSystem = (name: string): ApplicationContext => ({
+    principal: { kind: 'system', id: SCHEDULER_PRINCIPAL_ID, roleContext: [ROLES.system] },
+    correlationId: `scheduler:${name}`,
+  });
+  const failing = (name: string, error: { readonly code: string; readonly message: string }): never => {
+    throw new Error(`${name}: ${error.code}: ${error.message}`);
+  };
+  return [
+    {
+      name: 'assessment.sweep-windows',
+      everyMs: 30_000,
+      run: async () => {
+        const done = await sweep.handle({}, asSystem('assessment.sweep-windows'));
+        if (!done.ok) failing('SweepWindows', done.error);
+      },
+    },
+    {
+      name: 'assessment.submit-expired',
+      everyMs: 15_000,
+      run: async () => {
+        const done = await expiry.handle({}, asSystem('assessment.submit-expired'));
+        if (!done.ok) failing('SubmitExpiredAttempts', done.error);
+      },
+    },
+  ];
+}
+
+export function register(deps: AssessmentCompositionDeps): DynamicModule {
+  checkDeps(deps);
+
+  const registry = composeAssessmentHandlers(assemble(deps));
 
   return AssessmentModule.register({ registry, principals: deps.principals });
 }

@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { ROLES } from '../../../platform/auth/roles.js';
 import type { DynamicModule } from '@nestjs/common';
 import type { Handler } from '../application/handler-registry.js';
 import {
@@ -82,6 +83,7 @@ import { SweepReviewAgeingHandler } from '../application/review/handlers/ageing-
 import { RefreshFingerprintsHandler } from '../application/review/handlers/fingerprint-handlers.js';
 import { GetDuplicateCandidatesForProposalHandler, GetDuplicateCandidatesHandler } from '../application/review/queries/duplicate-queries.js';
 import { GetPublishedItemVersionHandler, GetPublishedStimulusVersionHandler } from '../application/queries/delivery-queries.js';
+import { GetAnswerKeysForScoringHandler } from '../application/queries/scoring-key-queries.js';
 import { PostgresPublishedVersions } from '../infrastructure/published-versions.reader.js';
 import { ListPublishedCatalogueHandler } from '../application/queries/catalogue-queries.js';
 import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
@@ -223,6 +225,36 @@ function assemble(deps: ContentCompositionDeps) {
   return bag;
 }
 
+/** The identity the scheduler's jobs act under: the system's. */
+const SCHEDULER_PRINCIPAL_ID = '00000000-0000-4000-8000-0000000000f2';
+
+/**
+ * What the scheduler runs for content (M6-42, D36): the review ageing sweep — release expired leases, escalate what is overdue. An
+ * ordinary idempotent command taking its moment as a parameter; the scheduler decides only when to ask.
+ */
+export interface ContentJobLike {
+  readonly name: string;
+  readonly everyMs: number;
+  run(now: Date): Promise<void>;
+}
+
+export function contentJobs(deps: ContentCompositionDeps): readonly ContentJobLike[] {
+  const sweep = new SweepReviewAgeingHandler(assemble(deps));
+  return [
+    {
+      name: 'content.review-ageing',
+      everyMs: 3_600_000,
+      run: async (now) => {
+        const done = await sweep.handle(
+          { now: now.toISOString() },
+          { principal: { kind: 'system', id: SCHEDULER_PRINCIPAL_ID, roleContext: [ROLES.system] }, correlationId: 'scheduler:content.review-ageing' },
+        );
+        if (!done.ok) throw new Error(`SweepReviewAgeing: ${done.error.code}: ${done.error.message}`);
+      },
+    },
+  ];
+}
+
 export function register(deps: ContentCompositionDeps): DynamicModule {
   const bag = assemble(deps);
 
@@ -342,6 +374,8 @@ export interface ContentForAssessment {
   /** A form pins versions; a package serves exactly those (M6-24), by version id and not by item. */
   readonly itemVersion: GetPublishedItemVersionHandler;
   readonly stimulusVersion: GetPublishedStimulusVersionHandler;
+  /** The keys of the versions an attempt pinned, for scoring and for nothing else: the system's alone, with no route (M6-40). */
+  readonly answerKeys: GetAnswerKeysForScoringHandler;
 }
 
 export function contentForAssessment(deps: ContentCompositionDeps): ContentForAssessment {
@@ -351,5 +385,6 @@ export function contentForAssessment(deps: ContentCompositionDeps): ContentForAs
     duplicates: new GetDuplicateCandidatesHandler(bag),
     itemVersion: new GetPublishedItemVersionHandler(bag),
     stimulusVersion: new GetPublishedStimulusVersionHandler(bag),
+    answerKeys: new GetAnswerKeysForScoringHandler(bag),
   };
 }
