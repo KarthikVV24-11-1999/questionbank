@@ -146,6 +146,8 @@ export class AssessmentController {
       .setHeader('X-Package-Signature', built.signature)
       .setHeader('X-Package-Key-Id', built.keyId)
       .setHeader('ETag', `"${built.digest}"`)
+      // Private to this user and revalidated every time (the ETag is the digest): a copy may be kept, never reused unchecked.
+      .setHeader('Cache-Control', 'private, no-cache')
       .send(Buffer.from(built.bytes));
   }
 
@@ -166,6 +168,9 @@ export class AssessmentController {
     // Echoed on every response, error or not (§8).
     const correlationId = headers['x-correlation-id'] ?? randomUUID();
     response.setHeader('X-Correlation-Id', correlationId);
+    // Nothing here is for a cache to keep: not a student's attempt, their events, their result. The package route below says its own, and
+    // the learner app's service worker never answers the attempt routes at all (M6-51); this is the same promise made to every other cache.
+    response.setHeader('Cache-Control', 'no-store');
 
     const principal = this.principals.resolve(headers);
     if (principal === null) {

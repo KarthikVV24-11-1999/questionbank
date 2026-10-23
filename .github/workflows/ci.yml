@@ -34,6 +34,7 @@ jobs:
       - run: corepack pnpm install --frozen-lockfile
       - run: corepack pnpm --filter @questionbank/api exec vitest run --project unit
       - run: corepack pnpm --filter @questionbank/studio test
+      - run: corepack pnpm --filter @questionbank/learn test
       - run: corepack pnpm --filter @questionbank/contracts test
       - run: corepack pnpm --filter @questionbank/content-renderer test
       - run: corepack pnpm --filter @questionbank/domain-types test
@@ -87,3 +88,4 @@ jobs:
       - run: corepack enable
       - run: corepack pnpm install --frozen-lockfile
       - run: corepack pnpm --filter @questionbank/studio build
+      - run: corepack pnpm --filter @questionbank/learn build

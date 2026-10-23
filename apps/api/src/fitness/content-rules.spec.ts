@@ -10,6 +10,7 @@ import {
   KEY_BEARING_FIELDS,
   RENDERED_MARKUP_FIELDS,
   checkAuthoringUnreachableFromDelivery,
+  checkColumnUpdateGrants,
   checkCoverageThresholds,
   checkJsonbVersionSiblings,
   checkNoAiImportIntoContent,
@@ -643,7 +644,7 @@ describe('the M1/M2 fitness set is still run, not assumed', () => {
   });
 
   it('declares every rule this module can report', () => {
-    expect(CONTENT_RULES).toHaveLength(16);
+    expect(CONTENT_RULES).toHaveLength(18);
     expect(new Set(CONTENT_RULES).size).toBe(CONTENT_RULES.length);
   });
 });
@@ -929,5 +930,32 @@ describe('M6-25 — no packaging module reaches a module that makes or carries a
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]?.rule).toBe('M6_25_PACKAGING_REACHES_KEY_MATERIAL');
+  });
+});
+
+describe('F40 column grants — the pure check (M6-45)', () => {
+  const grant = (table: string, column: string, privilege = 'UPDATE', grantee = 'questionbank_app') => ({ table, column, privilege, grantee });
+  const six = ['attempts', 'claimed_until', 'dead_at', 'last_error', 'published_at', 'retry_at'].map((column) => grant('platform.outbox_message', column));
+
+  it('passes exactly the allow-list, and nothing held by another role or of another privilege', () => {
+    expect(checkColumnUpdateGrants(six, ['questionbank_app'])).toEqual([]);
+    expect(checkColumnUpdateGrants([...six, grant('content.item_version', 'state', 'UPDATE', 'someone_else'), grant('content.item_version', 'state', 'SELECT')], ['questionbank_app'])).toEqual([]);
+  });
+
+  it('fires on a column not on the list, on a published-version table and elsewhere', () => {
+    const found = checkColumnUpdateGrants([...six, grant('content.item_version', 'stem'), grant('platform.outbox_message', 'payload')], ['questionbank_app']);
+    expect(found.map((violation) => [violation.rule, violation.subject])).toEqual([
+      ['F40_COLUMN_UPDATE_NOT_ON_THE_ALLOW_LIST', 'content.item_version.stem'],
+      ['F40_COLUMN_UPDATE_NOT_ON_THE_ALLOW_LIST', 'platform.outbox_message.payload'],
+    ]);
+  });
+
+  it('fires when a column the list names is no longer granted', () => {
+    expect(checkColumnUpdateGrants(six.slice(1), ['questionbank_app']).map((violation) => violation.rule)).toEqual(['F40_COLUMN_UPDATE_ALLOW_LIST_NOT_HELD']);
+  });
+
+  it('takes an allow-list of its own, so another table\'s exception is a reviewed entry and not a loosening', () => {
+    expect(checkColumnUpdateGrants([grant('x.y', 'z')], ['questionbank_app'], { 'x.y': ['z'] })).toEqual([]);
+    expect(checkColumnUpdateGrants([], ['questionbank_app'], { 'x.y': ['z'] }).map((violation) => violation.subject)).toEqual(['x.y.z']);
   });
 });

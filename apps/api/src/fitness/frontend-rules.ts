@@ -27,8 +27,8 @@ const FETCH_PATTERN = /\bfetch\s*\(|\bXMLHttpRequest\b/u;
  */
 export const HANDWRITTEN_FETCH_ALLOWLIST = ['packages/contracts/src/client.ts'] as const;
 
-const DEFAULT_INCLUDES = ['apps/studio/src', 'packages/contracts/src', 'packages/content-renderer/src'];
-const DEFAULT_EXCLUDES = [/\.spec\.tsx?$/u, /^apps\/studio\/src\/testing\//u];
+const DEFAULT_INCLUDES = ['apps/studio/src', 'apps/learn/src', 'packages/contracts/src', 'packages/content-renderer/src'];
+const DEFAULT_EXCLUDES = [/\.spec\.tsx?$/u, /^apps\/(?:studio|learn)\/src\/testing\//u];
 
 function walk(directory: string): string[] {
   let entries: string[];
@@ -95,6 +95,7 @@ export interface ColorLiteralViolation {
  */
 export const COLOR_TOKEN_MODULES = [
   'apps/studio/src/tokens.ts',
+  'apps/learn/src/tokens.ts',
   'packages/content-renderer/src/tokens.ts',
 ] as const;
 
@@ -119,7 +120,7 @@ const NAMED_COLOR_IN_STYLE_CONTEXT_PATTERN = new RegExp(
   'iu',
 );
 
-const COLOR_DEFAULT_EXCLUDES = [/\.spec\.tsx?$/u, /^apps\/studio\/src\/testing\//u];
+const COLOR_DEFAULT_EXCLUDES = [/\.spec\.tsx?$/u, /^apps\/(?:studio|learn)\/src\/testing\//u];
 
 /**
  * `root` is the repository root (absolute). See `checkNoHandwrittenFetch` for

@@ -446,13 +446,37 @@ could ask content for the version's kind).
 
 `GET /v1/attempts/{attemptId}/score-records/current` is for learners and operators, and a learner may read only their own record — which the
 query checks by comparing the principal with an `ownerUserId` the caller supplies. The route supplies none, and scoring does not know who owns
-an attempt, so a learner is always refused and only an operator can read through it. Found while building the student's result (M6-41), which is
-read through assessment instead: assessment knows the owner and supplies it.
+an attempt, so a learner is always refused and only an operator can read through it.
+
+**What is proven, and what is not (M6-52).** The learner never needs this route: the student's result is read through assessment
+(`GET /v1/assessment/attempts/{id}/result`), which knows the owner. That path is proven end to end on the server — submit, relay, score, read
+by the owner, refused to another student, no key or solution in the body (`assessment-scoring.integration.spec.ts`) — and `apps/learn` reads
+it through the typed client and shows it. Not proven: the learner app against a live server; its specs use a fake transport, and
+the browser-driven journey is M8's. The defect itself — the scoring route is unusable by the people it names — stands.
 
 **Trigger** A client that wants the score without going through the attempt, or scoring learning attempt ownership (a read model fed by the
 outbox would give it).
 **Cited** `apps/api/src/contexts/scoring/api/scoring.controller.ts`
 
+### D64 — A window closing does not submit the attempts still running in it
+
+An attempt is submitted as `expiry` when **its own deadline** passes: by the device at zero, or by the scheduler's sweep when the device never
+came back. The form window closing is a separate fact, and nothing reacts to it for attempts already started: one started just before the
+close keeps its full duration past it. Whether a closing window should also submit live attempts as `expiry` is a product decision (it
+shortens a learner's paper for a fact they did not control) and has not been taken; the behaviour today is the one that never cuts a started paper short.
+
+**Trigger** A product decision on exam-window semantics, or the first complaint that a paper ran past its window.
+**Cited** `apps/api/src/contexts/assessment/application/handlers/expiry-handler.ts`
+
+### D65 — A test that pins from the exam profile failed once in a wide run and never again
+
+`pins from the exam profile curriculum holds, not from anything the client says` failed once in a wide run of the suite and did not
+reproduce in later runs, in isolation or wide. The cause is unknown. It is recorded so that a second failure is
+recognised as a second, and investigated, rather than re-run until it passes.
+
+**Trigger** A second failure of that test, or any failure of it in CI: capture the output and the run's concurrency, and check what the test
+shares with its neighbours (the clock variable, the pool, the exam profile rows).
+**Cited** `apps/api/src/platform/composition/assessment-attempts.integration.spec.ts`
 
 ## Closed
 

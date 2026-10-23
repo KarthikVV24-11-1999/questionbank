@@ -279,3 +279,27 @@ describe('F26 — the attempt engine imports no framework and reads no ambient c
     expect(unconfirmedPackages).toEqual(['apps/api/src/fitness-fixtures/as-packages-dir/attempt-engine']);
   });
 });
+
+describe('F15 and F24 cover the learner app (M6-46)', () => {
+  it('the default scan reaches apps/learn, and finds it clean', () => {
+    expect(checkNoHandwrittenFetch(REPO_ROOT, { include: ['apps/learn/src'] })).toMatchObject({ violations: [] });
+    expect(checkNoHandwrittenFetch(REPO_ROOT, { include: ['apps/learn/src'] }).scannedFiles).toBeGreaterThan(10);
+    expect(checkNoColorLiterals(REPO_ROOT, { include: ['apps/learn/src'] }).violations).toEqual([]);
+  });
+
+  it('a fetch and a hex colour planted in the learner app go red under the default scan', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'learn-frontend-'));
+    try {
+      cpSync(join(REPO_ROOT, 'apps/api/src/fitness-fixtures/as-studio-component/planted-fetch-violation.tsx'), join(scratch, 'apps/learn/src/planted-fetch.tsx'));
+      cpSync(join(REPO_ROOT, 'apps/api/src/fitness-fixtures/as-studio-colors/planted-hex-color.tsx'), join(scratch, 'apps/learn/src/planted-color.tsx'));
+      expect(checkNoHandwrittenFetch(scratch).violations.map((v) => v.file)).toEqual(['apps/learn/src/planted-fetch.tsx']);
+      expect(checkNoColorLiterals(scratch).violations.map((v) => v.file)).toEqual(['apps/learn/src/planted-color.tsx']);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('the learner token module is a token module, and it exists', () => {
+    expect(COLOR_TOKEN_MODULES).toContain('apps/learn/src/tokens.ts');
+  });
+});

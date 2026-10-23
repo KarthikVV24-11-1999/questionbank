@@ -110,3 +110,37 @@ describe('createClient — a problem-details body becomes a typed error', () => 
     expect((error as Error).message).not.toContain('<html>');
   });
 });
+
+describe('createClient — headers, and a body kept as bytes (M6-47, M6-48)', () => {
+  const config = (fetchImpl: typeof fetch) => ({ baseUrl: 'http://api.test', getToken: () => 't', fetchImpl, correlationId: () => 'corr' });
+
+  it('sends the headers a caller names, and never lets them replace the client\'s own', async () => {
+    let seen: Record<string, string> = {};
+    const fetchImpl = (async (_url: unknown, init: RequestInit) => {
+      seen = init.headers as Record<string, string>;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    await createClient(config(fetchImpl)).request({ path: '/x', headers: { 'Idempotency-Key': 'k1', Authorization: 'Bearer forged', 'X-Correlation-Id': 'forged' }, responseSchema: z.object({}) });
+    expect(seen['Idempotency-Key']).toBe('k1');
+    expect(seen['Authorization']).toBe('Bearer t');
+    expect(seen['X-Correlation-Id']).toBe('corr');
+  });
+
+  it('returns a body exactly as sent, with the headers that go with it', async () => {
+    const bytes = new Uint8Array([0, 1, 2, 250, 255, 123, 34]);
+    const fetchImpl = (async () => new Response(bytes, { status: 200, headers: { 'X-Package-Signature': 'sig' } })) as typeof fetch;
+    const got = await createClient(config(fetchImpl)).requestBytes({ path: '/package' });
+    expect([...got.bytes]).toEqual([...bytes]);
+    expect(got.headers.get('x-package-signature')).toBe('sig');
+  });
+
+  it('turns a failure while fetching bytes into the same typed errors, whatever the body', async () => {
+    const problem = { type: 'about:blank', title: 'Unavailable', status: 503, code: 'Unavailable', retryable: true, correlationId: 'c', reason: 'STORE_UNAVAILABLE', constraint: 'TOTAL_MARKS' };
+    const asProblem = (async () => new Response(JSON.stringify(problem), { status: 503 })) as typeof fetch;
+    await expect(createClient(config(asProblem)).requestBytes({ path: '/package' })).rejects.toBeInstanceOf(ApiProblemError);
+    const asText = (async () => new Response('<html>gateway</html>', { status: 502 })) as typeof fetch;
+    await expect(createClient(config(asText)).requestBytes({ path: '/package' })).rejects.toBeInstanceOf(UnparseableErrorResponse);
+    const empty = (async () => new Response('', { status: 500 })) as typeof fetch;
+    await expect(createClient(config(empty)).requestBytes({ path: '/package' })).rejects.toBeInstanceOf(UnparseableErrorResponse);
+  });
+});

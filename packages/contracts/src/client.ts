@@ -66,12 +66,25 @@ export interface RequestOptions<T> {
   readonly path: string;
   readonly query?: Readonly<Record<string, string | undefined>>;
   readonly body?: unknown;
+  /** Extra request headers, such as an `Idempotency-Key`. They never replace the ones the client sets. */
+  readonly headers?: Readonly<Record<string, string>>;
   /** Validates the success response. */
   readonly responseSchema: z.ZodType<T>;
 }
 
+/** A response whose body is bytes to be kept exactly as sent — a signed package — with the headers that vouch for them. */
+export interface BytesResponse {
+  readonly bytes: Uint8Array;
+  readonly headers: Headers;
+}
+
 export interface ApiClient {
   request<T>(options: RequestOptions<T>): Promise<T>;
+  /**
+   * For a body that must reach the caller untouched: not parsed, not re-serialised, so a signature over it still means something.
+   * A failure is a problem-details error exactly as for `request`.
+   */
+  requestBytes(options: Omit<RequestOptions<never>, 'responseSchema' | 'body'>): Promise<BytesResponse>;
 }
 
 function buildUrl(baseUrl: string, path: string, query: RequestOptions<unknown>['query']): string {
@@ -86,35 +99,45 @@ export function createClient(config: ClientConfig): ApiClient {
   const fetchImpl = config.fetchImpl ?? fetch;
   const nextCorrelationId = config.correlationId ?? (() => crypto.randomUUID());
 
-  async function request<T>(options: RequestOptions<T>): Promise<T> {
-    const correlationId = nextCorrelationId();
+  function send(options: Omit<RequestOptions<never>, 'responseSchema'>, accept: string): Promise<Response> {
     const headers: Record<string, string> = {
-      'X-Correlation-Id': correlationId,
-      Accept: 'application/json',
+      ...options.headers,
+      'X-Correlation-Id': nextCorrelationId(),
+      Accept: accept,
     };
     const token = config.getToken();
     if (token !== null) headers['Authorization'] = `Bearer ${token}`;
     if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
-    const response = await fetchImpl(buildUrl(config.baseUrl, options.path, options.query), {
+    return fetchImpl(buildUrl(config.baseUrl, options.path, options.query), {
       method: options.method ?? 'GET',
       headers,
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
+  }
 
-    const bodyText = await response.text();
+  /** A non-2xx response is a problem-details error, or an unparseable one; it never leaks the raw body. */
+  function failure(response: Response, bodyText: string): never {
     let json: unknown;
     try {
       json = bodyText.length === 0 ? undefined : JSON.parse(bodyText);
     } catch {
-      if (!response.ok) throw new UnparseableErrorResponse(response.status);
-      throw new ResponseSchemaError([]);
+      throw new UnparseableErrorResponse(response.status);
     }
+    const problem = ProblemDetailsSchema.safeParse(json);
+    if (!problem.success) throw new UnparseableErrorResponse(response.status);
+    throw new ApiProblemError(problem.data);
+  }
 
-    if (!response.ok) {
-      const problem = ProblemDetailsSchema.safeParse(json);
-      if (!problem.success) throw new UnparseableErrorResponse(response.status);
-      throw new ApiProblemError(problem.data);
+  async function request<T>(options: RequestOptions<T>): Promise<T> {
+    const response = await send(options, 'application/json');
+    const bodyText = await response.text();
+    if (!response.ok) return failure(response, bodyText);
+    let json: unknown;
+    try {
+      json = bodyText.length === 0 ? undefined : JSON.parse(bodyText);
+    } catch {
+      throw new ResponseSchemaError([]);
     }
 
     const parsed = options.responseSchema.safeParse(json);
@@ -122,5 +145,11 @@ export function createClient(config: ClientConfig): ApiClient {
     return parsed.data;
   }
 
-  return { request };
+  async function requestBytes(options: Omit<RequestOptions<never>, 'responseSchema' | 'body'>): Promise<BytesResponse> {
+    const response = await send(options, '*/*');
+    if (!response.ok) return failure(response, await response.text());
+    return { bytes: new Uint8Array(await response.arrayBuffer()), headers: response.headers };
+  }
+
+  return { request, requestBytes };
 }

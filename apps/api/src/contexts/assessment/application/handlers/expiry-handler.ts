@@ -24,7 +24,7 @@ export interface ExpiryReport {
 const DEFAULT_LIMIT = 200;
 
 /**
- * Submits the attempts whose deadline has passed and whose device never came back to say so (M6-42, D36).
+ * Submits the attempts whose deadline has passed and whose device never came back to say so (M6-42, D36). A window closing does not do this for attempts already running in it: debt D64.
  *
  * Track E distinguished an `expiry` submission from a late `manual` one; this is the caller that was missing — without it an
  * attempt whose device died stays `in_progress` for good, counting against its student's one active mock. The reason is

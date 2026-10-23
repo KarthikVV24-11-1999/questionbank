@@ -32,6 +32,8 @@ export const CONTENT_RULES = [
   'F6_KEY_ABSENT_FROM_AN_AUTHORING_SURFACE',
   'F7_WRITE_GRANT_ON_A_PUBLISHED_VERSION_TABLE',
   'F40_WRITE_GRANT_ON_AN_APPEND_ONLY_TABLE',
+  'F40_COLUMN_UPDATE_NOT_ON_THE_ALLOW_LIST',
+  'F40_COLUMN_UPDATE_ALLOW_LIST_NOT_HELD',
   'F20_SECOND_CONTENT_RENDERER',
   'INV01_AI_REACHES_CONTENT',
   'INV14_RENDERED_MARKUP_FIELD',
@@ -439,6 +441,73 @@ export function checkNoWriteGrantOnAppendOnlyTable(
       subject: row.table,
       detail: `${row.grantee} holds ${row.privilege}`,
     }));
+}
+
+/**
+ * F40 and column grants (M6-45).
+ *
+ * `information_schema.role_table_grants` — which F7 and F40 read — lists **table-level grants only**. Until M6-38 that was the whole of
+ * the write privileges, because no column grant existed. The relay's `UPDATE` on six delivery columns of the outbox is the first, and
+ * it is right; but it meant the gate no longer watched the whole surface. A later migration granting `UPDATE (stem)` on a published
+ * version table, or on the audit chain, or on the exposure ledger, would have passed it untouched.
+ *
+ * So the column-level grants are read too — straight from `pg_attribute.attacl`, which holds only what was granted on a column
+ * itself and not the columns a table-level grant covers — and **every column `UPDATE` the application role holds must be on an
+ * allow-list that names the table and the exact columns**. The allow-list is held in both directions: a column granted that is not on
+ * it fails, and a column on it that is no longer granted fails, so the six cannot become seven, or five, unnoticed.
+ */
+export interface ColumnGrantRow {
+  /** `schema.table`. */
+  readonly table: string;
+  readonly column: string;
+  readonly privilege: string;
+  readonly grantee: string;
+}
+
+/** Every explicit column-level grant in the given schemas. One definition, read by every gate that wants column grants. */
+export const COLUMN_GRANTS_SQL = `
+  SELECT n.nspname || '.' || c.relname AS "table", a.attname AS "column", acl.privilege_type AS "privilege",
+         pg_get_userbyid(acl.grantee) AS "grantee"
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   CROSS JOIN LATERAL aclexplode(a.attacl) AS acl
+   WHERE a.attacl IS NOT NULL AND NOT a.attisdropped AND c.relkind IN ('r', 'p')
+     AND n.nspname = ANY($1)
+   ORDER BY 1, 2, 3`;
+
+/**
+ * The column `UPDATE` grants the application role is allowed to hold, by table, with the exact columns. The relay moves an outbox
+ * message through delivery and may change nothing about the event (a trigger refuses it as well); this is the only entry.
+ */
+export const COLUMN_UPDATE_ALLOWLIST: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'platform.outbox_message': Object.freeze(['attempts', 'claimed_until', 'dead_at', 'last_error', 'published_at', 'retry_at']),
+});
+
+export function checkColumnUpdateGrants(
+  grants: readonly ColumnGrantRow[],
+  appRoles: readonly string[],
+  allowlist: Readonly<Record<string, readonly string[]>> = COLUMN_UPDATE_ALLOWLIST,
+): ContentViolation[] {
+  const held = grants.filter((row) => row.privilege === 'UPDATE' && appRoles.includes(row.grantee));
+  const violations: ContentViolation[] = held
+    .filter((row) => !(allowlist[row.table] ?? []).includes(row.column))
+    .map((row) => ({
+      rule: 'F40_COLUMN_UPDATE_NOT_ON_THE_ALLOW_LIST' as const,
+      subject: `${row.table}.${row.column}`,
+      detail: `${row.grantee} holds UPDATE on a column the allow-list does not name`,
+    }));
+  for (const [table, columns] of Object.entries(allowlist)) {
+    const granted = new Set(held.filter((row) => row.table === table).map((row) => row.column));
+    for (const column of columns.filter((name) => !granted.has(name))) {
+      violations.push({
+        rule: 'F40_COLUMN_UPDATE_ALLOW_LIST_NOT_HELD',
+        subject: `${table}.${column}`,
+        detail: 'the allow-list names a column UPDATE the application role no longer holds',
+      });
+    }
+  }
+  return violations;
 }
 
 /* ------------------------------------------------------------------ *

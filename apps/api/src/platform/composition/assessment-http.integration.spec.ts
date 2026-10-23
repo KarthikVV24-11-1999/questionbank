@@ -350,6 +350,7 @@ describe('the signed package (M6-26)', () => {
     expect(response.headers['x-package-key-id']).toBe(keyResponse.body.keyId);
     const digest = createHash('sha256').update(bytes).digest('hex');
     expect(response.headers['x-package-digest']).toBe(`sha256=${digest}`);
+    expect(response.headers['cache-control']).toBe('private, no-cache');
     expect(response.headers['etag']).toBe(`"${digest}"`);
 
     const tampered = Buffer.from(bytes);

@@ -1104,6 +1104,12 @@ components:
         retryable: { type: boolean }
         correlationId: { type: string }
         location: { type: string }
+        reason:
+          type: string
+          description: The specific refusal (for example ACTIVE_MOCK_ATTEMPT_EXISTS), where `code` is only its kind. Other contexts' problems carry one, and the shared client must not discard a body for it.
+        constraint:
+          type: string
+          description: The hard constraint an assembly could not meet.
 
     ErrorCode:
       type: string

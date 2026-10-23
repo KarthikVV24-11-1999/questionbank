@@ -431,7 +431,7 @@ export function checkEveryAiCallDeclaresABudgetScope(
 }
 
 /** Where application source lives, relative to the repository root. */
-const REPOSITORY_SOURCE_ROOTS = ['apps/api/src', 'apps/studio/src', 'packages/contracts/src', 'packages/content-renderer/src', 'packages/domain-types/src', 'tools/seed'];
+const REPOSITORY_SOURCE_ROOTS = ['apps/api/src', 'apps/studio/src', 'apps/learn/src', 'packages/contracts/src', 'packages/content-renderer/src', 'packages/domain-types/src', 'tools/seed'];
 
 /**
  * **No API key is read anywhere in this repository.** The isolation rule above

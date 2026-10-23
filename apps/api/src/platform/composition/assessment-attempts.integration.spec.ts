@@ -309,6 +309,7 @@ describe('M6-30 — an attempt is created on an active form, inside its window, 
     now = INSIDE;
   });
 
+  // Failed once in a wide run and never again; the cause is unknown (debt D65). A second failure is a second, not a first.
   it('pins from the exam profile curriculum holds, not from anything the client says', async () => {
     const who = student();
     const created = await createAttempt(who, 'k-pins', { taxonomyVersionId: randomUUID(), markingRuleSetHash: 'f'.repeat(64) });
@@ -847,6 +848,20 @@ describe('M6-35 — a complete backend outage in the middle of an attempt loses 
     }
     expect((await getAttempt(who, attemptId)).status).toBe(200);
     expect((await getAttempt(who, attemptId)).body.state).toBe('in_progress');
+  });
+});
+
+describe('what a cache may keep of the student\'s routes (M6-51)', () => {
+  it('is told to keep none of it: every attempt response, error or not, is no-store', async () => {
+    const { who, attemptId } = await startedAttempt();
+    const responses = [
+      await getAttempt(who, attemptId),
+      await sendEvents(who, attemptId, evening(attemptId, slotIds.slice(0, 1))),
+      await sendEvents(who, attemptId, []),
+      await getAttempt(student(), attemptId),
+      await http().get(`/v1/assessment/attempts/${attemptId}`),
+    ];
+    for (const response of responses) expect(response.headers['cache-control'], String(response.status)).toBe('no-store');
   });
 });
 

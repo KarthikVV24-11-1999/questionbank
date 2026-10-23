@@ -48,7 +48,7 @@ const KEY_VALUE_SECRET_PATTERN = /\b(password|secret|token)\s*[:=]\s*["']([^"']{
 const HIGH_ENTROPY_PATTERN = /["']([A-Za-z0-9+/_-]{32,})["']/gu;
 const HIGH_ENTROPY_MIN_DISTINCT_CHARS = 22;
 
-const SCAN_ROOTS = ['apps/api/src', 'apps/studio/src', 'packages', 'infra/compose', 'infra/terraform', '.github/workflows'];
+const SCAN_ROOTS = ['apps/api/src', 'apps/studio/src', 'apps/learn/src', 'packages', 'infra/compose', 'infra/terraform', '.github/workflows'];
 const EXTRA_FILES = ['.env.example', 'infra/compose/.env.example', 'infra/terraform/staging/staging.tfvars.example'];
 
 const DEFAULT_EXCLUDES = [

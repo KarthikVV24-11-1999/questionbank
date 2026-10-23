@@ -60,6 +60,7 @@ const AN_AUTHORING_ITEM = {
 function stubTransport(handler: (options: RequestOptions<unknown>) => unknown): ApiClient {
   return {
     request: (async <T,>(options: RequestOptions<T>) => handler(options as RequestOptions<unknown>) as T) as ApiClient['request'],
+    requestBytes: () => Promise.reject(new Error('the item browser reads no bytes')),
   };
 }
 

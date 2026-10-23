@@ -1,5 +1,5 @@
 # ADR-0012 — The Learn shell is deferred to M6
-Status: Accepted
+Status: Accepted — the deferral expired at M6 and is closed by [ADR-0039](ADR-0039-the-learner-shell-is-a-view-of-the-engine-and-verifies-what-it-shows.md)
 Date: 2026-08-14
 
 ## Context

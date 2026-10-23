@@ -22,6 +22,8 @@ export const ProblemDetailsSchema = z.object({
   "retryable": z.boolean(),
   "correlationId": z.string(),
   "location": z.string().optional(),
+  "reason": z.string().optional(),
+  "constraint": z.string().optional(),
 }).strict();
 
 export type ProblemDetails = z.infer<typeof ProblemDetailsSchema>;
