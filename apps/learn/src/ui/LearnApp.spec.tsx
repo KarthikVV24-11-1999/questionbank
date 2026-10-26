@@ -226,6 +226,7 @@ describe('the deadline (M6-50)', () => {
     await act(() => session.pump());
     expect(screen.getByRole('timer')).toHaveTextContent('00:59');
     clock.advance(59_000);
+    transport.serverRemainingMs = 0;
     await act(() => session.pump());
     expect(transport.submissions).toEqual([{ reason: 'expiry', key: 'submission:att-1' }]);
     expect(screen.getByRole('heading', { name: 'Submitted' })).toBeInTheDocument();

@@ -9,7 +9,7 @@ import { Root } from './ui/Root.js';
 
 /**
  * The entry point (M6-46). A sitting is opened with `?form=<id>&session=<ref>`; there is no login UI yet — as in Studio, a developer sets
- * `localStorage['qb-dev-token']` to a bearer token, and real sign-in is M8's. What it wires is the real clock (`performance.now`, which is
+ * `localStorage['qb-dev-token']` to a bearer token, and real sign-in is M8's (debt D69). What it wires is the real clock (`performance.now`, which is
  * monotonic), the real disk (`localStorage`), and the real network (through the typed client).
  */
 const params = new URLSearchParams(window.location.search);

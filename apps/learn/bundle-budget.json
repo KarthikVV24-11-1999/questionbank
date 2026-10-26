@@ -1,0 +1,6 @@
+{
+  "baseline": { "rawBytes": 508776, "gzipBytes": 155457 },
+  "budget": { "rawBytes": 520000, "gzipBytes": 160000 },
+  "maxHeadroom": 1.05,
+  "why": "Everything a learner downloads to open the app: the page, the one script and the service worker. The script is 504 kB raw and 154 kB gzipped, and 370 kB of it (114 kB gzipped) is React's DOM renderer, which cannot be split smaller; the shell's own code is about 54 kB. That is over the 500 kB at which the build warns about a single chunk, so the budget is stated here, above it, rather than the warning silenced: the figure that crosses the link is the gzipped one, 155 kB, which is about 3 s on a 3G link of 400 kbit/s and under 1 s at 1.6 Mbit/s. The budget leaves 2% (raw) and 3% (gzipped) of room above the baseline; raising it is an edit to this file's baseline, with a reason."
+}

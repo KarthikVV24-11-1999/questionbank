@@ -1,0 +1,18 @@
+{
+  "name": "@questionbank/adversarial",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@questionbank/attempt-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "playwright-core": "1.62.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

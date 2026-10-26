@@ -412,7 +412,9 @@ route answers a redirect. The bytes, digest and signature do not change.
 
 One Ed25519 seed signs every package, and a device that has the public key accepts only that key. The key id is in
 every response, which is what a rotation would need, but nothing yet serves more than one key or says which key
-a given form's package should be verified with.
+a given form's package should be verified with. The learner app fetches the key from the same API that serves the package, so
+the signature protects the bytes on their way from that API to the screen (a CDN, a cache, a proxy) and not against the API itself:
+a key pinned in the shell's own build would.
 
 **Trigger** The first need to replace the key, or a deployment with a key-management service: the public-key route then
 lists the keys in force, and a device keeps each it has seen.
@@ -477,6 +479,50 @@ recognised as a second, and investigated, rather than re-run until it passes.
 **Trigger** A second failure of that test, or any failure of it in CI: capture the output and the run's concurrency, and check what the test
 shares with its neighbours (the clock variable, the pool, the exam profile rows).
 **Cited** `apps/api/src/platform/composition/assessment-attempts.integration.spec.ts`
+### D66 — A browser killed outright loses what it had not yet written to disk
+
+The learner app writes every response to the device's `localStorage` before it tries to send it, and a tab that crashes or is closed, and a
+browser that quits, keep all of it — a hundred seeded runs in a real Chrome show that. A browser killed with no warning (the way a phone
+short of memory kills one) is different: Chrome commits `localStorage` to disk some seconds after the write, and what was written in that window
+is gone on reopening. If the server has the response the learner gets it back from there; **if the backend was unreachable, nothing has it.**
+Measured in `known-gaps.spec.ts`: a kill that lands before the write is on disk loses the answer, and one that waits for the write
+(about five seconds on this Chrome) loses nothing.
+
+**Trigger** Real-device evidence that a learner is killed mid-attempt while offline, or any change to how the log is kept: the log moved to
+IndexedDB with strict durability (a transaction that completes only once it is on disk) closes the window, and the test that describes it goes red.
+**Cited** `apps/learn/src/session/persistence.ts`
+
+### D67 — A tab reopened during an outage cannot resume the attempt
+
+The attempt continues through an outage while the page stays open, and everything it holds is on the device. Reopen the tab while the backend is still
+down and the app asks the server for the attempt (to take its deadline afresh, so a reload never restarts the clock) before it will carry on, and the
+service worker has cached the package but not an attempt: it shows nothing. The answers are still in the device's record; the learner cannot get at them
+until the backend is back. Resuming offline needs a deadline without the server, which means the device's wall clock as a stand-in, and that is a
+design decision (the server re-validates at submission, so the stand-in can only be wrong in the learner's disfavour or be ignored by the server).
+
+**Trigger** A decision on offline resume (a stored offset between the server's clock and the device's, taken at the last contact), or the first learner
+reported stuck on a blank page during an outage.
+**Cited** `apps/learn/src/bootstrap.ts`
+
+### D68 — The learner app does not pull the server's log: a second device starts from nothing
+
+The server holds every event it has acknowledged, and the app never reads them back. A device with no record of the attempt — a second device, or the same
+one after its storage was cleared — creates the attempt (the server returns the existing one), starts it (likewise) and begins an empty log. What the learner
+did before is not shown, and the new events are numbered from one again, which the server's ordering (client sequence, then id) interleaves with the old ones.
+The device-switch dimension of the roadmap's adversarial criterion is blocked on real devices, and this is the part of it that does not need one.
+
+**Trigger** The decision to support continuing an attempt on another device: the attempt route returns the log (or a projection and the last sequence),
+and a session resumes from it.
+**Cited** `apps/learn/src/bootstrap.ts`
+
+### D69 — The learner app takes its bearer token from `localStorage`
+
+There is no sign-in. As in Studio, a developer sets `localStorage['qb-dev-token']` to a bearer token, and the app sends it. It is a development
+convenience that must not survive to a student's phone.
+
+**Trigger** M8 (closed beta hardening): real sign-in, the token held where script cannot read it, and this line removed from `main.tsx`.
+**Cited** `apps/learn/src/main.tsx`
+
 
 ## Closed
 

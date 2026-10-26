@@ -40,6 +40,18 @@ jobs:
       - run: corepack pnpm --filter @questionbank/domain-types test
       - run: corepack pnpm --filter @questionbank/attempt-engine test
 
+  adversarial:
+    # A real Chrome (the runner has one) is started, killed and restarted against the built learner app: see tools/adversarial/README.md.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
+      - run: corepack pnpm --filter @questionbank/adversarial test
+
   integration:
     runs-on: ubuntu-latest
     services:

@@ -315,6 +315,25 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(jsdom@25.0.1)(lightningcss@1.33.0)(yaml@2.9.0)
 
+  tools/adversarial:
+    dependencies:
+      '@questionbank/attempt-engine':
+        specifier: workspace:*
+        version: link:../../packages/attempt-engine
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      playwright-core:
+        specifier: 1.62.1
+        version: 1.62.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(jsdom@25.0.1)(lightningcss@1.33.0)(yaml@2.9.0)
+
   tools/seed:
     dependencies:
       '@questionbank/domain-types':
@@ -2031,6 +2050,11 @@ packages:
   picomatch@4.0.5:
     resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
     engines: {node: '>=12'}
+
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   pluralize@8.0.0:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
@@ -4060,6 +4084,8 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.5: {}
+
+  playwright-core@1.62.1: {}
 
   pluralize@8.0.0: {}
 

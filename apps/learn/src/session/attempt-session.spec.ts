@@ -228,6 +228,7 @@ describe('time, and the deadline (M6-50)', () => {
     clock.advance(THREE_HOURS - 1);
     await session.pump();
     expect(session.getSnapshot().phase).toBe('in_progress');
+    transport.serverRemainingMs = 0; // the server's clock agrees that the time is up
     clock.advance(1);
     await session.pump();
     expect(session.getSnapshot()).toMatchObject({ phase: 'submitted', submission: { reason: 'expiry' }, pending: 0 });
@@ -265,6 +266,7 @@ describe('time, and the deadline (M6-50)', () => {
   it('tries again when the server is not yet willing to take an expiry, and says why meanwhile', async () => {
     const { session, clock, transport } = begin();
     transport.refuseSubmissionUntil = 1;
+    transport.serverRemainingMs = 0;
     clock.advance(THREE_HOURS);
     await session.pump();
     expect(session.getSnapshot()).toMatchObject({ phase: 'submitting', submissionNote: expect.stringContaining('deadline') });
@@ -345,10 +347,11 @@ describe('resuming after a reload (M6-50)', () => {
     expect(snapshot.remainingMs).toBe(2 * 3_600_000);
     expect(snapshot.projection.slots.find((slot) => slot.slot === 'q1')).toMatchObject({ answer: 'b', answerChanges: 1 });
     expect(snapshot.currentSlot).toBe('q1');
-    expect(snapshot).toMatchObject({ phase: 'in_progress', pending: 0, intervalCapMs: 90_000 });
+    expect(snapshot).toMatchObject({ phase: 'in_progress', pending: 1, intervalCapMs: 90_000 }); // the revisit is the one thing unsent
     // and it carries on numbering where the log left off
     resumed.select('q1', 'c');
-    expect(loadRecord(first.storage, 'att-1')!.events.at(-1)).toMatchObject({ sequence: 4, kind: 'change', answer: 'c' });
+    // (the question that was open is visited again on resume — see the time-on-item spec — so the next event is the fifth)
+    expect(loadRecord(first.storage, 'att-1')!.events.at(-1)).toMatchObject({ sequence: 5, kind: 'change', answer: 'c' });
   });
 
   it('does not send again what the server already has, and sends what it did not', async () => {

@@ -9,6 +9,9 @@ import type { SessionPorts } from './session/ports.js';
  * Brings the sitting up (M6-47, M6-48, M6-50): the signed package, then the attempt — resumed if this device was already sitting it,
  * created and started if not.
  *
+ * Two gaps are known and recorded: a tab reopened while the backend is down cannot resume (debt D67), and a device with no record of the attempt
+ * begins an empty log rather than reading the server's (debt D68).
+ *
  * The order is the point. **The package is fetched and verified before anything else**, and nothing is created, started or shown if it
  * does not verify: an attempt must not begin on a paper nobody vouched for. If this device was mid-attempt, the server's own fresh
  * reading of the attempt gives the deadline, so a reload carries on against the same deadline and never restarts it.

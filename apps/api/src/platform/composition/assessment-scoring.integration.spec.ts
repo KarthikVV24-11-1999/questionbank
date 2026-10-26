@@ -346,7 +346,15 @@ describe('the result is the student\'s own, and carries nothing a student must n
   });
 });
 
+const relayMaterialIn = (serialized: string): string[] =>
+  [...KEY_BEARING_FIELDS.map((field) => `"${field}"`), SOLUTION_TEXT, MISCONCEPTION_TEXT, ...STEMS, '"answer"', '"selected"'].filter((fragment) => serialized.includes(fragment));
+
 describe('what the relay emits for a real submission carries identifiers and nothing else (M6-38)', () => {
+  it('the scan over its envelopes is not vacuous: it fires on an envelope that carries a stem, a key, a solution or an answer', () => {
+    const planted = JSON.stringify([{ eventType: 'AttemptSubmitted', payload: { correctOptionId: 'b', stem: STEMS[0], note: SOLUTION_TEXT, answer: 'a' } }]);
+    expect(relayMaterialIn(planted).sort()).toEqual([...new Set(['"correctOptionId"', STEMS[0]!, SOLUTION_TEXT, '"answer"'])].sort());
+  });
+
   it('delivers AttemptSubmitted and AttemptScored to a consumer that scans every envelope for stem, key, solution and justification material', async () => {
     const { who, attemptId } = await sat();
     await submit(who, attemptId);
@@ -369,8 +377,7 @@ describe('what the relay emits for a real submission carries identifiers and not
     expect(report.refused).toBe(0);
     expect(seen.map((envelope) => envelope.eventType)).toEqual(expect.arrayContaining(['AttemptSubmitted', 'AttemptScored']));
     const serialized = JSON.stringify(seen);
-    const material = [...KEY_BEARING_FIELDS.map((field) => `"${field}"`), SOLUTION_TEXT, MISCONCEPTION_TEXT, ...STEMS, '"answer"', '"selected"'];
-    expect(material.filter((fragment) => serialized.includes(fragment))).toEqual([]);
+    expect(relayMaterialIn(serialized)).toEqual([]);
     // and what it did carry is the identifiers it was meant to
     const submittedEvent = seen.find((envelope) => envelope.eventType === 'AttemptSubmitted' && envelope.payload['attemptId'] === attemptId);
     expect(Object.keys(submittedEvent!.payload).sort()).toEqual(['attemptId', 'examProfileVersionId', 'formId', 'markingRuleSetHash', 'reason', 'studentId', 'submittedAt', 'taxonomyVersionId']);

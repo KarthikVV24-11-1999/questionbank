@@ -5,7 +5,7 @@ the authoring and review tooling that feeds them. It is being built content-pipe
 and the learner-facing product come later, once there is a corpus worth delivering.
 
 The API boots against PostgreSQL and serves authenticated requests, and the Studio builds and runs against
-it. A learner can take a signed paper offline, in the new `apps/learn` shell. 7,095 tests across eight workspace projects, with coverage floors enforced in the test run.
+it. A learner can take a signed paper offline in `apps/learn`, and a real Chrome is killed and reopened against it a hundred times to see whether anything they did is lost (the gaps that remain are in `docs/DEBT.md`). 7,239 tests across nine workspace projects, with coverage floors enforced in the test run.
 
 ---
 
@@ -38,10 +38,10 @@ convention: a planted import reaching past a barrel is asserted to fail.
 
 `domain/` in every context is pure: no I/O, no framework, no clock, no randomness.
 
-Eight workspace projects: `apps/api` (the backend), `apps/studio` (internal authoring/review frontend), `apps/learn` (the learner's exam shell),
+Nine workspace projects: `apps/api` (the backend), `apps/studio` (internal authoring/review frontend), `apps/learn` (the learner's exam shell),
 `packages/content-renderer` (the one renderer authoring and delivery both use), `packages/contracts`
 (generated OpenAPI types, Zod schemas, the typed client), `packages/domain-types` (the shared kernel), `packages/attempt-engine` (the offline attempt engine), and
-`tools/seed` (deterministic fixture-data loader). See [How to test it](#how-to-test-it) for each one's own
+`tools/seed` (deterministic fixture-data loader), and `tools/adversarial` (the adversarial suite: a real Chrome, killed and reopened). See [How to test it](#how-to-test-it) for each one's own
 README.
 
 ---
@@ -196,7 +196,7 @@ Docker Compose will publish once that path is verified). A spec file's suffix te
 `*.spec.ts` is a pure unit test with no I/O; `*.integration.spec.ts` opens a real connection pool and will
 fail immediately, with a clear connection error, if no database is reachable.
 
-**The eight workspace projects**, each independently runnable with its own `test`/`typecheck` scripts — see
+**The nine workspace projects**, each independently runnable with its own `test`/`typecheck` scripts — see
 each project's own README for what it actually contains:
 
 | Project | What it is |
@@ -209,6 +209,7 @@ each project's own README for what it actually contains:
 | [`packages/domain-types`](packages/domain-types/README.md) | The shared kernel — types every context may depend on |
 | [`packages/attempt-engine`](packages/attempt-engine/README.md) | The offline attempt engine — pure, no framework, no I/O, no clock |
 | [`tools/seed`](tools/seed/README.md) | The deterministic fixture-data loader |
+| [`tools/adversarial`](tools/adversarial/README.md) | The adversarial suite: the learner app in a real Chrome that is killed, crashed and reopened, with the network and the clock misbehaving |
 
 **`apps/api` also has a `fitness` script** (`corepack pnpm --filter @questionbank/api fitness`) — the
 architectural gate suite: boundary rules, coverage thresholds, secret scanning, and every other

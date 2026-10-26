@@ -2,6 +2,13 @@
 
 **Status** Accepted · M6 Track G, M6-46…M6-51 · Closes the deferral in [ADR-0012](ADR-0012-the-learn-shell-is-deferred-to-m6.md)
 
+> **Correction, 2026-10-26 (M6 Track H).** Two statements below were wrong in what they promised, and
+> [ADR-0041](ADR-0041-the-server-says-when-the-time-is-up-and-a-reopened-question-starts-again.md) amends them: at zero the shell asks the
+> server whether time remains before it submits as `expiry`, and a question left open by a restart is visited again on resume. "Not proven" under
+> *Consequences* is partly answered: the service worker and the restore path now run in a real Chrome
+> ([ADR-0040](ADR-0040-the-adversarial-suite-runs-in-a-real-chrome-the-test-starts-and-kills.md)), which also found that a tab reopened during an
+> outage cannot resume (debt D67).
+
 ## Context
 
 ADR-0012 deferred the Learn shell to M6 because its defining pieces — a signed package, an attempt engine, a server deadline, an

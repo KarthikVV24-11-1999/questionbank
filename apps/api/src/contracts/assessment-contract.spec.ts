@@ -169,7 +169,8 @@ describe('ADR-0009 / ADR-0033 — these routes are not the authoring family, and
     expect(Object.keys(SPEC.paths).filter((path) => path.startsWith('/v1/authoring'))).toEqual([]);
   });
 
-  it('declares no schema field that names key material', () => {
+  const KEY_NAMES = ['correctOptionId', 'correctOptionIds', 'isCorrect', 'answerKey', 'expectedValue', 'finalAnswerAssertion', 'responseSpec', 'pairs', 'stem', 'options', 'solution'];
+  const keyNamesIn = (schemas: unknown): string[] => {
     const names = new Set<string>();
     const collect = (value: unknown): void => {
       if (Array.isArray(value)) value.forEach(collect);
@@ -180,10 +181,16 @@ describe('ADR-0009 / ADR-0033 — these routes are not the authoring family, and
         }
       }
     };
-    collect(SPEC.components.schemas);
-    for (const field of ['correctOptionId', 'correctOptionIds', 'isCorrect', 'answerKey', 'expectedValue', 'finalAnswerAssertion', 'responseSpec', 'pairs', 'stem', 'options', 'solution']) {
-      expect(names.has(field), field).toBe(false);
-    }
+    collect(schemas);
+    return KEY_NAMES.filter((field) => names.has(field));
+  };
+
+  it('declares no schema field that names key material', () => {
+    expect(keyNamesIn(SPEC.components.schemas)).toEqual([]);
+  });
+
+  it('and that scan is not vacuous: it finds a key field planted in a schema, however deep', () => {
+    expect(keyNamesIn({ Planted: { type: 'object', properties: { nested: { items: { properties: { correctOptionId: { type: 'string' }, solution: {} } } } } } })).toEqual(['correctOptionId', 'solution']);
   });
 });
 

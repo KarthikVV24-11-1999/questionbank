@@ -865,6 +865,9 @@ describe('what a cache may keep of the student\'s routes (M6-51)', () => {
   });
 });
 
+const KEY_FIELD_NAMES = ['correctOptionId', 'correctOptionIds', 'isCorrect', 'answerKey', 'expectedValue', 'finalAnswerAssertion', 'responseSpec', 'pairs', 'solution', 'stem'] as const;
+const keyFieldsIn = (body: unknown): string[] => KEY_FIELD_NAMES.filter((field) => JSON.stringify(body).includes(`"${field}"`));
+
 describe('what is not on the student surface is not there', () => {
   it('has no route to abandon, to edit an event, to delete one, or to set a deadline', async () => {
     const { who, attemptId } = await startedAttempt();
@@ -887,9 +890,11 @@ describe('what is not on the student surface is not there', () => {
     const { who, attemptId } = await startedAttempt();
     const events = evening(attemptId, slotIds.slice(0, 2));
     const bodies = [(await getAttempt(who, attemptId)).body, (await sendEvents(who, attemptId, events)).body, (await submit(who, attemptId, 'manual', 'sub-keyfree')).body];
-    const serialized = JSON.stringify(bodies);
-    for (const field of ['correctOptionId', 'correctOptionIds', 'isCorrect', 'answerKey', 'expectedValue', 'finalAnswerAssertion', 'responseSpec', 'pairs', 'solution', 'stem']) {
-      expect(serialized, field).not.toContain(`"${field}"`);
-    }
+    expect(keyFieldsIn(bodies)).toEqual([]);
+    expect(JSON.stringify(bodies).length).toBeGreaterThan(200); // bodies were read, not empty ones
+  });
+
+  it('and that scan is not vacuous: it finds each key field in a response that carries one', () => {
+    for (const field of KEY_FIELD_NAMES) expect(keyFieldsIn([{ attempt: { [field]: 'x' } }]), field).toEqual([field]);
   });
 });

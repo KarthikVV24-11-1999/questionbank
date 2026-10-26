@@ -160,6 +160,11 @@ export class AttemptSession {
     for (const event of current.log.events) {
       if (!session.#acknowledged.has(event.eventId) && !session.#rejected.has(event.eventId)) session.#enqueue(event);
     }
+    // The app died or was closed with a question open. Its clock's origin has moved, so the old visit can be measured against nothing:
+    // visiting again closes it the way the engine defines (a second visit with no leave counts the first as nothing), and the time
+    // the app was not running is never counted towards the item, whatever the cap.
+    const open = session.#openVisit();
+    if (open !== null && session.#phase === 'in_progress') session.#record('visit', open);
     session.#persist();
     return session;
   }
@@ -277,11 +282,34 @@ export class AttemptSession {
     this.#timer = advance(this.#timer, now);
     this.#changed(false);
     if (this.#phase === 'in_progress' && remainingMs(this.#timer, now) === 0) {
+      // The local timer says time is up; the server's clock decides. If the server can be asked and says time remains — this clock ran
+      // ahead of it, or jumped — the timer is set to what the server says is left and the learner carries on.
+      const left = await this.#serverRemainingMs();
+      if (left !== null && left > 0) {
+        this.#timer = startTimer(left, this.ports.clock.now());
+        this.#changed(false);
+        await this.#send();
+        return;
+      }
       await this.submit('expiry');
       return;
     }
     if (this.#phase === 'submitting') await this.#finishSubmission();
     else await this.#send();
+  }
+
+  /**
+   * How long the server says is left, from its own reading of its own clock: `null` when it cannot be asked, or has no deadline for this
+   * attempt, in which case the local timer stands (the stricter of the two governs, and the server re-validates at submission).
+   */
+  async #serverRemainingMs(): Promise<number | null> {
+    try {
+      const server = await this.ports.transport.getAttempt(this.init.attemptId);
+      if (server.state !== 'in_progress' || server.deadline === null) return null;
+      return Date.parse(server.deadline) - Date.parse(server.serverNow);
+    } catch {
+      return null;
+    }
   }
 
   /** A person asked, or the network came back: forget the back-off and try now. */

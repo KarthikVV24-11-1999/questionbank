@@ -8,6 +8,8 @@ import type { KeyValueStore } from './ports.js';
  * on resume the engine is rebuilt from these through its own functions, so what runs afterwards is the engine's state and nothing the
  * record merely says.
  *
+ * **What it does not survive: a browser killed outright inside the browser's own write delay** (debt D66) — see `tools/adversarial`.
+ *
  * Read with a schema. A record that does not parse — a half-written one, one from a build that wrote another shape — is *absent*, never
  * partly trusted: the session then starts from the server, which is the authority on the attempt.
  */

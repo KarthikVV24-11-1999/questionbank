@@ -222,7 +222,14 @@ verification (F41) · authorization negative-path 100%
 - **Answer keys absent from every payload (F6, F35)** — blocking
 - Result available ≤ 60s p95 after submission
 
+> **Status, added 2026-10-26 (M6 close):** one criterion passes (answer keys absent), two are `Partial`, three are `Fail — blocked`
+> (the device, a 3G link, a deployment). The headline criterion is `Partial`: a hundred seeded runs in a real Chrome lost no response, and a
+> browser killed with no warning while the server is unreachable does lose what was in its write delay (D66). The table, with what each
+> verdict rests on and what would unblock each, is [M6-ACCEPTANCE.md](M6-ACCEPTANCE.md).
+
 **Testing** **Adversarial network + process-kill suite, blocking every release** · 3-hour soak on real devices · submission-storm load test at 3× peak · payload inspection · Attempt Engine unit tests with zero React imports (F26)
+
+**Closed out** 60 of 60 tasks merged, 6 criteria: 1 pass, 2 partial, 3 blocked. The partial and blocked lines are in [DEBT.md](DEBT.md) (D66 to D68, D36) and [M6-ACCEPTANCE.md](M6-ACCEPTANCE.md).
 
 **Depends on** M2, M3, M4 (needs published items) · **Phase 5 design**
 

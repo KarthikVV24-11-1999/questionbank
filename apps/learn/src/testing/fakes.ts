@@ -57,10 +57,13 @@ export class FakeTransport implements AttemptTransport {
   submitAttempts = 0;
   resultAnswer: ResultDto | Error = { attemptId: 'att-1', status: 'pending' };
   acknowledgeNothing = false;
+  /** What the server says is left, from its own clock; `null` leaves the attempt as it was started (a long time to go). */
+  serverRemainingMs: number | null = null;
 
   async getAttempt(): Promise<AttemptDto> {
     if (!this.online) throw new TypeError('network unreachable');
-    return attemptDto();
+    if (this.serverRemainingMs === null) return attemptDto();
+    return attemptDto({ serverNow: new Date(Date.parse(attemptDto().deadline!) - this.serverRemainingMs).toISOString() });
   }
 
   async sendEvents(_attemptId: string, _deviceRef: string, events: readonly unknown[]) {

@@ -51,6 +51,12 @@ corepack pnpm typecheck
 corepack pnpm test   # vitest + jsdom, with coverage
 ```
 
+**Weight.** `bundle-budget.json` states what a learner may download (the page, the script, the worker) raw and gzipped, with the baseline it was
+set from and why it stands above the 500 kB at which the build warns; `src/bundle.spec.ts` builds for production and fails over it.
+
+**Adversarial runs.** Killing, crashing and reopening the app in a real Chrome, with the network and the clock misbehaving, is
+[`tools/adversarial`](../../tools/adversarial/README.md); the clock-jump and outage halves that need no browser are `src/session/adversarial.spec.ts`.
+
 Coverage: 100% on `session/attempt-session.ts`, `session/persistence.ts`, `package/verify.ts` and `package/load.ts`, which decide what an
-attempt is and what may be shown; the components are held by behaviour tests and an axe scan. Everything runs in jsdom; no browser-driven
-suite exists yet (M8), so the real service worker lifecycle and a real server are **not** driven end to end by anything here.
+attempt is and what may be shown; the components are held by behaviour tests and an axe scan. Everything here runs in jsdom; the real service worker, a real
+browser's storage and a killed browser are exercised by `tools/adversarial`, and a real API by nothing yet (the browser suite's server is a stand-in).
