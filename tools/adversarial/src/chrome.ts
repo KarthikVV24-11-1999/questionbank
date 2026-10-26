@@ -32,9 +32,10 @@ export function chromePath(): string {
   return found;
 }
 
-async function devtoolsUrl(profileDir: string): Promise<string> {
+async function devtoolsUrl(profileDir: string, child: ChildProcess, stderr: () => string): Promise<string> {
   const file = join(profileDir, 'DevToolsActivePort');
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 1_200; attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`Chrome exited with code ${child.exitCode} before it published its devtools port:\n${stderr()}`);
     try {
       const [port] = (await readFile(file, 'utf8')).split('\n');
       if (port !== undefined && port.length > 0) return `http://127.0.0.1:${port}`;
@@ -43,7 +44,7 @@ async function devtoolsUrl(profileDir: string): Promise<string> {
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error('Chrome did not publish its devtools port');
+  throw new Error(`Chrome did not publish its devtools port within a minute:\n${stderr()}`);
 }
 
 export async function launchChrome(profileDir: string): Promise<RunningChrome> {
@@ -61,14 +62,18 @@ export async function launchChrome(profileDir: string): Promise<RunningChrome> {
       '--disable-background-networking',
       '--disable-sync',
       // On a CI runner the browser's own sandbox may be unavailable to an unprivileged user; the pages here are this repository's own, on localhost.
-      ...(process.env['CI'] === undefined ? [] : ['--no-sandbox']),
+      ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
       'about:blank',
     ],
     // its own process group, so that a kill takes the browser's helper processes with it and none is left holding the profile
-    { stdio: 'ignore', detached: true },
+    { stdio: ['ignore', 'ignore', 'pipe'], detached: true },
   );
+  let stderrTail = '';
+  child.stderr?.on('data', (chunk: Buffer) => {
+    stderrTail = (stderrTail + chunk.toString('utf8')).slice(-2_000);
+  });
   const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-  const browser = await chromium.connectOverCDP(await devtoolsUrl(profileDir));
+  const browser = await chromium.connectOverCDP(await devtoolsUrl(profileDir, child, () => stderrTail));
   const context = browser.contexts()[0];
   if (context === undefined) throw new Error('Chrome has no default context');
   return {
