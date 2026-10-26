@@ -64,7 +64,7 @@ const SLOT_IDS = ['00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-80
 const PAGE_URL = (origin: string) => `${origin}/?form=00000000-0000-4000-8000-0000000000f1&session=2026-01-27/shift-1`;
 const DURATION_MS = 3_600_000;
 const INTERVAL_CAP_MS = 120_000;
-const WAIT_MS = 30_000;
+const WAIT_MS = process.env['CI'] === undefined ? 30_000 : 60_000;
 
 export interface RunEnvironment {
   readonly distDir: string;
@@ -291,7 +291,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     } else {
       // The browser is killed outright, but only once the bytes are on disk: what is being exercised is restoring from a killed
       // browser's profile. A kill that does not wait is `process-kill.spec.ts`, which says what it loses.
-      if (last !== undefined) await until('the last event is in the profile on disk', () => leveldbHolds(environment.chrome.profileDir, last.eventId), 20_000);
+      if (last !== undefined) await until('the last event is in the profile on disk', () => leveldbHolds(environment.chrome.profileDir, last.eventId), Math.max(20_000, waitMs));
       await chrome.kill();
       chrome = await freshChrome(environment);
     }
@@ -322,7 +322,16 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     deadline0 = server.attempt!.deadline;
     for (const [index, step] of scenario.steps.entries()) {
       if (process.env['QB_ADVERSARIAL_TRACE'] !== undefined) console.log(`[${scenario.seed}] step ${index}`, JSON.stringify(step));
-      await applyStep(step, index);
+      // A step that never finishes is reported as that step, not as a test that ran out of time somewhere.
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const stuck = new Promise<never>((_, reject) => {
+        watchdog = setTimeout(() => reject(new Error(`seed ${scenario.seed}: step ${index} ${JSON.stringify(step)} did not finish within ${waitMs * 2} ms`)), waitMs * 2);
+      });
+      try {
+        await Promise.race([applyStep(step, index), stuck]);
+      } finally {
+        clearTimeout(watchdog);
+      }
     }
 
     server.outage = 'off';

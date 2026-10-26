@@ -50,6 +50,7 @@ jobs:
           node-version: '22'
       - run: corepack enable
       - run: corepack pnpm install --frozen-lockfile
+      - run: google-chrome --version
       - run: corepack pnpm --filter @questionbank/adversarial test
 
   integration:

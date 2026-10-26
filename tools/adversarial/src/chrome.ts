@@ -47,8 +47,9 @@ async function devtoolsUrl(profileDir: string): Promise<string> {
 }
 
 export async function launchChrome(profileDir: string): Promise<RunningChrome> {
-  // A previous Chrome killed with SIGKILL leaves this behind, and the next launch must not read the old port.
-  await rm(join(profileDir, 'DevToolsActivePort'), { force: true });
+  // A previous Chrome killed with SIGKILL leaves these behind: the next launch must not read the old port, and a profile lock held by a
+  // process that no longer exists is what Chrome itself sweeps up on a restart after a crash.
+  for (const leftover of ['DevToolsActivePort', 'SingletonLock', 'SingletonCookie', 'SingletonSocket']) await rm(join(profileDir, leftover), { force: true });
   const child = spawn(
     chromePath(),
     [
@@ -63,7 +64,8 @@ export async function launchChrome(profileDir: string): Promise<RunningChrome> {
       ...(process.env['CI'] === undefined ? [] : ['--no-sandbox']),
       'about:blank',
     ],
-    { stdio: 'ignore' },
+    // its own process group, so that a kill takes the browser's helper processes with it and none is left holding the profile
+    { stdio: 'ignore', detached: true },
   );
   const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
   const browser = await chromium.connectOverCDP(await devtoolsUrl(profileDir));
@@ -74,7 +76,11 @@ export async function launchChrome(profileDir: string): Promise<RunningChrome> {
     browser,
     context,
     kill: async () => {
-      child.kill('SIGKILL');
+      try {
+        process.kill(-(child.pid as number), 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
       await exited;
     },
     close: async () => {

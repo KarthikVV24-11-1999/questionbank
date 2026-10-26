@@ -17,7 +17,7 @@ const seeds = only === undefined ? Array.from({ length: RUNS }, (_, index) => FI
  * Runs share a few browsers, one scenario at a time in each: a seed is a function of its seed alone, so which browser plays it, and
  * what else is playing beside it, changes nothing about what it does. (A browser killed by one run is replaced before the next.)
  */
-const WORKERS = Math.max(1, Math.min(Number(process.env['QB_ADVERSARIAL_WORKERS'] ?? 4), availableParallelism()));
+const WORKERS = Math.max(1, Math.min(Number(process.env['QB_ADVERSARIAL_WORKERS'] ?? 4), Math.floor(availableParallelism() / 2)));
 const distDir = resolve(import.meta.dirname, '../../../apps/learn/dist');
 const pool: RunEnvironment[] = Array.from({ length: WORKERS }, () => ({ distDir, chrome: { current: null, profileDir: newProfileDir() } }));
 const free = [...pool];
@@ -53,7 +53,7 @@ describe('adversarial runs in a real browser (M6-54, M6-55, M6-56, M6-57)', () =
           environment.chrome.current ??= await freshChrome(environment);
           reports.push(await runScenario(scenario, environment));
         } catch (error) {
-          throw new Error(`replay with QB_ADVERSARIAL_SEED=${seed}\nscenario: ${JSON.stringify(scenario.steps)}\n${error instanceof Error ? error.message : String(error)}`, { cause: error });
+          throw new Error(`${error instanceof Error ? error.message : String(error)}\nreplay with QB_ADVERSARIAL_SEED=${seed}\nscenario: ${JSON.stringify(scenario.steps)}`, { cause: error });
         } finally {
           release(environment);
         }
