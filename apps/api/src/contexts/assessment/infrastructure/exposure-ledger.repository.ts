@@ -15,10 +15,12 @@ interface EntryRow {
 }
 
 /**
- * The ledger as a reader. It has no write method, by design: the rows are
- * written inside `PostgresFormRepository.publish`, in the publication
- * transaction, and an assessment spec asserts that no other file names the
- * ledger's table in an INSERT.
+ * The ledger as a reader. It has no write method, by design. A form's rows are written inside `PostgresFormRepository.publish`, in the
+ * publication transaction; a practice delivery's row is written by `PostgresAttemptRepository`, in the transaction that pins the slot (M7-30).
+ * An assessment spec asserts that no other file names the ledger's table in an INSERT.
+ *
+ * `countsByItemVersion` counts both kinds: a practice delivery is a placement of that version, which is what keeps the volume practice carries
+ * from being invisible to exposure balance and anchor caps. `exposureBySession` reads form rows only, because a session is a form's.
  */
 export class PostgresExposureLedger implements ExposureLedger {
   readonly #pool: Pool;
@@ -81,7 +83,7 @@ export class PostgresExposureLedger implements ExposureLedger {
            FROM assessment.exposure_ledger_entry e
            LEFT JOIN assessment.attempt a
              ON a.form_id = e.form_id AND a.session_ref = e.session_ref AND a.started_at IS NOT NULL
-          WHERE e.item_version_id = ANY($1::uuid[])
+          WHERE e.item_version_id = ANY($1::uuid[]) AND e.form_id IS NOT NULL
           GROUP BY e.session_ref, e.item_version_id
           ORDER BY e.item_version_id, e.session_ref`,
         [itemVersionIds],

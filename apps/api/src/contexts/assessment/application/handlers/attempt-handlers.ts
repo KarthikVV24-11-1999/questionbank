@@ -41,7 +41,38 @@ export interface AttemptDependencies {
 /** The constraint names the database reports, which is how a conflict says what it was. */
 const ACTIVE_MOCK_INDEX = 'attempt_one_active_mock_per_student';
 
-async function record(deps: AttemptDependencies, context: ApplicationContext, action: string, attemptId: string): Promise<void> {
+/**
+ * The `AttemptSubmitted` event for an attempt, or none. Scoring marks a *form*, so an attempt with no form — a practice run — has nothing to
+ * be scored against and says nothing to scoring. That is a stated limit and not a quiet one: D77 carries the trigger, and the submission
+ * itself is recorded either way.
+ */
+export function attemptSubmittedEvent(
+  attempt: Attempt,
+  reason: 'manual' | 'expiry' | 'recovered',
+  now: string,
+  context: ApplicationContext,
+): AttemptSubmitted | undefined {
+  if (attempt.formId === null) return undefined;
+  return {
+    eventType: 'AttemptSubmitted',
+    schemaVersion: 1,
+    occurredAt: now,
+    principal: { kind: context.principal.kind, id: context.principal.id },
+    correlationId: context.correlationId,
+    payload: {
+      attemptId: attempt.attemptId,
+      formId: attempt.formId,
+      studentId: attempt.studentId,
+      examProfileVersionId: attempt.examProfileVersionId,
+      markingRuleSetHash: attempt.markingRuleSetHash,
+      taxonomyVersionId: attempt.taxonomyVersionId,
+      reason,
+      submittedAt: now,
+    },
+  };
+}
+
+export async function record(deps: Pick<AttemptDependencies, 'audit' | 'clock'>, context: ApplicationContext, action: string, attemptId: string): Promise<void> {
   await deps.audit.record({
     principal: context.principal,
     action,
@@ -57,7 +88,7 @@ async function record(deps: AttemptDependencies, context: ApplicationContext, ac
  * The attempt, if it is the caller's. Someone else's attempt is `NotFound`, the same answer as one that does not
  * exist, so the route does not disclose which ids are real.
  */
-async function ownAttempt(deps: AttemptDependencies, attemptId: string, context: ApplicationContext): Promise<Result<Attempt, ApplicationError>> {
+export async function ownAttempt(deps: { readonly attempts: Pick<AttemptRepository, 'findById'> }, attemptId: string, context: ApplicationContext): Promise<Result<Attempt, ApplicationError>> {
   const found = await deps.attempts.findById(attemptId);
   if (!found.ok) return err(fromAssessment(found.error));
   if (found.value.studentId !== context.principal.id) {
@@ -66,7 +97,7 @@ async function ownAttempt(deps: AttemptDependencies, attemptId: string, context:
   return ok(found.value);
 }
 
-function gate(policy: AuthorizationPolicy, context: ApplicationContext): ApplicationError | null {
+export function gate(policy: AuthorizationPolicy, context: ApplicationContext): ApplicationError | null {
   const permitted = authorize(policy, context);
   return permitted.ok ? null : permitted.error;
 }
@@ -364,23 +395,7 @@ export class SubmitAttemptHandler implements Handler<SubmitAttempt, AttemptView>
     if (owned.value.submission !== null) return ok(toAttemptView(submitted.value, now)); // a replay: nothing to write
 
     // The state change and the event are one transaction: an attempt submitted is an attempt scoring will hear of (D60).
-    const event: AttemptSubmitted = {
-      eventType: 'AttemptSubmitted',
-      schemaVersion: 1,
-      occurredAt: now,
-      principal: { kind: context.principal.kind, id: context.principal.id },
-      correlationId: context.correlationId,
-      payload: {
-        attemptId: submitted.value.attemptId,
-        formId: submitted.value.formId,
-        studentId: submitted.value.studentId,
-        examProfileVersionId: submitted.value.examProfileVersionId,
-        markingRuleSetHash: submitted.value.markingRuleSetHash,
-        taxonomyVersionId: submitted.value.taxonomyVersionId,
-        reason: command.reason,
-        submittedAt: now,
-      },
-    };
+    const event = attemptSubmittedEvent(submitted.value, command.reason, now, context);
     const saved = await this.deps.attempts.save(submitted.value, 'in_progress', event);
     if (!saved.ok) {
       // A concurrent submit under the same key won: what it made is the answer.

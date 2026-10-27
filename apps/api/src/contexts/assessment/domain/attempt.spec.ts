@@ -4,6 +4,7 @@ import { TAG, anAttempt, attemptProps, id, slots } from '../../../testing/assess
 import {
   abandonAttempt,
   admitNewAttempt,
+  appendSlot,
   createAttempt,
   isActive,
   isExpired,
@@ -299,5 +300,77 @@ describe('restoring an attempt from storage', () => {
 
   it('refuses a snapshot the creation rules refuse, with their own code', () => {
     expect(expectError(restoreAttempt(snapshot({ shiftId: '' }))).code).toBe('ATTEMPT_SHIFT_INVALID');
+  });
+});
+
+const PRACTICE = { mode: 'practice' as const, formId: null, sessionRef: null, shiftId: null, windowClosesAt: null, durationMs: null };
+const practice = (count = 2) => anAttempt({ ...PRACTICE, slots: slots(count) });
+const slotAt = (n: number) => ({ slotId: id(TAG.slot, n), ordinal: n, itemId: id(TAG.item, n), itemVersionId: id(TAG.itemVersion, n), stimulusVersionId: null });
+
+describe('a practice attempt', () => {
+  it('has no form, session, shift, window or duration, and is untimed', () => {
+    const attempt = practice();
+    expect([attempt.formId, attempt.sessionRef, attempt.shiftId, attempt.windowClosesAt, attempt.durationMs, attempt.isTimed]).toEqual([null, null, null, null, null, false]);
+  });
+
+  it('is refused a form, or any one column of the form, and a form-bearing mode is refused its absence', () => {
+    expect(expectError(createAttempt(attemptProps({ ...PRACTICE, formId: id(TAG.form) }))).code).toBe('ATTEMPT_FORM_MODE_MISMATCH');
+    for (const column of ['sessionRef', 'shiftId', 'windowClosesAt'] as const) {
+      const carried = { ...attemptProps({ ...PRACTICE }), [column]: attemptProps()[column] };
+      expect(expectError(createAttempt(carried)).code).toBe('ATTEMPT_FORM_COLUMNS_MISMATCH');
+    }
+    for (const mode of ['mock', 'diagnostic'] as const) {
+      expect(expectError(createAttempt(attemptProps({ ...PRACTICE, mode }))).code).toBe('ATTEMPT_FORM_MODE_MISMATCH');
+    }
+  });
+
+  it('starts with no deadline, can be started long after it was made, and is never expired', () => {
+    const started = expectValue(startAttempt(practice(), '2031-01-01T00:00:00.000Z'));
+    expect([started.state, started.deadline]).toEqual(['in_progress', null]);
+    expect(isExpired(started, '2099-01-01T00:00:00.000Z')).toBe(false);
+  });
+
+  it('is not abandoned by a window it does not have', () => {
+    expect(expectError(abandonAttempt(practice(), '2099-01-01T00:00:00.000Z', 0)).code).toBe('ATTEMPT_HAS_NO_WINDOW');
+  });
+
+  it('round-trips through storage, and a stored untimed attempt holding a deadline is reported', () => {
+    const snapshot = { ...practice(), state: 'created' as AttemptState } as AttemptSnapshot;
+    expect(expectValue(restoreAttempt(snapshot)).isTimed).toBe(false);
+    const started = { ...snapshot, state: 'in_progress' as AttemptState, startedAt: OPEN, deadline: AFTER_WINDOW };
+    expect(expectError(restoreAttempt(started)).code).toBe('ATTEMPT_STORED_STATE_INVALID');
+  });
+});
+
+describe('appending a slot', () => {
+  it('returns the same slots in the same order with one more, and changes none', () => {
+    const before = practice(2);
+    const after = expectValue(appendSlot(before, slotAt(3)));
+    expect(after.slots.slice(0, 2)).toEqual(before.slots);
+    expect(after.slots.map((slot) => slot.ordinal)).toEqual([1, 2, 3]);
+    expect(before.slots).toHaveLength(2);
+    expect(Object.isFrozen(after.slots)).toBe(true);
+    expect(Object.isFrozen(after.slots[2])).toBe(true);
+  });
+
+  it('grows while created and while in progress, and not once submitted or abandoned', () => {
+    const live = expectValue(startAttempt(practice(), OPEN));
+    expectValue(appendSlot(practice(), slotAt(3)));
+    expectValue(appendSlot(live, slotAt(3)));
+    const done = expectValue(submitAttempt(live, { reason: 'manual', idempotencyKey: 'k' }, OPEN));
+    expect(expectError(appendSlot(done, slotAt(3))).code).toBe('ATTEMPT_NOT_GROWABLE');
+  });
+
+  it('is refused for a mock or a diagnostic, whose slots are the form\'s', () => {
+    expect(expectError(appendSlot(anAttempt(), slotAt(9))).code).toBe('ATTEMPT_NOT_PRACTICE');
+    expect(expectError(appendSlot(anAttempt({ mode: 'diagnostic' }), slotAt(9))).code).toBe('ATTEMPT_NOT_PRACTICE');
+  });
+
+  it('is refused an ordinal that is not the next, a slot already held, and an item already given', () => {
+    expect(expectError(appendSlot(practice(), { ...slotAt(3), ordinal: 7 })).code).toBe('ATTEMPT_SLOT_ORDINAL_NOT_NEXT');
+    expect(expectError(appendSlot(practice(), { ...slotAt(3), ordinal: 2 })).code).toBe('ATTEMPT_SLOT_ORDINAL_NOT_NEXT');
+    expect(expectError(appendSlot(practice(), { ...slotAt(3), slotId: id(TAG.slot, 1) })).code).toBe('ATTEMPT_SLOT_INVALID');
+    expect(expectError(appendSlot(practice(), { ...slotAt(3), itemId: id(TAG.item, 1) })).code).toBe('ATTEMPT_SLOT_ITEM_REPEATED');
+    expect(expectError(appendSlot(practice(), { ...slotAt(3), itemVersionId: 'nope' })).code).toBe('ATTEMPT_SLOT_INVALID');
   });
 });

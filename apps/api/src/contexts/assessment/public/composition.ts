@@ -9,6 +9,8 @@ import { PostgresAnchorPoolRepository } from '../infrastructure/anchor-pool.repo
 import { PostgresAttemptRepository } from '../infrastructure/attempt.repository.js';
 import { ContentCorpus, type CatalogueHandler, type DuplicatesHandler } from '../infrastructure/content-corpus.js';
 import { CurriculumPinSource, type ProfilePinsHandler } from '../infrastructure/curriculum-pin-source.js';
+import { LearningRemediationSource, type RemediationConceptsHandler } from '../infrastructure/learning-remediation-source.js';
+import { ScoringResponseJudge, type SlotJudge } from '../infrastructure/scoring-response-judge.js';
 import { ContentFormReader } from '../infrastructure/content-form-reader.js';
 import { PostgresExposureLedger } from '../infrastructure/exposure-ledger.repository.js';
 import { PostgresFormRepository } from '../infrastructure/form.repository.js';
@@ -48,7 +50,12 @@ export interface AssessmentCompositionDeps {
   /** Curriculum's one read assessment makes — `curriculumForAssessment`, passed through. */
   readonly curriculum: { readonly examProfilePins: ProfilePinsHandler; readonly scoringSpec: ScoringSpecReader };
   /** Scoring's two handlers assessment uses — scoring's `scoringForAssessment`, passed through (M6-40). */
-  readonly scoring: { readonly scoreAttempt: Scorer; readonly scoreRecord: ScoreRecordReader };
+  readonly scoring: { readonly scoreAttempt: Scorer; readonly scoreRecord: ScoreRecordReader; readonly judge: SlotJudge };
+  /**
+   * Learning's one answer assessment asks for — `learningForAssessment`, passed through (M7-28): the concepts a targeted run should be about. Optional,
+   * so a deployment without Learning still serves filtered practice and says plainly that targeted practice is not available.
+   */
+  readonly learning?: { readonly remediationConcepts: RemediationConceptsHandler };
   /** Content's handlers assessment may call — content's `contentForAssessment`, passed through. */
   readonly content: {
     readonly listCatalogue: CatalogueHandler;
@@ -75,7 +82,10 @@ function assemble(deps: AssessmentCompositionDeps) {
     }),
     content: new ContentFormReader({ itemVersion: deps.content.itemVersion, stimulusVersion: deps.content.stimulusVersion }),
     pins: new CurriculumPinSource(deps.curriculum.examProfilePins),
+    practicePins: new CurriculumPinSource(deps.curriculum.examProfilePins),
+    ...(deps.learning === undefined ? {} : { remediation: new LearningRemediationSource(deps.learning.remediationConcepts) }),
     scoreRecord: deps.scoring.scoreRecord,
+    judge: new ScoringResponseJudge({ keys: deps.content.answerKeys, spec: deps.curriculum.scoringSpec, judge: deps.scoring.judge }),
     intervalCapMs: deps.intervalCapMs,
     clock: deps.clock,
     identifiers: deps.identifiers,

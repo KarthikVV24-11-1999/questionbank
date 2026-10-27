@@ -75,16 +75,18 @@ export function toFormView(form: Form): FormView {
  */
 export interface AttemptView {
   readonly attemptId: string;
-  readonly formId: string;
+  /** Null for a practice run. */
+  readonly formId: string | null;
   readonly mode: string;
   readonly state: string;
-  readonly sessionRef: string;
-  readonly shiftId: string;
+  readonly sessionRef: string | null;
+  readonly shiftId: string | null;
   readonly slotCount: number;
-  readonly durationMs: number;
+  /** Null for an untimed attempt. */
+  readonly durationMs: number | null;
   /** The one cap on a visit's time on item, pinned for this attempt: the device projects with this value and no other. */
   readonly intervalCapMs: number;
-  readonly windowClosesAt: string;
+  readonly windowClosesAt: string | null;
   readonly startedAt: string | null;
   readonly deadline: string | null;
   readonly serverNow: string;

@@ -12,7 +12,7 @@ import { isNonBlank, isUuid } from './uuid.js';
  *
  * **`adaptive` is not offered.** The domain model marks it H1: it needs item statistics to choose by, and Psychometrics (context 6) does not
  * exist. A selection strategy joins the list the day something can honour it. Asking for it is refused under its own code, so a client built
- * ahead of it learns why rather than meeting "invalid".
+ * ahead of it learns why rather than meeting "invalid" (DEC-M7-13).
  */
 export const SELECTION_STRATEGIES = ['filtered', 'targeted', 'spaced_review'] as const;
 export type SelectionStrategy = (typeof SELECTION_STRATEGIES)[number];
@@ -175,5 +175,29 @@ export function deriveDeliveryPolicy(source: DeliverySource): DerivedDelivery {
         excludeRecentlySeen: policy.excludeRecentlySeen,
       }),
     }),
+  });
+}
+
+/**
+ * The practice policy an attempt pinned, read back from its delivery document (M7-27: a run that grows is grown under the policy it was created
+ * under, never a fresh one). `null` for a document that is not a practice run's. This is the other half of `deriveDeliveryPolicy`, and a spec holds the
+ * two to a round trip so the shape cannot drift between writing and reading.
+ */
+export function practicePolicyOf(document: Readonly<Record<string, unknown>>): Result<PracticePolicy, PracticePolicyError> | null {
+  const practice = document['practice'];
+  if (typeof practice !== 'object' || practice === null) return null;
+  const held = practice as Record<string, unknown>;
+  const scope = (held['scopeFilter'] ?? {}) as Record<string, unknown>;
+  return createPracticePolicy({
+    selectionStrategy: String(held['selectionStrategy']),
+    scopeFilter: {
+      conceptIdentityIds: (scope['conceptIdentityIds'] ?? []) as readonly string[],
+      subject: (scope['subject'] ?? null) as string | null,
+      itemTypes: (scope['itemTypes'] ?? []) as readonly string[],
+    },
+    difficultyBand: (held['difficultyBand'] ?? null) as string | null,
+    excludeRecentlySeen: held['excludeRecentlySeen'] as boolean,
+    feedbackMode: String(document['feedbackMode']),
+    pausable: document['pausable'] as boolean,
   });
 }

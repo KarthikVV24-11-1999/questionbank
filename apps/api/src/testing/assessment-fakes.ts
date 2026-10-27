@@ -1,6 +1,6 @@
 import { err, ok, type Result } from '../contexts/assessment/domain/result.js';
 import { conflictError, notFoundError } from '../contexts/assessment/domain/assessment-error.js';
-import type { Attempt } from '../contexts/assessment/domain/attempt.js';
+import { appendSlot, type Attempt, type AttemptSlot } from '../contexts/assessment/domain/attempt.js';
 import type { AssessmentEvent } from '../contexts/assessment/domain/events/assessment-events.js';
 import type { AttemptState } from '../contexts/assessment/domain/attempt-state.js';
 import { closeForm, openForm, publishForm, scheduleForm, type Form, type ScheduleWindow } from '../contexts/assessment/domain/form.js';
@@ -8,7 +8,8 @@ import type { AttemptRepository, FormRepository, RepositoryError, ResponseLog } 
 import type { ResponseEvent } from '../contexts/assessment/domain/response-event.js';
 import type { JsonValue } from '../contexts/assessment/domain/form-package.js';
 import { Ed25519PackageSigner } from '../contexts/assessment/infrastructure/package-signer.js';
-import type { AttemptPins, AttemptPinSource, FormContentReader, FormCorpus, LoadedCorpus } from '../contexts/assessment/application/ports.js';
+import { deriveDeliveryPolicy, type PracticePolicy } from '../contexts/assessment/domain/delivery-policy.js';
+import type { AttemptPins, AttemptPinSource, FormContentReader, FormCorpus, LoadedCorpus, PracticePins, PracticePinSource } from '../contexts/assessment/application/ports.js';
 import type { ApplicationError } from '../contexts/assessment/application/authorization.js';
 
 /**
@@ -91,6 +92,19 @@ export class InMemoryAttempts implements AttemptRepository {
     return ok(attempt);
   }
 
+  async appendSlot(attemptId: string, slot: AttemptSlot, _writtenAt: string): Promise<Result<AttemptSlot, RepositoryError>> {
+    const held = this.stored.get(attemptId);
+    if (held === undefined) return err(notFoundError('NOT_FOUND', 'no attempt', 'attempt'));
+    const grown = appendSlot(held, slot);
+    if (!grown.ok) return err(conflictError('CONFLICT', grown.error.message, 'attempt_slot'));
+    this.stored.set(attemptId, grown.value);
+    return ok(slot);
+  }
+
+  async itemsSeenBy(studentId: string): Promise<Result<ReadonlySet<string>, RepositoryError>> {
+    return ok(new Set([...this.stored.values()].filter((a) => a.studentId === studentId).flatMap((a) => a.slots.map((slot) => slot.itemId))));
+  }
+
   async findByCreationKey(studentId: string, creationKey: string): Promise<Result<Attempt | undefined, RepositoryError>> {
     const id = this.creationKeys.get(`${studentId}/${creationKey}`);
     return ok(id === undefined ? undefined : this.stored.get(id));
@@ -129,7 +143,7 @@ export class InMemoryAttempts implements AttemptRepository {
     if (this.failFindWith !== null) return err(this.failFindWith);
     return ok(
       [...this.stored.values()]
-        .filter((a) => (a.state === 'created' || a.state === 'in_progress') && a.windowClosesAt <= now)
+        .filter((a) => (a.state === 'created' || a.state === 'in_progress') && a.windowClosesAt !== null && a.windowClosesAt <= now)
         .slice(0, limit),
     );
   }
@@ -215,13 +229,28 @@ export const TEST_PINS: AttemptPins = Object.freeze({
   deliveryPolicy: Object.freeze({ timing: Object.freeze({ totalDurationMinutes: 180 }) }),
 });
 
-export class StubPins implements AttemptPinSource {
+export class StubPins implements AttemptPinSource, PracticePinSource {
   readonly asked: string[] = [];
   failWith: ApplicationError | null = null;
 
   async pinsFor(examProfileVersionId: string): Promise<Result<AttemptPins, ApplicationError>> {
     this.asked.push(examProfileVersionId);
     return this.failWith === null ? ok(TEST_PINS) : err(this.failWith);
+  }
+
+  async practicePinsFor(examProfileVersionId: string, policy: PracticePolicy): Promise<Result<PracticePins, ApplicationError>> {
+    this.asked.push(examProfileVersionId);
+    if (this.failWith !== null) return err(this.failWith);
+    const derived = deriveDeliveryPolicy({ kind: 'practice', policy });
+    return ok(
+      Object.freeze({
+        taxonomyVersionId: TEST_PINS.taxonomyVersionId,
+        markingRuleSetHash: TEST_PINS.markingRuleSetHash,
+        isTimed: derived.isTimed,
+        durationMs: derived.durationMs,
+        deliveryPolicy: derived.document,
+      }),
+    );
   }
 }
 
@@ -236,5 +265,17 @@ export class StubScoreRecords {
     if (this.failWith !== null) return err(this.failWith);
     const record = this.records.get(query.attemptId);
     return (record === undefined ? err({ kind: 'NotFound', code: 'NOT_FOUND', message: 'no score record' }) : ok(record)) as never;
+  }
+}
+
+/** A response judge that answers by the answer it is given: `"right"` is correct, anything else is incorrect. Records what it was asked. */
+export class StubJudge {
+  readonly asked: { slotId: string; answer: unknown }[] = [];
+  failWith: ApplicationError | null = null;
+
+  async judge(_attempt: Attempt, slotId: string, answer: unknown): Promise<Result<string, ApplicationError>> {
+    this.asked.push({ slotId, answer });
+    if (this.failWith !== null) return err(this.failWith);
+    return ok(answer === 'right' ? 'correct' : 'incorrect');
   }
 }

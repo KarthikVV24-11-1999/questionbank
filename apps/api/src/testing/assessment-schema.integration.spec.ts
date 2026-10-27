@@ -69,6 +69,7 @@ describe('the assessment schema is its own', () => {
       'attempt->form',
       'attempt->form_session',
       'attempt_slot->attempt',
+      'exposure_ledger_entry->attempt_slot',
       'exposure_ledger_entry->form_session',
       'exposure_ledger_entry->form_slot',
       'form_section->form',

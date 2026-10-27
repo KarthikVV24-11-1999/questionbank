@@ -182,6 +182,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     }
     if (wallSkewMs !== 0) await opened.addInitScript(skewScript(wallSkewMs));
     await opened.goto(PAGE_URL(server.origin));
+    // On a CI runner one seed in a run has timed out here without a cause being found (D80).
     await opened.getByRole('region', { name: /^Question \d/u }).waitFor({ timeout: WAIT_MS });
     page = opened;
     return opened;

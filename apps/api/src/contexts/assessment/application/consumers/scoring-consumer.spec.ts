@@ -114,6 +114,7 @@ describe('scoring a submitted attempt', () => {
       ['an event naming no attempt', {}, 'PAYLOAD_INVALID'],
       ['an attempt that is not there', { attempts: { findById: async () => err({ kind: 'NotFound', code: 'NOT_FOUND', message: 'no attempt' }) } }, 'NOT_FOUND'],
       ['an attempt that was not submitted', { attempts: { findById: async () => ok({ ...attempt, state: 'in_progress' }) } }, 'ATTEMPT_NOT_SUBMITTED'],
+      ['an attempt sat on no form', { attempts: { findById: async () => ok({ ...attempt, formId: null }) } }, 'ATTEMPT_HAS_NO_FORM'],
       ['a form that is not there', { forms: { findById: async () => err({ kind: 'NotFound', code: 'FORM_GONE', message: 'no form' }) } }, 'FORM_GONE'],
       ['a log that cannot be read', { responses: { findByAttempt: async () => err({ kind: 'Unavailable', code: 'STORE_UNAVAILABLE', message: 'down' }) } }, 'STORE_UNAVAILABLE'],
       ['keys content will not give', { keys: { handle: async () => err({ kind: 'NotFound', code: 'KEYS_GONE', message: 'no keys' }) } }, 'KEYS_GONE'],

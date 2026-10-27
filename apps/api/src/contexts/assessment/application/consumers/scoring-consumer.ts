@@ -125,6 +125,8 @@ export class ScoreSubmittedAttemptConsumer {
     const attempt = await this.deps.attempts.findById(attemptId);
     if (!attempt.ok) throw new ScoringFailure(attempt.error.code, attempt.error.message);
     if (attempt.value.state !== 'submitted') throw new ScoringFailure('ATTEMPT_NOT_SUBMITTED', `attempt ${attemptId} is ${attempt.value.state}`);
+    // Scoring marks a form's slots; an attempt with none is never announced to it, and arriving here is a fault to see, not skip.
+    if (attempt.value.formId === null) throw new ScoringFailure('ATTEMPT_HAS_NO_FORM', `attempt ${attemptId} was sat on no form and has nothing to be scored against`);
     const form = await this.deps.forms.findById(attempt.value.formId);
     if (!form.ok) throw new ScoringFailure(form.error.code, form.error.message);
     const events = await this.deps.responses.findByAttempt(attemptId);

@@ -17,6 +17,7 @@ const deps = (): AssessmentCompositionDeps => ({
   scoring: {
     scoreAttempt: { handle: async () => ({ ok: true, value: {} }) },
     scoreRecord: { handle: async () => ({ ok: false, error: { kind: 'NotFound', code: 'x', message: 'x' } }) },
+    judge: { handle: async () => ({ ok: true, value: [] }) },
   },
   content: {
     listCatalogue: { handle: async () => ({ ok: true, value: { entries: [] } }) },

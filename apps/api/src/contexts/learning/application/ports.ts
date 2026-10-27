@@ -175,3 +175,8 @@ export interface LearningLedger {
   /** Runs `work` in one transaction for one learner, serialised against any other for the same learner; a failure rolls everything back. */
   inTransaction<T>(learnerRef: string, work: (tx: LedgerTransaction) => Promise<T>): Promise<Result<T, ApplicationError>>;
 }
+
+/** The learner's concept states, read for remediation (M7-28): the concepts to work on, weakest first, as identifiers and nothing else. */
+export interface ConceptReader {
+  weakest(learnerRef: string, taxonomyVersionId: string, limit: number): Promise<Result<readonly string[], ApplicationError>>;
+}

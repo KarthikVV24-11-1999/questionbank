@@ -27,6 +27,7 @@ export const KEY_FREE_SURFACES = [
   'form-package',
   'form-routes',
   'attempt-responses',
+  'practice-feedback',
   'result',
   'relay-payloads',
   'learner-screens',

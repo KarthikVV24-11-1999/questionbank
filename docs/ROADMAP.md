@@ -265,6 +265,13 @@ verification (F41) · authorization negative-path 100%
 > never reaches Learning, so a corrected outcome does not correct the evidence. Practice, the report, the review schedule and the surfaces are Tracks C to H. DEC-M7-4
 > is rejected and D2 stands: practice is the same `Attempt`, mode-parameterized.
 >
+> **Status, added 2026-10-27 (M7 Track D):** practice is storable and deliverable on that `Attempt`: the schema admits it by total constraints
+> ([ADR-0048](adr/ADR-0048-the-attempt-admits-practice-by-constraint-not-by-exception.md)), a run's slot list grows while its pin only gains rows, targeted selection crosses one seam
+> carrying concepts and never items, filtered selection runs over the published catalogue, immediate feedback serves a verdict and not the key
+> ([ADR-0050](adr/ADR-0050-immediate-feedback-serves-a-verdict-and-not-the-key.md)), a run can be put down and picked up with no deadline, and every practice delivery is in the exposure
+> ledger ([ADR-0049](adr/ADR-0049-a-practice-delivery-is-exposure-under-its-own-key.md)). **Open:** practice has no route (D78), a practice submission is not scored and so does not yet move mastery (D77),
+> feedback is judged under the first section's rules (D79), and remediation reads stored rather than decayed state (D76). D75 is closed; D80 records the runner-only adversarial seed.
+>
 > **Track C (what the quarantine cost):** the key-free argument can no longer be satisfied by a skipped test ([ADR-0047](adr/ADR-0047-a-gate-reads-the-structure-of-the-test-it-names.md)), the attempt routes' key-free proof runs again,
 > three coverage thresholds are back at 100, and the intermittent attempts spec is fixed and un-skipped: its 404 was never the application's (D73). Practice sessions are Track D.
 

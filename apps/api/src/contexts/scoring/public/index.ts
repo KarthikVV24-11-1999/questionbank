@@ -12,6 +12,7 @@ export type {
   ApproveRescoring,
   DraftRescoring,
   ExecuteRescoring,
+  JudgeSlots,
   RunRescoringDryRun,
   ScoreAttempt,
 } from '../application/commands/scoring-commands.js';

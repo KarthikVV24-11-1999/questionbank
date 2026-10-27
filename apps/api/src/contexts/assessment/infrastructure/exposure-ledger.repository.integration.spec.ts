@@ -252,24 +252,33 @@ describe('written at publication and nowhere else', () => {
     expect(await ledgerRows()).toBe(6);
   });
 
-  it('is named in an INSERT by exactly one file of assessment\'s source: the publication transaction', () => {
-    const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const ledgerWriters = (root: string): string[] => {
     const files = (directory: string): string[] =>
       readdirSync(directory).flatMap((entry) => {
         const path = join(directory, entry);
         if (statSync(path).isDirectory()) return files(path);
         return path.endsWith('.ts') && !path.endsWith('.spec.ts') ? [path] : [];
       });
-    const writers = files(root).filter((file) => /INSERT\s+INTO\s+assessment\.exposure_ledger_entry/iu.test(readFileSync(file, 'utf8')));
-    expect(writers.map((file) => relative(root, file))).toEqual(['infrastructure/form.repository.ts']);
-    // and that file reaches it only from inside publish()
-    const source = readFileSync(join(root, 'infrastructure/form.repository.ts'), 'utf8');
-    expect(source.indexOf('INSERT INTO assessment.exposure_ledger_entry')).toBeGreaterThan(source.indexOf('async #publish('));
+    return files(root)
+      .filter((file) => /INSERT\s+INTO\s+assessment\.exposure_ledger_entry/iu.test(readFileSync(file, 'utf8')))
+      .map((file) => relative(root, file))
+      .sort();
+  };
+
+  it('is named in an INSERT by exactly two files of assessment\'s source: publication, and the attempt that pins a practice slot', () => {
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    expect(ledgerWriters(root)).toEqual(['infrastructure/attempt.repository.ts', 'infrastructure/form.repository.ts']);
+    // each reaches it only from the one place that is allowed to: publish(), and the practice exposure step
+    const forms = readFileSync(join(root, 'infrastructure/form.repository.ts'), 'utf8');
+    expect(forms.indexOf('INSERT INTO assessment.exposure_ledger_entry')).toBeGreaterThan(forms.indexOf('async #publish('));
+    const attemptsSource = readFileSync(join(root, 'infrastructure/attempt.repository.ts'), 'utf8');
+    expect(attemptsSource.indexOf('INSERT INTO assessment.exposure_ledger_entry')).toBeGreaterThan(attemptsSource.indexOf('async #expose('));
+    expect(attemptsSource.match(/INSERT\s+INTO\s+assessment\.exposure_ledger_entry/giu)).toHaveLength(1);
   });
 
-  it('the planted attempt-time writer is caught by the same scan', () => {
-    const planted = `await client.query('INSERT INTO assessment.exposure_ledger_entry (form_id) VALUES ($1)');`;
-    expect(/INSERT\s+INTO\s+assessment\.exposure_ledger_entry/iu.test(planted)).toBe(true);
+  it('the scan names a third writer in the committed planted fixture', () => {
+    const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), '../../../fitness-fixtures/as-ledger-writer');
+    expect(ledgerWriters(fixtures)).toEqual(['infrastructure/third-writer.ts']);
   });
 });
 

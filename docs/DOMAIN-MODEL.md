@@ -104,6 +104,8 @@ Applied uniformly to Concept, Exam, Item, Stimulus, Solution, Plan, Prompt, Mode
 **D2 — `Attempt` is mode-parameterized, not duplicated.**
 Mock, practice, and diagnostic are one aggregate distinguished by a pinned `DeliveryPolicy`. Alternative designs duplicate response capture, timing, and scoring three times and guarantee divergence. Mocks pin a `Form`; practice grows its slot list dynamically. Scoring, analytics, and psychometrics then work uniformly across all three.
 
+> **Made storable, 2026-10-27 (M7-25, M7-27, M7-30):** the schema built for mocks forbade the practice mode and required five form-only columns; migration `20261029100000_assessment_attempt_admits_practice.sql` admits it by constraints that hold for every row ([ADR-0048](adr/ADR-0048-the-attempt-admits-practice-by-constraint-not-by-exception.md)), `20261029110000_assessment_practice_slots_grow.sql` lets the slot list grow while the pin only gains rows (DEC-M7-12), and `20261029120000_assessment_exposure_counts_practice.sql` keeps a practice delivery in the exposure ledger ([ADR-0049](adr/ADR-0049-a-practice-delivery-is-exposure-under-its-own-key.md)).
+
 **D3 — `Attempt` (what happened) is separated from `ScoreRecord` (what it means).**
 The attempt is an immutable factual record. A score is an *interpretation* of it under a rule set version. Re-scoring produces a new `ScoreRecord`; nothing is ever mutated. INV-11 (dual-result retention) becomes structurally impossible to violate rather than a feature someone must remember to implement.
 

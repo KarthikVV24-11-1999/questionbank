@@ -41,8 +41,14 @@ import {
  * belongs to, for multi-shift normalization. Both are required here and
  * neither can be blank.
  *
- * Mock and diagnostic attempts only. Practice grows its slot list as it goes
- * (D2) and has no form; it arrives with the practice milestone.
+ * **One aggregate, three modes** (DOMAIN-MODEL D2). A mock or diagnostic attempt is sat on a form and carries the form's session, shift and
+ * window; a practice attempt has no form, so it carries none of the four, and the rule is stated once as a total one — a form is present
+ * exactly when the mode is not practice, and the form's four columns are all present or all absent (M7-25). Nothing is "enforced when mode
+ * = mock": a form-bearing attempt is checked by every rule it always was.
+ *
+ * **A practice attempt's slot list grows** (`appendSlot`), and INV-04 holds unchanged because the pin was always per slot: each slot row
+ * records the one item version it was given, a response is tied to that slot by a composite key, and growing the list *adds* a pin and never
+ * changes one. The attempt-level list of item versions is a projection of the slot rows, not a second fact.
  */
 export const ATTEMPT_MODES = ['mock', 'practice', 'diagnostic'] as const;
 export type AttemptMode = (typeof ATTEMPT_MODES)[number];
@@ -69,29 +75,32 @@ export interface Attempt {
   readonly attemptId: string;
   readonly studentId: string;
   readonly mode: AttemptMode;
-  readonly formId: string;
+  /** The form it is sat on. Null exactly when the mode is practice. */
+  readonly formId: string | null;
   readonly examProfileVersionId: string;
   readonly markingRuleSetHash: string;
   readonly taxonomyVersionId: string;
   readonly deliveryPolicy: Readonly<Record<string, unknown>>;
   /**
    * §12: the session the attempt was sat in (ADR-0032) — the canonical key of one of the sittings its form
-   * was published for, tied to it by a foreign key. Never null, and not the authentication session, which
-   * never ended an attempt.
+   * was published for, tied to it by a foreign key. Present with the form and absent without it, and not the
+   * authentication session, which never ended an attempt.
    */
-  readonly sessionRef: string;
-  /** §12: the shift the attempt belongs to, for multi-shift normalization. Never blank. */
-  readonly shiftId: string;
+  readonly sessionRef: string | null;
+  /** §12: the shift the attempt belongs to, for multi-shift normalization. Present with the form, never blank. */
+  readonly shiftId: string | null;
   readonly slots: readonly AttemptSlot[];
-  readonly durationMs: number;
+  /** Null for an untimed attempt. `isTimed` is this fact said once more, so a reader never has to infer it. */
+  readonly durationMs: number | null;
+  readonly isTimed: boolean;
   /**
    * The cap on one visit → leave interval towards time on item (§4), pinned when the attempt is created from the one
    * configured value and told to the device. Fixed for the attempt's life, so the device and the server project one
    * log with one cap whatever is configured later (M6-37).
    */
   readonly intervalCapMs: number;
-  /** After this the attempt can no longer be started, and — with no responses — can be abandoned. */
-  readonly windowClosesAt: string;
+  /** After this the attempt can no longer be started, and — with no responses — can be abandoned. Null with no form: a practice run has no window. */
+  readonly windowClosesAt: string | null;
   readonly createdAt: string;
   readonly state: AttemptState;
   readonly startedAt: string | null;
@@ -106,6 +115,8 @@ export type AttemptErrorCode =
   | 'ATTEMPT_STUDENT_INVALID'
   | 'ATTEMPT_MODE_INVALID'
   | 'ATTEMPT_FORM_INVALID'
+  | 'ATTEMPT_FORM_MODE_MISMATCH'
+  | 'ATTEMPT_FORM_COLUMNS_MISMATCH'
   | 'ATTEMPT_PROFILE_INVALID'
   | 'ATTEMPT_MARKING_HASH_INVALID'
   | 'ATTEMPT_TAXONOMY_INVALID'
@@ -121,6 +132,12 @@ export type AttemptErrorCode =
   | 'ATTEMPT_SUBMISSION_INVALID'
   | 'ATTEMPT_WINDOW_CLOSED'
   | 'ATTEMPT_WINDOW_STILL_OPEN'
+  | 'ATTEMPT_HAS_NO_WINDOW'
+  | 'ATTEMPT_NOT_PRACTICE'
+  | 'ATTEMPT_NOT_GROWABLE'
+  | 'ATTEMPT_SLOT_INVALID'
+  | 'ATTEMPT_SLOT_ORDINAL_NOT_NEXT'
+  | 'ATTEMPT_SLOT_ITEM_REPEATED'
   | 'ATTEMPT_HAS_RESPONSES'
   | 'ATTEMPT_TRANSITION_PROHIBITED'
   | 'ATTEMPT_SUBMITTED_UNDER_ANOTHER_KEY'
@@ -133,17 +150,18 @@ export interface CreateAttemptProps {
   readonly attemptId: string;
   readonly studentId: string;
   readonly mode: AttemptMode;
-  readonly formId: string;
+  readonly formId: string | null;
   readonly examProfileVersionId: string;
   readonly markingRuleSetHash: string;
   readonly taxonomyVersionId: string;
   readonly deliveryPolicy: Readonly<Record<string, unknown>>;
-  readonly sessionRef: string;
-  readonly shiftId: string;
+  readonly sessionRef: string | null;
+  readonly shiftId: string | null;
   readonly slots: readonly AttemptSlot[];
-  readonly durationMs: number;
+  /** Null for an untimed attempt; `isTimed` follows from it and is not a second input. */
+  readonly durationMs: number | null;
   readonly intervalCapMs: number;
-  readonly windowClosesAt: string;
+  readonly windowClosesAt: string | null;
   readonly createdAt: string;
 }
 
@@ -193,6 +211,7 @@ export function createAttempt(props: CreateAttemptProps): Result<Attempt, Attemp
           .map((slot) => Object.freeze({ ...slot })),
       ),
       durationMs: props.durationMs,
+      isTimed: props.durationMs !== null,
       intervalCapMs: props.intervalCapMs,
       windowClosesAt: props.windowClosesAt,
       createdAt: props.createdAt,
@@ -206,20 +225,25 @@ export function createAttempt(props: CreateAttemptProps): Result<Attempt, Attemp
 }
 
 function firstFault(props: CreateAttemptProps): AttemptError | null {
+  const hasForm = props.formId !== null;
+  // The form's columns travel with it: valid when there is a form, null when there is not. Each says its own code when it is wrong.
+  const noFormColumns = hasForm || (props.sessionRef === null && props.shiftId === null && props.windowClosesAt === null);
   const checks: readonly (readonly [boolean, AttemptErrorCode, string, string])[] = [
     [isUuid(props.attemptId), 'ATTEMPT_ID_INVALID', 'attemptId must be a uuid', 'attemptId'],
     [isUuid(props.studentId), 'ATTEMPT_STUDENT_INVALID', 'studentId must be a uuid', 'studentId'],
-    [(ATTEMPT_MODES as readonly string[]).includes(props.mode), 'ATTEMPT_MODE_INVALID', 'mode is mock or diagnostic', 'mode'],
-    [isUuid(props.formId), 'ATTEMPT_FORM_INVALID', 'formId must be a uuid', 'formId'],
+    [(ATTEMPT_MODES as readonly string[]).includes(props.mode), 'ATTEMPT_MODE_INVALID', 'mode is mock, practice or diagnostic', 'mode'],
+    [props.formId === null || isUuid(props.formId), 'ATTEMPT_FORM_INVALID', 'formId must be a uuid, or absent for practice', 'formId'],
+    [hasForm === (props.mode !== 'practice'), 'ATTEMPT_FORM_MODE_MISMATCH', 'a form is carried exactly when the attempt is not practice', 'formId'],
+    [noFormColumns, 'ATTEMPT_FORM_COLUMNS_MISMATCH', 'a practice attempt has no form, so it has no session, shift or window', 'sessionRef'],
     [isUuid(props.examProfileVersionId), 'ATTEMPT_PROFILE_INVALID', 'examProfileVersionId must be a uuid', 'examProfileVersionId'],
     [isSha256Hex(props.markingRuleSetHash), 'ATTEMPT_MARKING_HASH_INVALID', 'markingRuleSetHash must be a SHA-256 hex digest', 'markingRuleSetHash'],
     [isUuid(props.taxonomyVersionId), 'ATTEMPT_TAXONOMY_INVALID', 'taxonomyVersionId must be a uuid', 'taxonomyVersionId'],
     [isJsonObject(props.deliveryPolicy), 'ATTEMPT_DELIVERY_POLICY_INVALID', 'deliveryPolicy must be a JSON object', 'deliveryPolicy'],
-    [isSessionRef(props.sessionRef), 'ATTEMPT_SESSION_INVALID', 'an attempt records the session it was sat in, as a canonical key', 'sessionRef'],
-    [isNonBlank(props.shiftId), 'ATTEMPT_SHIFT_INVALID', 'an attempt records the shift it belongs to', 'shiftId'],
-    [isPositiveInteger(props.durationMs), 'ATTEMPT_DURATION_INVALID', 'durationMs must be a positive whole number', 'durationMs'],
+    [!hasForm || isSessionRef(props.sessionRef), 'ATTEMPT_SESSION_INVALID', 'an attempt records the session it was sat in, as a canonical key', 'sessionRef'],
+    [!hasForm || isNonBlank(props.shiftId), 'ATTEMPT_SHIFT_INVALID', 'an attempt records the shift it belongs to', 'shiftId'],
+    [props.durationMs === null || isPositiveInteger(props.durationMs), 'ATTEMPT_DURATION_INVALID', 'durationMs must be a positive whole number, or absent for an untimed attempt', 'durationMs'],
     [isPositiveInteger(props.intervalCapMs), 'ATTEMPT_INTERVAL_CAP_INVALID', 'intervalCapMs must be a positive whole number', 'intervalCapMs'],
-    [isUtcTimestamp(props.windowClosesAt), 'ATTEMPT_WINDOW_INVALID', 'windowClosesAt must be a UTC timestamp with milliseconds', 'windowClosesAt'],
+    [!hasForm || isUtcTimestamp(props.windowClosesAt), 'ATTEMPT_WINDOW_INVALID', 'windowClosesAt must be a UTC timestamp with milliseconds', 'windowClosesAt'],
     [isUtcTimestamp(props.createdAt), 'ATTEMPT_CREATED_AT_INVALID', 'createdAt must be a UTC timestamp with milliseconds', 'createdAt'],
   ];
   const failed = checks.find(([passes]) => !passes);
@@ -248,7 +272,7 @@ export function startAttempt(attempt: Attempt, now: string): Result<Attempt, Att
   const bad = badNow(now);
   if (bad !== null) return err(bad);
   if (transition(attempt.state, 'start') === null) return err(prohibited(attempt, 'start'));
-  if (now >= attempt.windowClosesAt) {
+  if (attempt.windowClosesAt !== null && now >= attempt.windowClosesAt) {
     return err(ruleViolationError('ATTEMPT_WINDOW_CLOSED', 'the window has closed; the attempt can no longer be started', 'windowClosesAt'));
   }
   return ok(
@@ -256,7 +280,8 @@ export function startAttempt(attempt: Attempt, now: string): Result<Attempt, Att
       ...attempt,
       state: 'in_progress' as const,
       startedAt: now,
-      deadline: addMilliseconds(now, attempt.durationMs),
+      // An untimed attempt has no deadline to anchor: pausing it, and coming back a week later, is what it is for.
+      deadline: attempt.durationMs === null ? null : addMilliseconds(now, attempt.durationMs),
     }),
   );
 }
@@ -316,6 +341,9 @@ export function abandonAttempt(attempt: Attempt, now: string, answeredSlots: num
   const bad = badNow(now);
   if (bad !== null) return err(bad);
   if (transition(attempt.state, 'abandon') === null) return err(prohibited(attempt, 'abandon'));
+  if (attempt.windowClosesAt === null) {
+    return err(ruleViolationError('ATTEMPT_HAS_NO_WINDOW', 'an attempt with no window is never abandoned by the clock; its learner finishes it or leaves it', 'windowClosesAt'));
+  }
   if (now < attempt.windowClosesAt) {
     return err(ruleViolationError('ATTEMPT_WINDOW_STILL_OPEN', 'an attempt is abandoned only once its window has closed', 'windowClosesAt'));
   }
@@ -323,6 +351,39 @@ export function abandonAttempt(attempt: Attempt, now: string, answeredSlots: num
     return err(ruleViolationError('ATTEMPT_HAS_RESPONSES', 'an attempt with responses is submitted, never abandoned', 'responses'));
   }
   return ok(Object.freeze({ ...attempt, state: 'abandoned' as const, abandonedAt: now }));
+}
+
+/**
+ * Appends one slot to a practice attempt that is still being sat (M7-27): the next ordinal, its own item version, immutable once written.
+ *
+ * **How a growing attempt is pinned.** INV-04 asks that an attempt be reproducible, and the pin is per slot: `attempt_slot` records the one
+ * item version each slot was given, and a response is tied to that slot and version by a composite key. Growing the list adds a pin and never
+ * changes one — every existing slot, and every response already recorded against it, is exactly what it was. This function returns the same
+ * slots, in the same order, with one more; it has no way to express "replace" or "re-pin".
+ *
+ * A mock cannot grow: its list is the form's, fixed when the attempt was created, and the database refuses it as well. (DEC-M7-12)
+ */
+export function appendSlot(attempt: Attempt, slot: AttemptSlot): Result<Attempt, AttemptError> {
+  if (attempt.mode !== 'practice') {
+    return err(ruleViolationError('ATTEMPT_NOT_PRACTICE', 'only a practice attempt grows; a mock or diagnostic attempt has the form\'s slots and no others', 'mode'));
+  }
+  if (attempt.state !== 'created' && attempt.state !== 'in_progress') {
+    return err(ruleViolationError('ATTEMPT_NOT_GROWABLE', `a ${attempt.state} attempt takes no further slots`, 'state'));
+  }
+  const fault = slotsError([slot]);
+  if (fault !== null) return err(invalid('ATTEMPT_SLOT_INVALID', fault, 'slot'));
+  // An attempt always holds at least one slot (creation refuses none), and slots are kept in ordinal order.
+  const next = attempt.slots[attempt.slots.length - 1]!.ordinal + 1;
+  if (slot.ordinal !== next) {
+    return err(ruleViolationError('ATTEMPT_SLOT_ORDINAL_NOT_NEXT', `the next slot is ordinal ${next}`, 'slot.ordinal'));
+  }
+  if (attempt.slots.some((held) => held.slotId === slot.slotId)) {
+    return err(invalid('ATTEMPT_SLOT_INVALID', 'that slot id is already in the attempt', 'slot.slotId'));
+  }
+  if (attempt.slots.some((held) => held.itemId === slot.itemId)) {
+    return err(ruleViolationError('ATTEMPT_SLOT_ITEM_REPEATED', 'a practice run does not give the same item twice', 'slot.itemId'));
+  }
+  return ok(Object.freeze({ ...attempt, slots: Object.freeze([...attempt.slots, Object.freeze({ ...slot })]) }));
 }
 
 /** Whether an attempt counts against "one active mock per student". A function of the attempt's state alone. */
@@ -382,7 +443,7 @@ export function restoreAttempt(snapshot: AttemptSnapshot): Result<Attempt, Attem
   const lifecycleOk =
     shape !== undefined &&
     timestamps.every((value) => value === null || isUtcTimestamp(value)) &&
-    (snapshot.startedAt !== null) === (snapshot.deadline !== null) &&
+    (snapshot.deadline !== null) === (created.value.isTimed && snapshot.startedAt !== null) &&
     (shape.started === 'either' || (snapshot.startedAt !== null) === shape.started) &&
     (snapshot.submission !== null) === shape.submitted &&
     (snapshot.abandonedAt !== null) === shape.abandoned &&

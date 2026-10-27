@@ -13,6 +13,9 @@ export interface ScoreAttempt {
   readonly idempotencyKey: string;
 }
 
+/** The marking rules applied to some responses and written nowhere (M7-29): `ScoreAttempt` without the act of recording it. */
+export type JudgeSlots = Omit<ScoreAttempt, 'idempotencyKey'>;
+
 export interface DraftRescoring {
   readonly trigger: 'CHALLENGE_UPHELD' | 'KEY_DEFECT_CONFIRMED' | 'RULE_CORRECTION';
   readonly scope: 'ITEM_VERSION' | 'RULE_CHANGE' | 'FORM';

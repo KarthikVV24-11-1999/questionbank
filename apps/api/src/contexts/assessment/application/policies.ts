@@ -51,3 +51,8 @@ export const GET_ATTEMPT_POLICY: AuthorizationPolicy = policy('GetAttempt', [ROL
 export const INGEST_RESPONSE_EVENTS_POLICY: AuthorizationPolicy = policy('IngestResponseEvents', [ROLES.learner]);
 export const GET_ATTEMPT_RESULT_POLICY: AuthorizationPolicy = policy('GetAttemptResult', [ROLES.learner]);
 export const SUBMIT_ATTEMPT_POLICY: AuthorizationPolicy = policy('SubmitAttempt', [ROLES.learner]);
+
+/** A learner's own practice: starting a run and growing it. Each names `learner` alone, and growing checks the run is the caller's own. */
+export const CREATE_PRACTICE_ATTEMPT_POLICY: AuthorizationPolicy = policy('CreatePracticeAttempt', [ROLES.learner]);
+export const GROW_PRACTICE_ATTEMPT_POLICY: AuthorizationPolicy = policy('GrowPracticeAttempt', [ROLES.learner]);
+export const GET_PRACTICE_FEEDBACK_POLICY: AuthorizationPolicy = policy('GetPracticeFeedback', [ROLES.learner]);

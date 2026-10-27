@@ -35,3 +35,34 @@ export interface SubmitAttempt {
   readonly reason: SubmissionReason;
   readonly idempotencyKey: string;
 }
+
+/**
+ * A learner starts a practice run (M7-28, M7-29). The strategy and its scope are the learner's, or Learning's for `targeted`; the number of items
+ * is bounded. No duration, deadline or window is accepted: a practice run has none, and the delivery document is derived on the server (M7-26).
+ */
+export interface CreatePracticeAttempt {
+  readonly examProfileVersionId: string;
+  readonly selectionStrategy: string;
+  readonly scopeFilter?: {
+    readonly conceptIdentityIds?: readonly string[];
+    readonly subject?: string | null;
+    readonly itemTypes?: readonly string[];
+  };
+  readonly difficultyBand?: string | null;
+  readonly excludeRecentlySeen?: boolean;
+  /** How many items to start with, from 1 to `MAX_PRACTICE_RUN`. */
+  readonly count: number;
+  readonly idempotencyKey: string;
+}
+
+/** More items for a run in progress, chosen under the policy the run was created under. */
+export interface GrowPracticeAttempt {
+  readonly attemptId: string;
+  readonly count: number;
+}
+
+/** The immediate feedback for one slot of the learner's own practice run. */
+export interface GetPracticeFeedback {
+  readonly attemptId: string;
+  readonly slotId: string;
+}

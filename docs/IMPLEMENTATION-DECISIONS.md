@@ -440,3 +440,27 @@ specific-address listener share a port number, a stray loopback listener can tak
 spec that calls `getHttpServer()` starts its application with `serveOnLoopback`, and a rule fails one that does not.
 → `apps/api/src/testing/loopback.ts` · `apps/api/src/fitness/loopback-rules.ts`
 
+### DEC-M7-12 — A practice attempt's pin is per slot, so growing the list adds pins and changes none
+INV-04 says an attempt is pinned at creation; D2 says mocks pin a form and practice grows its slot list dynamically. Both hold because the pin was never the
+attempt's list. `attempt_slot` records, per slot, the one item version it was given, and `response_event` is tied to that slot and version by a composite key; the
+attempt-level list of versions is a projection of those rows, not a second fact. Appending a slot inserts a pin and nothing can change one (`attempt_slot` stays
+append-only for every role), so a response recorded before the list grew resolves to the version it was given after. Whether a slot may be added is keyed on a
+pinned column, the absence of a form, and not on the attempt's mode as a state of mind: a mock keeps exactly the rule it had.
+→ `contexts/assessment/domain/attempt.ts` · `infra/migrations/20261029110000_assessment_practice_slots_grow.sql`
+
+### DEC-M7-13 — `adaptive` selection is not offered, and says why
+DOMAIN-MODEL marks adaptive selection H1: choosing by what the learner is likely to get right needs item statistics, and Psychometrics (context 6) does not exist
+and has produced none. The strategies offered are `filtered`, `targeted` and `spaced_review` (the last refused until the review schedule exists). Asking for
+`adaptive` is refused as `PRACTICE_ADAPTIVE_NOT_AVAILABLE` and not as an invalid value, so a client built ahead of it learns the reason. The strategy joins the list the
+day something can honour it.
+→ `contexts/assessment/domain/delivery-policy.ts`
+
+### DEC-M7-14 — A practice delivery is in the exposure ledger, keyed by the attempt slot that made it
+The ledger's rows were tied to a form and a session by composite keys, and a practice run has neither. Exempting practice from `exposure_ledger_matches_session`
+would have left the one record that stops an item being burned silently incomplete for the delivery path with the most volume. Instead a row describes exactly one of a
+form slot or an attempt slot (`CHECK ((form_id IS NULL) = (attempt_id IS NOT NULL))`), the form's session and anchor flag are present exactly when the form is, and a
+new composite key ties an attempt row to the slot that delivered it. Both directions are held: a row must describe a real slot, and a practice slot cannot commit without
+its row (a deferred constraint trigger). Item counts include practice deliveries; per-session exposure, which a practice run has no session for, reads form rows only.
+Practice never offers an anchor.
+→ `contexts/assessment/infrastructure/attempt.repository.ts` · `infra/migrations/20261029120000_assessment_exposure_counts_practice.sql`
+

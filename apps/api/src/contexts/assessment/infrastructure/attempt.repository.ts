@@ -10,17 +10,17 @@ import { conflict, fromDatabaseError, notFound, persistenceRejected } from './re
 interface AttemptRow {
   readonly attempt_id: string;
   readonly student_id: string;
-  readonly mode: 'mock' | 'diagnostic';
-  readonly form_id: string;
+  readonly mode: 'mock' | 'practice' | 'diagnostic';
+  readonly form_id: string | null;
   readonly exam_profile_version_id: string;
   readonly marking_rule_set_hash: string;
   readonly taxonomy_version_id: string;
   readonly delivery_policy: Record<string, unknown>;
-  readonly session_ref: string;
-  readonly shift_id: string;
-  readonly duration_ms: string;
+  readonly session_ref: string | null;
+  readonly shift_id: string | null;
+  readonly duration_ms: string | null;
   readonly interval_cap_ms: number;
-  readonly window_closes_at: Date;
+  readonly window_closes_at: Date | null;
   readonly created_at: Date;
   readonly state: AttemptState;
   readonly started_at: Date | null;
@@ -79,8 +79,8 @@ export class PostgresAttemptRepository implements AttemptRepository {
       await client.query(
         `INSERT INTO assessment.attempt
            (attempt_id, student_id, mode, form_id, exam_profile_version_id, marking_rule_set_hash, taxonomy_version_id,
-            delivery_policy, session_ref, shift_id, duration_ms, interval_cap_ms, window_closes_at, created_at, creation_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            delivery_policy, session_ref, shift_id, is_timed, duration_ms, interval_cap_ms, window_closes_at, created_at, creation_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           attempt.attemptId,
           attempt.studentId,
@@ -92,6 +92,7 @@ export class PostgresAttemptRepository implements AttemptRepository {
           JSON.stringify(attempt.deliveryPolicy),
           attempt.sessionRef,
           attempt.shiftId,
+          attempt.isTimed,
           attempt.durationMs,
           attempt.intervalCapMs,
           attempt.windowClosesAt,
@@ -105,11 +106,69 @@ export class PostgresAttemptRepository implements AttemptRepository {
            VALUES ($1, $2, $3, $4, $5, $6)`,
           [attempt.attemptId, slot.slotId, slot.ordinal, slot.itemId, slot.itemVersionId, slot.stimulusVersionId],
         );
+        if (attempt.formId === null) await this.#expose(client, attempt.attemptId, slot, attempt.createdAt);
       }
       await client.query('COMMIT');
       return ok(attempt);
     } catch (error) {
       await client.query('ROLLBACK').catch(() => undefined);
+      return err(fromDatabaseError(error));
+    }
+  }
+
+  async appendSlot(attemptId: string, slot: AttemptSlot, writtenAt: string): Promise<Result<AttemptSlot, RepositoryError>> {
+    let client: PoolClient;
+    try {
+      client = await this.#pool.connect();
+    } catch (error) {
+      return err(fromDatabaseError(error));
+    }
+    // `#append` returns a value whatever happens (it catches), so the connection is released on every path.
+    const outcome = await this.#append(client, attemptId, slot, writtenAt);
+    client.release();
+    return outcome;
+  }
+
+  async #append(client: PoolClient, attemptId: string, slot: AttemptSlot, writtenAt: string): Promise<Result<AttemptSlot, RepositoryError>> {
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO assessment.attempt_slot (attempt_id, slot_id, ordinal, item_id, item_version_id, stimulus_version_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [attemptId, slot.slotId, slot.ordinal, slot.itemId, slot.itemVersionId, slot.stimulusVersionId],
+      );
+      // Only an attempt with no form grows; its delivery is exposure, written in the transaction that pins the slot (M7-30).
+      // For an attempt that has a form the database has already refused the slot above, so this line is not reached.
+      await this.#expose(client, attemptId, slot, writtenAt);
+      await client.query('COMMIT');
+      return ok(slot);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      return err(fromDatabaseError(error));
+    }
+  }
+
+  /**
+   * The exposure ledger's second writer (M7-30): a practice delivery, keyed by the attempt slot that made it. The first is publication, for a form's
+   * slots, in `form.repository.ts`. A fitness spec names both files and nothing else; the database holds the other direction (a formless slot
+   * with no row here fails at commit). The key and why it is not the form-and-session one: DEC-M7-14, ADR-0049.
+   */
+  async #expose(client: PoolClient, attemptId: string, slot: AttemptSlot, writtenAt: string): Promise<void> {
+    await client.query(
+      `INSERT INTO assessment.exposure_ledger_entry (attempt_id, slot_id, item_id, item_version_id, written_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [attemptId, slot.slotId, slot.itemId, slot.itemVersionId, writtenAt],
+    );
+  }
+
+  async itemsSeenBy(studentId: string): Promise<Result<ReadonlySet<string>, RepositoryError>> {
+    try {
+      const { rows } = await this.#pool.query<{ item_id: string }>(
+        `SELECT DISTINCT s.item_id FROM assessment.attempt_slot s JOIN assessment.attempt a USING (attempt_id) WHERE a.student_id = $1`,
+        [studentId],
+      );
+      return ok(new Set(rows.map((row) => row.item_id)));
+    } catch (error) {
       return err(fromDatabaseError(error));
     }
   }
@@ -258,9 +317,9 @@ export class PostgresAttemptRepository implements AttemptRepository {
         itemVersionId: slot.item_version_id,
         stimulusVersionId: slot.stimulus_version_id,
       })),
-      durationMs: Number(row.duration_ms),
+      durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
       intervalCapMs: row.interval_cap_ms,
-      windowClosesAt: row.window_closes_at.toISOString(),
+      windowClosesAt: iso(row.window_closes_at),
       createdAt: row.created_at.toISOString(),
       state: row.state,
       startedAt: iso(row.started_at),

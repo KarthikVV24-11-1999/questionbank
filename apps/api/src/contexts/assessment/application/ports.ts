@@ -2,6 +2,8 @@ import type { PrincipalRef } from '@questionbank/domain-types';
 import type { AssemblyCandidate } from '../domain/assembly.js';
 import type { JsonValue } from '../domain/form-package.js';
 import type { BlueprintItemType } from '../domain/blueprint.js';
+import type { Attempt } from '../domain/attempt.js';
+import type { PracticePolicy } from '../domain/delivery-policy.js';
 import type { Result } from '../domain/result.js';
 import type { ApplicationError, AuthorizationContext } from './authorization.js';
 
@@ -101,4 +103,33 @@ export interface AttemptPins {
  */
 export interface AttemptPinSource {
   pinsFor(examProfileVersionId: string, context: ApplicationContext): Promise<Result<AttemptPins, ApplicationError>>;
+}
+
+/** What a practice attempt pins from the exam profile version it is sat against, and the delivery document derived for it (M7-26). */
+export interface PracticePins {
+  readonly taxonomyVersionId: string;
+  readonly markingRuleSetHash: string;
+  readonly isTimed: boolean;
+  readonly durationMs: number | null;
+  readonly deliveryPolicy: Readonly<Record<string, unknown>>;
+}
+
+export interface PracticePinSource {
+  practicePinsFor(examProfileVersionId: string, policy: PracticePolicy, context: ApplicationContext): Promise<Result<PracticePins, ApplicationError>>;
+}
+
+/**
+ * Where the targeted strategy's concepts come from (M7-28): a port whose adapter calls Learning through the seam the composition root passes. The
+ * answer is concept identities and nothing else; assessment turns them into slots against the published catalogue.
+ */
+export interface RemediationSource {
+  conceptsFor(taxonomyVersionId: string, limit: number, context: ApplicationContext): Promise<Result<readonly string[], ApplicationError>>;
+}
+
+/**
+ * What marking says of one recorded answer (M7-29): the correctness the pinned rules attribute to it, as a word, and nothing else. The adapter behind it
+ * asks content for the key and scoring for the rule, both under the system's identity; the application layer holds neither and names neither.
+ */
+export interface ResponseJudge {
+  judge(attempt: Attempt, slotId: string, answer: unknown, context: ApplicationContext): Promise<Result<string, ApplicationError>>;
 }

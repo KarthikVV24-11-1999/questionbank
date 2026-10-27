@@ -1,10 +1,10 @@
 import { submitAttempt } from '../../domain/attempt.js';
-import type { AttemptSubmitted } from '../../domain/events/assessment-events.js';
 import type { AttemptRepository } from '../../domain/repository-ports.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import { authorize, fromAssessment, type ApplicationError } from '../authorization.js';
 import type { SubmitExpiredAttempts } from '../commands/form-commands.js';
 import type { Handler } from '../handler-registry.js';
+import { attemptSubmittedEvent } from './attempt-handlers.js';
 import { SUBMIT_EXPIRED_ATTEMPTS_POLICY } from '../policies.js';
 import type { ApplicationContext, AuditRecorder, Clock } from '../ports.js';
 
@@ -57,23 +57,7 @@ export class SubmitExpiredAttemptsHandler implements Handler<SubmitExpiredAttemp
         skipped.push(`${attempt.attemptId}: ${submitted.error.code}`);
         continue;
       }
-      const event: AttemptSubmitted = {
-        eventType: 'AttemptSubmitted',
-        schemaVersion: 1,
-        occurredAt: now,
-        principal: { kind: context.principal.kind, id: context.principal.id },
-        correlationId: context.correlationId,
-        payload: {
-          attemptId: attempt.attemptId,
-          formId: attempt.formId,
-          studentId: attempt.studentId,
-          examProfileVersionId: attempt.examProfileVersionId,
-          markingRuleSetHash: attempt.markingRuleSetHash,
-          taxonomyVersionId: attempt.taxonomyVersionId,
-          reason: 'expiry',
-          submittedAt: now,
-        },
-      };
+      const event = attemptSubmittedEvent(attempt, 'expiry', now, context);
       const saved = await this.deps.attempts.save(submitted.value, 'in_progress', event);
       if (saved.ok) submittedCount += 1;
       else skipped.push(`${attempt.attemptId}: ${saved.error.code}`);

@@ -190,7 +190,14 @@ describe('what scoring offers learning (M7-02)', () => {
 
 describe('learning’s own composition (M7-04, M7-16)', () => {
   it('offers the one constructor and the vocabulary the root checks against, and the recorder the relay\'s consumer calls, and no route', () => {
-    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForRelay']);
+    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForAssessment', 'learningForRelay']);
+  });
+
+  it('offers exactly one handler to assessment, a learner\'s own, answering in concept identifiers', () => {
+    const offered = learningComposition.learningForAssessment({ pool });
+    expect(Object.keys(offered)).toEqual(['remediationConcepts']);
+    expect(offered.remediationConcepts.name).toBe('SuggestRemediationConcepts');
+    expect(offered.remediationConcepts.policy.allowedRoles).toEqual(['learner']);
   });
 
   it('offers exactly one handler to the relay, the system\'s alone', () => {

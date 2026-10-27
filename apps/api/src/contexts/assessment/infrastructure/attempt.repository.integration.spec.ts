@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { TAG, WITHIN_WINDOW, aDraftForm, anActiveForm, anAttempt, attemptProps, formSlots, id } from '../../../testing/assessment-fixtures.js';
+import { TAG, slots, WITHIN_WINDOW, aDraftForm, anActiveForm, anAttempt, attemptProps, formSlots, id } from '../../../testing/assessment-fixtures.js';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { storeActiveForm } from '../../../testing/assessment-store.js';
 import { abandonAttempt, createAttempt, startAttempt, submitAttempt } from '../domain/attempt.js';
@@ -22,6 +22,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // A practice attempt and its ledger row cannot be reverted past (the down scripts refuse rather than drop them), so none is left behind.
+  await database.pool.query('TRUNCATE assessment.exposure_ledger_entry, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
   await database.revertMigrations();
   await database.close();
 });
@@ -56,7 +58,7 @@ describe('creating and finding an attempt', () => {
     expect([found.startedAt, found.deadline, found.submission, found.abandonedAt]).toEqual([null, null, null, null]);
     expect(Object.keys(found).sort()).toEqual([
       'abandonedAt', 'attemptId', 'createdAt', 'deadline', 'deliveryPolicy', 'durationMs', 'examProfileVersionId', 'formId', 'intervalCapMs',
-      'markingRuleSetHash', 'mode', 'sessionRef', 'shiftId', 'slots', 'startedAt', 'state', 'studentId', 'submission',
+      'isTimed', 'markingRuleSetHash', 'mode', 'sessionRef', 'shiftId', 'slots', 'startedAt', 'state', 'studentId', 'submission',
       'taxonomyVersionId', 'windowClosesAt',
     ]);
 
@@ -225,7 +227,7 @@ describe('a move and its event are one transaction (M6-39, D60)', () => {
       correlationId: 'corr',
       payload: {
         attemptId: attempt.attemptId,
-        formId: attempt.formId,
+        formId: attempt.formId as string,
         studentId: attempt.studentId,
         examProfileVersionId: attempt.examProfileVersionId,
         markingRuleSetHash: attempt.markingRuleSetHash,
@@ -417,6 +419,8 @@ describe('what the store refuses', () => {
     expect(expectError(await broken.findActiveMock(id(TAG.student))).code).toBe('STORE_UNAVAILABLE');
     expect(expectError(await broken.findByCreationKey(id(TAG.student), 'k')).code).toBe('STORE_UNAVAILABLE');
     expect(expectError(await broken.findAbandonable('2026-10-21T12:00:00.000Z', 1)).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.appendSlot(id(TAG.attempt), slots(1)[0]!, '2026-10-21T09:00:00.000Z')).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.itemsSeenBy(id(TAG.student))).code).toBe('STORE_UNAVAILABLE');
     await pool.end().catch(() => undefined);
   });
 
@@ -448,3 +452,13 @@ const SHAPE_CHECK = `ALTER TABLE assessment.attempt ADD CONSTRAINT attempt_state
     WHEN 'in_progress' THEN started_at IS NOT NULL AND submitted_at IS NULL AND submission_reason IS NULL AND idempotency_key IS NULL AND abandoned_at IS NULL
     WHEN 'submitted' THEN started_at IS NOT NULL AND submitted_at IS NOT NULL AND submission_reason IS NOT NULL AND idempotency_key IS NOT NULL AND abandoned_at IS NULL
     ELSE abandoned_at IS NOT NULL AND submitted_at IS NULL AND submission_reason IS NULL AND idempotency_key IS NULL END)`;
+
+describe('what a student has been given', () => {
+  it('lists the item ids of every attempt of theirs, and of no one else\'s', async () => {
+    expectValue(await attempts.create(anAttempt()));
+    expectValue(await attempts.create(anAttempt({ attemptId: id(TAG.attempt, 2), studentId: id(TAG.student, 2), mode: 'practice', formId: null, sessionRef: null, shiftId: null, windowClosesAt: null, durationMs: null, slots: slots(1).map((slot) => ({ ...slot, slotId: id(TAG.slot, 50), itemId: id(TAG.item, 50), itemVersionId: id(TAG.itemVersion, 50) })) })));
+    const mine = expectValue(await attempts.itemsSeenBy(id(TAG.student)));
+    expect([...mine].sort()).toEqual([1, 2, 3].map((n) => id(TAG.item, n)).sort());
+    expect([...expectValue(await attempts.itemsSeenBy(id(TAG.student, 2)))]).toEqual([id(TAG.item, 50)]);
+  });
+});

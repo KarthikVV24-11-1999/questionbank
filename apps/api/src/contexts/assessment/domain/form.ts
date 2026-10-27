@@ -377,7 +377,7 @@ export function createAttemptFromForm(form: Form, props: AttemptFromFormProps, n
       ),
     );
   }
-  if (!form.sessionRefs.includes(props.sessionRef)) {
+  if (props.sessionRef === null || !form.sessionRefs.includes(props.sessionRef)) {
     return err(preconditionFailedError('FORM_SESSION_NOT_PUBLISHED_FOR', 'the form was not published for that session', 'sessionRef'));
   }
   return createAttempt({

@@ -26,7 +26,7 @@ import { curriculumForAssessment, curriculumForGeneration, register as registerC
 import { assessmentConsumers, assessmentForLearning, assessmentJobs, register as registerAssessment } from '../../contexts/assessment/public/composition.js';
 import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
 import { register as registerScoring, scoringForAssessment, scoringForLearning } from '../../contexts/scoring/public/composition.js';
-import { learningForRelay } from '../../contexts/learning/public/composition.js';
+import { learningForAssessment, learningForRelay } from '../../contexts/learning/public/composition.js';
 import { OutboxRelay, DEFAULT_RELAY_POLICY, type OutboxConsumer, type RelayPolicy } from '../outbox/relay.js';
 import { LearningAttemptScoredConsumer } from './learning-consumer.js';
 import { ScoredAttemptEvidenceSource } from './learning-evidence.js';
@@ -182,6 +182,7 @@ export async function createApplication(
     content: contentForAssessment(contentDeps),
     curriculum: curriculumForAssessment(curriculumDeps),
     scoring: scoringForAssessment({ pool, clock, identifiers, audit, principals }),
+    learning: learningForAssessment({ pool }),
     intervalCapMs: config.timeOnItemIntervalCapMs,
     ...(config.formPackageSigningKey === undefined ? {} : { packageSigningKey: config.formPackageSigningKey }),
   };

@@ -1,7 +1,7 @@
 import type { AssessmentEvent } from './events/assessment-events.js';
 import type { AssessmentError } from './assessment-error.js';
 import type { AnchorPoolMember } from './anchor-pool.js';
-import type { Attempt } from './attempt.js';
+import type { Attempt, AttemptSlot } from './attempt.js';
 import type { AttemptState } from './attempt-state.js';
 import type { ExposureEntry } from './exposure.js';
 import type { Form, FormError, ScheduleWindow } from './form.js';
@@ -87,6 +87,16 @@ export interface AttemptRepository {
    * `PERSISTENCE_REJECTED`.
    */
   create(attempt: Attempt, creationKey?: string): Promise<Result<Attempt, RepositoryError>>;
+
+  /**
+   * Adds one slot to a practice attempt that is still being sat, in one transaction (M7-27). The database admits it only for an attempt with
+   * no form and only as a new row: no existing slot is touched, and a second slot at the same ordinal is refused. A mock's slots are its
+   * form's, so asking a mock to grow is `PERSISTENCE_REJECTED`.
+   */
+  appendSlot(attemptId: string, slot: AttemptSlot, writtenAt: string): Promise<Result<AttemptSlot, RepositoryError>>;
+
+  /** The item ids this student has been given in any attempt — what `excludeRecentlySeen` excludes. Items, not versions: a new version of a seen item is still that item. */
+  itemsSeenBy(studentId: string): Promise<Result<ReadonlySet<string>, RepositoryError>>;
 
   /** The attempt a student already created under this key, if any — what makes a retried create return the same attempt. */
   findByCreationKey(studentId: string, creationKey: string): Promise<Result<Attempt | undefined, RepositoryError>>;

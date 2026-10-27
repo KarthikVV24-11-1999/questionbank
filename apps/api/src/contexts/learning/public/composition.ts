@@ -6,8 +6,10 @@
  * It has no `register` yet: the context has no routes. What the root runs of it is the recorder the relay's consumer calls, and nothing else.
  */
 import type { Pool } from 'pg';
+import { SuggestRemediationConceptsHandler } from '../application/handlers/remediation-handler.js';
 import { RecordMasteryEvidenceHandler } from '../application/handlers/record-evidence-handler.js';
 import type { Clock, IdentifierFactory } from '../application/ports.js';
+import { PostgresConceptReader } from '../infrastructure/concept-reader.js';
 import { PostgresLearningLedger } from '../infrastructure/learning-ledger.js';
 import { PostgresMasteryRuleSetRepository } from '../infrastructure/mastery-rule-set.repository.js';
 
@@ -44,4 +46,20 @@ export function learningForRelay(deps: { readonly pool: Pool; readonly clock: Cl
       identifiers: deps.identifiers,
     }),
   };
+}
+
+/**
+ * What the assessment context consumes from learning (M7-28, DEC-M7-1): the concepts a remediation run should be about, as identifiers and nothing else.
+ * The targeted selection strategy is Learning's judgement and Assessment's execution; this is the one door the judgement leaves through. Adding a second
+ * handler here is a deliberate change to what Assessment may ask of Learning, and is reviewed as one.
+ */
+export interface LearningForAssessment {
+  readonly remediationConcepts: SuggestRemediationConceptsHandler;
+}
+
+export function learningForAssessment(deps: { readonly pool: Pool }): LearningForAssessment {
+  if (deps.pool === undefined) {
+    throw new Error('learning composition is missing required dependency: pool');
+  }
+  return { remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool) }) };
 }

@@ -572,23 +572,56 @@ and a qualification already recorded is not reconsidered in the light of a respo
 learner's transitions from the evidence in order, under the rule sets they were pinned to.
 **Cited** `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts`
 
-### D75 — A headless browser left running by the adversarial suite stays on loopback
+### D80 — One adversarial seed times out on a CI runner and not on a developer machine
 
-`tools/adversarial` launches Chrome with `--remote-debugging-port=0` (`chrome.ts`) and kills or closes it when the run ends. A run whose process dies first —
-a timeout, an interrupted suite, a worker that was stopped — leaves the browser running, listening on a loopback port, until the machine restarts. On the
-machine this was found on there were sixty such processes, some a day old, fourteen of them holding a loopback port, under `qb-adversarial-*` profiles and a
-few `qb-prof-*`. They are what answered the requests D73 saw: not harmful of themselves, but a stray on loopback is a thing every test that talks to localhost
-can run into, and nothing cleans them up.
+On `e604236`, seed 20261081 timed out after 60 seconds waiting for `getByRole('region', { name: /^Question \d/u })` in the browser run, so ninety-nine of a hundred
+runs produced a result and the run's length assertion failed. The same seed passes locally. It is the runner-only failure M6's close recorded with its cause unknown,
+and it was not in the track that found it (Track C changed a comment in the adversarial tooling). It has not recurred in the runs since. Nothing is known of the cause:
+a slow runner, a package the shell did not finish rendering, or a real defect in the seed's path are all possible, and none has been shown.
 
-*Correction, 2026-10-27.* The `qb-prof-*` profiles were never made by this repository: that prefix appears on no ref, and the launcher makes only
-`qb-adversarial-*`. Fixing the launcher therefore cannot end those, and the sweep neither reports nor touches them.
+**Trigger** The next runner failure of this suite: the failing seed's path, its console and network log and a screenshot at the timeout are what the run does not yet keep.
+**Cited** `tools/adversarial/src/browser-run.ts`
 
-The api's specs no longer depend on there being none (D73 is closed by binding their servers to loopback), so this costs a developer's machine, not a test.
+### D76 — Remediation reads a concept's stored state, not its decayed one
 
-**Trigger** The next time the suite is stopped part-way and finds Chrome still running; or a CI runner reused between jobs. A launcher that records each child it
-starts and kills the process group on `exit` and on `SIGINT`/`SIGTERM`, and a global teardown that sweeps profiles it created, are the two halves.
-**Cited** `tools/adversarial/src/chrome.ts`
+Decay is computed at read (DEC-M7-8): a concept last evidenced long ago is, today, weaker than the state stored with it. `SuggestRemediationConcepts` selects on the
+stored `state` and so does not offer a concept that has decayed from strong to weak since it was last written, and ranks by the stored confidence. The learner is not
+misled — they are shown less than the full picture — and nothing is lost: the evidence is retained and the read can be corrected.
 
+**Trigger** The review schedule (Track G) needs the decayed state for every concept to say what is due; the remediation read moves onto the same read at that point.
+**Cited** `apps/api/src/contexts/learning/infrastructure/concept-reader.ts`
+
+### D78 — Practice has no route
+
+`CreatePracticeAttempt`, `GrowPracticeAttempt` and `GetPracticeFeedback` are handlers with policies and tests, and no HTTP route: a route needs an OpenAPI
+operation, a generated contract, a controller method and an entry in the key-free `attempt-responses` surface, and those belong with the screens that call them. The
+contract spec names the unrouted set, so a handler cannot be left unrouted by accident; it lists these as the learner's, apart from the scheduler's two.
+
+**Trigger** Track H, the learner surfaces: the practice screen is the first caller that is not a test. The operations are added to the assessment document and the
+generated schemas, and the unrouted set in `assessment-contract.spec.ts` shrinks to the scheduler's two.
+**Cited** `apps/api/src/contracts/assessment-contract.spec.ts`
+
+### D79 — Practice feedback is judged under the first section's rules
+
+A practice slot belongs to no form, so it has no section and no marks. `ScoringResponseJudge` puts it to marking as the first section's, worth one unit that is
+never shown, and the verdict is whatever the pinned rule set's rules for that section attribute to the answer. For the exams modelled so far the rules that decide
+*correct* against *incorrect* do not differ between sections, so the word a learner is shown is the one a mock would give; where a profile's sections diverge on what
+counts as correct (a section of integer answers marked differently from one of options), practice would judge by the first section's, and a rule set that has no rule
+for an item type in section one answers `FEEDBACK_UNAVAILABLE` instead of a wrong word.
+
+**Trigger** A profile whose sections differ in what is correct for one item type, or the first track that scores practice (D77), which has to decide what a practice
+slot is worth and under which section's rules; both should take the rule from the item's own section in the exam it was drawn for.
+**Cited** `apps/api/src/contexts/assessment/infrastructure/scoring-response-judge.ts`
+
+### D77 — A practice attempt's submission is not scored
+
+Scoring marks the slots of a *form*, and `AttemptSubmitted` names one. A practice attempt has no form (M7-25), so submitting one records the submission and writes
+no event: nothing reaches scoring, no score record exists for it, and Learning receives no evidence from it through the relay. This is deliberate and stated, not a
+quiet skip — the alternative, an event scoring cannot act on, would dead-letter every practice submission. It means practice responses do not yet move mastery.
+
+**Trigger** The track that feeds practice evidence to Learning: scoring needs a way to mark slots that carry no form (marks from the pinned rule set per item type), and
+the event needs a form-free shape. Until then the response log holds the responses and nothing reads them for mastery.
+**Cited** `apps/api/src/contexts/assessment/application/handlers/attempt-handlers.ts`
 
 ## Closed
 
@@ -734,3 +767,24 @@ back, so M3-11's publication precondition runs against a real render rather than
 The original note called this "a composition gap rather than a design one" and undersold one
 consequence: the API's own compiler must type-check the renderer's `.tsx`, which
 [ADR-0016](adr/ADR-0016-the-api-type-checks-the-renderer-package.md) records and bounds.
+
+### D75 — A headless browser left running by the adversarial suite stays on loopback *(closed at M7-31)*
+
+`tools/adversarial` launched Chrome with `--remote-debugging-port=0` and killed it when the run ended; a run whose own process died first left it listening on a
+loopback port, and left its profile directory behind. On the machine this was found on there were sixty such browsers, some a day old, and 255 profile directories
+of about 7.2 GB — which is what answered the requests D73 saw.
+
+*Correction, 2026-10-27.* The `qb-prof-*` profiles seen alongside them were never made by this repository: that prefix appears on no ref, and the launcher makes only
+`qb-adversarial-*`. Fixing the launcher cannot end those, and the sweep neither reports nor touches them.
+
+**What closed it (M7-24).** The launcher tracks every browser it starts and kills its process group on exit and on `SIGINT`, `SIGTERM` and `SIGHUP`; each profile is
+stamped with its owner's pid and removed when the run ends; and a sweep before and after the suite reports profiles whose run is alive and reclaims those whose run is
+dead, matching only `qb-adversarial-*` directly under the temp directory, never following a link and signalling nothing else (shown with a real stranger process left
+running). The suite ran green and left no profile and no browser.
+
+**What the sweep found, and what was not shown.** On the machine this was closed on there were none to find: no profile and no browser before the run, so the reclaim
+of an old backlog was exercised by constructed tests and not by the 7.2 GB that was measured elsewhere. A worker killed with `SIGKILL` cannot run anything, and its
+browser outlives it until the next run's sweep.
+
+**Cited** `tools/adversarial/src/chrome.ts`, `tools/adversarial/src/profiles.ts`
+

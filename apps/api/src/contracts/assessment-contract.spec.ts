@@ -25,7 +25,7 @@ import {
 } from '../contexts/assessment/application/policies.js';
 import { BLUEPRINT_DIFFICULTY_BANDS, BLUEPRINT_ITEM_TYPES } from '../contexts/assessment/domain/blueprint.js';
 import { FORM_STATES } from '../contexts/assessment/domain/form-state.js';
-import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, StubPins, StubScoreRecords, aSigner } from '../testing/assessment-fakes.js';
+import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, StubJudge, StubPins, StubScoreRecords, aSigner } from '../testing/assessment-fakes.js';
 import { ROLES } from '../platform/auth/roles.js';
 
 const read = (relative: string): string => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
@@ -103,11 +103,14 @@ describe('the scheduler\'s commands have no route (D36)', () => {
       audit: { record: async () => undefined },
       signer: aSigner(),
       pins: new StubPins(),
+      practicePins: new StubPins(),
+      judge: new StubJudge(),
     intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
     scoreRecord: new StubScoreRecords(),
     });
     const unrouted = registry.names.filter((name) => !declaredHandlers.includes(name));
-    expect([...unrouted].sort()).toEqual(['SubmitExpiredAttempts', 'SweepWindows']);
+    // The practice commands have no route yet (D78): the learner surfaces are Track H's. They are a learner's, not the scheduler's.
+    expect([...unrouted].sort()).toEqual(['CreatePracticeAttempt', 'GetPracticeFeedback', 'GrowPracticeAttempt', 'SubmitExpiredAttempts', 'SweepWindows']);
     expect([...POLICY_BY_NAME['SubmitExpiredAttempts']!.allowedRoles]).toEqual([ROLES.system]);
     expect(CONTROLLER.replace(/\/\*\*[\s\S]*?\*\//gu, '')).not.toContain('SubmitExpiredAttempts');
     expect([...POLICY_BY_NAME['SweepWindows']!.allowedRoles]).toEqual([ROLES.system]);

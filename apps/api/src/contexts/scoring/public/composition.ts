@@ -7,6 +7,7 @@ import { ScoringModule } from '../api/scoring.module.js';
 import { PostgresScoreRecordRepository } from '../infrastructure/score-record.repository.js';
 import { PostgresRescoringOperationRepository } from '../infrastructure/rescoring-operation.repository.js';
 import { ScoreAttemptHandler } from '../application/handlers/scoring-handlers.js';
+import { JudgeSlotsHandler } from '../application/handlers/judge-handler.js';
 import {
   ApproveRescoringHandler,
   DraftRescoringHandler,
@@ -90,6 +91,8 @@ export function register(deps: ScoringCompositionDeps): DynamicModule {
 export interface ScoringForAssessment {
   readonly scoreAttempt: ScoreAttemptHandler;
   readonly scoreRecord: GetScoreRecordHandler;
+  /** The marking rules applied to some responses and written nowhere: what practice's immediate feedback asks (M7-29). */
+  readonly judge: JudgeSlotsHandler;
 }
 
 export function scoringForAssessment(deps: ScoringCompositionDeps): ScoringForAssessment {
@@ -107,6 +110,7 @@ export function scoringForAssessment(deps: ScoringCompositionDeps): ScoringForAs
       audit: deps.audit,
     }),
     scoreRecord: new GetScoreRecordHandler(records),
+    judge: new JudgeSlotsHandler({ clock: deps.clock, identifiers: deps.identifiers }),
   };
 }
 
