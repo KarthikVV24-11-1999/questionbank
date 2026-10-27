@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DOCS_INDEX, checkDocsIndex, entryExists, indexEntries, trackedDocuments } from './docs-index-rules.js';
@@ -27,11 +28,18 @@ describe('docs/README.md indexes every document, and every entry names one that 
   });
 
   it('does not demand an entry for a working file git does not keep', () => {
-    // the session brief and the task documents sit in docs/ and are excluded from the repository
-    const ignored = execFileSync('git', ['check-ignore', 'docs/SESSION-BRIEF.md'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
-    expect(ignored).toBe('docs/SESSION-BRIEF.md');
-    expect(documents).not.toContain('docs/SESSION-BRIEF.md');
-    expect(documents.some((path) => path.startsWith('docs/tasks/'))).toBe(false);
+    // a repository built here, with its own exclusion: the behaviour is asserted on a constructed condition, not on
+    // whichever files this machine's clone happens to exclude locally
+    const root = mkdtempSync(join(tmpdir(), 'qb-docs-index-'));
+    try {
+      execFileSync('git', ['init', '--quiet'], { cwd: root });
+      mkdirSync(join(root, 'docs/tasks'), { recursive: true });
+      writeFileSync(join(root, '.git/info/exclude'), 'docs/WORKING.md\ndocs/tasks/\n');
+      for (const file of ['docs/README.md', 'docs/KEPT.md', 'docs/WORKING.md', 'docs/tasks/PLAN.md']) writeFileSync(join(root, file), '#\n');
+      expect(trackedDocuments(root)).toEqual(['docs/KEPT.md', 'docs/README.md']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('does not ask the index to list itself', () => {
