@@ -478,10 +478,14 @@ export const COLUMN_GRANTS_SQL = `
 
 /**
  * The column `UPDATE` grants the application role is allowed to hold, by table, with the exact columns. The relay moves an outbox
- * message through delivery and may change nothing about the event (a trigger refuses it as well); this is the only entry.
+ * message through delivery and may change nothing about the event (a trigger refuses it as well); an attempt moves along its lifecycle
+ * and may change nothing it was pinned with.
  */
 export const COLUMN_UPDATE_ALLOWLIST: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'platform.outbox_message': Object.freeze(['attempts', 'claimed_until', 'dead_at', 'last_error', 'published_at', 'retry_at']),
+  // An attempt moves along its state machine and nothing else about it changes: its mode, delivery policy and timing are pinned at
+  // creation, and the only way to keep them so by construction is never to grant UPDATE on them (M7-25).
+  'assessment.attempt': Object.freeze(['abandoned_at', 'deadline_at', 'idempotency_key', 'started_at', 'state', 'submission_reason', 'submitted_at']),
 });
 
 export function checkColumnUpdateGrants(

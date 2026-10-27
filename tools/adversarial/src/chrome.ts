@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext } from 'playwright-core';
+import { trackBrowser } from './profiles.js';
 
 /**
  * A real Chrome that the test owns the process of — started here, not by the automation library — so that "the browser was killed"
@@ -48,8 +49,8 @@ async function devtoolsUrl(profileDir: string, child: ChildProcess, stderr: () =
 }
 
 /**
- * A browser is left running if the process that started it dies before `kill` or `close` runs: it holds a loopback port and its profile until the machine
- * restarts (D75). Nothing here sweeps them yet.
+ * The browser is tracked from the moment it starts, so it dies with this process on an exit and on `SIGINT`, `SIGTERM` and `SIGHUP`. A process killed with
+ * `SIGKILL` cannot run anything, and its browser outlives it: `sweep` in `profiles.ts` reclaims that one on the next run (D75).
  */
 export async function launchChrome(profileDir: string): Promise<RunningChrome> {
   // A previous Chrome killed with SIGKILL leaves these behind: the next launch must not read the old port, and a profile lock held by a
@@ -72,6 +73,7 @@ export async function launchChrome(profileDir: string): Promise<RunningChrome> {
     // its own process group, so that a kill takes the browser's helper processes with it and none is left holding the profile
     { stdio: ['ignore', 'ignore', 'pipe'], detached: true },
   );
+  trackBrowser(child);
   let stderrTail = '';
   child.stderr?.on('data', (chunk: Buffer) => {
     stderrTail = (stderrTail + chunk.toString('utf8')).slice(-2_000);

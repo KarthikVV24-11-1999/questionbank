@@ -577,8 +577,11 @@ learner's transitions from the evidence in order, under the rule sets they were 
 `tools/adversarial` launches Chrome with `--remote-debugging-port=0` (`chrome.ts`) and kills or closes it when the run ends. A run whose process dies first —
 a timeout, an interrupted suite, a worker that was stopped — leaves the browser running, listening on a loopback port, until the machine restarts. On the
 machine this was found on there were sixty such processes, some a day old, fourteen of them holding a loopback port, under `qb-adversarial-*` profiles and a
-few `qb-prof-*` that nothing in this repository creates. They are what answered the requests D73 saw: not harmful of themselves, but a stray on loopback is a
-thing every test that talks to localhost can run into, and nothing cleans them up.
+few `qb-prof-*`. They are what answered the requests D73 saw: not harmful of themselves, but a stray on loopback is a thing every test that talks to localhost
+can run into, and nothing cleans them up.
+
+*Correction, 2026-10-27.* The `qb-prof-*` profiles were never made by this repository: that prefix appears on no ref, and the launcher makes only
+`qb-adversarial-*`. Fixing the launcher therefore cannot end those, and the sweep neither reports nor touches them.
 
 The api's specs no longer depend on there being none (D73 is closed by binding their servers to loopback), so this costs a developer's machine, not a test.
 

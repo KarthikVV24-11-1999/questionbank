@@ -30,6 +30,8 @@ describe('the pins an attempt copies from an exam profile version', () => {
         deliveryPolicy: {
           timing: { totalDurationMinutes: 180, sectionLocking: false, autoSubmitOnExpiry: true },
           navigation: { crossSectionNavigation: true, allowMarkForReview: true, allowAnswerChange: true, allowClearResponse: false },
+          feedbackMode: 'deferred',
+          pausable: false,
         },
       },
     });

@@ -1,5 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectResponses, type ResponseEvent } from '@questionbank/attempt-engine';
 import type { Page } from 'playwright-core';
@@ -385,6 +384,4 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
   }
 }
 
-export function newProfileDir(): string {
-  return mkdtempSync(join(tmpdir(), 'qb-adversarial-'));
-}
+export { newProfileDir } from './profiles.js';

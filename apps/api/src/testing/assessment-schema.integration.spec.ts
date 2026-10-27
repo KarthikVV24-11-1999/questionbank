@@ -102,8 +102,6 @@ describe('§12 — what cannot be reconstructed later cannot be null', () => {
       [[
         'form_slot.is_anchor',
         'form_slot.item_version_id',
-        'attempt.session_ref',
-        'attempt.shift_id',
         'attempt_slot.item_version_id',
         'response_event.item_version_id',
         'response_event.client_monotonic_ms',
@@ -111,11 +109,13 @@ describe('§12 — what cannot be reconstructed later cannot be null', () => {
         'response_event.device_ref',
       ]],
     );
-    expect(columns).toHaveLength(9);
+    expect(columns).toHaveLength(7);
     expect(columns.filter((column) => column.is_nullable !== 'NO')).toEqual([]);
   });
 
-  it('refuses a slot with no anchor flag, an attempt with no shift or session, and an event with no timing', async () => {
+  // The attempt's session and shift are §12 facts about a sitting of a *form*. A practice attempt has no form and so no sitting; the two
+  // columns are nullable and tied to the form by a CHECK (M7-25), so a form-bearing attempt still cannot lack either.
+  it('refuses a slot with no anchor flag, a form-bearing attempt with no shift or session, and an event with no timing', async () => {
     const formId = await seedForm(database.pool, { publish: false });
     expect(
       await refusal(() => database.pool.query(
@@ -133,8 +133,8 @@ describe('§12 — what cannot be reconstructed later cannot be null', () => {
                 ${column === 'shift_id' ? '$6' : `'shift-1'`}, 1000, 1000, '2026-10-21T12:00:00Z', now()`,
         [id(TAG.student), publishedId, id(TAG.profile), 'a'.repeat(64), id(TAG.taxonomy), value],
       );
-    expect(await refusal(() => insert('session_ref', null))).toContain('session_ref');
-    expect(await refusal(() => insert('shift_id', null))).toContain('shift_id');
+    expect(await refusal(() => insert('session_ref', null))).toContain('attempt_form_columns_travel_together');
+    expect(await refusal(() => insert('shift_id', null))).toContain('attempt_form_columns_travel_together');
     expect(await refusal(() => insert('shift_id', '   '))).toContain('attempt_shift_id_check');
   });
 

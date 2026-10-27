@@ -1,3 +1,4 @@
+import { deriveDeliveryPolicy } from '../domain/delivery-policy.js';
 import { err, ok, type Result } from '../domain/result.js';
 import { applicationError, type ApplicationError } from '../application/authorization.js';
 import type { ApplicationContext, AttemptPins, AttemptPinSource } from '../application/ports.js';
@@ -23,8 +24,6 @@ export type ProfilePinsHandler = {
   handle(query: { readonly profileVersionId: string }, context: ApplicationContext): Promise<Result<ProfilePinsView, ApplicationError>>;
 };
 
-const MS_PER_MINUTE = 60_000;
-
 export class CurriculumPinSource implements AttemptPinSource {
   constructor(private readonly profile: ProfilePinsHandler) {}
 
@@ -40,24 +39,13 @@ export class CurriculumPinSource implements AttemptPinSource {
     if (profile.state === 'draft') {
       return err(applicationError('PreconditionFailed', 'PROFILE_NOT_PUBLISHED', 'the exam profile version is still a draft', 'examProfileVersionId'));
     }
+    const derived = deriveDeliveryPolicy({ kind: 'profile', profile });
     return ok(
       Object.freeze({
         taxonomyVersionId: profile.taxonomyVersionId,
         markingRuleSetHash: profile.markingRuleSetHash,
-        durationMs: profile.totalDurationMinutes * MS_PER_MINUTE,
-        deliveryPolicy: Object.freeze({
-          timing: Object.freeze({
-            totalDurationMinutes: profile.totalDurationMinutes,
-            sectionLocking: profile.sectionLocking,
-            autoSubmitOnExpiry: profile.autoSubmitOnExpiry,
-          }),
-          navigation: Object.freeze({
-            crossSectionNavigation: profile.crossSectionNavigation,
-            allowMarkForReview: profile.allowMarkForReview,
-            allowAnswerChange: profile.allowAnswerChange,
-            allowClearResponse: profile.allowClearResponse,
-          }),
-        }),
+        durationMs: derived.durationMs as number,
+        deliveryPolicy: derived.document,
       }),
     );
   }

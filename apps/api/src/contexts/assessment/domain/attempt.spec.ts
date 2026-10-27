@@ -53,7 +53,7 @@ describe('creating an attempt', () => {
   const REFUSALS: readonly (readonly [string, Partial<CreateAttemptProps>, string])[] = [
     ['a bad attempt id', { attemptId: 'nope' }, 'ATTEMPT_ID_INVALID'],
     ['a bad student id', { studentId: 'nope' }, 'ATTEMPT_STUDENT_INVALID'],
-    ['an unknown mode', { mode: 'practice' as AttemptMode }, 'ATTEMPT_MODE_INVALID'],
+    ['an unknown mode', { mode: 'quiz' as AttemptMode }, 'ATTEMPT_MODE_INVALID'],
     ['a bad form id', { formId: 'nope' }, 'ATTEMPT_FORM_INVALID'],
     ['a bad profile version id', { examProfileVersionId: 'nope' }, 'ATTEMPT_PROFILE_INVALID'],
     ['a marking hash that is not a SHA-256', { markingRuleSetHash: 'abc' }, 'ATTEMPT_MARKING_HASH_INVALID'],

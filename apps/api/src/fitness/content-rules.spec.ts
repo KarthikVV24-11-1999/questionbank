@@ -935,7 +935,9 @@ describe('M6-25 — no packaging module reaches a module that makes or carries a
 
 describe('F40 column grants — the pure check (M6-45)', () => {
   const grant = (table: string, column: string, privilege = 'UPDATE', grantee = 'questionbank_app') => ({ table, column, privilege, grantee });
-  const six = ['attempts', 'claimed_until', 'dead_at', 'last_error', 'published_at', 'retry_at'].map((column) => grant('platform.outbox_message', column));
+  const outbox = ['attempts', 'claimed_until', 'dead_at', 'last_error', 'published_at', 'retry_at'].map((column) => grant('platform.outbox_message', column));
+  const lifecycle = ['abandoned_at', 'deadline_at', 'idempotency_key', 'started_at', 'state', 'submission_reason', 'submitted_at'].map((column) => grant('assessment.attempt', column));
+  const six = [...outbox, ...lifecycle];
 
   it('passes exactly the allow-list, and nothing held by another role or of another privilege', () => {
     expect(checkColumnUpdateGrants(six, ['questionbank_app'])).toEqual([]);
@@ -952,6 +954,14 @@ describe('F40 column grants — the pure check (M6-45)', () => {
 
   it('fires when a column the list names is no longer granted', () => {
     expect(checkColumnUpdateGrants(six.slice(1), ['questionbank_app']).map((violation) => violation.rule)).toEqual(['F40_COLUMN_UPDATE_ALLOW_LIST_NOT_HELD']);
+  });
+
+  it('fires on an attempt column that is pinned: its mode, its delivery policy and its timing are never granted (M7-25)', () => {
+    for (const pinned of ['mode', 'delivery_policy', 'is_timed']) {
+      expect(checkColumnUpdateGrants([...six, grant('assessment.attempt', pinned)], ['questionbank_app']).map((violation) => [violation.rule, violation.subject])).toEqual([
+        ['F40_COLUMN_UPDATE_NOT_ON_THE_ALLOW_LIST', `assessment.attempt.${pinned}`],
+      ]);
+    }
   });
 
   it('takes an allow-list of its own, so another table\'s exception is a reviewed entry and not a loosening', () => {

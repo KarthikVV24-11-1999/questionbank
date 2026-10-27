@@ -44,7 +44,7 @@ import {
  * Mock and diagnostic attempts only. Practice grows its slot list as it goes
  * (D2) and has no form; it arrives with the practice milestone.
  */
-export const ATTEMPT_MODES = ['mock', 'diagnostic'] as const;
+export const ATTEMPT_MODES = ['mock', 'practice', 'diagnostic'] as const;
 export type AttemptMode = (typeof ATTEMPT_MODES)[number];
 
 export const SUBMISSION_REASONS = ['manual', 'expiry', 'recovered'] as const;

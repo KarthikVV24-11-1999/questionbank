@@ -80,10 +80,17 @@ describe('F40 sees column grants too (M6-45)', () => {
   const columnGrants = async (client: { query: (sql: string, params: unknown[]) => Promise<{ rows: ColumnGrantRow[] }> } = database.pool) =>
     (await client.query(COLUMN_GRANTS_SQL, [SCHEMAS])).rows;
 
-  it('finds the outbox\'s six delivery columns and nothing else, against the real catalogue', async () => {
+  it('finds the outbox\'s six delivery columns and the attempt\'s seven lifecycle columns, and nothing else, against the real catalogue', async () => {
     const rows = await columnGrants();
     const update = rows.filter((row) => row.privilege === 'UPDATE' && row.grantee === APP_ROLE);
     expect(update.map((row) => `${row.table}.${row.column}`)).toEqual([
+      'assessment.attempt.abandoned_at',
+      'assessment.attempt.deadline_at',
+      'assessment.attempt.idempotency_key',
+      'assessment.attempt.started_at',
+      'assessment.attempt.state',
+      'assessment.attempt.submission_reason',
+      'assessment.attempt.submitted_at',
       'platform.outbox_message.attempts',
       'platform.outbox_message.claimed_until',
       'platform.outbox_message.dead_at',
@@ -93,7 +100,7 @@ describe('F40 sees column grants too (M6-45)', () => {
     ]);
     // and the allow-list holds exactly those, both ways
     expect(checkColumnUpdateGrants(rows, [APP_ROLE])).toEqual([]);
-    expect(Object.keys(COLUMN_UPDATE_ALLOWLIST)).toEqual(['platform.outbox_message']);
+    expect(Object.keys(COLUMN_UPDATE_ALLOWLIST)).toEqual(['platform.outbox_message', 'assessment.attempt']);
   });
 
   it('does not mistake a table-level grant for a column one: the read is of what was granted on a column itself', async () => {
@@ -119,6 +126,15 @@ describe('F40 sees column grants too (M6-45)', () => {
       client.release();
     }
   }
+
+  it('fires on a grant of the attempt\'s pinned mode, added in a rolled-back transaction (M7-25)', async () => {
+    await withPlanted(`GRANT UPDATE (mode, delivery_policy) ON assessment.attempt TO ${APP_ROLE}`, (rows) => {
+      expect(checkColumnUpdateGrants(rows, [APP_ROLE])).toEqual([
+        expect.objectContaining({ rule: 'F40_COLUMN_UPDATE_NOT_ON_THE_ALLOW_LIST', subject: 'assessment.attempt.delivery_policy' }),
+        expect.objectContaining({ rule: 'F40_COLUMN_UPDATE_NOT_ON_THE_ALLOW_LIST', subject: 'assessment.attempt.mode' }),
+      ]);
+    });
+  });
 
   it('fires on a seventh column of the outbox, added in a rolled-back transaction', async () => {
     await withPlanted(`GRANT UPDATE (payload) ON platform.outbox_message TO ${APP_ROLE}`, (rows) => {
