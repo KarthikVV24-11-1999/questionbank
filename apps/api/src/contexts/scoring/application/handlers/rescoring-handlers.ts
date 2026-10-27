@@ -31,10 +31,6 @@ import { ROLES } from '../../../../platform/auth/roles.js';
  * thing and the run deliver another.
  */
 
-export interface RescoringEventPublisher {
-  publish(event: AttemptsRescored): Promise<void>;
-}
-
 export const DRAFT_RESCORING_POLICY = policy('DraftRescoring', [ROLES.ops, ROLES.admin]);
 export const RUN_RESCORING_DRY_RUN_POLICY = policy('RunRescoringDryRun', [ROLES.ops, ROLES.admin]);
 export const APPROVE_RESCORING_POLICY = policy('ApproveRescoring', [ROLES.admin], true);
@@ -46,7 +42,6 @@ export interface RescoringDependencies {
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
-  readonly events: RescoringEventPublisher;
 }
 
 function toApplicationError(error: { kind: string; code: string; message: string }): ApplicationError {
@@ -210,7 +205,23 @@ export class ExecuteRescoringHandler implements Handler<ExecuteRescoring, Rescor
     );
     if (!completed.ok) return err(toApplicationError(completed.error));
 
-    const finished = await this.deps.operations.save(completed.value);
+    // The completion and its event are one write: the operation is never `completed` without its event (DEC-M7-6). The event
+    // names the operation and a count, not the attempts whose outcomes changed, so a consumer cannot learn which (D72).
+    const event: AttemptsRescored = {
+      eventId: this.deps.identifiers.next(),
+      eventType: 'AttemptsRescored',
+      schemaVersion: 1,
+      occurredAt: this.deps.clock.now(),
+      principal: context.principal,
+      correlationId: context.correlationId,
+      payload: {
+        rescoringOperationId: completed.value.operationId,
+        attemptCount: rerun.value.successors.length,
+        trigger: completed.value.trigger,
+        scope: completed.value.scope,
+      },
+    };
+    const finished = await this.deps.operations.save(completed.value, event);
     if (!finished.ok) return err(toApplicationError(finished.error));
 
     await this.deps.audit.record({
@@ -221,21 +232,6 @@ export class ExecuteRescoringHandler implements Handler<ExecuteRescoring, Rescor
       targetId: finished.value.operationId,
       correlationId: context.correlationId,
       occurredAt: this.deps.clock.now(),
-    });
-
-    await this.deps.events.publish({
-      eventId: this.deps.identifiers.next(),
-      eventType: 'AttemptsRescored',
-      schemaVersion: 1,
-      occurredAt: this.deps.clock.now(),
-      principal: context.principal,
-      correlationId: context.correlationId,
-      payload: {
-        rescoringOperationId: finished.value.operationId,
-        attemptCount: rerun.value.successors.length,
-        trigger: finished.value.trigger,
-        scope: finished.value.scope,
-      },
     });
 
     return ok(finished.value);

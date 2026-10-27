@@ -17,6 +17,10 @@
 | **○ VO** | Value Object — immutable, no identity, compared by value. |
 | **▷ Event** | Domain event published across a context boundary. |
 
+**Two words that collide**
+- **Shift** is the sitting a *form* declares (`assessment.form_session` in the database, the `sessionRef` on an attempt): the paper a set of candidates sits together.
+  **StudySession** is a *learner's* sitting, a window closed by an idle gap, and Learning owns it (DEC-M7-2). D-002's "2 sessions" and "a different session" mean the latter.
+
 **Rules applied throughout**
 - Aggregates reference other aggregates by ID, never by object reference.
 - One aggregate mutated per transaction. Cross-aggregate consistency is achieved by events and is explicitly acknowledged as eventual.

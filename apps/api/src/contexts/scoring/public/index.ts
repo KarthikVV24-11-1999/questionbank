@@ -18,12 +18,14 @@ export type {
 
 // ── Queries ─────────────────────────────────────────────────────────────────
 export type {
+  GetAttemptOutcomes,
   GetRescoringDryRun,
   GetScoreRecord,
   ItemOutcomeView,
   ListScoreRecordGenerations,
   ScoreRecordView,
   SectionScoreView,
+  SlotOutcomeView,
 } from '../application/queries/scoring-queries.js';
 
 // ── Events ──────────────────────────────────────────────────────────────────

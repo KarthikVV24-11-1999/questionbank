@@ -194,3 +194,57 @@ export class GetRescoringDryRunHandler implements Handler<GetRescoringDryRun, Dr
     return ok(preview);
   }
 }
+
+/**
+ * What Learning may ask scoring (M7-02, DEC-M7-1): the outcome of each slot of one attempt, and nothing else of the score.
+ *
+ * Built field by field from the current generation. There is no response, no key and no rule in it — a slot reference, the
+ * item version it was, how it came out, and the marks as decimal text so no consumer reads a mark through a double. Not for
+ * a learner or an operator: the system's alone, with no route.
+ */
+export interface GetAttemptOutcomes {
+  readonly attemptId: string;
+}
+
+export interface SlotOutcomeView {
+  readonly slotRef: string;
+  readonly itemVersionId: string;
+  readonly outcome: string;
+  readonly marksAwarded: string;
+  readonly marksAvailable: string;
+}
+
+export const GET_ATTEMPT_OUTCOMES_POLICY = policy('GetAttemptOutcomes', [ROLES.system]);
+
+export class GetAttemptOutcomesHandler implements Handler<GetAttemptOutcomes, readonly SlotOutcomeView[]> {
+  readonly name = 'GetAttemptOutcomes';
+  readonly policy = GET_ATTEMPT_OUTCOMES_POLICY;
+
+  constructor(private readonly records: ScoreRecordRepository) {}
+
+  async handle(
+    query: GetAttemptOutcomes,
+    context: ApplicationContext,
+  ): Promise<Result<readonly SlotOutcomeView[], ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return err(permitted.error);
+
+    const found = await this.records.findCurrentByAttemptId(query.attemptId);
+    if (!found.ok) {
+      return err(applicationError('NotFound', found.error.code, found.error.message));
+    }
+    return ok(
+      Object.freeze(
+        found.value.itemOutcomes.map((outcome) =>
+          Object.freeze({
+            slotRef: outcome.slotId,
+            itemVersionId: outcome.itemVersionId,
+            outcome: outcome.correctness,
+            marksAwarded: rationalToDecimalString(outcome.marksAwarded),
+            marksAvailable: rationalToDecimalString(outcome.marksAvailable),
+          }),
+        ),
+      ),
+    );
+  }
+}

@@ -3,12 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { Test } from '@nestjs/testing';
-import { describe, expect, it, vi } from 'vitest';
-import type { Pool, PoolClient } from 'pg';
+import { describe, expect, it } from 'vitest';
+import type { Pool } from 'pg';
 import { readCode } from '../../../fitness/source-scan.js';
 import { SCORING_REGISTRY } from '../api/scoring.controller.js';
 import type { HandlerRegistry } from '../application/handler-registry.js';
-import { PostgresEventPublisher, register, type ScoringCompositionDeps } from './composition.js';
+import { register, type ScoringCompositionDeps } from './composition.js';
 
 const CONTEXT_DIR = fileURLToPath(new URL('../', import.meta.url));
 
@@ -79,84 +79,5 @@ describe('the public barrel does not import the composition module', () => {
 
   it('the check itself fires on a planted re-export', () => {
     expect(importsComposition(`export * from './composition.js';\n`)).toBe(true);
-  });
-});
-
-describe('PostgresEventPublisher — durable, one transaction per publish', () => {
-  function fakeClient() {
-    const calls: string[] = [];
-    const client = {
-      query: vi.fn(async (text: string) => {
-        calls.push(text);
-        return { rows: [] };
-      }),
-      release: vi.fn(),
-    } as unknown as PoolClient;
-    return { client, calls };
-  }
-
-  it('wraps the emit in BEGIN/COMMIT and releases the client', async () => {
-    const { client, calls } = fakeClient();
-    const pool = { connect: async () => client } as unknown as Pool;
-    const publisher = new PostgresEventPublisher(pool);
-
-    await publisher.publish({
-      eventId: 'evt-1',
-      eventType: 'AttemptScored',
-      schemaVersion: 1,
-      correlationId: 'corr-1',
-      occurredAt: new Date('2026-08-13T00:00:00.000Z'),
-      principal: { kind: 'system', id: 'sys-1', roleContext: [] },
-      payload: {
-        scoreRecordId: 'sr-1',
-        attemptId: 'a-1',
-        generation: 1,
-        markingRuleSetHash: 'hash-1',
-        ruleSchemaVersion: 1,
-        totalRaw: '4',
-        totalMaxAvailable: '4',
-      },
-    });
-
-    expect(calls[0]).toBe('BEGIN');
-    expect(calls.at(-1)).toBe('COMMIT');
-    expect(client.release).toHaveBeenCalledOnce();
-  });
-
-  it('rolls back and releases when the emit fails, and rethrows', async () => {
-    // Everything except the transaction control statements fails — the
-    // emitter's own INSERT is the thing under test, not its exact text.
-    const client = {
-      query: vi.fn(async (text: string) => {
-        if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
-        throw new Error('boom');
-      }),
-      release: vi.fn(),
-    } as unknown as PoolClient;
-    const pool = { connect: async () => client } as unknown as Pool;
-    const publisher = new PostgresEventPublisher(pool);
-
-    await expect(
-      publisher.publish({
-        eventId: 'evt-2',
-        eventType: 'AttemptScored',
-        schemaVersion: 1,
-        correlationId: 'corr-1',
-        occurredAt: new Date('2026-08-13T00:00:00.000Z'),
-        principal: { kind: 'system', id: 'sys-1', roleContext: [] },
-        payload: {
-          scoreRecordId: 'sr-1',
-          attemptId: 'a-1',
-          generation: 1,
-          markingRuleSetHash: 'hash-1',
-          ruleSchemaVersion: 1,
-          totalRaw: '4',
-          totalMaxAvailable: '4',
-        },
-      }),
-    ).rejects.toThrow('boom');
-
-    expect(client.query).toHaveBeenCalledWith('ROLLBACK');
-    expect(client.release).toHaveBeenCalledOnce();
   });
 });

@@ -14,13 +14,12 @@ import { scoreAttempt } from '../domain/score-attempt.js';
 import { authorize, policy } from './authorization.js';
 import { DuplicateHandlerError, HandlerRegistry, MissingAuthorizationPolicyError, type Handler } from './handler-registry.js';
 import { InMemoryAuditRecorder, type Clock, type IdentifierFactory } from './ports.js';
-import { ScoreAttemptHandler, type EventPublisher } from './handlers/scoring-handlers.js';
+import { ScoreAttemptHandler } from './handlers/scoring-handlers.js';
 import {
   ApproveRescoringHandler,
   DraftRescoringHandler,
   ExecuteRescoringHandler,
   RunRescoringDryRunHandler,
-  type RescoringEventPublisher,
 } from './handlers/rescoring-handlers.js';
 import { GetRescoringDryRunHandler, GetScoreRecordHandler, ListScoreRecordGenerationsHandler, toScoreRecordView } from './queries/scoring-queries.js';
 import { JEE_MAIN_RULE_SET } from '../../../testing/marking-fixtures.js';
@@ -119,7 +118,6 @@ class StubOperations implements RescoringOperationRepository {
 
 const clock: Clock = { now: () => new Date('2026-08-07T00:00:00.000Z') };
 const identifiers: IdentifierFactory = { next: () => randomUUID() };
-const publisher: EventPublisher & RescoringEventPublisher = { async publish() {} };
 
 const deps = (records: ScoreRecordRepository, operations: RescoringOperationRepository) => ({
   records,
@@ -127,7 +125,6 @@ const deps = (records: ScoreRecordRepository, operations: RescoringOperationRepo
   clock,
   identifiers,
   audit: new InMemoryAuditRecorder(),
-  events: publisher,
 });
 
 const drafted = (over: Partial<RescoringOperation> = {}): RescoringOperation => ({

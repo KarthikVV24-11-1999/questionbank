@@ -26,6 +26,7 @@ One line per document: the question it answers, not what it contains.
 ## Engineering practice
 
 - [ENGINEERING-HANDBOOK.md](ENGINEERING-HANDBOOK.md) — how is code here supposed to look and behave?
+- [KEY-FREE.md](KEY-FREE.md) — what keeps an answer key from reaching a learner before they submit, surface by surface?
 
 ## Decisions
 
@@ -33,3 +34,7 @@ One line per document: the question it answers, not what it contains.
 - [IMPLEMENTATION-DECISIONS.md](IMPLEMENTATION-DECISIONS.md) — what does `DEC-M4-9` mean where the code cites it?
 - [adr/](adr/) — for each divergence from an approved document: what changed, and why.
 - [DEBT.md](DEBT.md) — what is knowingly not built yet, and what triggers each one?
+
+## Acceptance
+
+- [M6-ACCEPTANCE.md](M6-ACCEPTANCE.md) — which of M6's criteria were met, and what is still blocked on a device or a deployment?

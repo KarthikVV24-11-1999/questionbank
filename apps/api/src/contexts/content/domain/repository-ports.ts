@@ -503,3 +503,26 @@ export interface PublishedVersionReader {
   /** The owning stimulus of a version that has been published, or `NOT_FOUND`. */
   stimulusOfPublishedVersion(stimulusVersionId: string): Promise<Result<string, RepositoryError>>;
 }
+
+/**
+ * What an item version says it is about and how hard its author judged it, for a version looked up by its own id (M7-03).
+ *
+ * **Primary tag only** (DEC-M7-5). `item_taxonomy_tag.weight` is deliberately not read: a secondary tag at weight 0.4 is not
+ * evidence for its concept, and a calibrated multi-concept rule needs item statistics that do not exist yet. **The difficulty
+ * is an author's judgement, not a measured p-value** (DEC-M7-3), and is named `difficultyEstimate` so no reader has to infer it.
+ */
+export interface VersionTaxonomyEntry {
+  readonly itemVersionId: string;
+  readonly conceptIdentityId: string;
+  readonly taxonomyVersionId: string;
+  readonly difficultyEstimate: ItemVersion['difficultyEstimate'];
+}
+
+/**
+ * Looks versions up by id, as `PublishedVersionReader` does and for the same reason: an attempt was pinned to a version, and a
+ * version that has since been superseded or retired is still the one the learner answered. **A version that was never
+ * published is not found**, and a version with no primary tag is not either — an absent id is the caller's to report.
+ */
+export interface VersionTaxonomyReader {
+  forVersions(itemVersionIds: readonly string[]): Promise<Result<readonly VersionTaxonomyEntry[], RepositoryError>>;
+}

@@ -630,6 +630,9 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   // M6-24. Finds a pinned version by its own id; a wrong answer here serves the wrong paper.
   'src/contexts/content/infrastructure/published-versions.reader.ts',
   'src/contexts/content/application/queries/catalogue-queries.ts',
+  // M7-03. Which concept a version evidences and how hard it was authored to be; a wrong answer here credits a learner with the wrong topic.
+  'src/contexts/content/infrastructure/version-taxonomy.reader.ts',
+  'src/contexts/content/application/queries/version-taxonomy-queries.ts',
 ] as const;
 
 export function checkCoverageThresholds(

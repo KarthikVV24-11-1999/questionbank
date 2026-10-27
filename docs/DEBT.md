@@ -119,6 +119,10 @@ other context produces the effect once — so the reaction **eventually** follow
 (a dead letter) rather than silent. Assessment's submission → scoring is the working example, tested end to end. What a consumer cannot give
 is atomicity: for a moment the fact has happened and the reaction has not, and anything that reads in that moment sees it.
 
+**Restated at M7-01 for scoring.** Scoring's event was the one the pattern had not reached: the score record and `AttemptScored` were committed in two
+transactions, so a crash between them lost the announcement and the relay had nothing to deliver. They are now one transaction
+([ADR-0042](adr/ADR-0042-a-score-and-its-event-are-written-in-one-transaction.md)). The reaction in Learning is still eventual, and that is still true.
+
 The review domain's own questions are unanswered still; they are now answerable by the same pattern, and each is a decision about whether
 "eventually" is acceptable for it.
 
@@ -522,6 +526,36 @@ convenience that must not survive to a student's phone.
 
 **Trigger** M8 (closed beta hardening): real sign-in, the token held where script cannot read it, and this line removed from `main.tsx`.
 **Cited** `apps/learn/src/main.tsx`
+
+### D70 — Evidence is attributed to an item's primary concept only
+
+`item_taxonomy_tag` carries a weight and an `is_primary` flag. The evidence a response yields counts for the primary concept and nothing for
+a secondary tag, so "8 responses" is a count; the weights are not read. Whether a secondary tag at some weight should count for something is a
+question about the item, and the answer needs item statistics to calibrate. The evidence rows keep the item version, so a rule that does count
+them recomputes from history rather than re-collecting.
+
+**Trigger** The first item statistics Psychometrics produces, or a decision to credit secondary concepts.
+**Cited** `apps/api/src/contexts/content/infrastructure/version-taxonomy.reader.ts`
+
+### D71 — Difficulty is an author's estimate, not a measured value
+
+`MasteryEvidence.difficultyEstimate` and the band a learner has demonstrated are the item's authored `difficulty_estimate`:
+foundational, moderate, challenging or advanced. Context 6 (Psychometrics) does not exist, so there is no measured *p*-value to use. A band an
+author chose is a judgement, and a mastery state that leans on it is only as good as that judgement.
+
+**Trigger** The first item statistics Psychometrics produces: the field becomes `itemDifficulty` and states recompute from retained evidence
+([ADR-0044](adr/ADR-0044-evidence-names-its-difficulty-an-estimate-and-its-concept.md)).
+**Cited** `apps/api/src/contexts/learning/domain/mastery-evidence.ts`
+
+### D72 — A re-score does not tell Learning which outcomes changed
+
+`ExecuteRescoring` supersedes score records and writes one `AttemptsRescored` carrying the operation, a count, the trigger and the scope. It
+names no attempt, and no `AttemptScored` is written for the successors. A consumer holding evidence assembled from generation 1 cannot learn
+that an outcome was corrected. The seam reads the current generation, so a later read is right; what is missing is the announcement.
+
+**Trigger** Learning's consumer of `AttemptScored` (the next track): either the successors announce themselves, or `AttemptsRescored` lists
+the attempts it changed.
+**Cited** `apps/api/src/contexts/scoring/application/handlers/rescoring-handlers.ts`
 
 
 ## Closed

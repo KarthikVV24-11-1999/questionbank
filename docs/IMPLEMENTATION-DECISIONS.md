@@ -330,3 +330,61 @@ pass; a version's first evaluation has no baseline, so only floors apply. A regr
 pipeline is what a pass lets through, so it cannot certify itself. **Chosen at M5-43 where the document
 was silent; nobody else has agreed to these thresholds.**
 → `contexts/generation/domain/evaluation-run.ts` · `contexts/generation/application/policies.ts`
+
+### DEC-M7-6 — Scoring's event is made atomic with the score record before Learning consumes it
+`AttemptScored` was written to the outbox by an adapter that opened its own transaction, so the score record
+committed in one and the event in another. Through M6 nothing consumed the event and the gap cost nothing. Learning's
+only input is `AttemptScored`, and a score with no event is a mastery update that never happens, with no message in
+the outbox to fail and so nothing the dead-letter queue could show. The repository now takes the event with the
+record — `ScoreRecordRepository.save(record, event)` — and writes both on one connection in one transaction, the shape
+assessment's attempt repository took at M6-39. A re-score's completion and `AttemptsRescored` are written the same way.
+The adapter that opened its own transaction is deleted rather than wrapped. A reconciling sweep was rejected: it would
+have Learning read scoring's tables, which the boundary rules forbid.
+→ `contexts/scoring/infrastructure/score-record.repository.ts` · `contexts/scoring/infrastructure/rescoring-operation.repository.ts` · `contexts/scoring/application/handlers/scoring-handlers.ts`
+
+### DEC-M7-1 — Learning reads evidence through two seams, and assembles it itself
+Neither event carries what mastery is defined on — per-slot outcome, item version, concept identity, difficulty — and
+scoring's own header says Learning reads the owning context rather than trusting a copy. Two seams are offered through
+`public/composition.ts`, as content offers its catalogue to assessment (ADR-0015): scoring offers the per-slot outcomes
+of one attempt (identifiers and outcomes; no response, no key), and content offers the primary concept, taxonomy version
+and authored difficulty of a set of item versions. Learning assembles `MasteryEvidence` from the two and owns the result,
+with no production import of either context. Curriculum is not a source: it owns the taxonomy and does not know which
+item tests which concept.
+→ `contexts/scoring/application/queries/scoring-queries.ts` · `contexts/content/application/queries/version-taxonomy-queries.ts`
+
+### DEC-M7-3 — Difficulty is the authored band, named as an estimate
+Difficulty as a measured fact belongs to Psychometrics, which does not exist yet. Learning uses
+`content.item_version.difficulty_estimate` — foundational, moderate, challenging, advanced — carried on the evidence as
+`difficultyEstimate`. It is an author's judgement and not a measured *p*-value, and the field names and the debt entry
+both say so. The trigger is the first item statistics Psychometrics produces; the states then recompute from evidence
+that was retained for exactly that reason.
+→ `contexts/content/domain/repository-ports.ts`
+
+### DEC-M7-5 — Evidence is attributed to the primary tag only
+`item_taxonomy_tag` carries a weight and an `is_primary` flag, with exactly one primary per version. If a secondary tag
+at weight 0.4 counted, "8 responses" would stop being a count. One response is one piece of evidence for the item's
+primary concept and nothing for its secondary tags; the weights are not read. Weighted attribution needs item statistics
+to calibrate, and the evidence rows retain the item version so a later rule recomputes from history without
+re-collecting.
+→ `contexts/content/infrastructure/version-taxonomy.reader.ts`
+
+### DEC-M7-2 — The learner's sitting is a StudySession, owned by Learning
+Assessment's `form_session` is a sitting a *form* declares. D-002 reads *2 sessions* and *a different session*, which is a
+*learner's* sitting: one word with two meanings inside one rule. The shipped schema is left alone; `form_session` is
+called a **shift** in prose and keeps its name in the database. Learning owns a `StudySession`, a learner-scoped window
+closed by an idle gap (30 minutes by default, tunable per exam alongside the other D-002 thresholds), and every piece of
+evidence is assigned one as it arrives, so a mock attempt and a practice run both count uniformly. Renaming
+`form_session` was rejected because it rewrites two composite constraints a week after they landed; reading *2 sessions*
+as *2 attempts* was rejected because massed evidence in one afternoon would qualify as mastery.
+→ `contexts/learning/domain/mastery-evidence.ts`
+
+### DEC-M7-4 — A practice run is its own aggregate, on the shared engine *(proposed; contradicts D2; not ratified)*
+`PracticePolicy` is pausable, gives immediate feedback and has no deadline; M6's `Attempt` is deadline-bearing,
+single-submission and carries four composite foreign keys that encode mock invariants. The proposal is a separate
+`PracticeAttempt` aggregate in Assessment reusing `packages/attempt-engine`, so that none of those constraints becomes
+"enforced when mode = mock", which is the by-construction weakness six tracks of M6 removed. **It contradicts DOMAIN-MODEL
+D2**, which says mock, practice and diagnostic are one `Attempt` aggregate distinguished by a pinned `DeliveryPolicy`, and
+the M7 planning documents do not mention D2. The document stands: nothing is built on this proposal and no ADR amends D2.
+Track C is blocked on a ruling between the two. Either way a practice run still consumes exposure like any other delivery,
+and its evidence reaches Learning through the same port as a mock's.
+→ `contexts/learning/domain/mastery-evidence.ts`

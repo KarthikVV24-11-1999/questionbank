@@ -1,8 +1,10 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { err, ok, type Result } from '../domain/result.js';
 import { conflictError, notFoundError } from '../domain/scoring-error.js';
 import type { RepositoryError, RescoringOperationRepository } from '../domain/repository-ports.js';
 import type { RescoringOperation, RescoringState } from '../domain/rescoring-operation.js';
+import type { AttemptsRescored } from '../domain/events/scoring-events.js';
+import { ScoringOutboxEmitter } from './outbox-emitter.js';
 import type { DryRunResult } from '../domain/rescoring-dry-run.js';
 
 /** The casing boundary (§2). snake_case in, camelCase out, here and nowhere else. */
@@ -36,6 +38,8 @@ function toOperation(row: OperationRow): RescoringOperation {
 }
 
 export class PostgresRescoringOperationRepository implements RescoringOperationRepository {
+  readonly #outbox = new ScoringOutboxEmitter();
+
   constructor(private readonly pool: Pool) {}
 
   /**
@@ -43,9 +47,17 @@ export class PostgresRescoringOperationRepository implements RescoringOperationR
    * writer working from a stale read is refused rather than silently
    * overwriting an approval it never saw.
    */
-  async save(operation: RescoringOperation): Promise<Result<RescoringOperation, RepositoryError>> {
+  async save(operation: RescoringOperation, event?: AttemptsRescored): Promise<Result<RescoringOperation, RepositoryError>> {
+    let client: PoolClient;
     try {
-      const written = await this.pool.query(
+      client = await this.pool.connect();
+    } catch (error) {
+      return err(conflictError('PERSISTENCE_REJECTED', String(error)));
+    }
+    let outcome: Result<RescoringOperation, RepositoryError>;
+    try {
+      await client.query('BEGIN');
+      const written = await client.query(
         `INSERT INTO scoring.rescoring_operation
            (rescoring_operation_id, trigger, scope, scope_ref, reason, state, dry_run_result,
             authorized_by_kind, authorized_by_id, executed_at, aggregate_version)
@@ -74,12 +86,21 @@ export class PostgresRescoringOperationRepository implements RescoringOperationR
       );
 
       if (written.rowCount === 0) {
+        // Lost the race: nothing was written, so no event is either.
+        await client.query('ROLLBACK');
+        client.release();
         return err(conflictError('CONFLICT', `re-score ${operation.operationId} was changed by someone else`));
       }
-      return ok(operation);
+      // The same client, so the event commits with the state change it reports or neither does (DEC-M7-6).
+      if (event !== undefined) await this.#outbox.emit(client, event);
+      await client.query('COMMIT');
+      outcome = ok(operation);
     } catch (error) {
-      return err(conflictError('PERSISTENCE_REJECTED', String(error)));
+      await client.query('ROLLBACK');
+      outcome = err(conflictError('PERSISTENCE_REJECTED', String(error)));
     }
+    client.release();
+    return outcome;
   }
 
   async findById(operationId: string): Promise<Result<RescoringOperation, RepositoryError>> {

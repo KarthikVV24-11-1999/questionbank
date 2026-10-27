@@ -6,6 +6,8 @@ import type { ScoreRecord } from '../domain/score-record.js';
 import type { ItemOutcome } from '../domain/item-outcome.js';
 import type { SectionScore, TotalScore } from '../domain/aggregate-scores.js';
 import type { ResponseSnapshot } from '../domain/scoring-input.js';
+import type { AttemptScored } from '../domain/events/scoring-events.js';
+import { ScoringOutboxEmitter } from './outbox-emitter.js';
 import { parseRational, rationalToDecimalString, type Rational } from '../domain/numeric/decimal.js';
 
 /**
@@ -150,11 +152,15 @@ function toScoreRecord(
  * ever be correct for one exam profile; ADR-0017 records why that was wrong.
  */
 export class PostgresScoreRecordRepository implements ScoreRecordRepository {
+  readonly #outbox = new ScoringOutboxEmitter();
+
   constructor(private readonly pool: Pool) {}
 
-  async save(record: ScoreRecord): Promise<Result<ScoreRecord, RepositoryError>> {
+  async save(record: ScoreRecord, event?: AttemptScored): Promise<Result<ScoreRecord, RepositoryError>> {
     return this.inTransaction(async (client) => {
       await this.insert(client, record, null);
+      // The same client, so the event commits with the record or neither does (DEC-M7-6).
+      if (event !== undefined) await this.#outbox.emit(client, event);
       return record;
     });
   }

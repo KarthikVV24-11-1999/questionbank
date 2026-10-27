@@ -2,6 +2,7 @@ import type { Result } from './result.js';
 import type { ScoringError } from './scoring-error.js';
 import type { ScoreRecord } from './score-record.js';
 import type { RescoringOperation } from './rescoring-operation.js';
+import type { AttemptScored, AttemptsRescored } from './events/scoring-events.js';
 
 /**
  * What the application layer needs from persistence, declared by the domain so
@@ -12,8 +13,11 @@ import type { RescoringOperation } from './rescoring-operation.js';
 export type RepositoryError = ScoringError<'CONFLICT' | 'NOT_FOUND' | 'PERSISTENCE_REJECTED'>;
 
 export interface ScoreRecordRepository {
-  /** One aggregate, one transaction: the record, its sections and its outcomes together. */
-  save(record: ScoreRecord): Promise<Result<ScoreRecord, RepositoryError>>;
+  /**
+   * One aggregate, one transaction: the record, its sections and its outcomes together — and the event that describes
+   * them (DEC-M7-6). A record with no event, or an event with no record, is not a state this port can produce.
+   */
+  save(record: ScoreRecord, event?: AttemptScored): Promise<Result<ScoreRecord, RepositoryError>>;
 
   /**
    * Stands the current record down and inserts its successor in one
@@ -32,7 +36,8 @@ export interface ScoreRecordRepository {
 }
 
 export interface RescoringOperationRepository {
-  save(operation: RescoringOperation): Promise<Result<RescoringOperation, RepositoryError>>;
+  /** The completion's event rides the same transaction as the state change it reports (DEC-M7-6). */
+  save(operation: RescoringOperation, event?: AttemptsRescored): Promise<Result<RescoringOperation, RepositoryError>>;
   findById(operationId: string): Promise<Result<RescoringOperation, RepositoryError>>;
   findByState(state: RescoringOperation['state']): Promise<Result<readonly RescoringOperation[], RepositoryError>>;
 }

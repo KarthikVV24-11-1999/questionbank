@@ -86,6 +86,8 @@ import { GetPublishedItemVersionHandler, GetPublishedStimulusVersionHandler } fr
 import { GetAnswerKeysForScoringHandler } from '../application/queries/scoring-key-queries.js';
 import { PostgresPublishedVersions } from '../infrastructure/published-versions.reader.js';
 import { ListPublishedCatalogueHandler } from '../application/queries/catalogue-queries.js';
+import { GetVersionTaxonomyHandler } from '../application/queries/version-taxonomy-queries.js';
+import { PostgresVersionTaxonomy } from '../infrastructure/version-taxonomy.reader.js';
 import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import { GetQueueHealthHandler, GetReviewerThroughputHandler } from '../application/review/queries/queue-queries.js';
 import { validateProposedContent } from '../application/proposal-validation.js';
@@ -184,6 +186,7 @@ function assemble(deps: ContentCompositionDeps) {
   const fingerprints = new PostgresFingerprintRepository(deps.pool);
   const catalogue = new PostgresPublishedCatalogue(deps.pool);
   const versions = new PostgresPublishedVersions(deps.pool);
+  const taxonomy = new PostgresVersionTaxonomy(deps.pool);
   const transactions = new PostgresTransactionRunner(deps.pool);
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
@@ -218,6 +221,7 @@ function assemble(deps: ContentCompositionDeps) {
     fingerprints,
     catalogue,
     versions,
+    taxonomy,
     reviewPolicy,
     transactions,
   };
@@ -387,4 +391,19 @@ export function contentForAssessment(deps: ContentCompositionDeps): ContentForAs
     stimulusVersion: new GetPublishedStimulusVersionHandler(bag),
     answerKeys: new GetAnswerKeysForScoringHandler(bag),
   };
+}
+
+/**
+ * What the learning context consumes from content (M7-03, DEC-M7-1): the primary concept, taxonomy version and authored
+ * difficulty of a set of item versions, and nothing more. Content holds the tags and offers them to nobody else; Learning gets
+ * no production import of this context, only this door. Adding a second handler here is a deliberate change to what Learning
+ * may ask of content, and is reviewed as one.
+ */
+export interface ContentForLearning {
+  readonly taxonomyForItemVersions: GetVersionTaxonomyHandler;
+}
+
+export function contentForLearning(deps: ContentCompositionDeps): ContentForLearning {
+  const bag = assemble(deps);
+  return { taxonomyForItemVersions: new GetVersionTaxonomyHandler(bag) };
 }

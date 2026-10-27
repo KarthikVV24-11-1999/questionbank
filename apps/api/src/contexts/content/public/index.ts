@@ -115,6 +115,8 @@ export type {
   PublishedCatalogueView,
 } from '../application/queries/catalogue-queries.js';
 
+export type { GetVersionTaxonomy, VersionTaxonomyView } from '../application/queries/version-taxonomy-queries.js';
+
 // ── Review queries (M4-32, M4-33, DEC-M4-2, DEC-M4-13) ──────────────────────
 export type {
   DuplicateCandidate,

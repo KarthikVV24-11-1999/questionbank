@@ -64,6 +64,8 @@ const LIFECYCLE_STATES_UNDER_TEST = LIFECYCLE_STATES.filter((state) => state !==
 import { REJECTION_REASONS } from '../domain/review/rejection-taxonomy.js';
 import { PostgresPublishedVersions } from '../infrastructure/published-versions.reader.js';
 import { ListPublishedCatalogueHandler } from './queries/catalogue-queries.js';
+import { GetVersionTaxonomyHandler } from './queries/version-taxonomy-queries.js';
+import { PostgresVersionTaxonomy } from '../infrastructure/version-taxonomy.reader.js';
 import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import {
   GetPublishedItemVersionHandler,
@@ -1421,5 +1423,62 @@ describe('GetAnswerKeysForScoring — the one door a key leaves content through 
     const itemsOfCorrupt = { ...items, findById: async () => ok(corrupt) } as unknown as ItemRepository;
     const refused = await new GetAnswerKeysForScoringHandler({ versions: new PostgresPublishedVersions(database.pool), items: itemsOfCorrupt }).handle({ itemVersionIds: [version.versionId] }, as(system));
     expect(expectError(refused).code).toBe('ITEM_TYPE_NOT_SCORABLE');
+  });
+});
+
+describe('M7-03 — content offers the primary tag and authored difficulty of a set of item versions', () => {
+  const system: PrincipalRef = { kind: 'system', id: freshUuid(), roleContext: ['system'] };
+  const taxonomy = () => new GetVersionTaxonomyHandler({ taxonomy: new PostgresVersionTaxonomy(database.pool) });
+  const tagged = (primary: string, others: string[]): Partial<AuthoredItemContent> => ({
+    taxonomyTags: [
+      { conceptIdentityId: primary, taxonomyVersionId: TAXONOMY_ID, weight: 0.2, isPrimary: true },
+      ...others.map((id) => ({ conceptIdentityId: id, taxonomyVersionId: TAXONOMY_ID, weight: 0.9, isPrimary: false })),
+    ],
+  });
+
+  it('answers an item carrying three tags with its primary concept only, whatever the weights say', async () => {
+    const [primary, second, third] = [freshUuid(), freshUuid(), freshUuid()];
+    const item = await publishItem(await draftItem(tagged(primary, [second, third])));
+    const versionId = item.versions[0]!.versionId;
+
+    const views = expectValue(await taxonomy().handle({ itemVersionIds: [versionId] }, as(system)));
+    expect(views).toEqual([
+      { itemVersionId: versionId, conceptIdentityId: primary, taxonomyVersionId: TAXONOMY_ID, difficultyEstimate: 'moderate' },
+    ]);
+    // the set, not the loop: nothing else of the item can ride along
+    expect(Object.keys(views[0]!).sort()).toEqual(['conceptIdentityId', 'difficultyEstimate', 'itemVersionId', 'taxonomyVersionId']);
+  });
+
+  it('answers a whole set in one call, finds a version whose item was since suspended, and omits one never published', async () => {
+    const [c1, c2, c3] = [freshUuid(), freshUuid(), freshUuid()];
+    const a = await publishItem(await draftItem(tagged(c1, [])));
+    const b = await publishItem(await draftItem(tagged(c2, [])));
+    expectValue(await new SuspendItemHandler(lifecycle()).handle({ itemId: b.itemId, justification: 'checking a report' }, asOps()));
+    const draft = await draftItem(tagged(c3, []));
+
+    const ids = [a.versions[0]!.versionId, b.versions[0]!.versionId, draft.versions[0]!.versionId, a.versions[0]!.versionId, freshUuid()];
+    const views = expectValue(await taxonomy().handle({ itemVersionIds: ids }, as(system)));
+    expect(views.map((view) => view.conceptIdentityId).sort()).toEqual([c1, c2].sort());
+  });
+
+  it('answers an empty set with an empty answer, and refuses a value that is not an identifier and a set that is too large', async () => {
+    expect(expectValue(await taxonomy().handle({ itemVersionIds: [] }, as(system)))).toEqual([]);
+    expect(expectError(await taxonomy().handle({ itemVersionIds: ['not-an-id'] }, as(system))).code).toBe('VERSION_TAXONOMY_QUERY_INVALID');
+    const many = Array.from({ length: 501 }, () => freshUuid());
+    expect(expectError(await taxonomy().handle({ itemVersionIds: many }, as(system))).code).toBe('VERSION_TAXONOMY_QUERY_INVALID');
+  });
+
+  it('is the system\'s alone', async () => {
+    expect(taxonomy().policy.allowedRoles).toEqual(['system']);
+    expect(expectError(await taxonomy().handle({ itemVersionIds: [] }, as(author))).kind).toBe('Authorization');
+  });
+
+  it('reports a failing store as a value that says nothing of the driver', async () => {
+    const broken = new GetVersionTaxonomyHandler({
+      taxonomy: new PostgresVersionTaxonomy({ query: async () => Promise.reject(new Error('relation "secret" missing')) } as never),
+    });
+    const failure = expectError(await broken.handle({ itemVersionIds: [freshUuid()] }, as(system)));
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+    expect(failure.message).not.toContain('secret');
   });
 });

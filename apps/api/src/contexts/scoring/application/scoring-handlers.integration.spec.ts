@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PrincipalRef } from '@questionbank/domain-types';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
@@ -10,20 +11,19 @@ import { PostgresScoreRecordRepository } from '../infrastructure/score-record.re
 import { PostgresRescoringOperationRepository } from '../infrastructure/rescoring-operation.repository.js';
 import { InMemoryAuditRecorder, type Clock, type IdentifierFactory } from './ports.js';
 import { HandlerRegistry, MissingAuthorizationPolicyError, type Handler } from './handler-registry.js';
-import { ScoreAttemptHandler, type EventPublisher } from './handlers/scoring-handlers.js';
+import { ScoreAttemptHandler } from './handlers/scoring-handlers.js';
 import {
   ApproveRescoringHandler,
   DraftRescoringHandler,
   ExecuteRescoringHandler,
   RunRescoringDryRunHandler,
-  type RescoringEventPublisher,
 } from './handlers/rescoring-handlers.js';
 import {
+  GetAttemptOutcomesHandler,
   GetScoreRecordHandler,
   ListScoreRecordGenerationsHandler,
   GetRescoringDryRunHandler,
 } from './queries/scoring-queries.js';
-import type { AttemptScored, AttemptsRescored } from '../domain/events/scoring-events.js';
 import type { ScoreAttempt } from './commands/scoring-commands.js';
 import { JEE_MAIN_RULE_SET } from '../../../testing/marking-fixtures.js';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
@@ -63,11 +63,44 @@ class SequentialIdentifiers implements IdentifierFactory {
   }
 }
 
-class RecordingPublisher implements EventPublisher, RescoringEventPublisher {
-  readonly events: (AttemptScored | AttemptsRescored)[] = [];
-  async publish(event: AttemptScored | AttemptsRescored): Promise<void> {
-    this.events.push(event);
-  }
+/** What the outbox holds for one aggregate: the only place an event of this context is written. */
+async function eventsFor(aggregateId: string): Promise<{ event_type: string; payload: Record<string, unknown> }[]> {
+  const found = await database.pool.query(
+    'SELECT event_type, payload FROM platform.outbox_message WHERE aggregate_id = $1 ORDER BY occurred_at',
+    [aggregateId],
+  );
+  return found.rows;
+}
+
+/**
+ * The pool the handlers see, with one fault planted: any statement matching `refuse` is rejected on the connection a
+ * handler's own write is using. A record is written on that connection first, so a refusal here falls *between* the
+ * record's write and the event's — the exact window a second transaction used to leave open (DEC-M7-6).
+ */
+function poolRefusing(refuse: RegExp): Pool {
+  return new Proxy(database.pool, {
+    get(target, property) {
+      if (property === 'connect') {
+        return async () => {
+          const client = await target.connect();
+          const original = client.query;
+          const release = client.release.bind(client);
+          client.query = ((text: unknown, ...rest: unknown[]) =>
+            typeof text === 'string' && refuse.test(text)
+              ? Promise.reject(new Error('injected: the event write is refused'))
+              : (original as (...a: unknown[]) => unknown).call(client, text, ...rest)) as never;
+          // the connection goes back to the pool, so the fault must not travel with it
+          client.release = ((...args: unknown[]) => {
+            client.query = original;
+            return (release as (...a: unknown[]) => void)(...args);
+          }) as never;
+          return client;
+        };
+      }
+      const value = Reflect.get(target, property) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as Pool;
 }
 
 function slot(answerKey = keyB, chosen = 'B'): CreateScoredSlot {
@@ -115,21 +148,18 @@ interface Harness {
   readonly listGenerations: ListScoreRecordGenerationsHandler;
   readonly getDryRun: GetRescoringDryRunHandler;
   readonly audit: InMemoryAuditRecorder;
-  readonly publisher: RecordingPublisher;
 }
 
-function harness(): Harness {
-  const records = new PostgresScoreRecordRepository(database.pool);
-  const operations = new PostgresRescoringOperationRepository(database.pool);
+function harness(pool: Pool = database.pool): Harness {
+  const records = new PostgresScoreRecordRepository(pool);
+  const operations = new PostgresRescoringOperationRepository(pool);
   const audit = new InMemoryAuditRecorder();
-  const publisher = new RecordingPublisher();
   const deps = {
     records,
     operations,
     clock: new FixedClock(new Date('2026-08-07T00:00:00.000Z')),
     identifiers: new SequentialIdentifiers(),
     audit,
-    events: publisher,
   };
   return {
     score: new ScoreAttemptHandler(deps),
@@ -141,7 +171,6 @@ function harness(): Harness {
     listGenerations: new ListScoreRecordGenerationsHandler(records),
     getDryRun: new GetRescoringDryRunHandler(operations),
     audit,
-    publisher,
   };
 }
 
@@ -190,10 +219,10 @@ describe('ScoreAttempt', () => {
 
   it('publishes AttemptScored with the total as decimal text', async () => {
     const bench = harness();
-    await bench.score.handle(command(randomUUID()), opsContext);
-    const event = bench.publisher.events[0] as AttemptScored;
-    expect(event.eventType).toBe('AttemptScored');
-    expect(event.payload.totalRaw).toBe('4');
+    const record = expectValue(await bench.score.handle(command(randomUUID()), opsContext));
+    const [event] = await eventsFor(record.scoreRecordId);
+    expect(event!.event_type).toBe('AttemptScored');
+    expect(event!.payload.totalRaw).toBe('4');
   });
 
   it('refuses a principal without the role', async () => {
@@ -205,6 +234,106 @@ describe('ScoreAttempt', () => {
   it('surfaces a domain refusal as an application error', async () => {
     const bad = { ...command(randomUUID()), ruleSetHash: 'a-different-hash' };
     expect(expectError(await harness().score.handle(bad, opsContext)).code).toBe('RULE_SET_NOT_PINNED');
+  });
+});
+
+describe('a score and its event are one transaction (M7-01, DEC-M7-6)', () => {
+  const scoreRows = async (attemptId: string) =>
+    (await database.pool.query('SELECT 1 FROM scoring.score_record WHERE attempt_id = $1', [attemptId])).rowCount;
+  const OUTBOX_WRITE = /INSERT INTO platform\.outbox_message/u;
+
+  it('commits neither when the event write fails after the record was written: never a score alone', async () => {
+    const attemptId = randomUUID();
+    const refused = expectError(await harness(poolRefusing(OUTBOX_WRITE)).score.handle(command(attemptId), opsContext));
+    expect(refused.code).toBe('PERSISTENCE_REJECTED');
+
+    expect(await scoreRows(attemptId)).toBe(0);
+    const sections = await database.pool.query(
+      `SELECT 1 FROM scoring.item_outcome o JOIN scoring.score_record r USING (score_record_id) WHERE r.attempt_id = $1`,
+      [attemptId],
+    );
+    expect(sections.rowCount).toBe(0);
+    const stray = await database.pool.query(
+      `SELECT 1 FROM platform.outbox_message WHERE event_type = 'AttemptScored' AND payload->>'attemptId' = $1`,
+      [attemptId],
+    );
+    expect(stray.rowCount).toBe(0);
+
+    // the fault did not outlive its connection, and nothing was left in the way: the same attempt now scores once, with one event
+    const record = expectValue(await harness().score.handle(command(attemptId), opsContext));
+    expect(await eventsFor(record.scoreRecordId)).toHaveLength(1);
+  });
+
+  it('gives a successful score exactly one event, naming the record it was written with', async () => {
+    const attemptId = randomUUID();
+    const record = expectValue(await harness().score.handle(command(attemptId), opsContext));
+    const events = await eventsFor(record.scoreRecordId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ scoreRecordId: record.scoreRecordId, attemptId, generation: 1 });
+  });
+
+  it('writes no second event for a retried submission', async () => {
+    const attemptId = randomUUID();
+    const bench = harness();
+    const first = expectValue(await bench.score.handle(command(attemptId), opsContext));
+    expectValue(await bench.score.handle(command(attemptId), opsContext));
+    expect(await eventsFor(first.scoreRecordId)).toHaveLength(1);
+  });
+
+  it('leaves a re-score executing, with no AttemptsRescored, when the completion cannot write its event', async () => {
+    const attemptId = randomUUID();
+    const steady = harness();
+    expectValue(await steady.score.handle(command(attemptId), opsContext));
+    const operation = expectValue(
+      await steady.draft.handle(
+        { trigger: 'RULE_CORRECTION', scope: 'RULE_CHANGE', scopeRef: 'rs-atomic', reason: 'rule corrected' },
+        opsContext,
+      ),
+    );
+    const corrected = [command(attemptId, keyA, 'B')];
+    expectValue(await steady.dryRun.handle({ operationId: operation.operationId, attempts: corrected }, opsContext));
+    expectValue(await steady.approve.handle({ operationId: operation.operationId }, adminContext));
+
+    expectError(await harness(poolRefusing(OUTBOX_WRITE)).execute.handle({ operationId: operation.operationId, attempts: corrected }, adminContext));
+
+    const state = await database.pool.query(
+      'SELECT state FROM scoring.rescoring_operation WHERE rescoring_operation_id = $1',
+      [operation.operationId],
+    );
+    expect(state.rows[0].state).toBe('executing');
+    expect(await eventsFor(operation.operationId)).toEqual([]);
+  });
+});
+
+describe('what scoring offers learning (M7-02)', () => {
+  const systemContext = { principal: { kind: 'system' as const, id: ADMIN, roleContext: ['system'] }, correlationId: 'c-1' };
+  const outcomes = () => new GetAttemptOutcomesHandler(new PostgresScoreRecordRepository(database.pool));
+
+  it('offers each slot as identifiers, an outcome and marks as decimal text, and nothing else', async () => {
+    const attemptId = randomUUID();
+    expectValue(await harness().score.handle(command(attemptId), opsContext));
+    const views = expectValue(await outcomes().handle({ attemptId }, systemContext));
+    expect(views).toHaveLength(1);
+    expect(views[0]).toEqual({
+      slotRef: 'a',
+      itemVersionId: expect.any(String),
+      outcome: 'correct',
+      marksAwarded: '4',
+      marksAvailable: '4',
+    });
+    // the set, not the loop: a response, a key or a rule appearing here is a failure
+    expect(Object.keys(views[0]!).sort()).toEqual(['itemVersionId', 'marksAvailable', 'marksAwarded', 'outcome', 'slotRef']);
+  });
+
+  it('is the system\'s alone: a learner, an operator and an administrator are refused', async () => {
+    const attemptId = randomUUID();
+    for (const context of [learnerContext, opsContext, adminContext]) {
+      expect(expectError(await outcomes().handle({ attemptId }, context)).code).toBe('NOT_PERMITTED');
+    }
+  });
+
+  it('reports an attempt that was never scored as not found', async () => {
+    expect(expectError(await outcomes().handle({ attemptId: randomUUID() }, systemContext)).kind).toBe('NotFound');
   });
 });
 
@@ -325,9 +454,9 @@ describe('re-scoring: the preview is the gate', () => {
     expectValue(await bench.approve.handle({ operationId: operation.operationId }, adminContext));
     expectValue(await bench.execute.handle({ operationId: operation.operationId, attempts: corrected }, adminContext));
 
-    const rescored = bench.publisher.events.find((event) => event.eventType === 'AttemptsRescored');
-    expect(rescored).toBeDefined();
-    expect((rescored as AttemptsRescored).payload.attemptCount).toBe(1);
+    const [rescored] = await eventsFor(operation.operationId);
+    expect(rescored!.event_type).toBe('AttemptsRescored');
+    expect(rescored!.payload.attemptCount).toBe(1);
   });
 
   it('audits every step of the operation', async () => {

@@ -5,7 +5,7 @@ the authoring and review tooling that feeds them. It is being built content-pipe
 and the learner-facing product come later, once there is a corpus worth delivering.
 
 The API boots against PostgreSQL and serves authenticated requests, and the Studio builds and runs against
-it. A learner can take a signed paper offline in `apps/learn`, and a real Chrome is killed and reopened against it a hundred times to see whether anything they did is lost (the gaps that remain are in `docs/DEBT.md`). 7,239 tests across nine workspace projects, with coverage floors enforced in the test run.
+it. A learner can take a signed paper offline in `apps/learn`, and a real Chrome is killed and reopened against it a hundred times to see whether anything they did is lost (the gaps that remain are in `docs/DEBT.md`). 7,299 tests across nine workspace projects, with coverage floors enforced in the test run.
 
 ---
 

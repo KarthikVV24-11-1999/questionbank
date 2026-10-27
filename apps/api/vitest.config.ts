@@ -547,6 +547,32 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        'src/contexts/content/application/queries/version-taxonomy-queries.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/infrastructure/version-taxonomy.reader.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M7-04. The evidence every mastery state is derived from: a wrong value here is a wrong state nothing would flag.
+        'src/contexts/learning/domain/mastery-evidence.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        // M7-05. Decides which responses are evidence and for which concept; an unresolved version must fail the attempt whole.
+        'src/platform/composition/learning-evidence.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         'src/contexts/assessment/domain/anchor-pool.ts': {
           branches: 100,
           lines: 100,

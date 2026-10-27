@@ -12,13 +12,9 @@ import { ROLES } from '../../../../platform/auth/roles.js';
 
 /**
  * Orchestration only (§1). Every decision about what a mark is belongs to the
- * domain; this layer authorizes, supplies the clock and the identifier, saves,
- * and publishes.
+ * domain; this layer authorizes, supplies the clock and the identifier, and
+ * saves — the event travelling with the record it describes.
  */
-
-export interface EventPublisher {
-  publish(event: AttemptScored): Promise<void>;
-}
 
 export const SCORE_ATTEMPT_POLICY = policy('ScoreAttempt', [ROLES.ops, ROLES.admin, ROLES.system]);
 
@@ -27,7 +23,6 @@ export interface ScoreAttemptDependencies {
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
-  readonly events: EventPublisher;
 }
 
 export class ScoreAttemptHandler implements Handler<ScoreAttempt, ScoreRecord> {
@@ -58,7 +53,26 @@ export class ScoreAttemptHandler implements Handler<ScoreAttempt, ScoreRecord> {
       return err(applicationError(scored.error.kind, scored.error.code, scored.error.message));
     }
 
-    const saved = await this.deps.records.save(scored.value);
+    // The event is built from the record and handed to the repository with it: one connection, one transaction, so a
+    // score exists if and only if its event does (DEC-M7-6). Publishing afterwards would leave a window between the two.
+    const event: AttemptScored = {
+      eventId: this.deps.identifiers.next(),
+      eventType: 'AttemptScored',
+      schemaVersion: 1,
+      occurredAt: this.deps.clock.now(),
+      principal: context.principal,
+      correlationId: context.correlationId,
+      payload: {
+        scoreRecordId: scored.value.scoreRecordId,
+        attemptId: scored.value.attemptId,
+        generation: scored.value.generation,
+        markingRuleSetHash: scored.value.markingRuleSetHash,
+        ruleSchemaVersion: scored.value.ruleSchemaVersion,
+        totalRaw: rationalToDecimalString(scored.value.totalScore.raw),
+        totalMaxAvailable: rationalToDecimalString(scored.value.totalScore.maxAvailable),
+      },
+    };
+    const saved = await this.deps.records.save(scored.value, event);
     if (!saved.ok) {
       return err(applicationError(saved.error.kind, saved.error.code, saved.error.message));
     }
@@ -71,24 +85,6 @@ export class ScoreAttemptHandler implements Handler<ScoreAttempt, ScoreRecord> {
       targetId: saved.value.scoreRecordId,
       correlationId: context.correlationId,
       occurredAt: this.deps.clock.now(),
-    });
-
-    await this.deps.events.publish({
-      eventId: this.deps.identifiers.next(),
-      eventType: 'AttemptScored',
-      schemaVersion: 1,
-      occurredAt: this.deps.clock.now(),
-      principal: context.principal,
-      correlationId: context.correlationId,
-      payload: {
-        scoreRecordId: saved.value.scoreRecordId,
-        attemptId: saved.value.attemptId,
-        generation: saved.value.generation,
-        markingRuleSetHash: saved.value.markingRuleSetHash,
-        ruleSchemaVersion: saved.value.ruleSchemaVersion,
-        totalRaw: rationalToDecimalString(saved.value.totalScore.raw),
-        totalMaxAvailable: rationalToDecimalString(saved.value.totalScore.maxAvailable),
-      },
     });
 
     return ok(saved.value);

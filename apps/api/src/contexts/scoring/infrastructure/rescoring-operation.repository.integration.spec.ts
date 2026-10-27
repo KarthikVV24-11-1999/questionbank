@@ -121,6 +121,43 @@ describe('optimistic concurrency (P8)', () => {
     const broken = { ...drafted(), state: 'not-a-state' } as unknown as RescoringOperation;
     expect(expectError(await repository.save(broken)).code).toBe('PERSISTENCE_REJECTED');
   });
+
+  it('reports an unreachable store as a value', async () => {
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
+    pool.on('error', () => undefined);
+    expect(expectError(await new PostgresRescoringOperationRepository(pool).save(drafted())).code).toBe('PERSISTENCE_REJECTED');
+    await pool.end().catch(() => undefined);
+  });
+});
+
+describe('the completion and its event are one write (M7-01)', () => {
+  const eventFor = (operation: RescoringOperation, principalKind = 'human') =>
+    ({
+      eventId: randomUUID(),
+      eventType: 'AttemptsRescored',
+      schemaVersion: 1,
+      occurredAt: new Date('2026-10-27T00:00:00.000Z'),
+      principal: { kind: principalKind, id: PRINCIPAL, roleContext: [] },
+      correlationId: 'c',
+      payload: { rescoringOperationId: operation.operationId, attemptCount: 1, trigger: operation.trigger, scope: operation.scope },
+    }) as never;
+  const eventRows = async (id: string) =>
+    (await database.pool.query('SELECT 1 FROM platform.outbox_message WHERE aggregate_id = $1', [id])).rowCount;
+
+  it('writes the event with the state change, and not when the write lost a race or the event is refused', async () => {
+    const operation = drafted();
+    expectValue(await repository.save(operation, eventFor(operation)));
+    expect(await eventRows(operation.operationId)).toBe(1);
+
+    const stale = { ...operation, expectedVersion: 99 };
+    expect(expectError(await repository.save(stale, eventFor(operation))).code).toBe('CONFLICT');
+    expect(await eventRows(operation.operationId)).toBe(1);
+
+    const other = drafted();
+    expect(expectError(await repository.save(other, eventFor(other, 'robot'))).code).toBe('PERSISTENCE_REJECTED');
+    expect((await database.pool.query('SELECT 1 FROM scoring.rescoring_operation WHERE rescoring_operation_id = $1', [other.operationId])).rowCount).toBe(0);
+  });
 });
 
 describe('querying by state', () => {

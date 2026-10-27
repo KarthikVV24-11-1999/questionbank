@@ -257,6 +257,11 @@ verification (F41) · authorization negative-path 100%
 - **Mock result → remediation entry is one tap**
 - Event taxonomy conformance ≥ 99%
 
+> **Status, added 2026-10-27 (M7 Track A):** the evidence seams are built, and Learning exists as a context holding the evidence and the port it
+> comes through ([ADR-0042](adr/ADR-0042-a-score-and-its-event-are-written-in-one-transaction.md), [ADR-0043](adr/ADR-0043-learning-reads-the-owning-contexts-through-two-seams.md)).
+> No acceptance criterion below is met yet: mastery, practice, the report and the taxonomy capture are Tracks B to H. One decision is not ratified:
+> DEC-M7-4 contradicts D2, and Track C waits on a ruling.
+
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation
 
 **Depends on** M6

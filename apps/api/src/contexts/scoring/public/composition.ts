@@ -6,21 +6,19 @@ import type { PrincipalResolver } from '../api/scoring.controller.js';
 import { ScoringModule } from '../api/scoring.module.js';
 import { PostgresScoreRecordRepository } from '../infrastructure/score-record.repository.js';
 import { PostgresRescoringOperationRepository } from '../infrastructure/rescoring-operation.repository.js';
-import { ScoringOutboxEmitter } from '../infrastructure/outbox-emitter.js';
-import { ScoreAttemptHandler, type EventPublisher } from '../application/handlers/scoring-handlers.js';
+import { ScoreAttemptHandler } from '../application/handlers/scoring-handlers.js';
 import {
   ApproveRescoringHandler,
   DraftRescoringHandler,
   ExecuteRescoringHandler,
   RunRescoringDryRunHandler,
-  type RescoringEventPublisher,
 } from '../application/handlers/rescoring-handlers.js';
 import {
+  GetAttemptOutcomesHandler,
   GetRescoringDryRunHandler,
   GetScoreRecordHandler,
   ListScoreRecordGenerationsHandler,
 } from '../application/queries/scoring-queries.js';
-import type { AttemptScored, AttemptsRescored } from '../domain/events/scoring-events.js';
 
 /**
  * The composition seam (DEC-M0-5, ADR-0015). See `contexts/content/public/composition.ts`
@@ -30,16 +28,11 @@ import type { AttemptScored, AttemptsRescored } from '../domain/events/scoring-e
  * — the pin rides on the record it saves and loads, so one instance is
  * correct for every exam profile, the same as every other repository here.
  *
- * **`PostgresEventPublisher` is a real, durable adapter with one named
- * limitation.** `ScoringOutboxEmitter.emit(client, event)` needs the same
- * transaction the aggregate was saved in — that is §9 rule 4's whole point —
- * but `EventPublisher.publish(event)` is not given that transaction; no
- * milestone through M0 wires a handler's own save and its event publish
- * through one connection. This adapter opens its own short transaction per
- * publish instead: the event is durably written to `platform.outbox_message`,
- * but not atomically with the score record it describes. A crash between the
- * two leaves a score with no event; the relay (D17, closed) delivers events and
- * does not reconcile scores against them, which remains this adapter's limit.
+ * **There is no event publisher.** A score record and its `AttemptScored` event are written by
+ * `PostgresScoreRecordRepository.save(record, event)` on one connection in one transaction, and a re-score's completion
+ * and `AttemptsRescored` by `PostgresRescoringOperationRepository.save(operation, event)` the same way (DEC-M7-6). An
+ * earlier adapter opened a second transaction per event, which left a crash window between the two commits: a score with
+ * no event, which Learning would never hear about and the dead-letter queue could not show.
  */
 export interface ScoringCompositionDeps {
   readonly pool: Pool;
@@ -57,29 +50,6 @@ const REQUIRED_DEPS_KEYS = [
   'principals',
 ] as const satisfies readonly (keyof ScoringCompositionDeps)[];
 
-export class PostgresEventPublisher implements EventPublisher, RescoringEventPublisher {
-  readonly #pool: Pool;
-  readonly #emitter = new ScoringOutboxEmitter();
-
-  constructor(pool: Pool) {
-    this.#pool = pool;
-  }
-
-  async publish(event: AttemptScored | AttemptsRescored): Promise<void> {
-    const client = await this.#pool.connect();
-    try {
-      await client.query('BEGIN');
-      await this.#emitter.emit(client, event);
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-}
-
 export function register(deps: ScoringCompositionDeps): DynamicModule {
   for (const key of REQUIRED_DEPS_KEYS) {
     if (deps[key] === undefined) {
@@ -89,12 +59,10 @@ export function register(deps: ScoringCompositionDeps): DynamicModule {
 
   const records = new PostgresScoreRecordRepository(deps.pool);
   const operations = new PostgresRescoringOperationRepository(deps.pool);
-  const events = new PostgresEventPublisher(deps.pool);
 
   const bag = {
     records,
     operations,
-    events,
     clock: deps.clock,
     identifiers: deps.identifiers,
     audit: deps.audit,
@@ -134,11 +102,28 @@ export function scoringForAssessment(deps: ScoringCompositionDeps): ScoringForAs
   return {
     scoreAttempt: new ScoreAttemptHandler({
       records,
-      events: new PostgresEventPublisher(deps.pool),
       clock: deps.clock,
       identifiers: deps.identifiers,
       audit: deps.audit,
     }),
     scoreRecord: new GetScoreRecordHandler(records),
   };
+}
+
+/**
+ * What the learning context consumes from scoring (M7-02, DEC-M7-1): the per-slot outcomes of one attempt, and nothing more.
+ * Learning reads the owning context rather than trusting a copy of its facts in an event, and this is the one door it reads
+ * through. Adding a second handler here is a deliberate change to what Learning may ask of scoring, and is reviewed as one.
+ */
+export interface ScoringForLearning {
+  readonly outcomesForAttempt: GetAttemptOutcomesHandler;
+}
+
+export function scoringForLearning(deps: ScoringCompositionDeps): ScoringForLearning {
+  for (const key of REQUIRED_DEPS_KEYS) {
+    if (deps[key] === undefined) {
+      throw new Error(`scoring composition is missing required dependency: ${key}`);
+    }
+  }
+  return { outcomesForAttempt: new GetAttemptOutcomesHandler(new PostgresScoreRecordRepository(deps.pool)) };
 }
