@@ -5,24 +5,28 @@ the authoring and review tooling that feeds them. It is being built content-pipe
 and the learner-facing product come later, once there is a corpus worth delivering.
 
 The API boots against PostgreSQL and serves authenticated requests, and the Studio builds and runs against
-it. A learner can take a signed paper offline in `apps/learn`, and a real Chrome is killed and reopened against it a hundred times to see whether anything they did is lost (the gaps that remain are in `docs/DEBT.md`). 7,299 tests across nine workspace projects, with coverage floors enforced in the test run.
+it. A learner can take a signed paper offline in `apps/learn`, and a real Chrome is killed and reopened against it a hundred times to see whether anything they did is lost (the gaps that remain are in `docs/DEBT.md`). 7,417 tests across nine workspace projects (and 34 skipped under D73), with coverage floors enforced in the test run.
 
 ---
 
 ## Architecture
 
-Four bounded contexts, each under `apps/api/src/contexts/`:
+Six bounded contexts, each under `apps/api/src/contexts/`:
 
 ```
 apps/studio ──▶ packages/contracts ──▶ apps/api
  (Studio UI)     (typed client,          ├─ contexts/curriculum/  taxonomy, exam profiles — no dependencies
-                  generated from         ├─ contexts/scoring/     marking, scoring — mirrors curriculum's
-                  OpenAPI)               │                        vocabulary as its own types; does not import it
+ apps/learn       generated from         ├─ contexts/scoring/     marking, scoring — mirrors curriculum's
+ (exam shell)     OpenAPI)               │                        vocabulary as its own types; does not import it
                                          ├─ contexts/content/     items, versions, lifecycle, authoring,
                                          │                        review — imports scoring/public/ for the
                                          │                        answer-key projection only
-                                         └─ contexts/generation/  AI item generation — proposes drafts to
-                                                                   content; content does not depend on it
+                                         ├─ contexts/generation/  AI item generation — proposes drafts to
+                                         │                        content; content does not depend on it
+                                         ├─ contexts/assessment/  forms, attempts, the response log — reads
+                                         │                        content, curriculum and scoring through barrels
+                                         └─ contexts/learning/    what a learner knows — imports none of the
+                                                                  others; the composition root joins its evidence
 ```
 
 | Context | Owns | Depends on |
@@ -31,6 +35,8 @@ apps/studio ──▶ packages/contracts ──▶ apps/api
 | `scoring` | The marking executor, score records, rescoring | nothing — mirrors curriculum's vocabulary, asserted equal to it by a spec, never imports it |
 | `content` | Items, versions, lifecycle, authoring, the review workspace | `scoring/public/`, for the answer-key projection only |
 | `generation` | AI generation runs, candidates, the pre-check battery | `content/public/` and `curriculum/public/`; nothing depends on it |
+| `assessment` | Forms and their assembly, signed packages, attempts, the append-only response log | `content/public/`, `curriculum/public/` and `scoring/public/` |
+| `learning` | Mastery evidence, learner sittings, concept state, verified gains and their regressions, and D-002's thresholds as versioned data | nothing — scoring, content and assessment are read through seams the composition root joins, and the rule holding that is `learning-rules.spec.ts` |
 
 Cross-context access goes through a context's `public/` barrel and nothing deeper. This is enforced by a
 test — [`apps/api/src/fitness/boundary-rules.spec.ts`](apps/api/src/fitness/boundary-rules.spec.ts) — not by

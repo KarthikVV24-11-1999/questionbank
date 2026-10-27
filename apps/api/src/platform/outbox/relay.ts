@@ -41,8 +41,24 @@ export interface OutboxEnvelope {
 
 export interface OutboxConsumer {
   readonly name: string;
-  /** Throw to fail the delivery. Must be idempotent on `envelope.messageId`: the same message can arrive again. */
+  /**
+   * Throw to fail the delivery, and it is retried with a back-off until the policy's attempts are spent. Throw `PermanentDeliveryFailure` when
+   * retrying cannot help, and it is dead-lettered at once. Must be idempotent on `envelope.messageId` or on something in the payload: the same
+   * message can arrive again.
+   */
   handle(envelope: OutboxEnvelope): Promise<void>;
+}
+
+/**
+ * A failure retrying will not mend: the message names something that does not exist, or says something that cannot be acted on. The relay dead-letters
+ * it on the delivery that threw it, with this message as the reason, instead of spending the policy's attempts on a certain outcome and holding every later
+ * message of its aggregate behind it while it does. A failure that might pass — a store that is down, a read that timed out — is an ordinary error.
+ */
+export class PermanentDeliveryFailure extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentDeliveryFailure';
+  }
 }
 
 export interface RelayPolicy {
@@ -236,6 +252,10 @@ export class OutboxRelay {
       // Only types with consumers are claimed, so the list is there.
       for (const consumer of this.#consumers.get(row.event_type) as readonly OutboxConsumer[]) await consumer.handle(envelope);
     } catch (error) {
+      if (error instanceof PermanentDeliveryFailure) {
+        await this.#markDead(row.outbox_message_id, now, describe(error));
+        return 'deadLettered';
+      }
       return this.#fail(row, now, describe(error));
     }
     await this.pool.query(

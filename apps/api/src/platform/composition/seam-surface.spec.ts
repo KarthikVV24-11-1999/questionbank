@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
 import * as contentComposition from '../../contexts/content/public/composition.js';
 import * as curriculumComposition from '../../contexts/curriculum/public/composition.js';
+import * as assessmentComposition from '../../contexts/assessment/public/composition.js';
 import * as learningComposition from '../../contexts/learning/public/composition.js';
 import * as scoringComposition from '../../contexts/scoring/public/composition.js';
 import * as generationComposition from '../../contexts/generation/public/composition.js';
@@ -151,6 +152,24 @@ describe('what content offers learning (M7-03)', () => {
   });
 });
 
+describe('what assessment offers learning (M7-11)', () => {
+  const offered = assessmentComposition.assessmentForLearning({ pool });
+
+  it('is exactly one read, the system\'s alone, and no command', () => {
+    expect(Object.keys(offered)).toEqual(['responseTimings']);
+    expect(offered.responseTimings.name).toBe('GetResponseTimings');
+    expect(offered.responseTimings.policy.allowedRoles).toEqual(['system']);
+  });
+
+  it('a composition module exports its register, its consumers and jobs, and its one seam for learning', () => {
+    expect(Object.keys(assessmentComposition).sort()).toEqual(['assessmentConsumers', 'assessmentForLearning', 'assessmentJobs', 'register']);
+  });
+
+  it('refuses a seam built without a dependency, as register does', () => {
+    expect(() => assessmentComposition.assessmentForLearning({} as never)).toThrow(/missing required dependency/u);
+  });
+});
+
 describe('what scoring offers learning (M7-02)', () => {
   const offered = scoringComposition.scoringForLearning({ pool, clock, identifiers, audit, principals });
 
@@ -169,8 +188,19 @@ describe('what scoring offers learning (M7-02)', () => {
   });
 });
 
-describe('learning’s own composition (M7-04)', () => {
-  it('offers the one constructor the root needs and the vocabulary it checks against, and no handler yet', () => {
-    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence']);
+describe('learning’s own composition (M7-04, M7-16)', () => {
+  it('offers the one constructor and the vocabulary the root checks against, and the recorder the relay\'s consumer calls, and no route', () => {
+    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForRelay']);
+  });
+
+  it('offers exactly one handler to the relay, the system\'s alone', () => {
+    const offered = learningComposition.learningForRelay({ pool, clock, identifiers });
+    expect(Object.keys(offered)).toEqual(['recordEvidence']);
+    expect(offered.recordEvidence.name).toBe('RecordMasteryEvidence');
+    expect(offered.recordEvidence.policy.allowedRoles).toEqual(['system']);
+  });
+
+  it('refuses a seam built without a dependency, as register does', () => {
+    expect(() => learningComposition.learningForRelay({ pool } as never)).toThrow(/missing required dependency/u);
   });
 });

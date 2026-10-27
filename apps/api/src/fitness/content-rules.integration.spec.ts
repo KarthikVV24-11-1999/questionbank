@@ -87,6 +87,7 @@ describe('F5 — every JSONB column in every application schema has a version si
       assessment: 3,
       content: 10,
       curriculum: 9,
+      learning: 1,
       platform: 1,
       scoring: 2,
     });

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import type { AssessmentForLearning } from '../../contexts/assessment/public/composition.js';
 import type { ContentForLearning } from '../../contexts/content/public/composition.js';
 import type { ScoringForLearning } from '../../contexts/scoring/public/composition.js';
 import { ScoredAttemptEvidenceSource, scoredAttemptOf } from './learning-evidence.js';
@@ -8,7 +9,7 @@ import { ScoredAttemptEvidenceSource, scoredAttemptOf } from './learning-evidenc
  * The adapter against stubbed seams: every way a seam can answer, and what the adapter does about each. The real seams, joined
  * against real Postgres, are in `learning-evidence.integration.spec.ts`.
  */
-const ATTEMPT = { attemptId: randomUUID(), scoreRecordId: randomUUID(), occurredAt: '2026-10-27T10:00:00.000Z' };
+const ATTEMPT = { attemptId: randomUUID(), scoreRecordId: randomUUID(), scoredAt: '2026-10-27T10:00:00.000Z' };
 const TAXONOMY = randomUUID();
 
 type Slot = { slotRef: string; itemVersionId: string; outcome: string; marksAwarded: string; marksAvailable: string };
@@ -18,6 +19,8 @@ function seams(options: {
   outcomes?: unknown;
   taxonomy?: (ids: readonly string[]) => unknown;
   calls?: (readonly string[])[];
+  /** Per slot ref; defaults to a response at a distinct minute for every slot, all before the score. */
+  timings?: (slots: readonly string[]) => unknown;
 }) {
   const scoring = {
     outcomesForAttempt: { handle: async () => options.outcomes },
@@ -30,9 +33,21 @@ function seams(options: {
       },
     },
   } as unknown as ContentForLearning;
-  return new ScoredAttemptEvidenceSource({ scoring, content });
+  const slotRefs = () => ((options.outcomes as { value?: Slot[] } | undefined)?.value ?? []).map((slot) => slot.slotRef);
+  const assessment = {
+    responseTimings: {
+      handle: async () =>
+        (options.timings ?? defaultTimings)(slotRefs()),
+    },
+  } as unknown as AssessmentForLearning;
+  return new ScoredAttemptEvidenceSource({ scoring, content, assessment });
 }
 const entry = (itemVersionId: string, difficultyEstimate = 'moderate') => ({ itemVersionId, conceptIdentityId: randomUUID(), taxonomyVersionId: TAXONOMY, difficultyEstimate });
+const LEARNER = randomUUID();
+const defaultTimings = (slots: readonly string[]) => ({
+  ok: true,
+  value: { learnerRef: LEARNER, slots: slots.map((slotRef, n) => ({ slotRef, itemVersionId: 'x', respondedAt: new Date(Date.UTC(2026, 9, 27, 9, n % 60)).toISOString(), timeOnItemMs: 0 })) },
+});
 const good = (slots: Slot[]) => ({ ok: true, value: slots });
 
 describe('assembling evidence from the two seams', () => {
@@ -41,7 +56,7 @@ describe('assembling evidence from the two seams', () => {
     const result = await seams({ outcomes: good(slots) }).evidenceForScoredAttempt(ATTEMPT);
     expect(result.ok && result.value.evidence.map((e) => [e.slotRef, e.outcome])).toEqual([['s1', 'correct'], ['s3', 'incorrect']]);
     expect(result.ok && result.value.notEvidence).toBe(4);
-    expect(result.ok && result.value.evidence.every((e) => e.occurredAt === ATTEMPT.occurredAt && e.attemptRef === ATTEMPT.attemptId)).toBe(true);
+    expect(result.ok && result.value.evidence.every((e) => e.scoredAt === ATTEMPT.scoredAt && e.attemptRef === ATTEMPT.attemptId)).toBe(true);
   });
 
   it('asks content once for the distinct versions, and not at all when no response was given', async () => {
@@ -53,7 +68,7 @@ describe('assembling evidence from the two seams', () => {
     const none: (readonly string[])[] = [];
     const result = await seams({ outcomes: good([slot(1, 'unattempted')]), calls: none }).evidenceForScoredAttempt(ATTEMPT);
     expect(none).toEqual([]);
-    expect(result.ok && result.value).toEqual({ evidence: [], notEvidence: 1 });
+    expect(result.ok && result.value).toEqual({ learnerRef: LEARNER, evidence: [], notEvidence: 1 });
   });
 
   it('batches within content\'s cap: 501 distinct versions are two calls of 500 and 1', async () => {
@@ -88,11 +103,39 @@ describe('assembling evidence from the two seams', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'SOURCE_UNAVAILABLE' } });
   });
 
+  it('names whose evidence it is, from assessment, since nothing in the event does', async () => {
+    const result = await seams({ outcomes: good([slot(1, 'correct')]) }).evidenceForScoredAttempt(ATTEMPT);
+    expect(result.ok && result.value.learnerRef).toBe(LEARNER);
+  });
+
+  it('dates each piece of evidence by its response and keeps the score\'s instant apart: more than one distinct occurredAt in one attempt', async () => {
+    const result = await seams({ outcomes: good([slot(1, 'correct'), slot(2, 'incorrect'), slot(3, 'correct')]) }).evidenceForScoredAttempt(ATTEMPT);
+    expect(result.ok && new Set(result.value.evidence.map((e) => e.occurredAt)).size).toBe(3);
+    expect(result.ok && result.value.evidence.every((e) => e.scoredAt === ATTEMPT.scoredAt && e.occurredAt < e.scoredAt)).toBe(true);
+  });
+
+  it('fails the attempt whole, naming the slots, when scoring counted a response the log has none standing for', async () => {
+    const timings = () => ({ ok: true, value: { learnerRef: LEARNER, slots: [{ slotRef: 's1', itemVersionId: 'x', respondedAt: '2026-10-27T09:00:00.000Z', timeOnItemMs: 0 }, { slotRef: 's2', itemVersionId: 'x', respondedAt: null, timeOnItemMs: 0 }] } });
+    const result = await seams({ outcomes: good([slot(1, 'correct'), slot(2, 'incorrect'), slot(3, 'correct')]), timings }).evidenceForScoredAttempt(ATTEMPT);
+    expect(result).toMatchObject({ ok: false, error: { code: 'RESPONSE_INSTANT_UNRESOLVED', slotRefs: ['s2', 's3'] } });
+  });
+
+  it('fails the attempt when a response is dated after the score that counted it', async () => {
+    const timings = () => ({ ok: true, value: { learnerRef: LEARNER, slots: [{ slotRef: 's1', itemVersionId: 'x', respondedAt: '2026-10-27T11:00:00.000Z', timeOnItemMs: 0 }] } });
+    const result = await seams({ outcomes: good([slot(1, 'correct')]), timings }).evidenceForScoredAttempt(ATTEMPT);
+    expect(result).toMatchObject({ ok: false, error: { code: 'RESPONSE_INSTANT_UNRESOLVED', slotRefs: ['s1'] } });
+  });
+
+  it('says unavailable when assessment cannot be read', async () => {
+    const result = await seams({ outcomes: good([slot(1, 'correct')]), timings: () => ({ ok: false, error: { kind: 'Unavailable', code: 'STORE_UNAVAILABLE', message: 'x' } }) }).evidenceForScoredAttempt(ATTEMPT);
+    expect(result).toMatchObject({ ok: false, error: { code: 'SOURCE_UNAVAILABLE' } });
+  });
+
   it('names an AttemptScored event\'s attempt, record and instant, and nothing of the score', () => {
     const ref = scoredAttemptOf({
       occurredAt: new Date('2026-10-27T10:00:00.000Z'),
       payload: { scoreRecordId: 'r', attemptId: 'a' },
     });
-    expect(ref).toEqual({ attemptId: 'a', scoreRecordId: 'r', occurredAt: '2026-10-27T10:00:00.000Z' });
+    expect(ref).toEqual({ attemptId: 'a', scoreRecordId: 'r', scoredAt: '2026-10-27T10:00:00.000Z' });
   });
 });

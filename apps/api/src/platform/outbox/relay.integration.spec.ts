@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { KEY_BEARING_FIELDS } from '../../fitness/content-rules.js';
 import { MISCONCEPTION_TEXT, SOLUTION_TEXT, itemContent, publishItem } from '../../testing/content-publishing.js';
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
-import { OutboxRelay, type OutboxConsumer, type OutboxEnvelope, type RelayPolicy } from './relay.js';
+import { OutboxRelay, PermanentDeliveryFailure, type OutboxConsumer, type OutboxEnvelope, type RelayPolicy } from './relay.js';
 
 /**
  * The relay against the real outbox (M6-38, closes D17). Time is passed in, never waited for: a lease that runs out, a back-off
@@ -301,6 +301,51 @@ describe('a poison message does not stall the queue', () => {
     const relay = relayFor(new Recorder());
     expect(await relay.requeue(live)).toBe(false);
     expect(await relay.requeue(randomUUID())).toBe(false);
+  });
+});
+
+describe('a failure retrying cannot mend (M7-16)', () => {
+  it('is dead-lettered on the delivery that threw it, with its reason, while an ordinary failure is retried', async () => {
+    const permanent = await seed(database.pool);
+    const ordinary = await seed(database.pool);
+    const consumer: OutboxConsumer = {
+      name: 'picky',
+      async handle(envelope) {
+        if (envelope.messageId === permanent) throw new PermanentDeliveryFailure('names an item version nobody published');
+        throw new Error('the store is down');
+      },
+    };
+    const report = await relayFor(consumer).drain(T0);
+    expect(report).toMatchObject({ claimed: 2, delivered: 0, retried: 1, deadLettered: 1 });
+
+    const dead = await state(permanent);
+    expect(dead.attempts).toBe(1);
+    expect(dead.dead_at).not.toBeNull();
+    expect(dead.last_error).toBe('PermanentDeliveryFailure: names an item version nobody published');
+    const retry = await state(ordinary);
+    expect(retry.dead_at).toBeNull();
+    expect(retry.retry_at).not.toBeNull();
+  });
+
+  it('stops holding the aggregate behind it, as any dead-lettered message does, and can be put back by an operator', async () => {
+    const aggregateId = randomUUID();
+    const first = await seed(database.pool, { aggregateId });
+    const second = await seed(database.pool, { aggregateId });
+    const consumer = new Recorder();
+    consumer.failWhile = () => false;
+    const refusing: OutboxConsumer = {
+      name: 'refusing-the-first',
+      async handle(envelope) {
+        if (envelope.messageId === first) throw new PermanentDeliveryFailure('cannot be acted on');
+        await consumer.handle(envelope);
+      },
+    };
+    const relay = relayFor(refusing);
+    await relay.drain(T0);
+    expect((await state(first)).dead_at).not.toBeNull();
+    expect((await state(second)).published_at).not.toBeNull();
+    expect(consumer.effects.has(second)).toBe(true);
+    expect(await relay.requeue(first)).toBe(true);
   });
 });
 

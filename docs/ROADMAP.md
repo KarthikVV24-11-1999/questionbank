@@ -257,10 +257,13 @@ verification (F41) · authorization negative-path 100%
 - **Mock result → remediation entry is one tap**
 - Event taxonomy conformance ≥ 99%
 
-> **Status, added 2026-10-27 (M7 Track A):** the evidence seams are built, and Learning exists as a context holding the evidence and the port it
-> comes through ([ADR-0042](adr/ADR-0042-a-score-and-its-event-are-written-in-one-transaction.md), [ADR-0043](adr/ADR-0043-learning-reads-the-owning-contexts-through-two-seams.md)).
-> No acceptance criterion below is met yet: mastery, practice, the report and the taxonomy capture are Tracks B to H. One decision is not ratified:
-> DEC-M7-4 contradicts D2, and Track C waits on a ruling.
+> **Status, added 2026-10-27 (M7 Tracks A and B):** the evidence seams are built ([ADR-0042](adr/ADR-0042-a-score-and-its-event-are-written-in-one-transaction.md),
+> [ADR-0043](adr/ADR-0043-learning-reads-the-owning-contexts-through-two-seams.md), [ADR-0045](adr/ADR-0045-evidence-is-dated-by-the-response-and-assessment-offers-the-instant.md)),
+> and Learning derives concept state from stored evidence dated by the response, with D-002's thresholds as versioned data, learner sittings, verified gains and
+> regressions, consumed from the relay ([ADR-0046](adr/ADR-0046-the-relay-dead-letters-a-failure-retrying-cannot-mend.md)). Two acceptance lines have their mechanism and a test
+> that could fail: every state traceable to its responses, and a verified gain needing forty-eight hours and a different sitting. **D72 is open:** a re-score
+> never reaches Learning, so a corrected outcome does not correct the evidence. Practice, the report, the review schedule and the surfaces are Tracks C to H. DEC-M7-4
+> is rejected and D2 stands: practice is the same `Attempt`, mode-parameterized.
 
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation
 

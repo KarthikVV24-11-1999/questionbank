@@ -17,6 +17,7 @@ import { PostgresResponseLog } from '../infrastructure/response-log.repository.j
 import { ScoreSubmittedAttemptConsumer, type ScoringKeyReader, type ScoringSpecReader, type Scorer } from '../application/consumers/scoring-consumer.js';
 import type { ScoreRecordReader } from '../application/handlers/attempt-handlers.js';
 import { SubmitExpiredAttemptsHandler } from '../application/handlers/expiry-handler.js';
+import { GetResponseTimingsHandler } from '../application/handlers/response-timing-handler.js';
 import { SweepWindowsHandler } from '../application/handlers/sweep-handler.js';
 import type { ApplicationContext } from '../application/ports.js';
 
@@ -170,4 +171,26 @@ export function register(deps: AssessmentCompositionDeps): DynamicModule {
   const registry = composeAssessmentHandlers(assemble(deps));
 
   return AssessmentModule.register({ registry, principals: deps.principals });
+}
+
+/**
+ * What the learning context consumes from assessment (M7-11, DEC-M7-1): for a submitted attempt, per slot, the instant of the response that
+ * stands and the time on item — and nothing more. Mastery is measured on the instant of the response, and the one place it is recorded is the
+ * response log; scoring has an instant of its own, which is the same for every slot of an attempt. Adding a second handler here is a deliberate
+ * change to what Learning may ask of assessment, and is reviewed as one.
+ */
+export interface AssessmentForLearning {
+  readonly responseTimings: GetResponseTimingsHandler;
+}
+
+export function assessmentForLearning(deps: Pick<AssessmentCompositionDeps, 'pool'>): AssessmentForLearning {
+  if (deps.pool === undefined) {
+    throw new Error('assessment composition is missing required dependency: pool');
+  }
+  return {
+    responseTimings: new GetResponseTimingsHandler({
+      attempts: new PostgresAttemptRepository(deps.pool),
+      responses: new PostgresResponseLog(deps.pool),
+    }),
+  };
 }

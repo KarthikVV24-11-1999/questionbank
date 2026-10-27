@@ -21,12 +21,15 @@ import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
 import { HealthModule } from '../http/health.module.js';
-import { contentForAssessment, contentForGeneration, contentJobs, register as registerContent } from '../../contexts/content/public/composition.js';
+import { contentForAssessment, contentForGeneration, contentForLearning, contentJobs, register as registerContent } from '../../contexts/content/public/composition.js';
 import { curriculumForAssessment, curriculumForGeneration, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
-import { assessmentConsumers, assessmentJobs, register as registerAssessment } from '../../contexts/assessment/public/composition.js';
+import { assessmentConsumers, assessmentForLearning, assessmentJobs, register as registerAssessment } from '../../contexts/assessment/public/composition.js';
 import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
-import { register as registerScoring, scoringForAssessment } from '../../contexts/scoring/public/composition.js';
-import { OutboxRelay, DEFAULT_RELAY_POLICY, type RelayPolicy } from '../outbox/relay.js';
+import { register as registerScoring, scoringForAssessment, scoringForLearning } from '../../contexts/scoring/public/composition.js';
+import { learningForRelay } from '../../contexts/learning/public/composition.js';
+import { OutboxRelay, DEFAULT_RELAY_POLICY, type OutboxConsumer, type RelayPolicy } from '../outbox/relay.js';
+import { LearningAttemptScoredConsumer } from './learning-consumer.js';
+import { ScoredAttemptEvidenceSource } from './learning-evidence.js';
 import { Scheduler } from '../scheduling/scheduler.js';
 import { BACKGROUND, type Background } from './background.js';
 
@@ -186,7 +189,21 @@ export async function createApplication(
 
   // What runs beside the server: the relay that hands outbox messages to their consumers, and the scheduler that drives it and the
   // sweeps. Built here, started by the process (background.ts).
-  const relay = new OutboxRelay(pool, assessmentConsumers(assessmentDeps), overrides.relayPolicy ?? DEFAULT_RELAY_POLICY);
+  // Learning is the first consumer of `AttemptScored` (M7-16). It reads scoring, content and assessment through the seams each names for it, and the root
+  // joins them; learning itself imports none of the three.
+  const learningConsumer = new LearningAttemptScoredConsumer({
+    evidence: new ScoredAttemptEvidenceSource({
+      scoring: scoringForLearning({ pool, clock, identifiers, audit, principals }),
+      content: contentForLearning(contentDeps),
+      assessment: assessmentForLearning({ pool }),
+    }),
+    learning: learningForRelay({ pool, clock, identifiers }),
+  });
+  const consumers = new Map<string, readonly OutboxConsumer[]>([
+    ...assessmentConsumers(assessmentDeps),
+    ['AttemptScored', [learningConsumer]],
+  ]);
+  const relay = new OutboxRelay(pool, consumers, overrides.relayPolicy ?? DEFAULT_RELAY_POLICY);
   const scheduler = new Scheduler([
     { name: 'outbox.drain', everyMs: 1_000, run: async (now) => void (await relay.drain(now)) },
     ...assessmentJobs(assessmentDeps),

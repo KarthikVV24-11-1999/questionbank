@@ -378,13 +378,50 @@ evidence is assigned one as it arrives, so a mock attempt and a practice run bot
 as *2 attempts* was rejected because massed evidence in one afternoon would qualify as mastery.
 → `contexts/learning/domain/mastery-evidence.ts`
 
-### DEC-M7-4 — A practice run is its own aggregate, on the shared engine *(proposed; contradicts D2; not ratified)*
-`PracticePolicy` is pausable, gives immediate feedback and has no deadline; M6's `Attempt` is deadline-bearing,
-single-submission and carries four composite foreign keys that encode mock invariants. The proposal is a separate
-`PracticeAttempt` aggregate in Assessment reusing `packages/attempt-engine`, so that none of those constraints becomes
-"enforced when mode = mock", which is the by-construction weakness six tracks of M6 removed. **It contradicts DOMAIN-MODEL
-D2**, which says mock, practice and diagnostic are one `Attempt` aggregate distinguished by a pinned `DeliveryPolicy`, and
-the M7 planning documents do not mention D2. The document stands: nothing is built on this proposal and no ADR amends D2.
-Track C is blocked on a ruling between the two. Either way a practice run still consumes exposure like any other delivery,
-and its evidence reaches Learning through the same port as a mock's.
+### DEC-M7-4 — A practice run is its own aggregate, on the shared engine *(Rejected)*
+**Rejected; DOMAIN-MODEL D2 stands.** The proposal was that practice be a separate `PracticeAttempt` aggregate in Assessment, because M6's `Attempt` is
+deadline-bearing and single-submission and carries four composite foreign keys that encode mock invariants, and a mode on `Attempt` would make each of them
+"enforced when mode = mock". D2 states the opposite, and states it as a foundational decision: *"`Attempt` is mode-parameterized, not duplicated. Mock,
+practice, and diagnostic are one aggregate distinguished by a pinned `DeliveryPolicy`. Alternative designs duplicate response capture, timing, and scoring
+three times and guarantee divergence."* The model already has what the proposal said was missing: `mode (mock / practice / diagnostic)`, a pinned
+`deliveryPolicy` carrying `pausable` and `feedbackMode`, an optional `FormId?` and an optional `serverAnchoredDeadline?`. The grounds for splitting were
+properties of the schema M6 happened to build, which is non-null only because M6 built mocks and nothing else.
+The objection has an answer that needs no second aggregate: constrain the nullability by mode, so every row is checked and nothing becomes "not applicable".
+`CHECK ((mode = 'mock') = (form_id IS NOT NULL))`; the composite foreign keys stay and fire whenever `form_id` is present; the same shape for the server-anchored
+deadline, driven by the pinned policy; `mode` and `delivery_policy` pinned at creation and never granted `UPDATE`. A practice run's evidence reaches Learning
+through the same port as a mock's. That is the track that builds practice, not this one.
 → `contexts/learning/domain/mastery-evidence.ts`
+
+### DEC-M7-7 — D-002's thresholds are rows in the database, versioned, and pinned on what they decided
+DECISIONS D-002 says the thresholds are tunable per exam, DOMAIN-MODEL 12.2 says they are configuration and not code, and
+BACKEND-ARCHITECTURE keeps mastery thresholds in the database with the marking rules. So the context's source carries none:
+`learning.mastery_rule_set` holds one immutable row per version, named by the SHA-256 of its canonical thresholds, scoped to a
+taxonomy version (the exam-shaped identifier evidence carries) with a platform default where none is published, and a
+transition will name the version it was decided under, so a change never restates history. The `StudySession` idle gap is
+one of the values, not a second setting. A rule fails the build on a threshold literal in production source. Publishing is an
+administrator's act behind step-up and is audited. **Three values D-002 does not give were chosen here and nobody else has
+agreed to them**: below what recent accuracy a concept with evidence is `weak` (0.5), and the decay's half-life (60 days) and
+confidence floor (0.5).
+→ `contexts/learning/domain/mastery-rule-set.ts` · `infra/migrations/20261028100000_learning_mastery_rule_set.sql` · `contexts/learning/application/handlers/rule-set-handlers.ts`
+
+### DEC-M7-8 — Decay is computed at read, not applied by a sweep
+Confidence is built from the evidence (its count, the sessions and items it spans, and the spread of difficulty it covers) and multiplied by a
+recency factor that halves every half-life since the last response. A `strong` state whose confidence falls below the floor reads as `developing`.
+That is a function of the evidence and of the instant of the read, so it needs no scheduled job, leaves no stale row behind, and cannot fail to run;
+D36 already names what the repository lacks around scheduled work. `decayAppliedAt` records the instant a read was computed against, and not when a
+job ran. `decayedTo` (from a state) and `deriveConceptState` (from the evidence) are two paths to one read, and a spec holds them to each other.
+A regression that decay alone produces is observed at read; the next response recomputes the state and records it (M7-15). **The half-life, the floor and
+the line below which a state with evidence is `weak` are chosen values: D-002 does not give them.**
+→ `contexts/learning/domain/concept-state.ts`
+
+### DEC-M7-9 — A promotion's `from` is the weakest state since the concept was last strong, and verification is its own step
+DOMAIN-MODEL 12.2 and the roadmap name a `weak → strong` transition with `verifiedAt` set as the north-star event. Accuracy moves one response at a time, so a
+concept that was weak passes through `developing` on the way up; read as "the state the instant before", a promotion's `from` would almost never be `weak` and
+the event would almost never happen. So `from` is the weakest state the concept was in since it was last strong, or since it was first assessed, kept with the
+concept's state as it is advanced. Reaching `strong` on D-002's five clauses is recorded at once as a qualification, with its responses and no `verifiedAt`;
+it becomes a gain only when confirmed by further correct responses on other items, in a sitting the qualifying responses were not in, at least the rule set's
+gap after the qualification, each of the three refused separately and under the rule set the qualification was pinned to. A regression, whether from
+accuracy or from decay observed at the next response, is a transition of its own: the gain it reverses is never touched, and the table will not let it be.
+**This reading, and "different items" meaning other than those that qualified it and each other, were chosen where D-002 is silent.**
+→ `contexts/learning/domain/mastery-transition.ts` · `infra/migrations/20261028120000_learning_mastery_transition.sql`
+

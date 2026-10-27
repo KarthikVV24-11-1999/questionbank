@@ -12,6 +12,7 @@ const valid: MasteryEvidenceProps = {
   outcome: 'correct',
   difficultyEstimate: 'moderate',
   occurredAt: '2026-10-27T10:00:00.000Z',
+  scoredAt: '2026-10-27T12:00:00.000Z',
 };
 
 describe('MasteryEvidence', () => {
@@ -20,7 +21,7 @@ describe('MasteryEvidence', () => {
     expect(evidence).toEqual(valid);
     expect(Object.isFrozen(evidence)).toBe(true);
     expect(Object.keys(evidence).sort()).toEqual(
-      ['attemptRef', 'conceptIdentityId', 'difficultyEstimate', 'itemVersionRef', 'occurredAt', 'outcome', 'slotRef', 'taxonomyVersionId'],
+      ['attemptRef', 'conceptIdentityId', 'difficultyEstimate', 'itemVersionRef', 'occurredAt', 'outcome', 'scoredAt', 'slotRef', 'taxonomyVersionId'],
     );
   });
 
@@ -58,7 +59,20 @@ describe('MasteryEvidence', () => {
     }
   });
 
-  it('takes only the one canonical rendering of an instant', () => {
+  it('holds the instant of the response apart from the instant of the score, and refuses a response that follows its score', () => {
+    const evidence = expectValue(createMasteryEvidence(valid));
+    expect(evidence.occurredAt).not.toBe(evidence.scoredAt);
+    // equal is allowed: a response and its score may share a millisecond
+    expect(expectValue(createMasteryEvidence({ ...valid, scoredAt: valid.occurredAt })).scoredAt).toBe(valid.occurredAt);
+    expect(expectError(createMasteryEvidence({ ...valid, scoredAt: '2026-10-27T09:59:59.999Z' })).code).toBe('EVIDENCE_INSTANT_ORDER');
+  });
+
+  it('takes only the one canonical rendering of an instant, for both instants', () => {
+    for (const field of ['occurredAt', 'scoredAt'] as const) {
+      for (const bad of ['2026-10-27', '2026-10-27T10:00:00Z', 'yesterday', null, undefined, 1_761_559_200_000]) {
+        expect(expectError(createMasteryEvidence({ ...valid, [field]: bad })).code, `${field} ${String(bad)}`).toBe('EVIDENCE_INSTANT_INVALID');
+      }
+    }
     for (const bad of ['2026-10-27', '2026-10-27T10:00:00Z', '2026-10-27T10:00:00.000+05:30', 'yesterday', 1_761_559_200_000, null, undefined]) {
       expect(expectError(createMasteryEvidence({ ...valid, occurredAt: bad })).code, String(bad)).toBe('EVIDENCE_INSTANT_INVALID');
     }

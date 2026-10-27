@@ -1,4 +1,5 @@
 import type { PrincipalRef } from '@questionbank/domain-types';
+import type { AssessmentForLearning } from '../../contexts/assessment/public/composition.js';
 import type { ContentForLearning } from '../../contexts/content/public/composition.js';
 import type { ScoringForLearning } from '../../contexts/scoring/public/composition.js';
 import {
@@ -27,6 +28,11 @@ import { ROLES } from '../auth/roles.js';
  * version and no evidence for the other slots: a mastery update from part of an attempt is a wrong update that nothing would
  * flag, and the caller can retry the whole attempt.
  *
+ * **The evidence is dated by the response, not by the score** (M7-11). Scoring writes every slot of an attempt at once, so its instant is one value per
+ * attempt, and a study sitting or a forty-eight-hour gap measured on it would compute from data in which only one value is possible. Assessment's
+ * response log holds the instant of the answer that stood at submission, per slot; that is `occurredAt`, and the scoring instant is kept as `scoredAt`.
+ * A slot scoring counted as a response that the log has no response standing for is a disagreement between two contexts, and fails the attempt whole.
+ *
  * Which generation of the score is read is the current one: a re-score that corrected an outcome corrects the evidence.
  */
 
@@ -38,10 +44,12 @@ const TAXONOMY_BATCH = 500;
 export interface LearningEvidenceDeps {
   readonly scoring: ScoringForLearning;
   readonly content: ContentForLearning;
+  /** Per-response instants (M7-11): the instant mastery is measured on, which scoring does not have. */
+  readonly assessment: AssessmentForLearning;
 }
 
 /**
- * What an `AttemptScored` event names of the attempt, and the instant the evidence is attributed to. Structural, so the root
+ * What an `AttemptScored` event names of the attempt, and the instant it was scored. Structural, so the root
  * takes the event as scoring's relay hands it on and names nothing of scoring but its seam.
  */
 export interface ScoredAttemptEvent {
@@ -53,7 +61,7 @@ export function scoredAttemptOf(event: ScoredAttemptEvent): ScoredAttemptRef {
   return {
     attemptId: event.payload.attemptId,
     scoreRecordId: event.payload.scoreRecordId,
-    occurredAt: event.occurredAt.toISOString(),
+    scoredAt: event.occurredAt.toISOString(),
   };
 }
 
@@ -84,6 +92,21 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource {
       for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
     }
 
+    const timings = await this.deps.assessment.responseTimings.handle({ attemptId: attempt.attemptId }, context);
+    if (!timings.ok) return fail('SOURCE_UNAVAILABLE', `assessment could not be read: ${timings.error.code}`);
+    const respondedAt = new Map(timings.value.slots.map((timing) => [timing.slotRef, timing.respondedAt]));
+    const withoutInstant = given.filter((slot) => (respondedAt.get(slot.slotRef) ?? null) === null).map((slot) => slot.slotRef);
+    if (withoutInstant.length > 0) {
+      return {
+        ok: false,
+        error: {
+          code: 'RESPONSE_INSTANT_UNRESOLVED',
+          message: `scoring counted ${withoutInstant.length} slots as responses that the response log has no response standing for`,
+          slotRefs: withoutInstant,
+        },
+      };
+    }
+
     const unresolved = wanted.filter((id) => !byVersion.has(id));
     if (unresolved.length > 0) {
       return {
@@ -107,13 +130,17 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource {
         taxonomyVersionId: tag.taxonomyVersionId,
         outcome: slot.outcome,
         difficultyEstimate: tag.difficultyEstimate,
-        occurredAt: attempt.occurredAt,
+        occurredAt: respondedAt.get(slot.slotRef),
+        scoredAt: attempt.scoredAt,
       });
+      if (!made.ok && made.error.code === 'EVIDENCE_INSTANT_ORDER') {
+        return { ok: false, error: { code: 'RESPONSE_INSTANT_UNRESOLVED', message: `slot ${slot.slotRef}: ${made.error.message}`, slotRefs: [slot.slotRef] } };
+      }
       if (!made.ok) return fail('SOURCE_UNAVAILABLE', `slot ${slot.slotRef} produced invalid evidence: ${made.error.code}`);
       evidence.push(made.value);
     }
 
-    return { ok: true, value: Object.freeze({ evidence: Object.freeze(evidence), notEvidence }) };
+    return { ok: true, value: Object.freeze({ learnerRef: timings.value.learnerRef, evidence: Object.freeze(evidence), notEvidence }) };
   }
 }
 

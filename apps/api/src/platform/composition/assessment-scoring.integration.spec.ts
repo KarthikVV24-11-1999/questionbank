@@ -361,9 +361,9 @@ describe('what the relay emits for a real submission carries identifiers and not
     const seen: OutboxEnvelope[] = [];
     const sink: OutboxConsumer = { name: 'sink', handle: async (envelope) => void seen.push(envelope) };
     const policy = { batchSize: 50, leaseMs: 60_000, maxAttempts: 3, retryBaseMs: 1_000, retryMaxMs: 8_000, maxRounds: 20 };
-    // delivered to the scoring consumer first (the application's relay), then the scored event to the sink
+    // delivered to the application's own consumers first (scoring for the submission, learning for the score), then both events to the sink: each is put back
     await drain();
-    await database.pool.query(`UPDATE platform.outbox_message SET published_at = NULL WHERE aggregate_id = $1`, [attemptId]);
+    await database.pool.query(`UPDATE platform.outbox_message SET published_at = NULL WHERE aggregate_id = $1 OR event_type = 'AttemptScored'`, [attemptId]);
     const scored = await database.pool.query<{ aggregate_id: string }>(`SELECT aggregate_id FROM platform.outbox_message WHERE event_type = 'AttemptScored' ORDER BY occurred_at DESC LIMIT 1`);
     expect(scored.rows.length).toBe(1);
     const report = await new OutboxRelay(

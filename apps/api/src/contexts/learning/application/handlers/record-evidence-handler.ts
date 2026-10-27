@@ -1,0 +1,145 @@
+import { ROLES } from '../../../../platform/auth/roles.js';
+import { conceptMapOf, type ConceptMap } from '../../domain/concept-map.js';
+import type { ConceptEvidence, MasteryState } from '../../domain/concept-state.js';
+import { advanceConcept, type MasteryTransition, type OpenPromotion } from '../../domain/mastery-transition.js';
+import type { MasteryEvidence } from '../../domain/mastery-evidence.js';
+import type { MasteryRuleSet } from '../../domain/mastery-rule-set.js';
+import { placeInSession } from '../../domain/study-session.js';
+import { err, type Result } from '../../domain/result.js';
+import { authorize, policy, type ApplicationError } from '../authorization.js';
+import { LedgerAbort, type ApplicationContext, type Clock, type IdentifierFactory, type LearningLedger, type MasteryRuleSetRepository, type NewEvidenceRow } from '../ports.js';
+
+/**
+ * `RecordMasteryEvidence` — stores one attempt's evidence for a learner, places each response in a sitting, and recomputes the concepts it touched
+ * (M7-14). The system's alone: it is what the relay's consumer runs, and it has no route.
+ *
+ * **At-most-once effect.** A response already stored for its attempt and slot is not stored again, and a delivery whose responses were all stored already
+ * does nothing else: no sitting is placed, no state recomputed. So the same event twice produces one set of evidence and one recomputation.
+ *
+ * **Everything is one transaction for the learner:** the rows, their sittings, the states they produced and the transitions between states commit together or
+ * not at all. Transitions are *advanced* from what is stored, one response at a time (`advanceConcept`); a promotion still awaiting verification is verified
+ * under the rule set it was pinned to, which is read by identifier, and a new transition is pinned to the rule set in force now.
+ *
+ * Responses are advanced in the order they were given, not the order they arrived; a delivery that arrives out of order is advanced as if last (D74).
+ *
+ * Which rule set decides is the taxonomy version's own (`currentFor`), read once per taxonomy version in the delivery; a sitting is placed with the idle gap of
+ * the rule set of the evidence being placed.
+ */
+export const RECORD_MASTERY_EVIDENCE_POLICY = policy('RecordMasteryEvidence', [ROLES.system]);
+
+export interface RecordMasteryEvidence {
+  readonly learnerRef: string;
+  readonly evidence: readonly MasteryEvidence[];
+}
+
+export interface RecordedEvidence {
+  /** Responses stored by this delivery. */
+  readonly recorded: number;
+  /** Responses already stored: a replay, and nothing was done for them. */
+  readonly replayed: number;
+  /** The concept maps this delivery changed, one per taxonomy version it touched. */
+  readonly maps: readonly ConceptMap[];
+  /** The transitions this delivery created, oldest first; a promotion verified within the delivery is already verified. */
+  readonly transitions: readonly MasteryTransition[];
+  /** Promotions stored by an earlier delivery that this one verified. */
+  readonly verified: readonly { readonly transitionId: string; readonly verifiedAt: string }[];
+}
+
+export interface RecordMasteryEvidenceDependencies {
+  readonly ledger: LearningLedger;
+  readonly ruleSets: MasteryRuleSetRepository;
+  readonly clock: Clock;
+  readonly identifiers: IdentifierFactory;
+}
+
+export class RecordMasteryEvidenceHandler {
+  readonly name = 'RecordMasteryEvidence';
+  readonly policy = RECORD_MASTERY_EVIDENCE_POLICY;
+
+  constructor(private readonly deps: RecordMasteryEvidenceDependencies) {}
+
+  async handle(command: RecordMasteryEvidence, context: ApplicationContext): Promise<Result<RecordedEvidence, ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return err(permitted.error);
+
+    const taxonomies = [...new Set(command.evidence.map((e) => e.taxonomyVersionId))];
+    const ruleSets = new Map<string, MasteryRuleSet>();
+    for (const taxonomy of taxonomies) {
+      const found = await this.deps.ruleSets.currentFor(taxonomy);
+      if (!found.ok) return err(found.error);
+      ruleSets.set(taxonomy, found.value);
+    }
+
+    const now = this.deps.clock.now();
+    const rows: NewEvidenceRow[] = command.evidence.map((evidence) => ({
+      evidenceId: this.deps.identifiers.next(),
+      learnerRef: command.learnerRef,
+      evidence,
+      recordedAt: now,
+    }));
+
+    return this.deps.ledger.inTransaction(command.learnerRef, async (tx) => {
+      const stored = await tx.insertEvidence(rows);
+      if (stored.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), verified: Object.freeze([]) });
+
+      // placed in the order they were given, so the sittings read the way the learner worked; the partition does not depend on it
+      let sessions = await tx.sessions();
+      for (const row of [...stored].sort((a, b) => a.evidence.occurredAt.localeCompare(b.evidence.occurredAt))) {
+        const thresholds = ruleSets.get(row.evidence.taxonomyVersionId)!.thresholds;
+        const placed = placeInSession(sessions, row.evidence.occurredAt, thresholds.session.idleGapMinutes, this.deps.identifiers.next());
+        const session = placed.sessions.find((s) => s.sessionId === placed.sessionId)!;
+        await tx.placeEvidence(row.evidenceId, session, placed.absorbed);
+        sessions = placed.sessions;
+      }
+
+      const maps: ConceptMap[] = [];
+      const transitions: MasteryTransition[] = [];
+      const verified: { transitionId: string; verifiedAt: string }[] = [];
+      const storedIds = new Set(stored.map((r) => r.evidenceId));
+      const asOf = now.toISOString();
+      // only the taxonomy versions this delivery actually changed: one whose responses were all stored already is left as it is
+      for (const taxonomy of new Set(stored.map((r) => r.evidence.taxonomyVersionId))) {
+        const touched = [...new Set(stored.filter((r) => r.evidence.taxonomyVersionId === taxonomy).map((r) => r.evidence.conceptIdentityId))];
+        const ruleSet = ruleSets.get(taxonomy)!;
+        const evidenceByConcept: ReadonlyMap<string, readonly ConceptEvidence[]> = await tx.conceptEvidence(taxonomy, touched);
+        const map = conceptMapOf(command.learnerRef, taxonomy, evidenceByConcept, ruleSet.thresholds, asOf);
+
+        const tracking = await tx.conceptTracking(taxonomy, touched);
+        const floors = new Map<string, MasteryState | null>();
+        const current = { ruleSetId: ruleSet.ruleSetId, ruleSetHash: ruleSet.thresholdsHash, thresholds: ruleSet.thresholds };
+        for (const concept of touched) {
+          // every touched concept has the response that touched it
+          const all = evidenceByConcept.get(concept)!;
+          const known = tracking.get(concept)!;
+          let open: OpenPromotion | null = null;
+          if (known.open !== null) {
+            const pinned = await this.deps.ruleSets.byId(known.open.ruleSetId);
+            if (!pinned.ok) throw new LedgerAbort(pinned.error);
+            open = { transitionId: known.open.transitionId, occurredAt: known.open.occurredAt, qualifyingEvidence: known.open.qualifyingEvidence, rules: { ruleSetId: pinned.value.ruleSetId, ruleSetHash: pinned.value.thresholdsHash, thresholds: pinned.value.thresholds } };
+          }
+          const advanced = advanceConcept({
+            conceptIdentityId: concept,
+            prior: all.filter((e) => !storedIds.has(e.evidenceId)),
+            arriving: all.filter((e) => storedIds.has(e.evidenceId)),
+            held: known.held,
+            floor: known.floor,
+            open,
+            current,
+            newTransitionId: () => this.deps.identifiers.next(),
+          });
+          await tx.saveTransitions(taxonomy, advanced.created, now);
+          for (const v of advanced.verified) {
+            await tx.verifyTransition(v.transitionId, v.verifiedAt, v.verifyingEvidence);
+            verified.push({ transitionId: v.transitionId, verifiedAt: v.verifiedAt });
+          }
+          transitions.push(...advanced.created);
+          floors.set(concept, advanced.floor);
+        }
+        await tx.saveConceptStates(taxonomy, map.conceptStates, ruleSet.ruleSetId, floors);
+        maps.push(map);
+      }
+      return Object.freeze({ recorded: stored.length, replayed: rows.length - stored.length, maps: Object.freeze(maps), transitions: Object.freeze(transitions), verified: Object.freeze(verified) });
+    });
+  }
+}
+

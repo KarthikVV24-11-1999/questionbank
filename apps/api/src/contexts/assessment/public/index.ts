@@ -10,3 +10,4 @@ export type { AssembleDraftForm, GetForm, PublishForm, ScheduleForm, SweepWindow
 export type { FormSlotView, FormView } from '../application/views.js';
 export type { AssembledDraft } from '../application/handlers/form-handlers.js';
 export type { SweepReport } from '../application/handlers/sweep-handler.js';
+export type { GetResponseTimings, ResponseTimingsView, SlotResponseTimingView } from '../application/handlers/response-timing-handler.js';

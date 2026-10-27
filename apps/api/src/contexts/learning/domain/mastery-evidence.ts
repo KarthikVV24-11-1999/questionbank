@@ -13,8 +13,14 @@ import { err, ok, type Result } from './result.js';
  * **`difficultyEstimate` is an author's judgement, not a measured p-value** (DEC-M7-3). The name carries the distinction so no
  * later reader has to infer it (D71, ADR-0044); when Psychometrics produces item statistics, evidence recomputes against them.
  *
- * `occurredAt` is the instant the evidence is attributed to, which is also what a learner's study sitting is assigned from
- * (DEC-M7-2) and what a practice run's evidence will carry when it arrives through the same port (DEC-M7-4).
+ * **`occurredAt` is the instant of the response** — the server's instant for the answer that stood at submission (M7-11) — and it is the
+ * instant two of D-002's four clauses are measured on: a learner's study sitting is assigned from it (DEC-M7-2) and a verification is
+ * "forty-eight hours later" by it. **`scoredAt` is the instant the attempt was scored** and is kept apart so the two are never confused:
+ * every slot of an attempt is scored at once, so measuring a sitting or a gap on it would compute a number from data in which only one value is
+ * possible. A response cannot come after the score that counted it.
+ *
+ * A practice run's evidence reaches Learning as this same value, through the same port: a practice run is the same `Attempt`, mode-parameterized (D2), and
+ * DEC-M7-4's proposal of a second aggregate was rejected.
  *
  * Only a response that was given is evidence. An unattempted slot, a dropped item, a bonus and an indeterminate outcome say
  * nothing about what the learner knows, so this vocabulary has no value for them and the assembler does not produce one.
@@ -36,8 +42,10 @@ export interface MasteryEvidence {
   readonly taxonomyVersionId: string;
   readonly outcome: EvidenceOutcome;
   readonly difficultyEstimate: DifficultyEstimate;
-  /** An ISO-8601 UTC instant, in the one canonical rendering. */
+  /** The instant of the response that stood: an ISO-8601 UTC instant, in the one canonical rendering. */
   readonly occurredAt: string;
+  /** The instant the attempt was scored; never earlier than `occurredAt`. */
+  readonly scoredAt: string;
 }
 
 export type MasteryEvidenceProps = { readonly [K in keyof MasteryEvidence]: unknown };
@@ -48,7 +56,7 @@ export interface LearningError<Code extends string = string> {
   readonly message: string;
 }
 
-export type MasteryEvidenceErrorCode = 'EVIDENCE_REFERENCE_INVALID' | 'EVIDENCE_OUTCOME_INVALID' | 'EVIDENCE_DIFFICULTY_INVALID' | 'EVIDENCE_INSTANT_INVALID';
+export type MasteryEvidenceErrorCode = 'EVIDENCE_REFERENCE_INVALID' | 'EVIDENCE_OUTCOME_INVALID' | 'EVIDENCE_DIFFICULTY_INVALID' | 'EVIDENCE_INSTANT_INVALID' | 'EVIDENCE_INSTANT_ORDER';
 
 function invalid<Code extends MasteryEvidenceErrorCode>(code: Code, message: string): LearningError<Code> {
   return Object.freeze({ kind: 'Validation', code, message });
@@ -82,6 +90,12 @@ export function createMasteryEvidence(props: MasteryEvidenceProps): Result<Maste
   if (!isCanonicalInstant(props.occurredAt)) {
     return err(invalid('EVIDENCE_INSTANT_INVALID', 'occurredAt is not an ISO-8601 UTC instant'));
   }
+  if (!isCanonicalInstant(props.scoredAt)) {
+    return err(invalid('EVIDENCE_INSTANT_INVALID', 'scoredAt is not an ISO-8601 UTC instant'));
+  }
+  if (props.occurredAt > props.scoredAt) {
+    return err(invalid('EVIDENCE_INSTANT_ORDER', 'a response cannot come after the score that counted it'));
+  }
 
   return ok(
     Object.freeze({
@@ -93,6 +107,7 @@ export function createMasteryEvidence(props: MasteryEvidenceProps): Result<Maste
       outcome: props.outcome as EvidenceOutcome,
       difficultyEstimate: props.difficultyEstimate as DifficultyEstimate,
       occurredAt: props.occurredAt,
+      scoredAt: props.scoredAt,
     }),
   );
 }
