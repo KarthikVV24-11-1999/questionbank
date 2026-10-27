@@ -7,6 +7,7 @@ import { issue } from '../auth/token.js';
 import { createRecordingTelemetry } from '../observability/recording-telemetry.js';
 import { OutboxRelay, type OutboxConsumer, type OutboxEnvelope } from '../outbox/relay.js';
 import { createApplication } from './app-factory.js';
+import { observing } from '../../testing/response-diagnosis.js';
 import { BACKGROUND, type Background } from './background.js';
 import { addAnchorPoolMember } from '../../contexts/assessment/domain/anchor-pool.js';
 import { PostgresAnchorPoolRepository } from '../../contexts/assessment/infrastructure/anchor-pool.repository.js';
@@ -25,6 +26,7 @@ import { expectValue } from '../../testing/expect-result.js';
 import { uuidFactory } from '../../testing/generation-context.js';
 import { seedPublishedProfile, type PublishedProfile } from '../../testing/published-profile.js';
 import { PostgresIdempotencyStore } from '../persistence/idempotency-store.js';
+import { serveOnLoopback } from '../../testing/loopback.js';
 
 /**
  * A submission becomes a score (M6-38 to M6-42): the real application, real Postgres, the real relay draining the real outbox to the
@@ -60,7 +62,7 @@ function tokenFor(sub: string, ...roles: string[]): string {
   const issued = Math.floor(Date.now() / 1000);
   return issue({ sub, kind: 'human', roles, iat: issued, exp: issued + 3600, iss: ISSUER, jti: randomUUID() }, { signingKey: SIGNING_KEY, issuer: ISSUER });
 }
-const http = () => request(app.getHttpServer());
+const http = () => observing(request(app.getHttpServer()), () => database.pool, 'scoring');
 const asOps = () => `Bearer ${tokenFor(randomUUID(), ROLES.contentOps)}`;
 const student = () => {
   const id = randomUUID();
@@ -124,7 +126,7 @@ beforeAll(async () => {
     clock: { now: () => appClock() },
     identifiers: uuidFactory,
   });
-  await app.init();
+  await serveOnLoopback(app);
   background = app.get<Background>(BACKGROUND);
 
   const blueprint = {

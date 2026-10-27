@@ -12,6 +12,7 @@ import { policy } from '../application/authorization.js';
 import type { ApplicationContext } from '../application/ports.js';
 import { ContentModule } from './content.module.js';
 import type { PrincipalResolver } from './http-runner.js';
+import { serveOnLoopback } from '../../../testing/loopback.js';
 
 /**
  * The HTTP surface, through a real Nest application. Handlers are stubs: what
@@ -107,7 +108,7 @@ beforeAll(async () => {
   }).compile();
 
   app = moduleRef.createNestApplication();
-  await app.init();
+  await serveOnLoopback(app);
 });
 
 afterAll(async () => {

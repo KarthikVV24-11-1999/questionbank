@@ -324,8 +324,17 @@ describe('what the shell never shows (M6-47)', () => {
     const { container } = render(<LearnApp session={session} form={leaky} />);
     for (const word of ['correctOptionId', 'answerKey', 'The answer is B', 'SINGLE_CORRECT"']) expect(container.textContent).not.toContain(word);
     expect(container.innerHTML).not.toMatch(/correct/iu);
-    // a scan that could not see the leak would prove nothing: the key is in the data the shell was handed
+    // a scan that could not see the leak would prove nothing: the next test shows that it can
     expect(JSON.stringify(leaky)).toContain('correctOptionId');
+  });
+
+  it('the key is in the data the shell was handed, and the same scan finds it wherever it is drawn', () => {
+    const leaky = formPackageSchema.parse(aPackageDocument({ correctOptionId: 'b', answerKey: { kind: 'SINGLE_CORRECT', optionId: 'b' }, solution: 'The answer is B because…' }));
+    const words = ['correctOptionId', 'answerKey', 'The answer is B', 'SINGLE_CORRECT"'];
+    for (const word of words) expect(JSON.stringify(leaky)).toContain(word);
+    // drawn as text, the very check the screens are held to fires on every word: it could have seen a leak, so its silence above means something
+    const { container } = render(<pre>{JSON.stringify(leaky)}</pre>);
+    for (const word of words) expect(container.textContent).toContain(word);
   });
 });
 

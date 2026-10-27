@@ -735,9 +735,8 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
-        // D73: lowered to what is measured while the attempts spec is skipped; restored to 100 when it is un-skipped.
         'src/contexts/assessment/api/assessment.controller.ts': {
-          branches: 98.18,
+          branches: 100,
           lines: 100,
           functions: 100,
           statements: 100,
@@ -844,9 +843,8 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
-        // D73: lowered to what is measured while the attempts spec is skipped; restored to 100 when it is un-skipped.
         'src/contexts/assessment/application/handlers/attempt-handlers.ts': {
-          branches: 98.52,
+          branches: 100,
           lines: 100,
           functions: 100,
           statements: 100,
@@ -917,12 +915,11 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
-        // D73: lowered to what is measured while the attempts spec is skipped; restored to 100 when it is un-skipped.
         'src/contexts/assessment/infrastructure/attempt.repository.ts': {
-          branches: 97.14,
-          lines: 99.05,
+          branches: 100,
+          lines: 100,
           functions: 100,
-          statements: 99.05,
+          statements: 100,
         },
         'src/contexts/assessment/infrastructure/response-log.repository.ts': {
           branches: 100,

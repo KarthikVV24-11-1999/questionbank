@@ -381,3 +381,31 @@ describe('SubmitAttempt', () => {
     });
   });
 });
+
+describe('the paths the composed application used to be the only test of (M7-19)', () => {
+  it('refuses to create an attempt the domain refuses, naming the field, before looking for an active mock', async () => {
+    const r = rig();
+    let asked = 0;
+    const find = r.attempts.findActiveMock.bind(r.attempts);
+    r.attempts.findActiveMock = async (studentId) => {
+      asked += 1;
+      return find(studentId);
+    };
+    const refused = expectError(await new CreateAttemptHandler(r.deps).handle({ formId: FORM.formId, sessionRef: SESSION_REF, shiftId: ' ', idempotencyKey: 'blank-shift' }, ctx()));
+    expect(refused.kind).toBe('Validation');
+    expect(refused.location).toBe('shiftId');
+    expect(asked).toBe(0);
+  });
+
+  it('records an event that reaches the server after submission as late, and one before it as accepted', async () => {
+    const r = rig();
+    const attemptId = await started(r);
+    const ingest = new IngestResponseEventsHandler(r.deps);
+    const before = expectValue(await ingest.handle({ attemptId, events: [wire(attemptId, 1)] }, ctx()));
+    expect(before.results.map((e) => e.outcome)).toEqual(['accepted']);
+    expectValue(await new SubmitAttemptHandler(r.deps).handle({ attemptId, reason: 'manual', idempotencyKey: 'sub' }, ctx()));
+    const after = expectValue(await ingest.handle({ attemptId, events: [wire(attemptId, 2, 'leave')] }, ctx()));
+    expect(after.results.map((e) => e.outcome)).toEqual(['late']);
+  });
+});
+

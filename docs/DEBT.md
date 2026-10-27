@@ -560,34 +560,6 @@ than the gap. It belongs in M7's acceptance note as a line that is not met.
 **Trigger** Either the successors of a re-score announce themselves (an `AttemptScored` for each), or `AttemptsRescored` lists the attempts it changed.
 **Cited** `apps/api/src/contexts/scoring/application/handlers/rescoring-handlers.ts`
 
-### D73 — The attempts spec fails intermittently, and is quarantined
-
-`platform/composition/assessment-attempts.integration.spec.ts` guards REL-01 and REL-06 under outage, and it fails intermittently: an attempt that
-was created (201) or that an earlier request in the same test used is answered `404 no attempt <id>` by the next request. **Measured: 2 failures in 40
-runs on untouched `c66d937`**, one in the creation test and one in the events test, a different test each time, and the same rate across the M7
-Track A commits, so it predates them. Runs in isolation, with and without coverage, reproduce it; it is not an interaction between files.
-
-One bounded look found nothing: the spec has no per-test cleanup or truncation, `fileParallelism` is off and the integration project is a single fork,
-the app's identifiers are random UUIDs, and no test removes an attempt another uses. The cause is not known. The whole file is skipped (eight `describe.skip`), with this entry
-cited in the comment above them, so that a red build is a real event again; **until it is fixed, the offline-runtime guarantees it asserts server-side are not
-checked by the suite**. The same guarantees are exercised from the client side by the adversarial suite (`tools/adversarial`), which is a different
-check and does not replace this one.
-
-**A second spec was seen to fail once, and is not quarantined.** During M7 Track B, `assessment-scoring.integration.spec.ts` (M6-41, a student reads
-their own result) failed once in a full run with `412` where `200` was expected after a submission and a drain, and passed in twelve isolated runs and in
-the next full run. It composes the same application. One occurrence is not a rate and the search was not widened; if it recurs, it is evidence for one
-cause across both, and belongs here.
-
-**The quarantine costs coverage, and the cost is recorded here and not hidden.** The skipped spec was the only one exercising a few branches of three
-files that carry a 100% threshold: `assessment.controller.ts` (branches 98.18%), `attempt-handlers.ts` (branches 98.52%) and `attempt.repository.ts`
-(statements and lines 99.05%, branches 97.14%). Their thresholds in `apps/api/vitest.config.ts` are lowered to those measured values, with this entry
-cited beside each, and **go back to 100 when the spec is un-skipped**; until then a regression in those branches that the other specs do not reach
-is not caught.
-
-**Trigger** Any change to ingestion, the attempt repository or the app factory; or the first time the failure is caught with its response body and the
-attempt's row in the same breath. Un-skip and run it forty times before closing.
-**Cited** `apps/api/src/platform/composition/assessment-attempts.integration.spec.ts`
-
 ### D74 — Evidence that arrives out of order is advanced as if it were last
 
 A concept's transitions are advanced from what is stored, one response at a time (DEC-M7-9). A response whose instant is *earlier* than a response already
@@ -600,8 +572,54 @@ and a qualification already recorded is not reconsidered in the light of a respo
 learner's transitions from the evidence in order, under the rule sets they were pinned to.
 **Cited** `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts`
 
+### D75 — A headless browser left running by the adversarial suite stays on loopback
+
+`tools/adversarial` launches Chrome with `--remote-debugging-port=0` (`chrome.ts`) and kills or closes it when the run ends. A run whose process dies first —
+a timeout, an interrupted suite, a worker that was stopped — leaves the browser running, listening on a loopback port, until the machine restarts. On the
+machine this was found on there were sixty such processes, some a day old, fourteen of them holding a loopback port, under `qb-adversarial-*` profiles and a
+few `qb-prof-*` that nothing in this repository creates. They are what answered the requests D73 saw: not harmful of themselves, but a stray on loopback is a
+thing every test that talks to localhost can run into, and nothing cleans them up.
+
+The api's specs no longer depend on there being none (D73 is closed by binding their servers to loopback), so this costs a developer's machine, not a test.
+
+**Trigger** The next time the suite is stopped part-way and finds Chrome still running; or a CI runner reused between jobs. A launcher that records each child it
+starts and kills the process group on `exit` and on `SIGINT`/`SIGTERM`, and a global teardown that sweeps profiles it created, are the two halves.
+**Cited** `tools/adversarial/src/chrome.ts`
+
 
 ## Closed
+
+### D73 — The attempts spec failed intermittently *(closed at M7-21)*
+
+`platform/composition/assessment-attempts.integration.spec.ts` guards REL-01 and REL-06 under outage. It failed about once in every dozen to twenty runs on this
+machine — 2 in 40 on `c66d937` — with a request answered `404`, and the same cause produced the one `412` seen in `assessment-scoring.integration.spec.ts`
+(a submit that did not take left the attempt unsubmitted, and the result route refuses an unsubmitted attempt). It was skipped at M7-09 after one bounded look found nothing.
+
+**Which kind of 404: neither of the two it was thought to be.** The entry first read "`404 no attempt <id>`", and that was a misreading: supertest leaves the
+body of an `application/problem+json` response empty, so no one had read the text, and the failing responses carried none. M7-20 made the spec read the row
+and the wire at the moment of a 404. It is not an absent row and it is not a row excluded by a predicate (the lookup is `WHERE attempt_id = $1`; ownership is the
+only other thing that turns a present row into a 404, and the clock is nowhere in it). **The application never answered.** The failing responses were
+`HTTP/1.1 404 Not Found`, `Content-Length: 0`, `Content-Type: text/html`, no `Date`, no `X-Correlation-Id` (which the controller sets before it does anything
+else), on a fresh connection to the very port supertest had just opened, and one of them was on `POST /v1/assessment/attempts`, which has no attempt in it.
+
+**Why.** supertest starts a server that is not listening with `listen(0)`, which binds the wildcard address, and connects to `127.0.0.1:<port>`. On this
+operating system a wildcard listener and a listener on a specific address can hold the same port number, and a connection to the specific address goes to the
+specific listener. Headless Chrome processes left running by earlier adversarial runs (D75) listen on `127.0.0.1` ephemeral ports; every failing port in the log was
+one of theirs, and a POST to one of those ports answers with exactly those bytes. About one run in a dozen to twenty drew such a port. CI runners are fresh and
+Linux does not allow the sharing, which is why CI was green.
+
+**The fix.** Every spec that sends requests to a Nest application with supertest now starts it with `serveOnLoopback` (`listen(0, '127.0.0.1')`), which takes a
+port nothing else holds on loopback and keeps it; a rule (`loopback-rules.ts`) fails a spec that calls `getHttpServer()` without it. With the fourteen strays
+still alive, the attempts spec ran 150 times and the scoring spec 100 without a failure.
+
+**What the skip cost, and what it restored.** While the file was skipped the key-free argument's `attempt-responses` row pointed at two tests that did not run,
+and the gate that reads the table could not tell (it checked that the titles were in the file); M7-17 fixed the gate, and M7-18 wrote the two tests where they
+run. Three files carrying a 100% threshold (`assessment.controller.ts`, `attempt-handlers.ts`, `attempt.repository.ts`) had been lowered to what the suite measured;
+M7-19 covered their branches from tests that do not need the composed application and restored all three to 100. The server-side parts of the offline-runtime
+criteria (the union of two devices, the outage that drains) were not checked by the suite between the skip and the fix.
+
+**Cited** `apps/api/src/testing/loopback.ts`, `apps/api/src/testing/response-diagnosis.ts`, `apps/api/src/fitness/loopback-rules.ts`
+
 
 ### D17 — Nothing drains the outbox *(closed at M6-38)*
 

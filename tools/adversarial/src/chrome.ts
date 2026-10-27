@@ -47,6 +47,10 @@ async function devtoolsUrl(profileDir: string, child: ChildProcess, stderr: () =
   throw new Error(`Chrome did not publish its devtools port within a minute:\n${stderr()}`);
 }
 
+/**
+ * A browser is left running if the process that started it dies before `kill` or `close` runs: it holds a loopback port and its profile until the machine
+ * restarts (D75). Nothing here sweeps them yet.
+ */
 export async function launchChrome(profileDir: string): Promise<RunningChrome> {
   // A previous Chrome killed with SIGKILL leaves these behind: the next launch must not read the old port, and a profile lock held by a
   // process that no longer exists is what Chrome itself sweeps up on a restart after a crash.

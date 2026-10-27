@@ -13,6 +13,12 @@ resource that is missing and what would unblock it. The three the roadmap's crit
 | 5 | Answer keys absent from every payload (F6, F35) — blocking | **Pass** | Eleven surfaces, in [KEY-FREE.md](KEY-FREE.md): two static rules over the import graph, the contract, the package's bytes, every route's responses, the result, the relay's payloads, the learner's screens, and the learner's device in a real browser. Each has a test that shows the key absent and a test that shows the scan able to find one, and a check that the table still points at tests that exist. Three of the scans had no such control before this milestone closed; they do now. | — |
 | 6 | Result available ≤ 60 s p95 after submission | **`Fail — blocked`** | The path exists and is exercised: submission writes its event in its own transaction, the relay delivers it, scoring writes a record, the student reads it. In-process, the scoring spec shows a result after one relay drain. | A deployment with a running scheduler and load to put a p95 on. Unblocked by: the first deployed environment (D36 says what is missing around the scheduler). |
 
+> **Note, 2026-10-28 (M7 Track C).** Between M7-09 and M7-21 the spec that holds the server-side halves of rows 1 and 3 (the union of two devices' events, the outage
+> that drains) was skipped (D73), and **row 5 rested in part on it**: the `attempt-responses` surface of the key-free argument pointed at two tests in that file, and
+> the gate that reads the table could not see that they were not running. The row's standing was not earned over that interval for that surface. It is now:
+> the two tests run, outside the skipped file, against the real controller, and the gate fails on a named test that is skipped. The spec is un-skipped, and its
+> intermittent failure was not in the application (D73). Rows 1 and 3 keep the verdicts above.
+
 **One passes, two are partial, three are blocked outright.** The headline criterion is `Partial`, and the loss that stops it being whole is real, small
 and written down: it needs a browser killed with no warning, the server out of reach, and the kill landing in the few seconds of Chrome's own write delay.
 

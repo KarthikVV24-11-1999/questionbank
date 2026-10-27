@@ -5,6 +5,7 @@ import request from 'supertest';
 import { withMigratedDatabase, type TestDatabase } from '../../testing/database.js';
 import { issue } from '../auth/token.js';
 import { createApplication } from './app-factory.js';
+import { serveOnLoopback } from '../../testing/loopback.js';
 
 /**
  * The composed application, against real Postgres. Not the walking skeleton
@@ -48,7 +49,7 @@ beforeAll(async () => {
     mediaStorageRoot: './var/media-test',
     logLevel: 'info',
   }, { pool: database.pool });
-  await app.init();
+  await serveOnLoopback(app);
 });
 
 afterAll(async () => {

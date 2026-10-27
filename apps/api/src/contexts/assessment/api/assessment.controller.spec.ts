@@ -155,3 +155,17 @@ describe('the module', () => {
     expect(module.providers).toHaveLength(2);
   });
 });
+
+describe('creating an attempt answers 201, and 200 when the key had already made it (M7-19)', () => {
+  const body = { formId: FORM_ID, sessionRef: '2026-01-27/shift-1' };
+
+  it('says 201 for an attempt this request made and 200 for one a retry of the same key finds', async () => {
+    for (const [replayed, status] of [[false, 201], [true, 200]] as const) {
+      const { controller } = rig(ok({ attempt: { attemptId: 'a' }, replayed }), PRINCIPAL, ['CreateAttempt']);
+      const { response, captured } = fakeResponse();
+      await controller.createAttempt(body, { 'idempotency-key': 'k' }, response);
+      expect([replayed, captured.status]).toEqual([replayed, status]);
+    }
+  });
+});
+

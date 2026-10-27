@@ -19,6 +19,7 @@ import { uuidFactory } from '../../testing/generation-context.js';
 import { TEST_SIGNING_SEED } from '../../testing/assessment-fakes.js';
 import { verifyPackage } from '../../contexts/assessment/infrastructure/package-signer.js';
 import { PACKAGE_MEDIA_TYPE } from '../../contexts/assessment/api/assessment.controller.js';
+import { serveOnLoopback } from '../../testing/loopback.js';
 
 /**
  * The assessment HTTP surface through the composed application: real bearer
@@ -72,7 +73,7 @@ async function composed(config: typeof COMPOSED_CONFIG, at: string): Promise<INe
     clock: { now: () => new Date(at) },
     identifiers: uuidFactory,
   });
-  await instance.init();
+  await serveOnLoopback(instance);
   return instance;
 }
 

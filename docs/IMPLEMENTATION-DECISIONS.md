@@ -425,3 +425,18 @@ accuracy or from decay observed at the next response, is a transition of its own
 **This reading, and "different items" meaning other than those that qualified it and each other, were chosen where D-002 is silent.**
 → `contexts/learning/domain/mastery-transition.ts` · `infra/migrations/20261028120000_learning_mastery_transition.sql`
 
+### DEC-M7-10 — A gate that names a test asserts the test runs
+A fitness rule that located its evidence by checking that a test's title was in a file was checking the code's intentions: `describe.skip` leaves every
+title where it was, so the key-free table passed on the attempt-responses surface while neither of its two tests ran (D73). The file is now parsed, and a title
+under `.skip`, `.todo`, `.skipIf`, `.runIf`, or silenced by a `.only` elsewhere in the file is its own violation naming the form that stops it. A title matches
+on the source of a test or describe call's title argument, because the table names the start of the real title. `key-free-rules.ts` was the only rule that
+named tests by title. The first result was red on the one row that had been skipped, which was correct, and the rule was not weakened to clear it: the proof was
+moved to where it runs, and the learner-screens row, which had been passing on a *comment*, got a test of its own.
+→ `apps/api/src/fitness/test-locator.ts` · `apps/api/src/fitness/key-free-rules.ts`
+
+### DEC-M7-11 — A spec that sends requests to a Nest application starts it on loopback
+supertest starts a non-listening server with `listen(0)` (the wildcard address) and connects to `127.0.0.1:<port>`; where the platform lets a wildcard and a
+specific-address listener share a port number, a stray loopback listener can take the request and answer it with whatever it answers an unknown path with. Every
+spec that calls `getHttpServer()` starts its application with `serveOnLoopback`, and a rule fails one that does not.
+→ `apps/api/src/testing/loopback.ts` · `apps/api/src/fitness/loopback-rules.ts`
+

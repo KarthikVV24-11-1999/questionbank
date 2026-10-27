@@ -10,6 +10,7 @@ import { MissingAuthorizationPolicyError } from '../application/handler-registry
 import { policy } from '../application/authorization.js';
 import { ScoringModule } from './scoring.module.js';
 import type { PrincipalResolver } from './scoring.controller.js';
+import { serveOnLoopback } from '../../../testing/loopback.js';
 
 /**
  * The HTTP surface, exercised through a real Nest application. Handlers are
@@ -65,7 +66,7 @@ beforeAll(async () => {
   }).compile();
 
   app = moduleRef.createNestApplication();
-  await app.init();
+  await serveOnLoopback(app);
 });
 
 afterAll(async () => {

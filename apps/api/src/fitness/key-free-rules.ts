@@ -1,14 +1,19 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { locateTest } from './test-locator.js';
 
 /**
  * The key-free argument is one table in `docs/KEY-FREE.md` (M6-59), and a table of claims is only worth reading while it still points at
  * something. This reads it: every surface the argument must cover is a row, and each row names two tests — one that shows the key
  * absent and one that shows the scan able to find a key — by file and by title. A file that is gone, a test renamed away, a surface
  * dropped, or a row that points its two claims at one and the same test with nothing about vacuity in it, is a violation.
+ *
+ * **A test that is named must be a test that runs** (M7-17). The first version checked that the title was *in the file*, and `describe.skip` leaves every
+ * title where it was: the gate passed on the attempt-responses row while neither of its two tests ran (D73). The file is now parsed (`test-locator.ts`) and a
+ * title under a skip, a todo, a conditional, or silenced by a `.only` elsewhere is its own violation, with the form that stopped it.
  */
 export interface KeyFreeViolation {
-  readonly rule: 'KEY_FREE_SURFACE_MISSING' | 'KEY_FREE_EVIDENCE_FILE_MISSING' | 'KEY_FREE_EVIDENCE_TEST_MISSING' | 'KEY_FREE_SURFACE_UNKNOWN';
+  readonly rule: 'KEY_FREE_SURFACE_MISSING' | 'KEY_FREE_EVIDENCE_FILE_MISSING' | 'KEY_FREE_EVIDENCE_TEST_MISSING' | 'KEY_FREE_EVIDENCE_TEST_SKIPPED' | 'KEY_FREE_SURFACE_UNKNOWN';
   readonly surface: string;
   readonly detail: string;
 }
@@ -64,7 +69,9 @@ export function checkKeyFreeIndex(repoRoot: string, document: string, surfaces: 
         violations.push({ rule: 'KEY_FREE_EVIDENCE_FILE_MISSING', surface: row.surface, detail: evidence.file });
         continue;
       }
-      if (!readFileSync(path, 'utf8').includes(evidence.title)) violations.push({ rule: 'KEY_FREE_EVIDENCE_TEST_MISSING', surface: row.surface, detail: `${evidence.file} :: ${evidence.title}` });
+      const located = locateTest(readFileSync(path, 'utf8'), evidence.title, evidence.file);
+      if (!located.found) violations.push({ rule: 'KEY_FREE_EVIDENCE_TEST_MISSING', surface: row.surface, detail: `${evidence.file} :: ${evidence.title}` });
+      else if (!located.runs) violations.push({ rule: 'KEY_FREE_EVIDENCE_TEST_SKIPPED', surface: row.surface, detail: `${evidence.file} :: ${evidence.title} does not run: ${located.because}` });
     }
   }
   return violations;

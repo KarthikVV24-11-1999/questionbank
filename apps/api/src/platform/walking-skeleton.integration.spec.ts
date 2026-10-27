@@ -12,6 +12,7 @@ import { register as registerContent } from '../contexts/content/public/composit
 import { issue } from './auth/token.js';
 import { createRecordingTelemetry, type RecordingTelemetry } from './observability/recording-telemetry.js';
 import { createApplication } from './composition/app-factory.js';
+import { serveOnLoopback } from '../testing/loopback.js';
 
 /**
  * The milestone's name, as one test (M0-14). A bearer token issued by the
@@ -112,7 +113,7 @@ beforeAll(async () => {
     },
     { pool: database.pool, telemetry },
   );
-  await app.init();
+  await serveOnLoopback(app);
 });
 
 afterAll(async () => {
@@ -225,7 +226,7 @@ describe('the walking skeleton — one authenticated request, end to end', () =>
           }),
       },
     );
-    await bypassed.init();
+    await serveOnLoopback(bypassed);
 
     const response = await request(bypassed.getHttpServer()).get(`/v1/items/${ITEM_ID}`);
     expect(response.status).toBe(200);

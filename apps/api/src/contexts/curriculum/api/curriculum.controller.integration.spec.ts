@@ -23,6 +23,7 @@ import type { PrincipalResolver } from './curriculum.controller.js';
 import { FixedClock } from '../../../testing/in-memory-repositories.js';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { expectValue } from '../../../testing/expect-result.js';
+import { serveOnLoopback } from '../../../testing/loopback.js';
 
 let database: TestDatabase;
 let app: INestApplication;
@@ -105,7 +106,7 @@ beforeAll(async () => {
   }).compile();
 
   app = moduleRef.createNestApplication();
-  await app.init();
+  await serveOnLoopback(app);
 });
 
 beforeEach(async () => {

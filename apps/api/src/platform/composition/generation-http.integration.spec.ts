@@ -14,6 +14,7 @@ import { composeGeneration, type ComposedGeneration } from '../../testing/compos
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
 import { expectValue } from '../../testing/expect-result.js';
 import { MODEL_VERSION, PROMPT_VERSION, aCandidate, aRun, ensureVersions, registering } from '../../testing/generation-fixtures.js';
+import { serveOnLoopback } from '../../testing/loopback.js';
 
 /**
  * The generation HTTP surface through the composed application: real bearer tokens,
@@ -40,7 +41,7 @@ beforeAll(async () => {
   await database.applyMigrations();
   await ensureVersions(database.pool, { modelVersionId: MODEL_VERSION, promptVersionId: PROMPT_VERSION });
   composed = await composeGeneration(database);
-  await composed.app.init();
+  await serveOnLoopback(composed.app);
   runs = registering(database.pool);
   candidates = new PostgresGenerationCandidateRepository(database.pool);
 });

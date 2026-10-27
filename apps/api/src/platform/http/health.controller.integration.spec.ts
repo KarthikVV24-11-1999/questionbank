@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { withMigratedDatabase, type TestDatabase } from '../../testing/database.js';
 import { HealthModule } from './health.module.js';
+import { serveOnLoopback } from '../../testing/loopback.js';
 
 /**
  * `/healthz` and `/readyz` answer different questions (M0-13) — this spec
@@ -19,7 +20,7 @@ beforeAll(async () => {
   database = await withMigratedDatabase();
   const moduleRef = await Test.createTestingModule({ imports: [HealthModule.register(database.pool)] }).compile();
   app = moduleRef.createNestApplication();
-  await app.init();
+  await serveOnLoopback(app);
 });
 
 afterAll(async () => {
@@ -56,7 +57,7 @@ describe('GET /readyz — against a closed pool', () => {
       imports: [HealthModule.register(closedDatabase.pool)],
     }).compile();
     closedApp = moduleRef.createNestApplication();
-    await closedApp.init();
+    await serveOnLoopback(closedApp);
     await closedDatabase.pool.end();
   });
 

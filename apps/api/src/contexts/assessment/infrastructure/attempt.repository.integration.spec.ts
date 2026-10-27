@@ -394,6 +394,17 @@ describe('finding attempts whose deadline has passed (M6-42)', () => {
   });
 });
 
+describe('finding the attempt a creation key already made (M7-19)', () => {
+  it('finds nothing for a key that made nothing, and the attempt for the key that made it, and only for that student', async () => {
+    expect(expectValue(await attempts.findByCreationKey(id(TAG.student), 'key-1'))).toBeUndefined();
+    const created = anAttempt();
+    expectValue(await attempts.create(created, 'key-1'));
+    expect(expectValue(await attempts.findByCreationKey(id(TAG.student), 'key-1'))?.attemptId).toBe(created.attemptId);
+    expect(expectValue(await attempts.findByCreationKey(id(TAG.student), 'key-2'))).toBeUndefined();
+    expect(expectValue(await attempts.findByCreationKey(id(TAG.student, 2), 'key-1'))).toBeUndefined();
+  });
+});
+
 describe('what the store refuses', () => {
   it('reports a connection failure as a value', async () => {
     const { Pool } = await import('pg');
@@ -404,6 +415,7 @@ describe('what the store refuses', () => {
     expect(expectError(await broken.save(anAttempt(), 'created')).code).toBe('STORE_UNAVAILABLE');
     expect(expectError(await broken.findById(id(TAG.attempt))).code).toBe('STORE_UNAVAILABLE');
     expect(expectError(await broken.findActiveMock(id(TAG.student))).code).toBe('STORE_UNAVAILABLE');
+    expect(expectError(await broken.findByCreationKey(id(TAG.student), 'k')).code).toBe('STORE_UNAVAILABLE');
     expect(expectError(await broken.findAbandonable('2026-10-21T12:00:00.000Z', 1)).code).toBe('STORE_UNAVAILABLE');
     await pool.end().catch(() => undefined);
   });

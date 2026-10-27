@@ -7,6 +7,7 @@ import { ROLES } from '../auth/roles.js';
 import { issue } from '../auth/token.js';
 import { createRecordingTelemetry } from '../observability/recording-telemetry.js';
 import { createApplication } from './app-factory.js';
+import { observing } from '../../testing/response-diagnosis.js';
 import { addAnchorPoolMember } from '../../contexts/assessment/domain/anchor-pool.js';
 import { PostgresAnchorPoolRepository } from '../../contexts/assessment/infrastructure/anchor-pool.repository.js';
 import { PostgresAttemptRepository } from '../../contexts/assessment/infrastructure/attempt.repository.js';
@@ -17,6 +18,7 @@ import { connectTestDatabase, type TestDatabase } from '../../testing/database.j
 import { expectValue } from '../../testing/expect-result.js';
 import { uuidFactory } from '../../testing/generation-context.js';
 import { seedPublishedProfile, type PublishedProfile } from '../../testing/published-profile.js';
+import { serveOnLoopback } from '../../testing/loopback.js';
 
 /**
  * The student's attempt lifecycle through the composed application (M6-30 to M6-34): real bearer tokens, the real
@@ -56,7 +58,7 @@ function tokenFor(sub: string, ...roles: string[]): string {
   return issue({ sub, kind: 'human', roles, iat: issued, exp: issued + 3600, iss: ISSUER, jti: randomUUID() }, { signingKey: SIGNING_KEY, issuer: ISSUER });
 }
 
-const http = (instance: INestApplication = app) => request(instance.getHttpServer());
+const http = (instance: INestApplication = app) => observing(request(instance.getHttpServer()), () => database.pool, 'attempts');
 const asOps = () => `Bearer ${tokenFor(randomUUID(), ROLES.contentOps)}`;
 const asOpsStepUp = () => ({ Authorization: asOps(), 'X-Step-Up': 'satisfied' });
 
@@ -167,7 +169,7 @@ async function compose(pool: Pool, config: typeof COMPOSED_CONFIG = COMPOSED_CON
     clock: { now: () => new Date(now) },
     identifiers: uuidFactory,
   });
-  await instance.init();
+  await serveOnLoopback(instance);
   return instance;
 }
 
@@ -202,11 +204,6 @@ beforeAll(async () => {
   blueprintOf = blueprint;
 });
 
-/**
- * **Quarantined (D73).** This file fails intermittently with `404 no attempt` on a request that follows one that created or used the attempt: 2 in
- * 40 runs on a tree this spec was green on. The cause was not found in the bounded look the register entry records, and a test that fails one run in
- * twenty is one nobody believes, so it is skipped here rather than left to cry wolf. D73 says what is therefore not checked, and what un-skips it.
- */
 let blueprintOf: Record<string, unknown>;
 
 afterAll(async () => {
@@ -216,7 +213,7 @@ afterAll(async () => {
   await database.close();
 });
 
-describe.skip('M6-30 — an attempt is created on an active form, inside its window, for a session it declares', () => {
+describe('M6-30 — an attempt is created on an active form, inside its window, for a session it declares', () => {
   it('refuses a form that is not active, a window that is not open, and a session the form was not published for — each as itself', async () => {
     now = INSIDE;
     // A second form, scheduled and never opened: embargoed, so no one may sit it yet.
@@ -363,7 +360,7 @@ describe.skip('M6-30 — an attempt is created on an active form, inside its win
   });
 });
 
-describe.skip('M6-31 — one active mock per student, said as something an operator can act on, and decided by the index', () => {
+describe('M6-31 — one active mock per student, said as something an operator can act on, and decided by the index', () => {
   it('refuses a second active mock as a conflict that names the first', async () => {
     const who = student();
     const first = await createAttempt(who, 'k-first');
@@ -404,7 +401,7 @@ describe.skip('M6-31 — one active mock per student, said as something an opera
   });
 });
 
-describe.skip('M6-32 — events: append-only, idempotent on the event id, answered one by one', () => {
+describe('M6-32 — events: append-only, idempotent on the event id, answered one by one', () => {
   it('records a log and answers each event; sending it all again changes nothing, byte for byte', async () => {
     const { who, attemptId } = await startedAttempt();
     const events = evening(attemptId, slotIds);
@@ -528,7 +525,7 @@ describe.skip('M6-32 — events: append-only, idempotent on the event id, answer
   });
 });
 
-describe.skip('M6-34 — submission: idempotent, honest about its reason, and closes the log', () => {
+describe('M6-34 — submission: idempotent, honest about its reason, and closes the log', () => {
   it('submits once: the same key again returns it and changes nothing, a different key is a conflict', async () => {
     const { who, attemptId } = await startedAttempt();
     const auditBefore = await count(`SELECT count(*)::int AS n FROM platform.audit_record WHERE action = 'SubmitAttempt' AND target_id = $1`, [attemptId]);
@@ -608,7 +605,7 @@ describe.skip('M6-34 — submission: idempotent, honest about its reason, and cl
   });
 });
 
-describe.skip('M6-33 — device switch: two devices, disjoint events, one union', () => {
+describe('M6-33 — device switch: two devices, disjoint events, one union', () => {
   /** The failure this guards against: keep one side's log and drop the other's. */
   const lastWriterWins = (a: readonly WireEvent[], b: readonly WireEvent[]): readonly WireEvent[] => (a.at(-1)!.monotonicMs >= b.at(-1)!.monotonicMs ? a : b);
 
@@ -665,7 +662,7 @@ describe.skip('M6-33 — device switch: two devices, disjoint events, one union'
   });
 });
 
-describe.skip('M6-35 — a complete backend outage in the middle of an attempt loses nothing', () => {
+describe('M6-35 — a complete backend outage in the middle of an attempt loses nothing', () => {
   it('drives the engine\'s queue against real ingestion, with the server unreachable for the middle of the attempt', async () => {
     const engine = await import('@questionbank/attempt-engine');
     const { who, attemptId, intervalCapMs } = await startedAttempt();
@@ -856,7 +853,7 @@ describe.skip('M6-35 — a complete backend outage in the middle of an attempt l
   });
 });
 
-describe.skip('what a cache may keep of the student\'s routes (M6-51)', () => {
+describe('what a cache may keep of the student\'s routes (M6-51)', () => {
   it('is told to keep none of it: every attempt response, error or not, is no-store', async () => {
     const { who, attemptId } = await startedAttempt();
     const responses = [
@@ -873,7 +870,7 @@ describe.skip('what a cache may keep of the student\'s routes (M6-51)', () => {
 const KEY_FIELD_NAMES = ['correctOptionId', 'correctOptionIds', 'isCorrect', 'answerKey', 'expectedValue', 'finalAnswerAssertion', 'responseSpec', 'pairs', 'solution', 'stem'] as const;
 const keyFieldsIn = (body: unknown): string[] => KEY_FIELD_NAMES.filter((field) => JSON.stringify(body).includes(`"${field}"`));
 
-describe.skip('what is not on the student surface is not there', () => {
+describe('what is not on the student surface is not there', () => {
   it('has no route to abandon, to edit an event, to delete one, or to set a deadline', async () => {
     const { who, attemptId } = await startedAttempt();
     const attempts: [string, string][] = [

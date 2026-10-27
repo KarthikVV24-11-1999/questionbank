@@ -264,6 +264,9 @@ verification (F41) · authorization negative-path 100%
 > that could fail: every state traceable to its responses, and a verified gain needing forty-eight hours and a different sitting. **D72 is open:** a re-score
 > never reaches Learning, so a corrected outcome does not correct the evidence. Practice, the report, the review schedule and the surfaces are Tracks C to H. DEC-M7-4
 > is rejected and D2 stands: practice is the same `Attempt`, mode-parameterized.
+>
+> **Track C (what the quarantine cost):** the key-free argument can no longer be satisfied by a skipped test ([ADR-0047](adr/ADR-0047-a-gate-reads-the-structure-of-the-test-it-names.md)), the attempt routes' key-free proof runs again,
+> three coverage thresholds are back at 100, and the intermittent attempts spec is fixed and un-skipped: its 404 was never the application's (D73). Practice sessions are Track D.
 
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation
 
