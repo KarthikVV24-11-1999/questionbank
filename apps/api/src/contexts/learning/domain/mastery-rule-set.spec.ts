@@ -143,6 +143,10 @@ describe('the pace and review groups (M7-46, M7-47)', () => {
     for (const [field, changes] of cases) expect(expectError(validateThresholds(reviewWith(changes))).message, field).toContain(field);
   });
 
+  it('refuses a review that is null or not an object, as one fault, without reading its values', () => {
+    for (const review of [null, 'weekly', 7]) expect(expectError(validateThresholds({ ...D002_THRESHOLDS, review })).message, String(review)).toContain('review must be an object');
+  });
+
   it('refuses intervals that are not in order: the least cannot exceed the first, and the first cannot exceed the most', () => {
     expect(expectError(validateThresholds(reviewWith({ minIntervalDays: 2, firstIntervalDays: 1 }))).message).toContain('minIntervalDays cannot exceed');
     expect(expectError(validateThresholds(reviewWith({ firstIntervalDays: 61 }))).message).toContain('firstIntervalDays cannot exceed');

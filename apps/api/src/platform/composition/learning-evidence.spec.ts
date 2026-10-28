@@ -207,8 +207,30 @@ describe('the responses of an attempt with the time each took (M7-46)', () => {
     expect(result.ok === false && result.error.kind).toBe('NotFound');
   });
 
-  it('fails whole, as unavailable, when content cannot place a response', async () => {
+  it('fails whole, as unavailable, naming the slot, when content answers but has no tag for a response', async () => {
     const result = await seams({ outcomes: good([slot(1, 'correct')]), taxonomy: () => ({ ok: true, value: [] }), timings: timed({ s1: { timeOnItemMs: 1 } }) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
-    expect(result.ok === false && result.error).toMatchObject({ kind: 'Unavailable', code: 'SOURCE_UNAVAILABLE' });
+    expect(result.ok === false && result.error).toMatchObject({ kind: 'Unavailable', code: 'SOURCE_UNAVAILABLE', message: 'slot s1 cannot be resolved to a concept and a time' });
+  });
+
+  it('fails as unavailable, naming assessment, when assessment errors with anything but not found or not submitted', async () => {
+    const result = await seams({ outcomes: good([slot(1, 'correct')]), timings: () => ({ ok: false, error: { kind: 'Unavailable', code: 'STORE_UNAVAILABLE', message: 'x' } }) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok === false && result.error).toMatchObject({ kind: 'Unavailable', code: 'SOURCE_UNAVAILABLE', message: 'assessment could not be read: STORE_UNAVAILABLE' });
+  });
+
+  it('says not found when the attempt is the learner\'s but scoring has no record of it', async () => {
+    const outcomes = { ok: false, error: { kind: 'NotFound', code: 'NOT_FOUND', message: 'x' } };
+    const result = await seams({ outcomes, timings: timed({}) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok === false && result.error).toMatchObject({ kind: 'NotFound', code: 'ATTEMPT_NOT_FOUND' });
+  });
+
+  it('fails as unavailable, naming scoring, when scoring errors with anything but not found', async () => {
+    const outcomes = { ok: false, error: { kind: 'Unavailable', code: 'SCORING_DOWN', message: 'x' } };
+    const result = await seams({ outcomes, timings: timed({}) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok === false && result.error).toMatchObject({ kind: 'Unavailable', code: 'SOURCE_UNAVAILABLE', message: 'scoring could not be read: SCORING_DOWN' });
+  });
+
+  it('fails as unavailable, naming content, when the taxonomy seam does not answer', async () => {
+    const result = await seams({ outcomes: good([slot(1, 'correct')]), taxonomy: () => ({ ok: false, error: { kind: 'Unavailable', code: 'TAXONOMY_DOWN', message: 'x' } }), timings: timed({ s1: { timeOnItemMs: 1 } }) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok === false && result.error).toMatchObject({ kind: 'Unavailable', code: 'SOURCE_UNAVAILABLE', message: 'content could not be read: TAXONOMY_DOWN' });
   });
 });
