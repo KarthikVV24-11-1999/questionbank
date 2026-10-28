@@ -311,7 +311,22 @@ describe('a score and its event are one transaction (M7-01, DEC-M7-6)', () => {
     );
     expect(state.rows[0].state).toBe('executing');
     expect(await eventsFor(operation.operationId)).toEqual([]);
-    // the supersession is in the transaction that failed: the first score still stands, and no second generation exists (D72)
+  });
+
+  it('leaves the first score current, with no second generation, when the announcement cannot be written (D72)', async () => {
+    const attemptId = randomUUID();
+    const steady = harness();
+    expectValue(await steady.score.handle(command(attemptId), opsContext));
+    const operation = expectValue(
+      await steady.draft.handle({ trigger: 'RULE_CORRECTION', scope: 'RULE_CHANGE', scopeRef: 'rs-d72-atomic', reason: 'rule corrected' }, opsContext),
+    );
+    const corrected = [command(attemptId, keyA, 'B')];
+    expectValue(await steady.dryRun.handle({ operationId: operation.operationId, attempts: corrected }, opsContext));
+    expectValue(await steady.approve.handle({ operationId: operation.operationId }, adminContext));
+
+    expectError(await harness(poolRefusing(OUTBOX_WRITE)).execute.handle({ operationId: operation.operationId, attempts: corrected }, adminContext));
+
+    // the supersession is in the transaction that failed: the first score still stands, and no second generation exists
     const generations = await database.pool.query('SELECT generation, is_current FROM scoring.score_record WHERE attempt_id = $1 ORDER BY generation', [attemptId]);
     expect(generations.rows).toEqual([{ generation: 1, is_current: true }]);
   });
