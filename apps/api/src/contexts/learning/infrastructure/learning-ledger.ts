@@ -6,6 +6,7 @@ import type { MasteryTransition } from '../domain/mastery-transition.js';
 import type { DifficultyEstimate, EvidenceOutcome } from '../domain/mastery-evidence.js';
 import { err, ok, type Result } from '../domain/result.js';
 import type { ErrorEntry } from '../domain/error-entry.js';
+import type { ReviewSchedule } from '../domain/review-schedule.js';
 import type { StudySession } from '../domain/study-session.js';
 
 /**
@@ -222,6 +223,38 @@ class PostgresLedgerTransaction implements LedgerTransaction {
         ],
       );
     }
+  }
+
+  async saveReviewSchedules(taxonomyVersionId: string, schedules: readonly ReviewSchedule[], ruleSetId: string): Promise<void> {
+    for (const s of schedules) {
+      await this.client.query(
+        `INSERT INTO learning.review_schedule
+           (learner_ref, taxonomy_version_id, concept_identity_id, due_at, interval_days, consecutive_successes, lapse_count, last_observed_at, rule_set_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (learner_ref, taxonomy_version_id, concept_identity_id) DO UPDATE SET
+           due_at = EXCLUDED.due_at, interval_days = EXCLUDED.interval_days, consecutive_successes = EXCLUDED.consecutive_successes,
+           lapse_count = EXCLUDED.lapse_count, last_observed_at = EXCLUDED.last_observed_at, rule_set_id = EXCLUDED.rule_set_id`,
+        [this.learnerRef, taxonomyVersionId, s.conceptIdentityId, s.dueAt, s.intervalDays, s.consecutiveSuccesses, s.lapseCount, s.lastObservedAt, ruleSetId],
+      );
+    }
+  }
+
+  async escalate(taxonomyVersionId: string, escalations: readonly { readonly conceptIdentityId: string; readonly lapseCount: number }[], ruleSetId: string, escalatedAt: Date): Promise<readonly string[]> {
+    const fresh: string[] = [];
+    for (const e of escalations) {
+      const { rowCount } = await this.client.query(
+        `INSERT INTO learning.review_escalation (learner_ref, taxonomy_version_id, concept_identity_id, escalated_at, lapse_count, rule_set_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (learner_ref, taxonomy_version_id, concept_identity_id) DO NOTHING`,
+        [this.learnerRef, taxonomyVersionId, e.conceptIdentityId, escalatedAt, e.lapseCount, ruleSetId],
+      );
+      if (rowCount === 1) fresh.push(e.conceptIdentityId);
+    }
+    return fresh;
+  }
+
+  async dropReviewSchedules(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<void> {
+    await this.client.query('DELETE FROM learning.review_schedule WHERE learner_ref = $1 AND taxonomy_version_id = $2 AND concept_identity_id = ANY($3::uuid[])', [this.learnerRef, taxonomyVersionId, conceptIdentityIds]);
   }
 
   async dropConceptStates(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<void> {

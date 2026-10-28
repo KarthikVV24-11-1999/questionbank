@@ -84,7 +84,7 @@ describe('recording a learner\'s evidence', () => {
     // one pausable attempt paused for a day is two sittings, and every response is in one of them
     expect(await count('SELECT count(*)::int AS n FROM learning.study_session WHERE learner_ref = $1', [learner])).toBe(2);
     const stored = (await database.pool.query('SELECT state, raw_state, evidence_count, distinct_session_count, rule_set_id FROM learning.concept_state WHERE learner_ref = $1', [learner])).rows;
-    expect(stored).toEqual([{ state: 'strong', raw_state: 'strong', evidence_count: 8, distinct_session_count: 2, rule_set_id: '00000000-0000-4000-8000-0000000000d2' }]);
+    expect(stored).toEqual([{ state: 'strong', raw_state: 'strong', evidence_count: 8, distinct_session_count: 2, rule_set_id: '00000000-0000-4000-8000-0000000000d3' }]);
   });
 
   it('makes every state traceable: the stored state is what the stored responses derive, and it names exactly those responses', async () => {
@@ -302,7 +302,7 @@ describe('a weak concept becomes strong, and the gain is verified', () => {
     const done = expectValue(await handlerOn().handle({ learnerRef: learner, evidence: history.qualifying(concept) }, system));
 
     expect(done.transitions).toHaveLength(1);
-    expect(await transitions(learner)).toMatchObject([{ from_state: 'weak', to_state: 'strong', is_regression: false, verified_at: null, rule_set_id: '00000000-0000-4000-8000-0000000000d2' }]);
+    expect(await transitions(learner)).toMatchObject([{ from_state: 'weak', to_state: 'strong', is_regression: false, verified_at: null, rule_set_id: '00000000-0000-4000-8000-0000000000d3' }]);
     const links = (await database.pool.query(`SELECT role, count(*)::int AS n FROM learning.mastery_transition_evidence GROUP BY role`)).rows;
     expect(links).toEqual([{ role: 'qualifying', n: 8 }]);
     expect(await northStar(learner)).toBe(0);

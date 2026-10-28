@@ -29,7 +29,18 @@ export interface SlotProjection {
    * log's order is the same wherever the events were captured.
    */
   readonly skipped: boolean;
+  /**
+   * What was counted (M7-45, DEC-M7-22): every visit → leave interval, each limited to the cap. It is a **lower bound** on the time the learner spent on the slot, and it
+   * is exact only when `truncatedIntervals` and `unclosedVisits` are both 0. Read it with them: two slots with the same value can differ in
+   * what was thrown away to get it.
+   */
   readonly timeOnItemMs: number;
+  /** Intervals that ran past the cap and were cut to it. Beside `timeOnItemMs` and from the same pass. */
+  readonly truncatedIntervals: number;
+  /** Milliseconds those intervals ran beyond the cap, summed. The slot's time was at most `timeOnItemMs + discardedMs`, unless a visit was never closed. */
+  readonly discardedMs: number;
+  /** Visits that never reached a leave — the app died, or the log ends inside one — whose duration is not known at all. Counted as nothing in `timeOnItemMs`. */
+  readonly unclosedVisits: number;
 }
 
 export interface Projection {
@@ -43,11 +54,14 @@ interface SlotState {
   flagged: boolean;
   skipped: boolean;
   timeOnItemMs: number;
+  truncatedIntervals: number;
+  discardedMs: number;
+  unclosedVisits: number;
   openVisitAtMs: number | null;
 }
 
 function newSlotState(): SlotState {
-  return { answer: null, answerChanges: 0, flagged: false, skipped: false, timeOnItemMs: 0, openVisitAtMs: null };
+  return { answer: null, answerChanges: 0, flagged: false, skipped: false, timeOnItemMs: 0, truncatedIntervals: 0, discardedMs: 0, unclosedVisits: 0, openVisitAtMs: null };
 }
 
 function apply(state: SlotState, event: ResponseEvent, intervalCapMs: number): void {
@@ -76,14 +90,20 @@ function apply(state: SlotState, event: ResponseEvent, intervalCapMs: number): v
     case 'visit':
       // A second visit with no leave between means the first was never
       // closed — the app died or was killed. Its time is unknown, so it
-      // counts as nothing and the new visit starts fresh.
+      // counts as nothing and the new visit starts fresh — but the loss is recorded, since "nothing" here means "not known".
+      if (state.openVisitAtMs !== null) state.unclosedVisits += 1;
       state.openVisitAtMs = event.monotonicMs;
       return;
     case 'leave': {
       // A leave with no visit has no start to measure from: ignored.
       if (state.openVisitAtMs === null) return;
       const interval = event.monotonicMs - state.openVisitAtMs;
-      state.timeOnItemMs += Math.min(Math.max(interval, 0), intervalCapMs);
+      const counted = Math.min(Math.max(interval, 0), intervalCapMs);
+      state.timeOnItemMs += counted;
+      if (interval > intervalCapMs) {
+        state.truncatedIntervals += 1;
+        state.discardedMs += interval - intervalCapMs;
+      }
       state.openVisitAtMs = null;
       return;
     }
@@ -125,6 +145,10 @@ export function projectResponses(events: readonly ResponseEvent[], options: Proj
       flagged: state.flagged,
       skipped: state.skipped,
       timeOnItemMs: state.timeOnItemMs,
+      truncatedIntervals: state.truncatedIntervals,
+      discardedMs: state.discardedMs,
+      // a visit still open when the log ends is as lost as one a later visit overwrote
+      unclosedVisits: state.unclosedVisits + (state.openVisitAtMs === null ? 0 : 1),
     };
   });
   return { slots };

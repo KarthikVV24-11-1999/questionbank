@@ -10,7 +10,10 @@ import { SuggestRemediationConceptsHandler } from '../application/handlers/remed
 import { RecordMasteryEvidenceHandler } from '../application/handlers/record-evidence-handler.js';
 import type { Clock, IdentifierFactory } from '../application/ports.js';
 import { CreateBookmarkHandler, ListBookmarksHandler, ListErrorEntriesHandler, SetErrorCauseHandler } from '../application/handlers/notebook-handlers.js';
-import type { ItemStandingSource } from '../application/ports.js';
+import type { ItemStandingSource, PaceSlotSource } from '../application/ports.js';
+import { GetReviewPlanHandler } from '../application/handlers/review-plan-handler.js';
+import { PostgresReviewStore } from '../infrastructure/review.repository.js';
+import { GetPaceAnalyticsHandler } from '../application/handlers/pace-handler.js';
 import { PostgresBookmarkStore, PostgresErrorEntryStore } from '../infrastructure/notebook.repository.js';
 import { GenerateDiagnosticReportHandler, GetDiagnosticReportHandler } from '../application/handlers/report-handlers.js';
 import { PostgresDiagnosticReportStore } from '../infrastructure/diagnostic-report.repository.js';
@@ -22,7 +25,9 @@ export { EVIDENCE_OUTCOMES, createMasteryEvidence } from '../domain/mastery-evid
 export type { DifficultyEstimate, EvidenceOutcome, MasteryEvidence } from '../domain/mastery-evidence.js';
 export type { ItemStanding } from '../domain/bookmark.js';
 export type { GaveUpSlot } from '../domain/error-entry.js';
-export type { ItemStandingSource, ReportSlotSource } from '../application/ports.js';
+export type { ItemStandingSource, PaceSlotSource, ReportSlotSource } from '../application/ports.js';
+export type { PaceSlot } from '../domain/pace-analytics.js';
+export type { PaceAnalyticsView } from '../application/handlers/pace-handler.js';
 export type { ReportSlot, Finding } from '../domain/diagnostic-report.js';
 export type { DiagnosticReportView, ReportedFinding, Remediation } from '../application/handlers/report-handlers.js';
 export type {
@@ -89,10 +94,14 @@ export interface LearningForLearner {
   readonly listBookmarks: ListBookmarksHandler;
   /** The learner's report for a mock, findings ranked by marks lost, each with its remediation (M7-42, M7-43). */
   readonly getReport: GetDiagnosticReportHandler;
+  /** The learner's time against outcome for an attempt, with what the cap threw away reported as not known (M7-46). */
+  readonly paceAnalytics: GetPaceAnalyticsHandler;
+  /** What the learner has due for review: concepts, never items (M7-47). */
+  readonly reviewPlan: GetReviewPlanHandler;
 }
 
-export function learningForLearner(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly standings: ItemStandingSource }): LearningForLearner {
-  for (const key of ['pool', 'clock', 'identifiers', 'standings'] as const) {
+export function learningForLearner(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly standings: ItemStandingSource; readonly paceSlots: PaceSlotSource }): LearningForLearner {
+  for (const key of ['pool', 'clock', 'identifiers', 'standings', 'paceSlots'] as const) {
     if (deps[key] === undefined) {
       throw new Error(`learning composition is missing required dependency: ${key}`);
     }
@@ -105,5 +114,7 @@ export function learningForLearner(deps: { readonly pool: Pool; readonly clock: 
     createBookmark: new CreateBookmarkHandler({ bookmarks, clock: deps.clock, identifiers: deps.identifiers }),
     listBookmarks: new ListBookmarksHandler({ bookmarks, standings: deps.standings }),
     getReport: new GetDiagnosticReportHandler({ reports: new PostgresDiagnosticReportStore(deps.pool), concepts: new PostgresConceptReader(deps.pool) }),
+    paceAnalytics: new GetPaceAnalyticsHandler({ slots: deps.paceSlots, ruleSets: new PostgresMasteryRuleSetRepository(deps.pool) }),
+    reviewPlan: new GetReviewPlanHandler({ reviews: new PostgresReviewStore(deps.pool), concepts: new PostgresConceptReader(deps.pool), clock: deps.clock }),
   };
 }

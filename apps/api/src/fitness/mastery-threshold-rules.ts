@@ -32,6 +32,14 @@ export const THRESHOLD_NAMES = [
   'weakBelowAccuracy',
   'halfLifeDays',
   'confidenceFloor',
+  'slowAboveMs',
+  'passAccuracy',
+  'firstIntervalDays',
+  'growthFactor',
+  'lapseFactor',
+  'minIntervalDays',
+  'maxIntervalDays',
+  'escalateAtLapses',
 ] as const;
 
 const toConstantCase = (name: string): string => name.replace(/([a-z0-9])([A-Z])/gu, '$1_$2').toUpperCase();

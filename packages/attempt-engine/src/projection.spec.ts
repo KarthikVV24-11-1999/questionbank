@@ -150,6 +150,43 @@ describe('time on item', () => {
   });
 });
 
+describe('what the interval cap threw away', () => {
+  const cap = { intervalCapMs: 60_000 };
+  // both read 60 s on item: one learner thought for five unbroken minutes, the other for exactly a minute
+  const thoughtForFiveMinutes = [ev('visit', 1, { slot: 'long', at: 0 }), ev('leave', 2, { slot: 'long', at: 300_000 })];
+  const thoughtForAMinute = [ev('visit', 3, { slot: 'exact', at: 0 }), ev('leave', 4, { slot: 'exact', at: 60_000 })];
+  const bySlot = () => new Map(projectResponses([...thoughtForFiveMinutes, ...thoughtForAMinute], cap).slots.map((s) => [s.slot, s]));
+
+  it('tells a truncated slot from an untruncated one that has the same time', () => {
+    const slots = bySlot();
+    expect(slots.get('long')?.timeOnItemMs).toBe(slots.get('exact')?.timeOnItemMs);
+    expect(slots.get('long')?.truncatedIntervals).toBe(1);
+    expect(slots.get('exact')?.truncatedIntervals).toBe(0);
+  });
+
+  it('says how many milliseconds were dropped', () => {
+    expect(bySlot().get('long')?.discardedMs).toBe(240_000);
+    expect(bySlot().get('exact')?.discardedMs).toBe(0);
+  });
+
+  it('counts each interval over the cap and sums what each dropped', () => {
+    const events = [ev('visit', 1, { at: 0 }), ev('leave', 2, { at: 100_000 }), ev('visit', 3, { at: 200_000 }), ev('leave', 4, { at: 290_000 }), ev('visit', 5, { at: 300_000 }), ev('leave', 6, { at: 310_000 })];
+    expect(only(events, cap)).toMatchObject({ timeOnItemMs: 130_000, truncatedIntervals: 2, discardedMs: 70_000 });
+  });
+
+  it('does not count an interval exactly at the cap as truncated', () => {
+    expect(only([ev('visit', 1, { at: 0 }), ev('leave', 2, { at: 60_000 })], cap)?.truncatedIntervals).toBe(0);
+  });
+
+  it('counts a visit a later visit overwrote as unclosed', () => {
+    expect(only([ev('visit', 1, { at: 0 }), ev('visit', 2, { at: 5000 }), ev('leave', 3, { at: 9000 })], cap)?.unclosedVisits).toBe(1);
+  });
+
+  it('counts a visit still open at the end of the log as unclosed', () => {
+    expect(only([ev('visit', 1, { at: 0 }), ev('leave', 2, { at: 1000 }), ev('visit', 3, { at: 5000 })], cap)?.unclosedVisits).toBe(1);
+  });
+});
+
 describe('the projection as a whole', () => {
   it('is empty for an empty log', () => {
     expect(projectResponses([], OPTIONS)).toEqual({ slots: [] });
@@ -204,6 +241,9 @@ const arrivalOrderProjection: Projector = (events) => {
       flagged: false,
       skipped: false,
       timeOnItemMs: 0,
+      truncatedIntervals: 0,
+      discardedMs: 0,
+      unclosedVisits: 0,
     })),
   };
 };

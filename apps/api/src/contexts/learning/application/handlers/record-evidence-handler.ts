@@ -5,6 +5,7 @@ import { errorEntryFromEvidence, errorEntryFromGaveUp, type ErrorEntry, type Gav
 import { advanceConcept, reconcileTransitions, type MasteryTransition, type OpenPromotion } from '../../domain/mastery-transition.js';
 import type { MasteryEvidence } from '../../domain/mastery-evidence.js';
 import type { MasteryRuleSet } from '../../domain/mastery-rule-set.js';
+import { escalationDue, scheduleOf } from '../../domain/review-schedule.js';
 import { placeInSession } from '../../domain/study-session.js';
 import { err, type Result } from '../../domain/result.js';
 import { authorize, policy, type ApplicationError } from '../authorization.js';
@@ -59,6 +60,8 @@ export interface RecordedEvidence {
   readonly revoked: readonly string[];
   /** Promotions stored by an earlier delivery that this one verified. */
   readonly verified: readonly { readonly transitionId: string; readonly verifiedAt: string }[];
+  /** Concepts this delivery escalated to remediation because they lapsed often enough (M7-48): each is named once, in the delivery that escalated it. */
+  readonly escalated: readonly { readonly taxonomyVersionId: string; readonly conceptIdentityId: string; readonly lapseCount: number }[];
 }
 
 export interface RecordMasteryEvidenceDependencies {
@@ -119,7 +122,7 @@ export class RecordMasteryEvidenceHandler {
       }
       await tx.correctEvidence(corrections, now);
 
-      if (stored.length === 0 && corrections.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), corrected: 0, revoked: Object.freeze([]), verified: Object.freeze([]) });
+      if (stored.length === 0 && corrections.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), corrected: 0, revoked: Object.freeze([]), verified: Object.freeze([]), escalated: Object.freeze([]) });
 
       const wrong = stored.flatMap((row) => errorEntryFromEvidence(command.learnerRef, this.deps.identifiers.next(), row.evidence) ?? []);
       await tx.insertErrorEntries(wrong satisfies ErrorEntry[], now);
@@ -138,6 +141,7 @@ export class RecordMasteryEvidenceHandler {
       const transitions: MasteryTransition[] = [];
       const verified: { transitionId: string; verifiedAt: string }[] = [];
       const revoked: string[] = [];
+      const escalated: { taxonomyVersionId: string; conceptIdentityId: string; lapseCount: number }[] = [];
       const asOf = now.toISOString();
       // only the taxonomy versions this delivery actually changed: one whose responses were all stored already, and none corrected, is left as it is
       for (const taxonomy of new Set([...stored.map((r) => r.evidence.taxonomyVersionId), ...corrected.keys()])) {
@@ -205,9 +209,21 @@ export class RecordMasteryEvidenceHandler {
         await tx.saveConceptStates(taxonomy, map.conceptStates, ruleSet.ruleSetId, floors);
         // a concept left with no evidence is unassessed, and unassessed is the absence of a state: the one it had before the correction goes
         await tx.dropConceptStates(taxonomy, [...changed].filter((concept) => (evidenceByConcept.get(concept) ?? []).length === 0));
+        // The schedule is derived as the state is: from the evidence as it now stands, for every concept the delivery touched. A rule set published before the review
+        // values existed has none, and its concepts are not scheduled until one that has them is in force (DEC-M7-24).
+        const review = ruleSet.thresholds.review;
+        if (review !== undefined) {
+          const schedules = touched.flatMap((concept) => scheduleOf(concept, evidenceByConcept.get(concept) ?? [], review) ?? []);
+          await tx.saveReviewSchedules(taxonomy, schedules, ruleSet.ruleSetId);
+          // a concept that has lapsed often enough is not given a still shorter interval; it is escalated, once (DEC-M7-25)
+          const lapsed = schedules.filter((schedule) => escalationDue(schedule, review));
+          const fresh = new Set(await tx.escalate(taxonomy, lapsed.map((s) => ({ conceptIdentityId: s.conceptIdentityId, lapseCount: s.lapseCount })), ruleSet.ruleSetId, now));
+          escalated.push(...lapsed.filter((s) => fresh.has(s.conceptIdentityId)).map((s) => ({ taxonomyVersionId: taxonomy, conceptIdentityId: s.conceptIdentityId, lapseCount: s.lapseCount })));
+          await tx.dropReviewSchedules(taxonomy, [...changed].filter((concept) => (evidenceByConcept.get(concept) ?? []).length === 0));
+        }
         maps.push(map);
       }
-      return Object.freeze({ recorded: stored.length, replayed: rows.length - stored.length, maps: Object.freeze(maps), transitions: Object.freeze(transitions), corrected: corrections.length, revoked: Object.freeze(revoked), verified: Object.freeze(verified) });
+      return Object.freeze({ recorded: stored.length, replayed: rows.length - stored.length, maps: Object.freeze(maps), transitions: Object.freeze(transitions), corrected: corrections.length, revoked: Object.freeze(revoked), verified: Object.freeze(verified), escalated: Object.freeze(escalated) });
     });
   }
 }

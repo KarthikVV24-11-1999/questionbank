@@ -181,3 +181,34 @@ describe('assembling the slots of a report from the two seams (M7-41)', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'ITEM_VERSION_UNRESOLVED', itemVersionIds: [missing] } });
   });
 });
+
+describe('the responses of an attempt with the time each took (M7-46)', () => {
+  const timed = (rows: Record<string, { timeOnItemMs: number; discardedMs?: number; unclosedVisits?: number }>, learnerRef = LEARNER) => (slots: readonly string[]) => ({
+    ok: true,
+    value: { learnerRef, slots: slots.map((slotRef) => ({ slotRef, itemVersionId: 'x', respondedAt: null, gaveUpAt: null, truncatedIntervals: 0, discardedMs: 0, unclosedVisits: 0, ...rows[slotRef] })) },
+  });
+
+  it('carries each response\'s time, what was discarded and the unclosed visits through to the slot, and leaves out what was not a response', async () => {
+    const slots = [slot(1, 'correct'), slot(2, 'unattempted'), slot(3, 'incorrect')];
+    const result = await seams({ outcomes: good(slots), timings: timed({ s1: { timeOnItemMs: 7, discardedMs: 11, unclosedVisits: 3 }, s2: { timeOnItemMs: 99 }, s3: { timeOnItemMs: 5 } }) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok && result.value.map((s) => [s.slotRef, s.outcome, s.timeOnItemMs, s.discardedMs, s.unclosedVisits, s.difficultyEstimate])).toEqual([
+      ['s1', 'correct', 7, 11, 3, 'moderate'],
+      ['s3', 'incorrect', 5, 0, 0, 'moderate'],
+    ]);
+  });
+
+  it('says not found, and reads no score, for an attempt that belongs to someone else', async () => {
+    const result = await seams({ outcomes: good([slot(1, 'correct')]), timings: timed({}, randomUUID()) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok === false && result.error).toMatchObject({ kind: 'NotFound', code: 'ATTEMPT_NOT_FOUND' });
+  });
+
+  it('says not found for an attempt that is not submitted, as for one that is not there', async () => {
+    const result = await seams({ outcomes: good([]), timings: () => ({ ok: false, error: { kind: 'PreconditionFailed', code: 'ATTEMPT_NOT_SUBMITTED' } }) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok === false && result.error.kind).toBe('NotFound');
+  });
+
+  it('fails whole, as unavailable, when content cannot place a response', async () => {
+    const result = await seams({ outcomes: good([slot(1, 'correct')]), taxonomy: () => ({ ok: true, value: [] }), timings: timed({ s1: { timeOnItemMs: 1 } }) }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+    expect(result.ok === false && result.error).toMatchObject({ kind: 'Unavailable', code: 'SOURCE_UNAVAILABLE' });
+  });
+});

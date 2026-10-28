@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { THRESHOLD_NAMES, checkNoThresholdLiteral } from './mastery-threshold-rules.js';
-import { D002_THRESHOLDS } from '../testing/learning-thresholds.js';
+import { PLATFORM_THRESHOLDS_V2 } from '../testing/learning-thresholds.js';
 
 const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const WORKSPACE = resolve(API_ROOT, '../..');
@@ -14,7 +14,7 @@ describe('M7-12 — D-002\'s thresholds have one source, the table', () => {
   });
 
   it('names every value in the thresholds type: the set, so a value added without a name here fails', () => {
-    const leaves = Object.values(D002_THRESHOLDS).flatMap((group) => Object.keys(group));
+    const leaves = Object.values(PLATFORM_THRESHOLDS_V2).flatMap((group) => Object.keys(group));
     expect([...THRESHOLD_NAMES].sort()).toEqual([...leaves].sort());
   });
 
@@ -38,6 +38,11 @@ describe('M7-12 — D-002\'s thresholds have one source, the table', () => {
     it('declared as a constant, with a fraction and in constant case', () => {
       const found = checkNoThresholdLiteral(fixtures, ['as-mastery-threshold']);
       expect(found.filter((v) => v.file.endsWith('planted-constant.ts')).map((v) => v.detail).sort()).toEqual(['IDLE_GAP_MINUTES = 30', 'MIN_RECENT_ACCURACY = 0.8']);
+    });
+
+    it('written for the pace and review values, which have names of their own', () => {
+      const found = checkNoThresholdLiteral(fixtures, ['as-mastery-threshold']);
+      expect(found.filter((v) => v.file.endsWith('planted-pace-and-review.ts')).map((v) => v.detail).sort()).toEqual(['escalateAtLapses: 3', 'passAccuracy: 0.8', 'slowAboveMs: 90000']);
     });
 
     it('but not when the value is read from a rule set', () => {

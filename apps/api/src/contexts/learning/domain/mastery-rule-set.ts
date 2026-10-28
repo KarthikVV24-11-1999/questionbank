@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { err, ok, type Result } from './result.js';
-import type { LearningError } from './mastery-evidence.js';
+import { DIFFICULTY_ESTIMATES, type DifficultyEstimate, type LearningError } from './mastery-evidence.js';
 
 /**
  * D-002's thresholds, as versioned data (M7-12).
@@ -16,6 +16,10 @@ import type { LearningError } from './mastery-evidence.js';
  * that applies where none is published for the taxonomy.
  *
  * The `StudySession` idle gap (DEC-M7-2) is one of these values, not a separate setting.
+ *
+ * **`pace` and `review` are optional because versions are immutable** (M7-46, M7-47): version 1 of the platform default was published without them and is what
+ * transitions were decided under, so it must keep reading as the row it is, hash and all. A version that has them is what the analytics read; one that does not
+ * gives no pace and no schedule, and says so rather than falling back on a number written here.
  *
  * Values D-002 gives: `minResponses`, `minDistinctItems`, `minDistinctSessions`, `recentWindow`, `minRecentAccuracy`, `minRecentAtDemonstratedBand`,
  * `minVerifyingResponses`, `minVerifyingGapHours`, and (DEC-M7-2) `idleGapMinutes`. Values it does not give, and which were chosen: `weakBelowAccuracy`,
@@ -54,6 +58,34 @@ export interface MasteryThresholds {
     /** A `strong` state whose confidence falls below this is `developing`. A fraction in (0, 1). */
     readonly confidenceFloor: number;
   };
+  readonly pace?: PaceThresholds;
+  readonly review?: ReviewThresholds;
+}
+
+/**
+ * When a response is slow (M7-46, DEC-M7-23): a time on item above which it is, per authored difficulty band, because a question authored as advanced is allowed
+ * longer than one authored as foundational. A chosen value and not a measured one (D71): it is a judgement of the same kind the band is.
+ */
+export interface PaceThresholds {
+  readonly slowAboveMs: { readonly [Band in DifficultyEstimate]: number };
+}
+
+/**
+ * How a concept is scheduled for review and when it is escalated (M7-47, M7-48, DEC-M7-24). One observation is a concept's responses in one study sitting.
+ */
+export interface ReviewThresholds {
+  /** An observation passes at or above this fraction of its responses correct. */
+  readonly passAccuracy: number;
+  /** The first interval after a pass, in days. */
+  readonly firstIntervalDays: number;
+  /** Each further consecutive pass multiplies the interval by this; above 1. */
+  readonly growthFactor: number;
+  /** A failure multiplies the interval by this, so it shortens; between 0 and 1. */
+  readonly lapseFactor: number;
+  readonly minIntervalDays: number;
+  readonly maxIntervalDays: number;
+  /** At this many lapses a concept stops being repeated and is escalated to remediation (DOMAIN-MODEL: escalate rather than repeat). */
+  readonly escalateAtLapses: number;
 }
 
 export type MasteryRuleSetErrorCode = 'RULE_SET_THRESHOLDS_INVALID' | 'RULE_SET_REFERENCE_INVALID';
@@ -94,6 +126,47 @@ export function hashThresholds(thresholds: MasteryThresholds): string {
   return createHash('sha256').update(canonicalJson(thresholds)).digest('hex');
 }
 
+function validatePace(input: unknown, faults: string[]): PaceThresholds | undefined {
+  if (input === undefined) return undefined;
+  const slow = (input as { slowAboveMs?: Record<string, unknown> } | null)?.slowAboveMs;
+  if (slow === undefined || slow === null || typeof slow !== 'object') {
+    faults.push('pace.slowAboveMs names a time per difficulty band');
+    return undefined;
+  }
+  let previous = 0;
+  for (const band of DIFFICULTY_ESTIMATES) {
+    const value = slow[band];
+    if (!isPositive(value)) {
+      faults.push(`pace.slowAboveMs.${band} is above 0`);
+    } else {
+      if (value < previous) faults.push(`pace.slowAboveMs.${band} cannot be below the band before it`);
+      previous = value;
+    }
+  }
+  return faults.length > 0 ? undefined : Object.freeze({ slowAboveMs: Object.freeze({ ...(slow as PaceThresholds['slowAboveMs']) }) });
+}
+
+function validateReview(input: unknown, faults: string[]): ReviewThresholds | undefined {
+  if (input === undefined) return undefined;
+  const r = input as Record<string, unknown> | null;
+  if (r === null || typeof r !== 'object') {
+    faults.push('review must be an object');
+    return undefined;
+  }
+  const before = faults.length;
+  if (!isFraction(r['passAccuracy'], true)) faults.push('review.passAccuracy is a fraction above 0 and at most 1');
+  for (const key of ['firstIntervalDays', 'minIntervalDays', 'maxIntervalDays', 'escalateAtLapses'] as const) {
+    if (!isWhole(r[key], 1)) faults.push(`review.${key} is a whole number from 1`);
+  }
+  if (!isPositive(r['growthFactor']) || (r['growthFactor'] as number) <= 1) faults.push('review.growthFactor is above 1');
+  if (!isFraction(r['lapseFactor'], false)) faults.push('review.lapseFactor is a fraction above 0 and below 1');
+  if (faults.length > before) return undefined;
+  const review = r as unknown as ReviewThresholds;
+  if (review.minIntervalDays > review.firstIntervalDays) faults.push('review.minIntervalDays cannot exceed review.firstIntervalDays');
+  if (review.firstIntervalDays > review.maxIntervalDays) faults.push('review.firstIntervalDays cannot exceed review.maxIntervalDays');
+  return faults.length > before ? undefined : Object.freeze({ ...review });
+}
+
 /**
  * Checks the shape and the relations between values that make a rule set mean something: a recent window cannot be smaller than the responses a
  * promotion needs *of it*, the band clause cannot ask for more of the window than the window holds, and a floor of 1 would decay a state the moment it
@@ -118,6 +191,10 @@ export function validateThresholds(input: unknown): Result<MasteryThresholds, Le
   if (!isFraction(d['confidenceFloor'], false)) faults.push('decay.confidenceFloor is a fraction above 0 and below 1');
   if (faults.length > 0) return err(invalid(faults.join('; ')));
 
+  const pace = validatePace(t['pace'], faults);
+  const review = validateReview(t['review'], faults);
+  if (faults.length > 0) return err(invalid(faults.join('; ')));
+
   const promotion = p as unknown as MasteryThresholds['promotion'];
   if (promotion.recentWindow > promotion.minResponses) faults.push('promotion.recentWindow cannot exceed promotion.minResponses');
   if (promotion.minRecentAtDemonstratedBand > promotion.recentWindow) faults.push('promotion.minRecentAtDemonstratedBand cannot exceed promotion.recentWindow');
@@ -132,6 +209,8 @@ export function validateThresholds(input: unknown): Result<MasteryThresholds, Le
       session: Object.freeze({ ...(s as unknown as MasteryThresholds['session']) }),
       states: Object.freeze({ ...(st as unknown as MasteryThresholds['states']) }),
       decay: Object.freeze({ ...(d as unknown as MasteryThresholds['decay']) }),
+      ...(pace === undefined ? {} : { pace }),
+      ...(review === undefined ? {} : { review }),
     }),
   );
 }

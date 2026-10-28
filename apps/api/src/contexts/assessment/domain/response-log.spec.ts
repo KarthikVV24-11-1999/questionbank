@@ -89,7 +89,7 @@ describe('projecting a log', () => {
       make(6, 'change', 'z', { afterSubmission: true }),
     ];
     const projection = projectLog(attempt, events);
-    expect(projection.slots).toEqual([{ slot: SLOT, answer: 'b', answerChanges: 1, flagged: true, skipped: false, timeOnItemMs: 3_000 }]);
+    expect(projection.slots).toEqual([{ slot: SLOT, answer: 'b', answerChanges: 1, flagged: true, skipped: false, timeOnItemMs: 3_000, truncatedIntervals: 0, discardedMs: 0, unclosedVisits: 0 }]);
   });
 
   it('reads the cap from the attempt: the same log projects differently under a different cap, and the server has no other source', () => {

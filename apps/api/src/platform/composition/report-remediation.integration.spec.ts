@@ -51,7 +51,7 @@ describe('from a finding to the practice run that would address it', () => {
     const slot = (n: number, concept: string, awarded: string) => ({ slotRef: `m${n}`, conceptIdentityId: concept, taxonomyVersionId: taxonomy, outcome: 'incorrect', marksAwarded: awarded, marksAvailable: '4' });
     expectValue(await relay.generateReport.handle({ learnerRef: learner, attemptRef: attempt, scoreRecordRef: randomUUID(), slots: [slot(1, lost, '-1'), slot(2, lost, '-1'), slot(3, other, '3')] }, system));
 
-    const report = expectValue(await learningForLearner({ ...deps, standings: { standings: async () => ({ ok: true as const, value: [] }) } }).getReport.handle({ attemptId: attempt }, { principal: { kind: 'human', id: learner, roleContext: ['learner'] }, correlationId: 'c' }));
+    const report = expectValue(await learningForLearner({ ...deps, standings: { standings: async () => ({ ok: true as const, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true as const, value: [] }) } }).getReport.handle({ attemptId: attempt }, { principal: { kind: 'human', id: learner, roleContext: ['learner'] }, correlationId: 'c' }));
     const [top] = report.findings;
     expect(top).toMatchObject({ rank: 1, conceptIdentityId: lost, marksLost: '10', remediation: { strategy: 'targeted', taxonomyVersionId: taxonomy, conceptIdentityId: lost, selected: true } });
 

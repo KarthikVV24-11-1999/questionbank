@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { D002_THRESHOLDS, thresholdsWith } from '../../../testing/learning-thresholds.js';
+import { D002_THRESHOLDS, PLATFORM_THRESHOLDS_V2, thresholdsWith } from '../../../testing/learning-thresholds.js';
 import { canonicalJson, createMasteryRuleSet, hashThresholds, validateThresholds } from './mastery-rule-set.js';
 
 const ID = '3f2b8a52-6f0c-4c1e-9a52-0d4b1c7e9a10';
@@ -93,5 +93,58 @@ describe('naming a version by what it says', () => {
       expect(expectError(createMasteryRuleSet(props)).code).toBe('RULE_SET_REFERENCE_INVALID');
     }
     expect(expectError(createMasteryRuleSet({ ruleSetId: ID, taxonomyVersionId: null, versionNo: 1, thresholds: {} })).code).toBe('RULE_SET_THRESHOLDS_INVALID');
+  });
+});
+
+describe('the pace and review groups (M7-46, M7-47)', () => {
+  const bands = PLATFORM_THRESHOLDS_V2.pace!.slowAboveMs;
+  const paceWith = (slowAboveMs: Record<string, unknown>) => ({ ...D002_THRESHOLDS, pace: { slowAboveMs } });
+  const reviewWith = (changes: Record<string, unknown>) => ({ ...D002_THRESHOLDS, review: { ...PLATFORM_THRESHOLDS_V2.review, ...changes } });
+
+  it('accepts both, frozen, and returns them whole', () => {
+    const valid = expectValue(validateThresholds(PLATFORM_THRESHOLDS_V2));
+    expect(valid).toEqual(PLATFORM_THRESHOLDS_V2);
+    expect([valid.pace, valid.pace!.slowAboveMs, valid.review].every(Object.isFrozen)).toBe(true);
+  });
+
+  it('accepts a version without them and gives it no groups of their own: the hash of version 1 is the hash it was published under', () => {
+    const legacy = expectValue(validateThresholds(D002_THRESHOLDS));
+    expect(legacy).not.toHaveProperty('pace');
+    expect(legacy).not.toHaveProperty('review');
+    expect(hashThresholds(legacy)).toBe('239de260cd11de61364091db7cf5276b7eeef8def2ed8b97aaac0f1416db1ef7');
+  });
+
+  it('puts both in the hash, so changing a line publishes a different version', () => {
+    expect(hashThresholds(PLATFORM_THRESHOLDS_V2)).not.toBe(hashThresholds(D002_THRESHOLDS));
+    expect(hashThresholds(thresholdsWith({ review: { escalateAtLapses: 4 } }))).not.toBe(hashThresholds(PLATFORM_THRESHOLDS_V2));
+    expect(hashThresholds(thresholdsWith({ pace: { slowAboveMs: { ...bands, advanced: bands.advanced + 1 } } }))).not.toBe(hashThresholds(PLATFORM_THRESHOLDS_V2));
+  });
+
+  it('refuses a line that is missing for a band, is not above zero, or is lower than the band before it', () => {
+    const { advanced: _omitted, ...withoutAdvanced } = bands;
+    expect(expectError(validateThresholds(paceWith(withoutAdvanced))).message).toContain('pace.slowAboveMs.advanced');
+    expect(expectError(validateThresholds(paceWith({ ...bands, foundational: 0 }))).message).toContain('pace.slowAboveMs.foundational');
+    expect(expectError(validateThresholds(paceWith({ ...bands, moderate: bands.foundational - 1 }))).message).toContain('pace.slowAboveMs.moderate cannot be below');
+    expect(expectError(validateThresholds({ ...D002_THRESHOLDS, pace: {} })).message).toContain('pace.slowAboveMs');
+  });
+
+  it('refuses each review value out of its own range, naming the field', () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['review.passAccuracy', { passAccuracy: 0 }],
+      ['review.passAccuracy', { passAccuracy: 1.1 }],
+      ['review.firstIntervalDays', { firstIntervalDays: 0 }],
+      ['review.minIntervalDays', { minIntervalDays: 1.5 }],
+      ['review.maxIntervalDays', { maxIntervalDays: 0 }],
+      ['review.escalateAtLapses', { escalateAtLapses: 0 }],
+      ['review.growthFactor', { growthFactor: 1 }],
+      ['review.lapseFactor', { lapseFactor: 1 }],
+      ['review.lapseFactor', { lapseFactor: 0 }],
+    ];
+    for (const [field, changes] of cases) expect(expectError(validateThresholds(reviewWith(changes))).message, field).toContain(field);
+  });
+
+  it('refuses intervals that are not in order: the least cannot exceed the first, and the first cannot exceed the most', () => {
+    expect(expectError(validateThresholds(reviewWith({ minIntervalDays: 2, firstIntervalDays: 1 }))).message).toContain('minIntervalDays cannot exceed');
+    expect(expectError(validateThresholds(reviewWith({ firstIntervalDays: 61 }))).message).toContain('firstIntervalDays cannot exceed');
   });
 });

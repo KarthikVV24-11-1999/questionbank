@@ -4,6 +4,7 @@ import type { ErrorCause, ErrorEntry } from '../domain/error-entry.js';
 import type { EvidenceOutcome, MasteryEvidence } from '../domain/mastery-evidence.js';
 import type { MasteryRuleSet, MasteryThresholds } from '../domain/mastery-rule-set.js';
 import type { Result } from '../domain/result.js';
+import type { ReviewSchedule } from '../domain/review-schedule.js';
 import type { ApplicationError, AuthorizationContext } from './authorization.js';
 
 export interface ApplicationContext extends AuthorizationContext {
@@ -180,6 +181,15 @@ export interface LedgerTransaction {
    * whether the transition may clear them and refuses if it may not; this asks it to, and says how many it did.
    */
   resolveErrorEntries(transitionId: string): Promise<number>;
+  /** Stores the schedules of concepts a delivery touched, replacing each one's previous (M7-47): a schedule is derived, and is the same row recomputed. */
+  saveReviewSchedules(taxonomyVersionId: string, schedules: readonly import('../domain/review-schedule.js').ReviewSchedule[], ruleSetId: string): Promise<void>;
+  /**
+   * Records that concepts have lapsed often enough to be escalated (M7-48), and returns the ones that were **not already** escalated: a concept escalates once, and a
+   * delivery that finds it escalated writes nothing and reports nothing.
+   */
+  escalate(taxonomyVersionId: string, escalations: readonly { readonly conceptIdentityId: string; readonly lapseCount: number }[], ruleSetId: string, escalatedAt: Date): Promise<readonly string[]>;
+  /** Removes the schedules of concepts a correction left with no evidence at all. */
+  dropReviewSchedules(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<void>;
 }
 
 /** The learner's own error notebook entries, outside the evidence transaction: the one thing a learner edits is the cause. */
@@ -226,6 +236,26 @@ export interface LearningLedger {
   inTransaction<T>(learnerRef: string, work: (tx: LedgerTransaction) => Promise<T>): Promise<Result<T, ApplicationError>>;
 }
 
+/** A schedule with the taxonomy version its concept is in, as the learner reads it. */
+export interface ScheduledConcept extends ReviewSchedule {
+  readonly taxonomyVersionId: string;
+}
+
+/** The learner's review schedule, outside the evidence transaction: what is due now. */
+export interface ReviewStore {
+  /** Concepts due at or before `asOf`, most overdue first. A concept that has been escalated is not here: it is not repeated again (M7-48). */
+  due(learnerRef: string, asOf: Date): Promise<Result<readonly ScheduledConcept[], ApplicationError>>;
+  /** The concepts escalated to remediation, earliest first. */
+  escalations(learnerRef: string): Promise<Result<readonly EscalatedConcept[], ApplicationError>>;
+}
+
+export interface EscalatedConcept {
+  readonly taxonomyVersionId: string;
+  readonly conceptIdentityId: string;
+  readonly lapseCount: number;
+  readonly escalatedAt: string;
+}
+
 /** The learner's concept states, read for remediation (M7-28): the concepts to work on, weakest first, as identifiers and nothing else. */
 export interface ConceptReader {
   weakest(learnerRef: string, taxonomyVersionId: string, limit: number): Promise<Result<readonly string[], ApplicationError>>;
@@ -237,6 +267,15 @@ export interface ReportSlotSource {
     | { readonly ok: true; readonly value: { readonly learnerRef: string; readonly slots: readonly import('../domain/diagnostic-report.js').ReportSlot[] } }
     | { readonly ok: false; readonly error: EvidenceSourceFailure }
   >;
+}
+
+/**
+ * One scored attempt's responses with the time each took, for the learner it belongs to (M7-46): every response that was given, attributed to its concept, with the
+ * time on item as the response log counts it and what that count lost (M7-45). A port Learning defines and the composition root implements from scoring, assessment and
+ * content; an attempt that is not the learner's is not found, and says no more than an attempt that does not exist.
+ */
+export interface PaceSlotSource {
+  paceSlotsForAttempt(learnerRef: string, attemptId: string): Promise<Result<readonly import('../domain/pace-analytics.js').PaceSlot[], ApplicationError>>;
 }
 
 export interface StoredReport {

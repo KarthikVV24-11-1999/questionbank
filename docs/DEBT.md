@@ -616,6 +616,10 @@ A re-score corrects the evidence Learning holds and the transitions decided on i
 an entry saying it was wrong, a response that was right and is now wrong has none, and an entry cleared by a transition that has since been revoked stays cleared (the table refuses to un-resolve
 one). The learner's notebook can therefore disagree with their corrected score until someone looks.
 
+**What does and does not inherit it (M7-47).** The review schedule does not. It is derived from the evidence as it now stands, which a re-score corrects, and it never reads the notebook, so
+a corrected sitting corrects the lapse count with it. The design note that a schedule "reads concept state and error entries" is not followed for that reason: the one source it could have read
+that is not corrected is the one it leaves alone. What a re-score still does not reach is the escalation already recorded from the uncorrected count (D85).
+
 **Trigger** The notebook is shown to a learner next to a report (Track H), or the first re-score that changes a learner's wrong answers in a real environment: entries get a withdrawal of
 their own, as evidence got a correction, and the guard permits it once.
 **Cited** `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts`
@@ -658,6 +662,17 @@ labels nothing.
 it read, the source hands that on, and the report is labelled with it and not with the message's. A delivery whose message names a record that no longer stands then makes the report
 for the one that does.
 **Cited** `apps/api/src/contexts/learning/application/handlers/report-handlers.ts`
+
+### D85 — An escalation is never withdrawn
+
+A concept escalated to remediation (M7-48, DEC-M7-25) stays escalated. The row is history, so nothing deletes it, and nothing marks it resolved: not the concept recovering, and not a re-score
+that corrects the responses its lapses were counted from. The schedule itself *is* recomputed from corrected evidence, so after a re-score the schedule can say fewer lapses than the
+escalation recorded, and the concept stays out of what is due and first in what a targeted run takes. A learner who has recovered is therefore still shown a remediation finding, and one whose
+lapses were a mis-scored sitting is shown one they did not earn. The cost is a finding that is stale, not a mastery state that is wrong; no transition reads it.
+
+**Trigger** The first learner surface that shows escalations (Track H), or any re-score of a concept that has one: give the escalation a resolution (a row beside it, as a revocation sits beside a
+transition) decided by the same fold that made it, and let `due` and `weakest` read only the unresolved.
+**Cited** `apps/api/src/contexts/learning/infrastructure/review.repository.ts`
 
 ## Closed
 

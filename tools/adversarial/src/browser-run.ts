@@ -121,6 +121,19 @@ function projectionOf(record: DeviceRecord) {
   return projectResponses(record.events, { intervalCapMs: INTERVAL_CAP_MS });
 }
 
+/**
+ * Whether a reopened attempt is the one that was killed. Everything the projection says must be unchanged except the count of visits that never closed: a
+ * reopen starts a new visit, so the one the kill left open is now an overwritten one, and the count rises by exactly the visits the kill orphaned (M7-45).
+ * It may rise and may not fall, which is held here, so a restore that dropped a lost visit would still fail.
+ */
+function restoredProjection(before: DeviceRecord, after: DeviceRecord): boolean {
+  const unchanged = (record: DeviceRecord) => projectionOf(record).slots.map(({ unclosedVisits: _lost, ...rest }) => rest);
+  const lost = (record: DeviceRecord) => projectionOf(record).slots.map((slot) => slot.unclosedVisits);
+  const kept = JSON.stringify(unchanged(before)) === JSON.stringify(unchanged(after));
+  const afterLost = lost(after);
+  return kept && lost(before).every((count, i) => (afterLost[i] ?? 0) >= count);
+}
+
 function parseRemaining(text: string): number {
   const parts = text.trim().split(':').map(Number);
   const [h, m, s] = parts.length === 3 ? parts : [0, ...parts];
@@ -310,7 +323,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       unsentAtKill,
       point: unsentAtKill > 0 ? 'mid-sync' : 'between-batches',
       questionOpen,
-      projectionEqual: JSON.stringify(projectionOf(before)) === JSON.stringify(projectionOf(after)),
+      projectionEqual: restoredProjection(before, after),
       logIsPrefixOfReopened: before.events.every((event, i) => JSON.stringify(after.events[i]) === JSON.stringify(event)),
       remainingOnReopenMs,
       serverRemainingMs,

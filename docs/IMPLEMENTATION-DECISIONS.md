@@ -509,3 +509,33 @@ answers. A skipped slot is included at its full marks, because the learner lost 
 below one they attempted and got wrong. It stays out of evidence (DEC-M7-15) and moves no mastery state; the finding counts skipped slots separately so *avoided* can be told from *tried
 and lost*. A dropped slot has no marks, a bonus paid in full and an indeterminate one could not be judged, so none is the learner's loss.
 → `contexts/learning/domain/diagnostic-report.ts`
+
+### DEC-M7-22 — The projection says what the interval cap discarded
+`timeOnItemMs` caps every visit → leave interval, so a learner who thought for five unbroken minutes read the same as one who walked away, and nothing in the projection said the number had
+been cut. A slot now carries beside it `truncatedIntervals` (intervals over the cap), `discardedMs` (what they ran beyond it) and `unclosedVisits` (visits that never reached a leave, whose time is
+not known at all, counted as nothing before and now counted as lost). All three come from the pass that produces the time. The cap's value is not settled here (ASSESSMENT-ENGINE section 14); only
+that cutting to it is no longer silent. `timeOnItemMs` is a lower bound, and `timeOnItemMs + discardedMs` an upper one unless a visit never closed. The adversarial harness's restore check lets
+`unclosedVisits` rise across a reopen, since a reopen starts a new visit, and nothing else.
+→ `packages/attempt-engine/src/projection.ts` · `contexts/assessment/domain/response-timing.ts` · `tools/adversarial/src/browser-run.ts`
+
+### DEC-M7-23 — "Slow" is a time per authored band, in the rule set, and a truncated slot is read against both of its bounds
+There is a line for slow per authored difficulty band (`pace.slowAboveMs`), published with the mastery thresholds as versioned data and not written in source: 60 s, 90 s, 120 s and 150 s for
+foundational to advanced in version 2 of the platform default. They are chosen and not measured (D71), at roughly NEET's minute a question at the low end and JEE Main's two at the high one.
+A response is slow if the time counted is above its line, fast if the most it can have been is at or under it, and otherwise not known (ADR-0054). Version 1 of the default is immutable and has
+no such values; a rule set without them gives no reading and is refused, never read against a default written in source.
+→ `contexts/learning/domain/pace-analytics.ts` · `contexts/learning/domain/mastery-rule-set.ts` · `infra/migrations/20261101100000_learning_pace_and_review_thresholds.sql`
+
+### DEC-M7-24 — The review values are a rule-set group, and published as version 2 of the default
+The schedule's pass line, intervals, growth and lapse factors, and the lapse count at which a concept is escalated are the `review` group of the same rule set (`passAccuracy` 0.8,
+`firstIntervalDays` 1, `growthFactor` 2, `lapseFactor` 0.5, `minIntervalDays` 1, `maxIntervalDays` 60, `escalateAtLapses` 3), chosen and not measured. They and `pace` are optional in the type because
+version 1 is immutable and was published without them.
+→ `contexts/learning/domain/mastery-rule-set.ts` · `src/testing/learning-thresholds.ts`
+
+### DEC-M7-25 — A concept that keeps lapsing is escalated once, not repeated, and a targeted run is built from it first
+At `escalateAtLapses` lapses (the rule set's, 3 in version 2 of the default) a concept stops being given a still shorter interval and becomes a finding of the kind the diagnostic report makes:
+the concept, what it cost, and the targeted practice it escalates to (DOMAIN-MODEL: escalate to remediation rather than more repetition). That it happens once is the table's key, not a check in code:
+`learning.review_escalation` is keyed by learner, taxonomy version and concept, written with `ON CONFLICT DO NOTHING`, and a row is history that is never changed. A delivery reports only the
+concepts it escalated itself, so a replay and a later lapse say nothing. An escalated concept leaves what is due, and comes first in what a targeted run is about (`weakest`), whatever its state:
+without that the finding would be one no run is built from. An escalation is not withdrawn when the concept recovers or when a re-score lowers the lapse count (D85).
+→ `contexts/learning/application/handlers/record-evidence-handler.ts` · `contexts/learning/infrastructure/review.repository.ts` · `contexts/learning/infrastructure/concept-reader.ts` · `infra/migrations/20261101120000_learning_review_escalation.sql`
+

@@ -36,6 +36,10 @@ export interface SlotResponseTimingView {
   /** When the learner gave up on the slot, if they did and nothing stands for it (M7-38). */
   readonly gaveUpAt: string | null;
   readonly timeOnItemMs: number;
+  /** What the interval cap and unclosed visits cost that time (M7-45): without these, `timeOnItemMs` cannot be told from a slot that lost nothing. */
+  readonly truncatedIntervals: number;
+  readonly discardedMs: number;
+  readonly unclosedVisits: number;
 }
 
 export interface ResponseTimingDependencies {
@@ -74,5 +78,8 @@ function toView(timing: SlotResponseTiming): SlotResponseTimingView {
     respondedAt: timing.respondedAt,
     gaveUpAt: timing.gaveUpAt,
     timeOnItemMs: timing.timeOnItemMs,
+    truncatedIntervals: timing.truncatedIntervals,
+    discardedMs: timing.discardedMs,
+    unclosedVisits: timing.unclosedVisits,
   });
 }

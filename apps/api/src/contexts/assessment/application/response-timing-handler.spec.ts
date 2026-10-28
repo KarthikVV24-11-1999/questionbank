@@ -49,8 +49,16 @@ describe('GetResponseTimings', () => {
     expect(answer.learnerRef).toBe(created.studentId);
     const views = answer.slots;
     expect(views).toHaveLength(created.slots.length);
-    expect(views[0]).toEqual({ slotRef: created.slots[0]!.slotId, itemVersionId: created.slots[0]!.itemVersionId, respondedAt: '2026-10-21T09:30:00.000Z', gaveUpAt: null, timeOnItemMs: 0 });
-    expect(Object.keys(views[0]!).sort()).toEqual(['gaveUpAt', 'itemVersionId', 'respondedAt', 'slotRef', 'timeOnItemMs']);
+    expect(views[0]).toEqual({ slotRef: created.slots[0]!.slotId, itemVersionId: created.slots[0]!.itemVersionId, respondedAt: '2026-10-21T09:30:00.000Z', gaveUpAt: null, timeOnItemMs: 0, truncatedIntervals: 0, discardedMs: 0, unclosedVisits: 0 });
+    expect(Object.keys(views[0]!).sort()).toEqual(['discardedMs', 'gaveUpAt', 'itemVersionId', 'respondedAt', 'slotRef', 'timeOnItemMs', 'truncatedIntervals', 'unclosedVisits']);
+  });
+
+  it('carries what the cap threw away, and the visits that never closed, to the view with each in its own field (M7-45)', async () => {
+    const cap = created.intervalCapMs;
+    const at = (n: number, kind: 'visit' | 'leave', ms: number): ResponseEvent => ({ ...event(), eventId: id(TAG.event, 10 + n), sequence: n + 1, kind, answer: null, clientMonotonicMs: ms });
+    const events = [at(1, 'visit', 0), at(2, 'leave', cap + 7_000), at(3, 'visit', cap + 10_000), at(4, 'visit', cap + 20_000)];
+    const views = expectValue(await handler(submitted, events).handle({ attemptId: created.attemptId }, system)).slots;
+    expect(views[0]).toMatchObject({ timeOnItemMs: cap, truncatedIntervals: 1, discardedMs: 7_000, unclosedVisits: 2 });
   });
 
   it('refuses an attempt that is not submitted rather than answering part of a log still being written', async () => {

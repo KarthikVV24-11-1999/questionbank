@@ -91,10 +91,22 @@ describe('the instant of the response that stands', () => {
     expect(timings[1]!.timeOnItemMs).toBe(0);
   });
 
+  it('says what the cap threw away for the slot it threw it from, and for no other (M7-45)', () => {
+    const cap = attempt.intervalCapMs;
+    const timings = responseTimings(attempt, [
+      event(s1, 1, 'visit', at(1), { clientMonotonicMs: 0 }),
+      event(s1, 2, 'leave', at(2), { clientMonotonicMs: cap + 9_000 }),
+      event(s1, 3, 'visit', at(3), { clientMonotonicMs: cap + 20_000 }),
+      event(s2, 4, 'visit', at(4), { clientMonotonicMs: 0 }),
+      event(s2, 5, 'leave', at(5), { clientMonotonicMs: 1_000 }),
+    ]);
+    expect(timings.map((t) => [t.slotId, t.timeOnItemMs, t.truncatedIntervals, t.discardedMs, t.unclosedVisits])).toEqual([[s1, cap, 1, 9_000, 1], [s2, 1_000, 0, 0, 0], [s3, 0, 0, 0, 0]]);
+  });
+
   it('reports every slot of the attempt in paper order, and names only identifiers, instants and durations', () => {
     const timings = responseTimings(attempt, []);
     expect(timings.map((t) => t.slotId)).toEqual(attempt.slots.map((s) => s.slotId));
-    expect(Object.keys(timings[0]!).sort()).toEqual(['gaveUpAt', 'itemVersionId', 'respondedAt', 'slotId', 'timeOnItemMs']);
+    expect(Object.keys(timings[0]!).sort()).toEqual(['discardedMs', 'gaveUpAt', 'itemVersionId', 'respondedAt', 'slotId', 'timeOnItemMs', 'truncatedIntervals', 'unclosedVisits']);
     expect(Object.isFrozen(timings[0])).toBe(true);
   });
 });

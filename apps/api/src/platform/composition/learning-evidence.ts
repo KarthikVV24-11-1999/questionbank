@@ -9,6 +9,8 @@ import {
   type MasteryEvidence,
   type GaveUpSlot,
   type MasteryEvidenceSource,
+  type PaceSlot,
+  type PaceSlotSource,
   type ReportSlot,
   type ReportSlotSource,
   type ScoredAttemptRef,
@@ -43,6 +45,9 @@ import { ROLES } from '../auth/roles.js';
  * Which generation of the score is read is the current one: a re-score that corrected an outcome corrects the evidence.
  */
 
+/** Learning's error shape, built structurally: the root names nothing of the context but its public composition. */
+const applicationError = <K extends 'NotFound' | 'Unavailable'>(kind: K, code: string, message: string) => Object.freeze({ kind, code, message });
+
 const SYSTEM: PrincipalRef = { kind: 'system', id: '00000000-0000-4000-8000-0000000000f7', roleContext: [ROLES.system] };
 
 /** Content's own cap on one call; an attempt is seventy-five slots, so this is a bound and not a cost. */
@@ -72,7 +77,7 @@ export function scoredAttemptOf(event: ScoredAttemptEvent): ScoredAttemptRef {
   };
 }
 
-export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, ReportSlotSource {
+export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, ReportSlotSource, PaceSlotSource {
   constructor(private readonly deps: LearningEvidenceDeps) {}
 
   /**
@@ -107,6 +112,55 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, Repor
       return Object.freeze({ slotRef: slot.slotRef, conceptIdentityId: tag.conceptIdentityId, taxonomyVersionId: tag.taxonomyVersionId, outcome: slot.outcome, marksAwarded: slot.marksAwarded, marksAvailable: slot.marksAvailable });
     });
     return { ok: true, value: { learnerRef: timings.value.learnerRef, slots: Object.freeze(slots) } };
+  }
+
+  /**
+   * The responses of the learner's own attempt with the time each took (M7-46): scoring says which were given and how they came out, assessment says how long the
+   * response log counted and what it lost, content says what each is about and how hard it was authored to be. An attempt that is not the learner's is `NotFound`, the
+   * same answer as one that does not exist. All or nothing, as evidence is.
+   */
+  async paceSlotsForAttempt(learnerRef: string, attemptId: string) {
+    const context = { principal: SYSTEM, correlationId: `learning-pace:${attemptId}` };
+    const notFound = () => ({ ok: false as const, error: applicationError('NotFound', 'ATTEMPT_NOT_FOUND', 'there is no scored attempt of yours with that id') });
+    const unavailable = (what: string, code: string) => ({ ok: false as const, error: applicationError('Unavailable', 'SOURCE_UNAVAILABLE', `${what} could not be read: ${code}`) });
+
+    const timings = await this.deps.assessment.responseTimings.handle({ attemptId }, context);
+    if (!timings.ok) return timings.error.kind === 'NotFound' || timings.error.kind === 'PreconditionFailed' ? notFound() : unavailable('assessment', timings.error.code);
+    if (timings.value.learnerRef !== learnerRef) return notFound();
+
+    const outcomes = await this.deps.scoring.outcomesForAttempt.handle({ attemptId }, context);
+    if (!outcomes.ok) return outcomes.error.kind === 'NotFound' ? notFound() : unavailable('scoring', outcomes.error.code);
+
+    const given = outcomes.value.filter((slot) => (EVIDENCE_OUTCOMES as readonly string[]).includes(slot.outcome));
+    const wanted = [...new Set(given.map((slot) => slot.itemVersionId))];
+    const byVersion = new Map<string, { conceptIdentityId: string; taxonomyVersionId: string; difficultyEstimate: string }>();
+    for (let at = 0; at < wanted.length; at += TAXONOMY_BATCH) {
+      const taxonomy = await this.deps.content.taxonomyForItemVersions.handle({ itemVersionIds: wanted.slice(at, at + TAXONOMY_BATCH) }, context);
+      if (!taxonomy.ok) return unavailable('content', taxonomy.error.code);
+      for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
+    }
+    const timed = new Map(timings.value.slots.map((timing) => [timing.slotRef, timing]));
+    const slots: PaceSlot[] = [];
+    for (const slot of given) {
+      const tag = byVersion.get(slot.itemVersionId);
+      const timing = timed.get(slot.slotRef);
+      if (tag === undefined || timing === undefined) {
+        return { ok: false as const, error: applicationError('Unavailable', 'SOURCE_UNAVAILABLE', `slot ${slot.slotRef} cannot be resolved to a concept and a time`) };
+      }
+      slots.push(
+        Object.freeze({
+          slotRef: slot.slotRef,
+          conceptIdentityId: tag.conceptIdentityId,
+          taxonomyVersionId: tag.taxonomyVersionId,
+          difficultyEstimate: tag.difficultyEstimate as PaceSlot['difficultyEstimate'],
+          outcome: slot.outcome as PaceSlot['outcome'],
+          timeOnItemMs: timing.timeOnItemMs,
+          discardedMs: timing.discardedMs,
+          unclosedVisits: timing.unclosedVisits,
+        }),
+      );
+    }
+    return { ok: true as const, value: Object.freeze(slots) };
   }
 
   async evidenceForScoredAttempt(attempt: ScoredAttemptRef): Promise<EvidenceSourceResult> {

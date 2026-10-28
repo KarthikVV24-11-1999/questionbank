@@ -69,7 +69,7 @@ describe('what content offers assessment (M6-14, M6-17)', () => {
     reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
   });
 
-  it('is exactly six handlers: the catalogue, the duplicate candidates, the two version reads, the answer keys for scoring and the solution for a released slot', () => {
+  it('is exactly seven handlers: the catalogue, the duplicate candidates, the two version reads, the answer keys for scoring and the solution for a released slot', () => {
     expect(Object.keys(offered).sort()).toEqual(['answerKeys', 'duplicates', 'itemVersion', 'listCatalogue', 'solution', 'stimulusVersion']);
     expect([offered.listCatalogue.name, offered.duplicates.name, offered.itemVersion.name, offered.stimulusVersion.name, offered.answerKeys.name, offered.solution.name]).toEqual([
       'ListPublishedCatalogue',
@@ -203,10 +203,10 @@ describe('learning’s own composition (M7-04, M7-16)', () => {
     expect(offered.remediationConcepts.policy.allowedRoles).toEqual(['learner']);
   });
 
-  it('offers exactly five handlers to the learner, each theirs alone and none a route yet (M7-38, M7-42)', () => {
-    const offered = learningComposition.learningForLearner({ pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) } });
-    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'getReport', 'listBookmarks', 'listErrorEntries', 'setErrorCause']);
-    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause']);
+  it('offers exactly seven handlers to the learner, each theirs alone and none a route yet (M7-38, M7-42, M7-46, M7-47)', () => {
+    const offered = learningComposition.learningForLearner({ pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true, value: [] }) } });
+    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'getReport', 'listBookmarks', 'listErrorEntries', 'paceAnalytics', 'reviewPlan', 'setErrorCause']);
+    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'GetPaceAnalytics', 'GetReviewPlan', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause']);
     for (const handler of Object.values(offered)) expect(handler.policy.allowedRoles, handler.name).toEqual(['learner']);
     expect(() => learningComposition.learningForLearner({ pool } as never)).toThrow(/missing required dependency/u);
   });

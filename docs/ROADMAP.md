@@ -285,6 +285,13 @@ verification (F41) · authorization negative-path 100%
 > in one tap" is proved at the handler level only, because practice has no route (D78, Track H); the error notebook is not corrected by a re-score (D81); a large re-score queues ahead of
 > live submissions (D82); and the studio specs' intermittent timeouts are registered with no cause (D83).
 >
+> **Status, added 2026-11-01 (M7 Track G):** the response projection says what the interval cap discarded (DEC-M7-22), so a five-minute think no longer reads as two minutes with nothing to show it, and
+> time analytics read each slot as a pair of bounds: slow-and-correct, slow-and-wrong, fast, and *not known* where the loss could carry the time over the line
+> ([ADR-0054](adr/ADR-0054-a-metric-that-lost-information-reports-that-it-did-and-does-not-guess.md), DEC-M7-23). "Slow" is a time per authored band in the rule set, published as version 2 of the
+> platform default, as are the review values (DEC-M7-24). A review schedule is kept per concept, never per item, shortens on failure and is derived from evidence, so a re-score corrects it
+> (D81 is restated: the schedule does not inherit it). A concept that lapses `escalateAtLapses` times is escalated to remediation once and not repeated (DEC-M7-25). **Open:** an escalation is
+> never withdrawn (D85); the thresholds are chosen and not measured; none of this has a route until Track H.
+>
 > **Track C (what the quarantine cost):** the key-free argument can no longer be satisfied by a skipped test ([ADR-0047](adr/ADR-0047-a-gate-reads-the-structure-of-the-test-it-names.md)), the attempt routes' key-free proof runs again,
 > three coverage thresholds are back at 100, and the intermittent attempts spec is fixed and un-skipped: its 404 was never the application's (D73). Practice sessions are Track D.
 

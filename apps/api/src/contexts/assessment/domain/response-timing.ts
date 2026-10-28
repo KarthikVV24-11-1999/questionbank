@@ -31,8 +31,14 @@ export interface SlotResponseTiming {
    * thing as `skipped` with no answer; `response-timing.spec.ts` holds the two to each other over generated logs.
    */
   readonly gaveUpAt: string | null;
-  /** The slot's cumulative time on item under the attempt's own interval cap. */
+  /** The slot's cumulative time on item under the attempt's own interval cap: a lower bound, exact only where nothing below was lost (M7-45). */
   readonly timeOnItemMs: number;
+  /** Intervals the cap cut short. A slot with the same `timeOnItemMs` and none of these was not truncated. */
+  readonly truncatedIntervals: number;
+  /** Milliseconds those intervals ran beyond the cap. */
+  readonly discardedMs: number;
+  /** Visits that never reached a leave, whose time is not known at all. */
+  readonly unclosedVisits: number;
 }
 
 const ANSWER_AFFECTING = ['select', 'change', 'clear'] as const;
@@ -55,7 +61,7 @@ export function responseTimings(
     else if (event.kind === 'select' || event.kind === 'change') skipped.delete(event.slotId);
   }
 
-  const time = new Map(projectLog(attempt, events).slots.map((slot) => [slot.slot, slot.timeOnItemMs]));
+  const time = new Map(projectLog(attempt, events).slots.map((slot) => [slot.slot, slot]));
 
   return Object.freeze(
     [...attempt.slots]
@@ -68,7 +74,10 @@ export function responseTimings(
           itemVersionId: slot.itemVersionId,
           respondedAt: responded,
           gaveUpAt: responded === null ? (skipped.get(slot.slotId)?.serverReceivedAt ?? null) : null,
-          timeOnItemMs: time.get(slot.slotId) ?? 0,
+          timeOnItemMs: time.get(slot.slotId)?.timeOnItemMs ?? 0,
+          truncatedIntervals: time.get(slot.slotId)?.truncatedIntervals ?? 0,
+          discardedMs: time.get(slot.slotId)?.discardedMs ?? 0,
+          unclosedVisits: time.get(slot.slotId)?.unclosedVisits ?? 0,
         });
       }),
   );

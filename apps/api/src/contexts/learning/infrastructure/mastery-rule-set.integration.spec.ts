@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostgresAuditRecorder } from '../../../platform/persistence/audit-recorder.js';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { D002_THRESHOLDS, thresholdsWith } from '../../../testing/learning-thresholds.js';
+import { D002_THRESHOLDS, PLATFORM_THRESHOLDS_V2, thresholdsWith } from '../../../testing/learning-thresholds.js';
 import { PublishMasteryRuleSetHandler } from '../application/handlers/rule-set-handlers.js';
 import { hashThresholds } from '../domain/mastery-rule-set.js';
 import { PostgresMasteryRuleSetRepository } from './mastery-rule-set.repository.js';
@@ -14,6 +14,7 @@ let publish: PublishMasteryRuleSetHandler;
 
 const admin = { principal: { kind: 'human' as const, id: randomUUID(), roleContext: ['admin'] }, correlationId: 'c', stepUpSatisfied: true };
 const DEFAULT_ID = '00000000-0000-4000-8000-0000000000d2';
+const DEFAULT_V2_ID = '00000000-0000-4000-8000-0000000000d3';
 
 beforeAll(async () => {
   database = await connectTestDatabase();
@@ -43,8 +44,18 @@ describe('the platform default the migration seeds', () => {
     expect(seeded).toMatchObject({ taxonomyVersionId: null, versionNo: 1 });
   });
 
-  it('is what a taxonomy with nothing published gets', async () => {
-    expect(expectValue(await repository.currentFor(randomUUID())).ruleSetId).toBe(DEFAULT_ID);
+  it('has a second version with the pace and review values, held to the fixture and to its hash, and leaves the first without them (M7-46, M7-47)', async () => {
+    const second = expectValue(await repository.byId(DEFAULT_V2_ID));
+    expect(second.thresholds).toEqual(PLATFORM_THRESHOLDS_V2);
+    expect(second.thresholdsHash).toBe(hashThresholds(PLATFORM_THRESHOLDS_V2));
+    const { rows } = await database.pool.query('SELECT thresholds_hash FROM learning.mastery_rule_set WHERE rule_set_id = $1', [DEFAULT_V2_ID]);
+    expect(rows[0].thresholds_hash).toBe(second.thresholdsHash);
+    expect(second).toMatchObject({ taxonomyVersionId: null, versionNo: 2 });
+    expect(expectValue(await repository.byId(DEFAULT_ID)).thresholds).not.toHaveProperty('pace');
+  });
+
+  it('is what a taxonomy with nothing published gets: the latest of the default', async () => {
+    expect(expectValue(await repository.currentFor(randomUUID())).ruleSetId).toBe(DEFAULT_V2_ID);
   });
 });
 
@@ -61,7 +72,7 @@ describe('publishing a version', () => {
     // the first version is still there, whole, for the transitions that were decided under it
     expect(expectValue(await repository.byId(first.ruleSetId)).thresholds.promotion.minRecentAccuracy).toBe(0.9);
     // another taxonomy still gets the default
-    expect(expectValue(await repository.currentFor(randomUUID())).ruleSetId).toBe(DEFAULT_ID);
+    expect(expectValue(await repository.currentFor(randomUUID())).ruleSetId).toBe(DEFAULT_V2_ID);
 
     const audited = await database.pool.query(`SELECT action, target_context, target_id, target_version FROM platform.audit_record WHERE target_id = $1`, [second.ruleSetId]);
     expect(audited.rows).toEqual([{ action: 'PublishMasteryRuleSet', target_context: 'learning', target_id: second.ruleSetId, target_version: 2 }]);
@@ -69,7 +80,7 @@ describe('publishing a version', () => {
 
   it('numbers the platform default\'s versions on from the seed, as a scope of its own', async () => {
     const next = expectValue(await publish.handle({ taxonomyVersionId: null, thresholds: thresholdsWith({ session: { idleGapMinutes: 45 } }) }, admin));
-    expect(next.versionNo).toBe(2);
+    expect(next.versionNo).toBe(3);
     expect(expectValue(await repository.currentFor(randomUUID())).ruleSetId).toBe(next.ruleSetId);
   });
 });
