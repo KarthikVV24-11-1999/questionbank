@@ -523,6 +523,19 @@ export interface VersionTaxonomyEntry {
  * version that has since been superseded or retired is still the one the learner answered. **A version that was never
  * published is not found**, and a version with no primary tag is not either — an absent id is the caller's to report.
  */
+/** An item's lifecycle and the version a learner should be shown, for Learning's bookmarks (M7-38). */
+export interface ItemStandingEntry {
+  readonly itemId: string;
+  readonly state: 'published' | 'suspended' | 'retired';
+  /** The current published version while published; the last one published after that. */
+  readonly itemVersionId: string | null;
+}
+
+/** An item that is not here, or is a draft or in review, is absent from the answer: it was never something a learner could have bookmarked from a delivery. */
+export interface ItemStandingReader {
+  forItems(itemIds: readonly string[]): Promise<Result<readonly ItemStandingEntry[], RepositoryError>>;
+}
+
 export interface VersionTaxonomyReader {
   forVersions(itemVersionIds: readonly string[]): Promise<Result<readonly VersionTaxonomyEntry[], RepositoryError>>;
 }

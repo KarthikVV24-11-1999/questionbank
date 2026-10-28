@@ -464,3 +464,29 @@ its row (a deferred constraint trigger). Item counts include practice deliveries
 Practice never offers an anchor.
 → `contexts/assessment/infrastructure/attempt.repository.ts` · `infra/migrations/20261029120000_assessment_exposure_counts_practice.sql`
 
+
+### DEC-M7-15 — A skip is not evidence
+A learner who gives up on a question has said they do not know, not what they got wrong, and D-002 counts responses. A skip is therefore neither a correct nor an incorrect response:
+it leaves the projection's answer empty, scoring reads the slot as unattempted, and Learning's evidence assembly ignores it. Counting it as *attempted and wrong* would let giving up move
+mastery the way a mistake does, and would turn a mock-day skip of forty questions into forty pieces of evidence about concepts the learner never engaged. Decided in the log's vocabulary
+(ADR-0051) and not left to the projection.
+→ `packages/attempt-engine/src/response-event.ts` · `docs/adr/ADR-0051-the-response-log-can-say-a-learner-gave-up.md`
+
+### DEC-M7-16 — A give-up makes an error entry of its own kind, and moves no mastery state
+An error notebook is for exactly what "gave up" is, so a question the learner gave up on makes an `ErrorEntry` of kind `gave_up` with the system's cause `gave_up`; the learner supplies
+a cause only for a wrong response (conceptual, calculation, misread, time, guess) and cannot relabel a give-up. A wrong response is evidence and an entry both; a give-up is an entry only.
+Which unattempted slots were given up on is assessment's to say (`gaveUpAt` on the response timings, held to the projection over generated logs), and the entry is cleared, as every entry
+is, only by a verified mastery transition for the concept, from before it qualified (`learning.guard_error_entry`).
+→ `contexts/learning/domain/error-entry.ts` · `platform/composition/learning-evidence.ts` · `infra/migrations/20261030120000_learning_error_entry_and_bookmark.sql`
+
+### DEC-M7-17 — The effort gate differs for a mock and a practice run by what the attempt pinned
+FRS 277 unlocks a solution after effort; a mock's solutions also wait for submission and a practice slot's open as it is attempted or skipped. That difference is the pinned
+`feedbackMode` (`deferred` / `immediate`) read by the `solution_release` view, not a branch on the mode, so the rule holds for every row. A delivery that pins neither is treated
+as deferred: the safe side.
+→ `infra/migrations/20261030110000_assessment_solution_release.sql` · `contexts/assessment/domain/solution-release.ts`
+
+### DEC-M7-18 — A bookmark points at an item and is resolved at read
+A bookmark stores the item, not a version, so it follows the item to its current published version without being touched. When the item is retired the bookmark is kept and shown as
+retired with the last version published; an item content does not know is shown as unknown and also kept. Standing is content's to say and arrives through the seam content offers
+Learning, never copied.
+→ `contexts/learning/domain/bookmark.ts` · `contexts/content/application/queries/item-standing-queries.ts`

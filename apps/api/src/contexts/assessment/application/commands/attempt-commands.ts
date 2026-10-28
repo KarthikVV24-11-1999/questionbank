@@ -61,6 +61,13 @@ export interface GrowPracticeAttempt {
   readonly count: number;
 }
 
+/** The solution for one slot of the learner's own attempt, if the effort gate has opened it (M7-36). */
+export interface GetSlotSolution {
+  readonly attemptId: string;
+  readonly slotId: string;
+  readonly depth: 'basic' | 'full';
+}
+
 /** The immediate feedback for one slot of the learner's own practice run. */
 export interface GetPracticeFeedback {
   readonly attemptId: string;

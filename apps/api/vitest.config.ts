@@ -559,6 +559,18 @@ export default defineConfig({
           functions: 100,
           statements: 100,
         },
+        'src/contexts/content/application/queries/item-standing-queries.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
+        'src/contexts/content/infrastructure/item-standing.reader.ts': {
+          branches: 100,
+          lines: 100,
+          functions: 100,
+          statements: 100,
+        },
         // M7-04. The evidence every mastery state is derived from: a wrong value here is a wrong state nothing would flag.
         'src/contexts/learning/domain/mastery-evidence.ts': {
           branches: 100,

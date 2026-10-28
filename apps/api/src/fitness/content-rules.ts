@@ -637,6 +637,9 @@ export const CORRECTNESS_BEARING_CONTENT_MODULES = [
   // M7-03. Which concept a version evidences and how hard it was authored to be; a wrong answer here credits a learner with the wrong topic.
   'src/contexts/content/infrastructure/version-taxonomy.reader.ts',
   'src/contexts/content/application/queries/version-taxonomy-queries.ts',
+  // M7-38. Which version a saved question shows, and whether its item was retired; a wrong answer here shows a learner a withdrawn question as current.
+  'src/contexts/content/infrastructure/item-standing.reader.ts',
+  'src/contexts/content/application/queries/item-standing-queries.ts',
 ] as const;
 
 export function checkCoverageThresholds(

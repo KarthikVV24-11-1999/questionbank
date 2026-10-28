@@ -1,4 +1,6 @@
 import type { PrincipalRef } from '@questionbank/domain-types';
+import type { Bookmark, ItemStanding } from '../domain/bookmark.js';
+import type { ErrorCause, ErrorEntry } from '../domain/error-entry.js';
 import type { MasteryEvidence } from '../domain/mastery-evidence.js';
 import type { MasteryRuleSet, MasteryThresholds } from '../domain/mastery-rule-set.js';
 import type { Result } from '../domain/result.js';
@@ -84,6 +86,8 @@ export interface AssembledEvidence {
   readonly evidence: readonly MasteryEvidence[];
   /** Slots that were not evidence: unattempted, dropped, bonus, indeterminate. */
   readonly notEvidence: number;
+  /** Questions the learner gave up on, which are among the `notEvidence` and are not evidence either; each is an entry in the error notebook (M7-38). */
+  readonly gaveUp: readonly import('../domain/error-entry.js').GaveUpSlot[];
 }
 
 export type EvidenceSourceFailure =
@@ -148,6 +152,31 @@ export interface LedgerTransaction {
   saveTransitions(taxonomyVersionId: string, transitions: readonly import('../domain/mastery-transition.js').MasteryTransition[], recordedAt: Date): Promise<void>;
   /** Verifies a stored promotion, once. */
   verifyTransition(transitionId: string, verifiedAt: string, verifyingEvidence: readonly string[]): Promise<void>;
+  /** Stores the error entries that are new; one already stored for its attempt and slot is left as it is, which is what makes a replay write nothing more (M7-38). */
+  insertErrorEntries(entries: readonly ErrorEntry[], recordedAt: Date): Promise<void>;
+  /**
+   * Clears the learner's open entries for the concept a verified transition is about, that happened no later than the transition (M7-38). The table's own guard decides
+   * whether the transition may clear them and refuses if it may not; this asks it to, and says how many it did.
+   */
+  resolveErrorEntries(transitionId: string): Promise<number>;
+}
+
+/** The learner's own error notebook entries, outside the evidence transaction: the one thing a learner edits is the cause. */
+export interface ErrorEntryStore {
+  find(learnerRef: string, errorEntryId: string): Promise<Result<ErrorEntry, ApplicationError>>;
+  list(learnerRef: string, options: { readonly openOnly: boolean }): Promise<Result<readonly ErrorEntry[], ApplicationError>>;
+  setCause(learnerRef: string, errorEntryId: string, cause: ErrorCause): Promise<Result<ErrorEntry, ApplicationError>>;
+}
+
+export interface BookmarkStore {
+  /** Adds a bookmark; the same item again returns the one already there. */
+  add(bookmark: Bookmark): Promise<Result<Bookmark, ApplicationError>>;
+  list(learnerRef: string): Promise<Result<readonly Bookmark[], ApplicationError>>;
+}
+
+/** Where an item's standing comes from — a port whose adapter calls content through the seam the composition root passes; Learning names no content handler. */
+export interface ItemStandingSource {
+  standings(itemIds: readonly string[], context: ApplicationContext): Promise<Result<readonly ItemStanding[], ApplicationError>>;
 }
 
 /** What the ledger knows of one concept's transitions, from the last one stored. */

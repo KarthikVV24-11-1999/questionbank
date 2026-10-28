@@ -6,7 +6,7 @@ const ev = (eventId: string, sequence: number): ResponseEvent => ({ ...base, eve
 
 describe('the event vocabulary', () => {
   it('is exactly the seven kinds the design names', () => {
-    expect([...RESPONSE_EVENT_KINDS]).toEqual(['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag']);
+    expect([...RESPONSE_EVENT_KINDS]).toEqual(['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag', 'skip']);
   });
 });
 

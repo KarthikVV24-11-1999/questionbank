@@ -49,8 +49,8 @@ describe('GetResponseTimings', () => {
     expect(answer.learnerRef).toBe(created.studentId);
     const views = answer.slots;
     expect(views).toHaveLength(created.slots.length);
-    expect(views[0]).toEqual({ slotRef: created.slots[0]!.slotId, itemVersionId: created.slots[0]!.itemVersionId, respondedAt: '2026-10-21T09:30:00.000Z', timeOnItemMs: 0 });
-    expect(Object.keys(views[0]!).sort()).toEqual(['itemVersionId', 'respondedAt', 'slotRef', 'timeOnItemMs']);
+    expect(views[0]).toEqual({ slotRef: created.slots[0]!.slotId, itemVersionId: created.slots[0]!.itemVersionId, respondedAt: '2026-10-21T09:30:00.000Z', gaveUpAt: null, timeOnItemMs: 0 });
+    expect(Object.keys(views[0]!).sort()).toEqual(['gaveUpAt', 'itemVersionId', 'respondedAt', 'slotRef', 'timeOnItemMs']);
   });
 
   it('refuses an attempt that is not submitted rather than answering part of a log still being written', async () => {

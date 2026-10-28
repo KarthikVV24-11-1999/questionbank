@@ -5,6 +5,7 @@ import type { ConceptEvidence, ConceptState, MasteryState } from '../domain/conc
 import type { MasteryTransition } from '../domain/mastery-transition.js';
 import type { DifficultyEstimate, EvidenceOutcome } from '../domain/mastery-evidence.js';
 import { err, ok, type Result } from '../domain/result.js';
+import type { ErrorEntry } from '../domain/error-entry.js';
 import type { StudySession } from '../domain/study-session.js';
 
 /**
@@ -228,5 +229,34 @@ class PostgresLedgerTransaction implements LedgerTransaction {
     for (const evidenceId of verifyingEvidence) {
       await this.client.query(`INSERT INTO learning.mastery_transition_evidence (transition_id, evidence_id, role) VALUES ($1, $2, 'verifying')`, [transitionId, evidenceId]);
     }
+  }
+
+  async insertErrorEntries(entries: readonly ErrorEntry[], recordedAt: Date): Promise<void> {
+    for (const e of entries) {
+      await this.client.query(
+        `INSERT INTO learning.error_entry
+           (error_entry_id, learner_ref, attempt_ref, slot_ref, item_version_ref, concept_identity_id, taxonomy_version_id, kind, error_cause, occurred_at, recorded_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (attempt_ref, slot_ref) DO NOTHING`,
+        [e.errorEntryId, this.learnerRef, e.attemptRef, e.slotRef, e.itemVersionRef, e.conceptIdentityId, e.taxonomyVersionId, e.kind, e.errorCause, e.occurredAt, recordedAt],
+      );
+    }
+  }
+
+  async resolveErrorEntries(transitionId: string): Promise<number> {
+    // The table's guard decides whether this transition may clear what is selected, and aborts the transaction if it may not.
+    const { rowCount } = await this.client.query(
+      `UPDATE learning.error_entry e
+          SET resolved_by_transition_id = t.transition_id
+         FROM learning.mastery_transition t
+        WHERE t.transition_id = $1
+          AND e.learner_ref = $2
+          AND e.taxonomy_version_id = t.taxonomy_version_id
+          AND e.concept_identity_id = t.concept_identity_id
+          AND e.resolved_by_transition_id IS NULL
+          AND e.occurred_at <= t.occurred_at`,
+      [transitionId, this.learnerRef],
+    );
+    return Number(rowCount);
   }
 }

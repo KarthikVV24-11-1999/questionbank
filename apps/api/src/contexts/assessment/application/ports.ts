@@ -4,6 +4,7 @@ import type { JsonValue } from '../domain/form-package.js';
 import type { BlueprintItemType } from '../domain/blueprint.js';
 import type { Attempt } from '../domain/attempt.js';
 import type { PracticePolicy } from '../domain/delivery-policy.js';
+import type { ReleasedSlot } from '../domain/solution-release.js';
 import type { Result } from '../domain/result.js';
 import type { ApplicationError, AuthorizationContext } from './authorization.js';
 
@@ -132,4 +133,34 @@ export interface RemediationSource {
  */
 export interface ResponseJudge {
   judge(attempt: Attempt, slotId: string, answer: unknown, context: ApplicationContext): Promise<Result<string, ApplicationError>>;
+}
+
+/** A piece of authored content (stem-free): the body of a step or an explanation, opaque to this context and handed on as it came. */
+export type SolutionBody = unknown;
+
+export interface SolutionStepContent {
+  readonly ordinal: number;
+  readonly body: SolutionBody;
+  readonly conceptRefs: readonly string[];
+}
+
+/**
+ * A published solution as content delivers it, in the shape assessment needs of it (M7-37). The structured final-answer assertion is not here and is not
+ * delivered by content either: the steps state the answer in prose, which is what a learner reads. `distractorAnalyses` and `alternateApproaches` are present
+ * only at the full depth.
+ */
+export interface SolutionContent {
+  readonly solutionVersionId: string;
+  readonly targetItemVersionId: string;
+  readonly steps: readonly SolutionStepContent[];
+  readonly distractorAnalyses?: readonly { readonly optionId: string; readonly misconception: SolutionBody }[];
+  readonly alternateApproaches?: readonly { readonly label: string; readonly steps: readonly SolutionStepContent[]; readonly applicabilityNote?: string }[];
+}
+
+/**
+ * Where a solution comes from — an outbound port whose adapter calls content through the seam the composition root passes. **It takes a `ReleasedSlot`**, a type
+ * only the effort gate's repository can make, and not an item version id: there is no way to ask for a solution here that has not been through the gate.
+ */
+export interface SolutionSource {
+  solutionFor(slot: ReleasedSlot, depth: 'basic' | 'full', context: ApplicationContext): Promise<Result<SolutionContent, ApplicationError>>;
 }

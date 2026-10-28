@@ -84,13 +84,13 @@ describe('appending and reading events', () => {
 
   it('stores an answer-free event with a SQL null and every kind it can be', async () => {
     const attempt = await liveAttempt();
-    for (const [i, kind] of (['visit', 'leave', 'flag', 'unflag', 'clear'] as const).entries()) {
+    for (const [i, kind] of (['visit', 'leave', 'flag', 'unflag', 'clear', 'skip'] as const).entries()) {
       expectValue(await log.append(expectValue(acceptResponseEvent(attempt, draft(i + 1, { kind, answer: null }), RECEIVED))));
     }
     const events = expectValue(await log.findByAttempt(id(TAG.attempt)));
-    expect(events.map((e) => [e.kind, e.answer])).toEqual([['visit', null], ['leave', null], ['flag', null], ['unflag', null], ['clear', null]]);
+    expect(events.map((e) => [e.kind, e.answer])).toEqual([['visit', null], ['leave', null], ['flag', null], ['unflag', null], ['clear', null], ['skip', null]]);
     const { rows } = await database.pool.query(`SELECT count(*)::int AS n FROM assessment.response_event WHERE answer IS NULL`);
-    expect(rows[0]).toEqual({ n: 5 });
+    expect(rows[0]).toEqual({ n: 6 });
   });
 
   it('reads events in client sequence then id, however they arrived', async () => {

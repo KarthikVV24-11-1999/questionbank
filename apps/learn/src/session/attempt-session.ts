@@ -246,6 +246,11 @@ export class AttemptSession {
     this.#record('clear', slot);
   }
 
+  /** Gives up on a question: a `skip`, which carries no answer and releases the question's solution (FRS 277) without being a response. */
+  skip(slot: string): void {
+    this.#record('skip', slot);
+  }
+
   flag(slot: string, on: boolean): void {
     this.#record(on ? 'flag' : 'unflag', slot);
   }

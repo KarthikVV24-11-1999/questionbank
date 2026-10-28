@@ -20,7 +20,7 @@ const eventSchema = z
     slot: z.string(),
     sequence: z.number().int().min(0),
     monotonicMs: z.number().int().min(0),
-    kind: z.enum(['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag']),
+    kind: z.enum(['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag', 'skip']),
     answer: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]).optional(),
   })
   .strict();

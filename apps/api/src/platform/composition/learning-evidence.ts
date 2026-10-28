@@ -7,6 +7,7 @@ import {
   createMasteryEvidence,
   type EvidenceSourceResult,
   type MasteryEvidence,
+  type GaveUpSlot,
   type MasteryEvidenceSource,
   type ScoredAttemptRef,
 } from '../../contexts/learning/public/composition.js';
@@ -32,6 +33,10 @@ import { ROLES } from '../auth/roles.js';
  * attempt, and a study sitting or a forty-eight-hour gap measured on it would compute from data in which only one value is possible. Assessment's
  * response log holds the instant of the answer that stood at submission, per slot; that is `occurredAt`, and the scoring instant is kept as `scoredAt`.
  * A slot scoring counted as a response that the log has no response standing for is a disagreement between two contexts, and fails the attempt whole.
+ *
+ * **A question the learner gave up on is not evidence and is an entry in the error notebook (M7-38, DEC-M7-16).** Scoring says such a slot is unattempted, as it says of
+ * one never touched; assessment's response timings say which of the unattempted were given up on, and when. Those are resolved to a concept the way evidence is and
+ * handed on as `gaveUp`, to make an entry and to move no mastery state.
  *
  * Which generation of the score is read is the current one: a re-score that corrected an outcome corrects the evidence.
  */
@@ -81,7 +86,14 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource {
     const given = outcomes.value.filter((slot) => (EVIDENCE_OUTCOMES as readonly string[]).includes(slot.outcome));
     const notEvidence = outcomes.value.length - given.length;
 
-    const wanted = [...new Set(given.map((slot) => slot.itemVersionId))];
+
+    const timings = await this.deps.assessment.responseTimings.handle({ attemptId: attempt.attemptId }, context);
+    if (!timings.ok) return fail('SOURCE_UNAVAILABLE', `assessment could not be read: ${timings.error.code}`);
+    const respondedAt = new Map(timings.value.slots.map((timing) => [timing.slotRef, timing.respondedAt]));
+    const gaveUpAt = new Map(timings.value.slots.map((timing) => [timing.slotRef, timing.gaveUpAt]));
+
+    const gaveUpSlots = outcomes.value.filter((slot) => slot.outcome === 'unattempted' && (gaveUpAt.get(slot.slotRef) ?? null) !== null);
+    const wanted = [...new Set([...given, ...gaveUpSlots].map((slot) => slot.itemVersionId))];
     const byVersion = new Map<string, { conceptIdentityId: string; taxonomyVersionId: string; difficultyEstimate: string }>();
     for (let at = 0; at < wanted.length; at += TAXONOMY_BATCH) {
       const taxonomy = await this.deps.content.taxonomyForItemVersions.handle(
@@ -92,9 +104,6 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource {
       for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
     }
 
-    const timings = await this.deps.assessment.responseTimings.handle({ attemptId: attempt.attemptId }, context);
-    if (!timings.ok) return fail('SOURCE_UNAVAILABLE', `assessment could not be read: ${timings.error.code}`);
-    const respondedAt = new Map(timings.value.slots.map((timing) => [timing.slotRef, timing.respondedAt]));
     const withoutInstant = given.filter((slot) => (respondedAt.get(slot.slotRef) ?? null) === null).map((slot) => slot.slotRef);
     if (withoutInstant.length > 0) {
       return {
@@ -140,7 +149,19 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource {
       evidence.push(made.value);
     }
 
-    return { ok: true, value: Object.freeze({ learnerRef: timings.value.learnerRef, evidence: Object.freeze(evidence), notEvidence }) };
+    const gaveUp: GaveUpSlot[] = gaveUpSlots.map((slot) => {
+      const tag = byVersion.get(slot.itemVersionId)!;
+      return Object.freeze({
+        attemptRef: attempt.attemptId,
+        slotRef: slot.slotRef,
+        itemVersionRef: slot.itemVersionId,
+        conceptIdentityId: tag.conceptIdentityId,
+        taxonomyVersionId: tag.taxonomyVersionId,
+        occurredAt: gaveUpAt.get(slot.slotRef) as string,
+      });
+    });
+
+    return { ok: true, value: Object.freeze({ learnerRef: timings.value.learnerRef, evidence: Object.freeze(evidence), notEvidence, gaveUp: Object.freeze(gaveUp) }) };
   }
 }
 

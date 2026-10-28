@@ -17,7 +17,7 @@ const envelope = (payload: Record<string, unknown> = { attemptId: randomUUID(), 
   attempt: 1,
 });
 
-const assembled = (over: Partial<Extract<EvidenceSourceResult, { ok: true }>['value']> = {}): EvidenceSourceResult => ({ ok: true, value: { learnerRef: randomUUID(), evidence: [], notEvidence: 0, ...over } });
+const assembled = (over: Partial<Extract<EvidenceSourceResult, { ok: true }>['value']> = {}): EvidenceSourceResult => ({ ok: true, value: { learnerRef: randomUUID(), evidence: [], notEvidence: 0, gaveUp: [], ...over } });
 
 function consumer(source: EvidenceSourceResult, recorded: unknown = { ok: true, value: { recorded: 0, replayed: 0, maps: [], transitions: [], verified: [] } }) {
   const calls: { evidence?: unknown; command?: unknown; context?: unknown } = {};

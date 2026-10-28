@@ -125,6 +125,7 @@ The `ResponseEvent` log is authoritative; "the answer" is derived.
 | **Time on item** | Sum of `visit` → `leave` intervals, capped per interval to discard backgrounded time |
 | **Answer changes** | Count of `change` events — an analytics signal (FR-ANA-03) |
 | **Flag state** | Last `flag` / `unflag` event |
+| **Skipped** | *Added 2026-10-30 ([ADR-0051](adr/ADR-0051-the-response-log-can-say-a-learner-gave-up.md)).* A `skip` event no later `select` or `change` withdrew. Not an answer, and not evidence |
 
 | Rule | Justification |
 |---|---|

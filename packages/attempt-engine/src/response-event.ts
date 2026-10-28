@@ -2,8 +2,11 @@
  * The closed vocabulary of things a learner can do to a question slot
  * (ASSESSMENT-ENGINE §4). An eighth kind is a compile error everywhere the
  * kinds are switched over, because every such switch is exhaustive.
+ *
+ * `skip` is the learner saying they are giving up on a question (M7-35): effort the log could not express before, and half of the trigger for
+ * releasing a solution. It carries no answer and is not one, so it is not evidence either: scoring sees an unattempted slot (DEC-M7-15, ADR-0051).
  */
-export const RESPONSE_EVENT_KINDS = ['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag'] as const;
+export const RESPONSE_EVENT_KINDS = ['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag', 'skip'] as const;
 
 export type ResponseEventKind = (typeof RESPONSE_EVENT_KINDS)[number];
 
@@ -55,6 +58,10 @@ export interface UnflagEvent extends EventBase {
   readonly kind: 'unflag';
 }
 
+export interface SkipEvent extends EventBase {
+  readonly kind: 'skip';
+}
+
 export type ResponseEvent =
   | SelectEvent
   | ChangeEvent
@@ -62,7 +69,8 @@ export type ResponseEvent =
   | VisitEvent
   | LeaveEvent
   | FlagEvent
-  | UnflagEvent;
+  | UnflagEvent
+  | SkipEvent;
 
 /** Total order every consumer uses: client sequence, then event id as the tie-break. */
 export function compareEvents(a: ResponseEvent, b: ResponseEvent): number {

@@ -49,6 +49,7 @@ export function toEngineEvent(event: ResponseEvent): EngineEvent {
     case 'leave':
     case 'flag':
     case 'unflag':
+    case 'skip':
       return { ...base, kind: event.kind };
   }
 }

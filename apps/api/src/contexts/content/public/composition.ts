@@ -88,6 +88,8 @@ import { PostgresPublishedVersions } from '../infrastructure/published-versions.
 import { ListPublishedCatalogueHandler } from '../application/queries/catalogue-queries.js';
 import { GetVersionTaxonomyHandler } from '../application/queries/version-taxonomy-queries.js';
 import { PostgresVersionTaxonomy } from '../infrastructure/version-taxonomy.reader.js';
+import { GetItemStandingHandler } from '../application/queries/item-standing-queries.js';
+import { PostgresItemStanding } from '../infrastructure/item-standing.reader.js';
 import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import { GetQueueHealthHandler, GetReviewerThroughputHandler } from '../application/review/queries/queue-queries.js';
 import { validateProposedContent } from '../application/proposal-validation.js';
@@ -187,6 +189,7 @@ function assemble(deps: ContentCompositionDeps) {
   const catalogue = new PostgresPublishedCatalogue(deps.pool);
   const versions = new PostgresPublishedVersions(deps.pool);
   const taxonomy = new PostgresVersionTaxonomy(deps.pool);
+  const standing = new PostgresItemStanding(deps.pool);
   const transactions = new PostgresTransactionRunner(deps.pool);
   const entitlements = new InMemoryEntitlements();
   const renderer = new RenderValidatorAdapter();
@@ -222,6 +225,7 @@ function assemble(deps: ContentCompositionDeps) {
     catalogue,
     versions,
     taxonomy,
+    standing,
     reviewPolicy,
     transactions,
   };
@@ -380,6 +384,8 @@ export interface ContentForAssessment {
   readonly stimulusVersion: GetPublishedStimulusVersionHandler;
   /** The keys of the versions an attempt pinned, for scoring and for nothing else: the system's alone, with no route (M6-40). */
   readonly answerKeys: GetAnswerKeysForScoringHandler;
+  /** A published solution by item version, for the assessment context's effort gate to serve once a slot is released (M7-37). */
+  readonly solution: GetPublishedSolutionHandler;
 }
 
 export function contentForAssessment(deps: ContentCompositionDeps): ContentForAssessment {
@@ -390,6 +396,7 @@ export function contentForAssessment(deps: ContentCompositionDeps): ContentForAs
     itemVersion: new GetPublishedItemVersionHandler(bag),
     stimulusVersion: new GetPublishedStimulusVersionHandler(bag),
     answerKeys: new GetAnswerKeysForScoringHandler(bag),
+    solution: new GetPublishedSolutionHandler(bag),
   };
 }
 
@@ -401,9 +408,11 @@ export function contentForAssessment(deps: ContentCompositionDeps): ContentForAs
  */
 export interface ContentForLearning {
   readonly taxonomyForItemVersions: GetVersionTaxonomyHandler;
+  /** Where a bookmarked item stands: published, suspended or retired, and the version to show (M7-38). */
+  readonly itemStanding: GetItemStandingHandler;
 }
 
 export function contentForLearning(deps: ContentCompositionDeps): ContentForLearning {
   const bag = assemble(deps);
-  return { taxonomyForItemVersions: new GetVersionTaxonomyHandler(bag) };
+  return { taxonomyForItemVersions: new GetVersionTaxonomyHandler(bag), itemStanding: new GetItemStandingHandler(bag) };
 }

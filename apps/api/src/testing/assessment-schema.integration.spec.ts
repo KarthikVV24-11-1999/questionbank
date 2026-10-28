@@ -37,9 +37,14 @@ async function rows<T>(query: string, params: readonly unknown[] = []): Promise<
 describe('the assessment schema is its own', () => {
   it('exists as a schema, holding exactly the assessment tables', async () => {
     const tables = await rows<{ table_name: string }>(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'assessment' ORDER BY table_name`,
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'assessment' AND table_type = 'BASE TABLE' ORDER BY table_name`,
     );
     expect(tables.map((row) => row.table_name)).toEqual(ASSESSMENT_TABLES);
+  });
+
+  it('holds exactly one view, the effort gate, which the application role reads and cannot write', async () => {
+    const views = await rows<{ table_name: string }>(`SELECT table_name FROM information_schema.views WHERE table_schema = 'assessment' ORDER BY table_name`);
+    expect(views.map((row) => row.table_name)).toEqual(['solution_release']);
   });
 
   it('puts none of those tables anywhere else', async () => {

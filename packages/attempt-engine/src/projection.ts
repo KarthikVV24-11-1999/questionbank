@@ -23,6 +23,12 @@ export interface SlotProjection {
   readonly answer: ResponseAnswer | null;
   readonly answerChanges: number;
   readonly flagged: boolean;
+  /**
+   * The learner's latest word on the slot is that they gave up on it: set by a `skip`, withdrawn by a later `select` or `change`. A skip never
+   * discards a recorded answer — the answer stands until it is cleared — so this can be true beside an answer; the log's order decides, and the
+   * log's order is the same wherever the events were captured.
+   */
+  readonly skipped: boolean;
   readonly timeOnItemMs: number;
 }
 
@@ -35,22 +41,28 @@ interface SlotState {
   answer: ResponseAnswer | null;
   answerChanges: number;
   flagged: boolean;
+  skipped: boolean;
   timeOnItemMs: number;
   openVisitAtMs: number | null;
 }
 
 function newSlotState(): SlotState {
-  return { answer: null, answerChanges: 0, flagged: false, timeOnItemMs: 0, openVisitAtMs: null };
+  return { answer: null, answerChanges: 0, flagged: false, skipped: false, timeOnItemMs: 0, openVisitAtMs: null };
 }
 
 function apply(state: SlotState, event: ResponseEvent, intervalCapMs: number): void {
   switch (event.kind) {
     case 'select':
       state.answer = event.answer;
+      state.skipped = false;
       return;
     case 'change':
       state.answer = event.answer;
       state.answerChanges += 1;
+      state.skipped = false;
+      return;
+    case 'skip':
+      state.skipped = true;
       return;
     case 'clear':
       state.answer = null;
@@ -111,6 +123,7 @@ export function projectResponses(events: readonly ResponseEvent[], options: Proj
       answer: state.answer,
       answerChanges: state.answerChanges,
       flagged: state.flagged,
+      skipped: state.skipped,
       timeOnItemMs: state.timeOnItemMs,
     };
   });

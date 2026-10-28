@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Headers, Inject, Param, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import type { ZodType } from 'zod';
 import type { ApplicationError } from '../application/authorization.js';
 import type { Handler, HandlerRegistry } from '../application/handler-registry.js';
 import type { ApplicationContext } from '../application/ports.js';
-import { assembleDraftFormSchema, attemptIdSchema, createAttemptSchema, formIdSchema, ingestEventsSchema, scheduleFormSchema, submitAttemptSchema } from './dto/assessment-schemas.js';
+import { assembleDraftFormSchema, attemptIdSchema, createAttemptSchema, formIdSchema, ingestEventsSchema, scheduleFormSchema, slotSolutionSchema, submitAttemptSchema } from './dto/assessment-schemas.js';
 import { statusForKind, toProblemDetails, validationProblem } from './problem-details.js';
 
 /** What a package is served as: its own type, so nothing mistakes it for an API response. */
@@ -101,6 +101,17 @@ export class AssessmentController {
   @Get('/v1/assessment/attempts/:attemptId/result')
   async getAttemptResult(@Param('attemptId') attemptId: string, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
     await this.run(response, headers, 'GetAttemptResult', 200, () => this.parse(attemptIdSchema, { attemptId }));
+  }
+
+  @Get('/v1/assessment/attempts/:attemptId/slots/:slotId/solution')
+  async getSlotSolution(
+    @Param('attemptId') attemptId: string,
+    @Param('slotId') slotId: string,
+    @Query('depth') depth: string | undefined,
+    @Headers() headers: Record<string, string>,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.run(response, headers, 'GetSlotSolution', 200, () => this.parse(slotSolutionSchema, { attemptId, slotId, ...(depth === undefined ? {} : { depth }) }));
   }
 
   @Post('/v1/assessment/attempts/:attemptId/start')

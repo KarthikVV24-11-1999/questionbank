@@ -85,6 +85,17 @@ describe('what the learner does is the engine\'s log, and what is shown is deriv
     expect(session.isFlagged('q1')).toBe(false);
   });
 
+  it('records a skip as an event of its own, which is not an answer and is withdrawn by answering', () => {
+    const { session } = begin();
+    session.goTo('q1');
+    session.skip('q1');
+    const slot = () => session.getSnapshot().projection.slots.find((entry) => entry.slot === 'q1');
+    expect(slot()).toMatchObject({ skipped: true, answer: null });
+    session.select('q1', 'a');
+    expect(slot()).toMatchObject({ skipped: false, answer: 'a' });
+    expect((loadRecordEvents(session) as { kind: string }[]).map((event) => event.kind)).toEqual(['visit', 'skip', 'select']);
+  });
+
   it('numbers events in the log\'s own order and stamps them with the monotonic reading, never a wall-clock time', () => {
     const { session, clock } = begin();
     session.goTo('q1');

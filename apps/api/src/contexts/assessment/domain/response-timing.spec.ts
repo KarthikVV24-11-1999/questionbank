@@ -67,6 +67,19 @@ describe('the instant of the response that stands', () => {
     expect(timings.map((t) => t.respondedAt)).toEqual([at(5), null, null]);
   });
 
+  it('dates a give-up by the last skip no answer followed, and only where no response stands (M7-38)', () => {
+    const timings = responseTimings(attempt, [
+      event(s1, 1, 'skip', at(5)),
+      event(s1, 2, 'skip', at(9)),
+      event(s2, 3, 'skip', at(6)),
+      event(s2, 4, 'select', at(7)),
+      event(s3, 5, 'select', at(8)),
+      event(s3, 6, 'skip', at(9)),
+    ]);
+    // s1 gave up (the later skip dates it); s2 skipped and then answered, so it did not; s3 answered and then skipped, so the answer stands
+    expect(timings.map((t) => [t.slotId, t.gaveUpAt, t.respondedAt])).toEqual([[s1, at(9), null], [s2, null, at(7)], [s3, null, at(8)]]);
+  });
+
   it('carries the slot\'s time on item under the attempt\'s own cap, and zero for a slot never visited', () => {
     const cap = attempt.intervalCapMs;
     const timings = responseTimings(attempt, [
@@ -81,7 +94,7 @@ describe('the instant of the response that stands', () => {
   it('reports every slot of the attempt in paper order, and names only identifiers, instants and durations', () => {
     const timings = responseTimings(attempt, []);
     expect(timings.map((t) => t.slotId)).toEqual(attempt.slots.map((s) => s.slotId));
-    expect(Object.keys(timings[0]!).sort()).toEqual(['itemVersionId', 'respondedAt', 'slotId', 'timeOnItemMs']);
+    expect(Object.keys(timings[0]!).sort()).toEqual(['gaveUpAt', 'itemVersionId', 'respondedAt', 'slotId', 'timeOnItemMs']);
     expect(Object.isFrozen(timings[0])).toBe(true);
   });
 });
@@ -92,7 +105,7 @@ describe('the instant of the response that stands', () => {
  * projection has an answer, a clear or nothing when it has none.
  */
 describe('which event stands agrees with the engine\'s projection', () => {
-  const KINDS: ResponseEventKind[] = ['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag'];
+  const KINDS: ResponseEventKind[] = ['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag', 'skip'];
 
   function generated(seed: number): ResponseEvent[] {
     // mulberry32: an LCG taken modulo a small number is badly correlated, and that left most logs with no answer at all
@@ -130,5 +143,23 @@ describe('which event stands agrees with the engine\'s projection', () => {
     // the generator reaches both outcomes, so agreement is not agreement on one value
     expect(withAnswer).toBeGreaterThan(100);
     expect(without).toBeGreaterThan(20);
+  });
+
+  it('on the same logs, a slot has a give-up instant exactly when the projection says skipped with no answer standing', () => {
+    let gaveUp = 0;
+    let stayed = 0;
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const events = generated(seed);
+      const projected = new Map(projectLog(attempt, events).slots.map((slot) => [slot.slot, slot]));
+      for (const timing of responseTimings(attempt, events)) {
+        const slot = projected.get(timing.slotId);
+        const expected = slot !== undefined && slot.skipped && slot.answer === null;
+        expect(timing.gaveUpAt !== null, `seed ${seed} slot ${timing.slotId}`).toBe(expected);
+        if (expected) gaveUp += 1;
+        else stayed += 1;
+      }
+    }
+    expect(gaveUp).toBeGreaterThan(20);
+    expect(stayed).toBeGreaterThan(100);
   });
 });

@@ -68,7 +68,26 @@ describe('assembling evidence from the two seams', () => {
     const none: (readonly string[])[] = [];
     const result = await seams({ outcomes: good([slot(1, 'unattempted')]), calls: none }).evidenceForScoredAttempt(ATTEMPT);
     expect(none).toEqual([]);
-    expect(result.ok && result.value).toEqual({ learnerRef: LEARNER, evidence: [], notEvidence: 1 });
+    expect(result.ok && result.value).toEqual({ learnerRef: LEARNER, evidence: [], notEvidence: 1, gaveUp: [] });
+  });
+
+  it('hands a question the learner gave up on on as a give-up, and not as evidence, and not a slot that was only never touched (M7-38)', async () => {
+    const slots = [slot(1, 'correct'), slot(2, 'unattempted'), slot(3, 'unattempted'), slot(4, 'dropped')];
+    const gaveUpAt = '2026-10-27T09:30:00.000Z';
+    const result = await seams({
+      outcomes: good(slots),
+      timings: (refs) => ({
+        ok: true,
+        value: {
+          learnerRef: LEARNER,
+          slots: refs.map((slotRef, n) => ({ slotRef, itemVersionId: 'x', respondedAt: slotRef === 's1' ? '2026-10-27T09:00:00.000Z' : null, gaveUpAt: slotRef === 's2' ? gaveUpAt : slotRef === 's4' ? gaveUpAt : null, timeOnItemMs: n })),
+        },
+      }),
+    }).evidenceForScoredAttempt(ATTEMPT);
+    expect(result.ok && result.value.evidence.map((e) => e.slotRef)).toEqual(['s1']);
+    // s2 was given up on and scoring says unattempted: a give-up. s3 was never touched. s4 is dropped, which is not a question the learner gave up on whatever the log says.
+    expect(result.ok && result.value.gaveUp.map((g) => [g.slotRef, g.occurredAt])).toEqual([['s2', gaveUpAt]]);
+    expect(result.ok && result.value.notEvidence).toBe(3);
   });
 
   it('batches within content\'s cap: 501 distinct versions are two calls of 500 and 1', async () => {

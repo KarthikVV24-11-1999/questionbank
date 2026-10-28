@@ -1,7 +1,7 @@
 import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../platform/config/config.js';
 import { describe, expect, it } from 'vitest';
 import { expectError, expectValue } from '../../../testing/expect-result.js';
-import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, StubJudge, StubPins, StubScoreRecords, aSigner } from '../../../testing/assessment-fakes.js';
+import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, InMemorySolutionReleases, StubCorpus, StubJudge, StubPins, StubSolutions, StubScoreRecords, aSigner } from '../../../testing/assessment-fakes.js';
 import { TAG, aDraftForm, aPublishedForm, anActiveForm, anAttempt, id, WINDOW, WITHIN_WINDOW } from '../../../testing/assessment-fixtures.js';
 import type { AssemblyCandidate } from '../domain/assembly.js';
 import { abandonAttempt, startAttempt } from '../domain/attempt.js';
@@ -40,6 +40,8 @@ function rig(overrides: { clock?: Date; corpus?: LoadedCorpus | ReturnType<typeo
     pins: new StubPins(),
     practicePins: new StubPins(),
     judge: new StubJudge(),
+    releases: new InMemorySolutionReleases(),
+    solutions: new StubSolutions(),
     intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
     scoreRecord: new StubScoreRecords(),
   };
@@ -362,14 +364,14 @@ describe('SweepWindows — the operation a scheduler will call (D36)', () => {
 });
 
 describe('the composed registry', () => {
-  it('registers exactly the seventeen handlers, each with a policy, and admits system to exactly six of them', () => {
+  it('registers exactly the eighteen handlers, each with a policy, and admits system to exactly six of them', () => {
     const registry = composeAssessmentHandlers(rig().deps);
-    expect([...registry.names].sort()).toEqual(['AssembleDraftForm', 'CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GrowPracticeAttempt', 'IngestResponseEvents', 'PublishForm', 'ScheduleForm', 'StartAttempt', 'SubmitAttempt', 'SubmitExpiredAttempts', 'SweepWindows']);
+    expect([...registry.names].sort()).toEqual(['AssembleDraftForm', 'CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GetSlotSolution', 'GrowPracticeAttempt', 'IngestResponseEvents', 'PublishForm', 'ScheduleForm', 'StartAttempt', 'SubmitAttempt', 'SubmitExpiredAttempts', 'SweepWindows']);
     const admitting = (role: string) => registry.names.filter((name) => registry.get(name)?.policy.allowedRoles.includes(role)).sort();
     expect(admitting('system')).toEqual(['AssembleDraftForm', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'SubmitExpiredAttempts', 'SweepWindows']);
     expect(admitting('content_ops')).toEqual(['AssembleDraftForm', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'PublishForm', 'ScheduleForm']);
     // a student reaches the package of a form that is open, the key that verifies it, and their own attempt's lifecycle
-    expect(admitting('learner')).toEqual(['CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GrowPracticeAttempt', 'IngestResponseEvents', 'StartAttempt', 'SubmitAttempt']);
+    expect(admitting('learner')).toEqual(['CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GetSlotSolution', 'GrowPracticeAttempt', 'IngestResponseEvents', 'StartAttempt', 'SubmitAttempt']);
     for (const role of ['guest', 'author', 'reviewer', 'generation_pipeline']) expect(admitting(role), role).toEqual([]);
   });
 

@@ -16,6 +16,7 @@ import {
   SUBMIT_EXPIRED_ATTEMPTS_POLICY,
   START_ATTEMPT_POLICY,
   GET_ATTEMPT_POLICY,
+  GET_SLOT_SOLUTION_POLICY,
   INGEST_RESPONSE_EVENTS_POLICY,
   SUBMIT_ATTEMPT_POLICY,
   GET_FORM_POLICY,
@@ -25,7 +26,7 @@ import {
 } from '../contexts/assessment/application/policies.js';
 import { BLUEPRINT_DIFFICULTY_BANDS, BLUEPRINT_ITEM_TYPES } from '../contexts/assessment/domain/blueprint.js';
 import { FORM_STATES } from '../contexts/assessment/domain/form-state.js';
-import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, StubCorpus, StubJudge, StubPins, StubScoreRecords, aSigner } from '../testing/assessment-fakes.js';
+import { InMemoryAttempts, InMemoryContent, InMemoryForms, InMemoryResponses, InMemorySolutionReleases, StubCorpus, StubJudge, StubPins, StubSolutions, StubScoreRecords, aSigner } from '../testing/assessment-fakes.js';
 import { ROLES } from '../platform/auth/roles.js';
 
 const read = (relative: string): string => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
@@ -47,8 +48,8 @@ const document = (name: string): OpenApi => parse(read(`../../../../packages/con
 
 const declaredHandlers = Object.values(SPEC.paths).flatMap((item) => Object.values(item).map((operation) => operation['x-handler'] as string));
 const OPERATOR_HANDLERS = ['AssembleDraftForm', 'GetForm', 'PublishForm', 'ScheduleForm'];
-const STUDENT_HANDLERS = ['GetFormPackage', 'GetPackageSigningKey', 'CreateAttempt', 'StartAttempt', 'GetAttempt', 'GetAttemptResult', 'IngestResponseEvents', 'SubmitAttempt'];
-const POLICIES = [GET_ATTEMPT_RESULT_POLICY, SUBMIT_EXPIRED_ATTEMPTS_POLICY, CREATE_ATTEMPT_POLICY, START_ATTEMPT_POLICY, GET_ATTEMPT_POLICY, INGEST_RESPONSE_EVENTS_POLICY, SUBMIT_ATTEMPT_POLICY, ASSEMBLE_DRAFT_FORM_POLICY, GET_FORM_PACKAGE_POLICY, GET_PACKAGE_SIGNING_KEY_POLICY, GET_FORM_POLICY, PUBLISH_FORM_POLICY, SCHEDULE_FORM_POLICY, SWEEP_WINDOWS_POLICY];
+const STUDENT_HANDLERS = ['GetFormPackage', 'GetPackageSigningKey', 'CreateAttempt', 'StartAttempt', 'GetAttempt', 'GetAttemptResult', 'GetSlotSolution', 'IngestResponseEvents', 'SubmitAttempt'];
+const POLICIES = [GET_ATTEMPT_RESULT_POLICY, GET_SLOT_SOLUTION_POLICY, SUBMIT_EXPIRED_ATTEMPTS_POLICY, CREATE_ATTEMPT_POLICY, START_ATTEMPT_POLICY, GET_ATTEMPT_POLICY, INGEST_RESPONSE_EVENTS_POLICY, SUBMIT_ATTEMPT_POLICY, ASSEMBLE_DRAFT_FORM_POLICY, GET_FORM_PACKAGE_POLICY, GET_PACKAGE_SIGNING_KEY_POLICY, GET_FORM_POLICY, PUBLISH_FORM_POLICY, SCHEDULE_FORM_POLICY, SWEEP_WINDOWS_POLICY];
 const POLICY_BY_NAME = Object.fromEntries(POLICIES.map((entry) => [entry.name, entry]));
 
 /** The set difference both ways: what the document lists that it lacks, and what it has that the list lacks. */
@@ -59,8 +60,8 @@ function routeDrift(spec: Pick<OpenApi, 'paths' | 'x-assessment-routes'>): { rea
 }
 
 describe('F15 — every endpoint reconciles with a real handler', () => {
-  it('names a handler on every operation, and exactly these twelve: four an operator calls, eight a student does', () => {
-    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(12);
+  it('names a handler on every operation, and exactly these thirteen: four an operator calls, nine a student does', () => {
+    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(13);
     expect([...declaredHandlers].sort()).toEqual([...OPERATOR_HANDLERS, ...STUDENT_HANDLERS].sort());
   });
 
@@ -86,7 +87,7 @@ describe('F15 — every endpoint reconciles with a real handler', () => {
 
   it('registers every declared handler without boot failing', () => {
     const handlers = declaredHandlers.map((name) => ({ name, policy: POLICY_BY_NAME[name]!, async handle() { return { ok: true as const, value: undefined }; } }));
-    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(12);
+    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(13);
   });
 });
 
@@ -105,6 +106,8 @@ describe('the scheduler\'s commands have no route (D36)', () => {
       pins: new StubPins(),
       practicePins: new StubPins(),
       judge: new StubJudge(),
+      releases: new InMemorySolutionReleases(),
+      solutions: new StubSolutions(),
     intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
     scoreRecord: new StubScoreRecords(),
     });

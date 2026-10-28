@@ -28,6 +28,7 @@ export const KEY_FREE_SURFACES = [
   'form-routes',
   'attempt-responses',
   'practice-feedback',
+  'solution-delivery',
   'result',
   'relay-payloads',
   'learner-screens',

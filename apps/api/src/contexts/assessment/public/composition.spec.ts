@@ -25,6 +25,7 @@ const deps = (): AssessmentCompositionDeps => ({
     itemVersion: { handle: async () => ({ ok: true, value: {} }) },
     stimulusVersion: { handle: async () => ({ ok: true, value: {} }) },
     answerKeys: { handle: async () => ({ ok: true, value: [] }) },
+    solution: { handle: async () => ({ ok: false, error: { kind: 'NotFound', code: 'x', message: 'x' } }) },
   },
 });
 

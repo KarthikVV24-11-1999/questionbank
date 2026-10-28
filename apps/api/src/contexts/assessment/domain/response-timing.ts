@@ -25,6 +25,12 @@ export interface SlotResponseTiming {
   readonly itemVersionId: string;
   /** The server's instant for the response that stands; `null` when no response stands. */
   readonly respondedAt: string | null;
+  /**
+   * The server's instant for the learner giving up on the slot (M7-38): the last `skip` that no later `select` or `change` withdrew, on a slot with no response
+   * standing. `null` otherwise, and always `null` where a response stands — an answer given and then skipped is still an answer. The projection states the same
+   * thing as `skipped` with no answer; `response-timing.spec.ts` holds the two to each other over generated logs.
+   */
+  readonly gaveUpAt: string | null;
   /** The slot's cumulative time on item under the attempt's own interval cap. */
   readonly timeOnItemMs: number;
 }
@@ -43,6 +49,12 @@ export function responseTimings(
     if ((ANSWER_AFFECTING as readonly string[]).includes(event.kind)) standing.set(event.slotId, event);
   }
 
+  const skipped = new Map<string, ResponseEvent>();
+  for (const event of ordered) {
+    if (event.kind === 'skip') skipped.set(event.slotId, event);
+    else if (event.kind === 'select' || event.kind === 'change') skipped.delete(event.slotId);
+  }
+
   const time = new Map(projectLog(attempt, events).slots.map((slot) => [slot.slot, slot.timeOnItemMs]));
 
   return Object.freeze(
@@ -50,10 +62,12 @@ export function responseTimings(
       .sort((a, b) => a.ordinal - b.ordinal)
       .map((slot) => {
         const last = standing.get(slot.slotId);
+        const responded = last === undefined || last.kind === 'clear' ? null : last.serverReceivedAt;
         return Object.freeze({
           slotId: slot.slotId,
           itemVersionId: slot.itemVersionId,
-          respondedAt: last === undefined || last.kind === 'clear' ? null : last.serverReceivedAt,
+          respondedAt: responded,
+          gaveUpAt: responded === null ? (skipped.get(slot.slotId)?.serverReceivedAt ?? null) : null,
           timeOnItemMs: time.get(slot.slotId) ?? 0,
         });
       }),

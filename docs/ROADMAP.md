@@ -272,6 +272,12 @@ verification (F41) · authorization negative-path 100%
 > ledger ([ADR-0049](adr/ADR-0049-a-practice-delivery-is-exposure-under-its-own-key.md)). **Open:** practice has no route (D78), a practice submission is not scored and so does not yet move mastery (D77),
 > feedback is judged under the first section's rules (D79), and remediation reads stored rather than decayed state (D76). D75 is closed; D80 records the runner-only adversarial seed.
 >
+> **Status, added 2026-10-30 (M7 Track E):** the response log can say a learner gave up on a question (`skip`, [ADR-0051](adr/ADR-0051-the-response-log-can-say-a-learner-gave-up.md)), and a
+> solution is released per question, over stored facts, only after an attempt or a skip on that question — for a mock, also the submission. It is served on the first learner route that
+> carries one, distractor-first ([ADR-0052](adr/ADR-0052-a-solution-is-served-only-through-a-gate-the-database-states.md)), and `KEY-FREE.md` gained its first row that asserts a solution is present. Learning keeps an error
+> notebook cleared only by a verified mastery transition, and bookmarks that follow their item. **Open:** the notebook and bookmarks have no routes and the skip has no button (the learner
+> surfaces are Track H), and the effort gate has no rate limit on skipping.
+>
 > **Track C (what the quarantine cost):** the key-free argument can no longer be satisfied by a skipped test ([ADR-0047](adr/ADR-0047-a-gate-reads-the-structure-of-the-test-it-names.md)), the attempt routes' key-free proof runs again,
 > three coverage thresholds are back at 100, and the intermittent attempts spec is fixed and un-skipped: its 404 was never the application's (D73). Practice sessions are Track D.
 

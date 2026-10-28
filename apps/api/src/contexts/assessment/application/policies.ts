@@ -55,4 +55,6 @@ export const SUBMIT_ATTEMPT_POLICY: AuthorizationPolicy = policy('SubmitAttempt'
 /** A learner's own practice: starting a run and growing it. Each names `learner` alone, and growing checks the run is the caller's own. */
 export const CREATE_PRACTICE_ATTEMPT_POLICY: AuthorizationPolicy = policy('CreatePracticeAttempt', [ROLES.learner]);
 export const GROW_PRACTICE_ATTEMPT_POLICY: AuthorizationPolicy = policy('GrowPracticeAttempt', [ROLES.learner]);
+/** A learner's own solution, behind the effort gate. The handler checks the attempt is the caller's own and the gate has opened the slot. */
+export const GET_SLOT_SOLUTION_POLICY: AuthorizationPolicy = policy('GetSlotSolution', [ROLES.learner]);
 export const GET_PRACTICE_FEEDBACK_POLICY: AuthorizationPolicy = policy('GetPracticeFeedback', [ROLES.learner]);

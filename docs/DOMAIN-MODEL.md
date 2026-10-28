@@ -290,7 +290,7 @@ A Value Object of `{ kind: human | ai_agent | system, id, roleContext }`. Every 
 - ○ **AttemptPin** *(the reproducibility guarantee)* — `{ examProfileVersionId?, markingRuleSetHash, taxonomyVersionId, itemVersionIds[], stimulusVersionIds[] }`.
 - ○ **DeliveryPolicy** *(mode-parameterized — D2)* — `{ timing, navigation, feedbackMode (immediate / deferred), pausable, itemSelection (fixed / dynamic) }`. Derived from `ExamProfileVersion` for mocks; from `PracticePolicy` for practice.
 - ◆ **AttemptSlot** — `{ slotId, ordinal, itemId, itemVersionId, presentedAt?, currentResponse *(projection)*, flagState, cumulativeTimeMs }`.
-- ◆ **ResponseEvent** *(append-only — D4)* — `{ eventId, slotId, sequence, kind (select / change / clear / flag / unflag / visit / leave), payload, clientTimestamp, serverTimestamp, deviceRef }`.
+- ◆ **ResponseEvent** *(append-only — D4)* — `{ eventId, slotId, sequence, kind (select / change / clear / flag / unflag / visit / leave / skip *— `skip` added 2026-10-30, ADR-0051*), payload, clientTimestamp, serverTimestamp, deviceRef }`.
 - ◆ **SectionState** — `{ sectionOrdinal, enteredAt, timeSpentMs, lockState }`.
 - ○ **SubmissionReceipt** — `{ idempotencyKey, submittedAt, submissionMode (manual / auto_expiry / recovered), clientEventCount, serverAcknowledgedAt }`. **The idempotency key is the mechanism behind REL-02.**
 

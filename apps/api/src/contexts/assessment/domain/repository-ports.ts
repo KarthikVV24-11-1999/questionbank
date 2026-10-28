@@ -6,6 +6,7 @@ import type { AttemptState } from './attempt-state.js';
 import type { ExposureEntry } from './exposure.js';
 import type { Form, FormError, ScheduleWindow } from './form.js';
 import type { ResponseEvent } from './response-event.js';
+import type { ReleasedSlot } from './solution-release.js';
 import type { Result } from './result.js';
 
 /**
@@ -143,6 +144,15 @@ export interface ResponseLog {
 
   /** How many slots have a selected or changed answer among the events that count — the guard on abandoning. */
   answeredSlotCount(attemptId: string): Promise<Result<number, RepositoryError>>;
+}
+
+/**
+ * The effort gate (FRS 277, M7-36), as the database states it: a slot is released when the stored facts say it carries an attempt or a skip and, for a
+ * delivery that waits for submission, the attempt is submitted. **The answer is the rows of a view**, not a boolean a caller assembles from an attempt and a log
+ * it counted itself; `undefined` is "not released" and says nothing about why.
+ */
+export interface SolutionReleases {
+  releasedSlot(attemptId: string, slotId: string): Promise<Result<ReleasedSlot | undefined, RepositoryError>>;
 }
 
 export interface AnchorPoolRepository {

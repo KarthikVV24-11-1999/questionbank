@@ -1,6 +1,7 @@
 import { ROLES } from '../../../../platform/auth/roles.js';
 import { conceptMapOf, type ConceptMap } from '../../domain/concept-map.js';
 import type { ConceptEvidence, MasteryState } from '../../domain/concept-state.js';
+import { errorEntryFromEvidence, errorEntryFromGaveUp, type ErrorEntry, type GaveUpSlot } from '../../domain/error-entry.js';
 import { advanceConcept, type MasteryTransition, type OpenPromotion } from '../../domain/mastery-transition.js';
 import type { MasteryEvidence } from '../../domain/mastery-evidence.js';
 import type { MasteryRuleSet } from '../../domain/mastery-rule-set.js';
@@ -30,6 +31,8 @@ export const RECORD_MASTERY_EVIDENCE_POLICY = policy('RecordMasteryEvidence', [R
 export interface RecordMasteryEvidence {
   readonly learnerRef: string;
   readonly evidence: readonly MasteryEvidence[];
+  /** Questions the learner gave up on in the attempt (M7-38): not evidence, and an entry each in the error notebook. Absent means none. */
+  readonly gaveUp?: readonly GaveUpSlot[];
 }
 
 export interface RecordedEvidence {
@@ -79,8 +82,13 @@ export class RecordMasteryEvidenceHandler {
     }));
 
     return this.deps.ledger.inTransaction(command.learnerRef, async (tx) => {
+      // before the early return below: an attempt of nothing but give-ups stores no evidence and still has entries to make, and a replay of one writes nothing more
+      await tx.insertErrorEntries((command.gaveUp ?? []).map((slot) => errorEntryFromGaveUp(command.learnerRef, this.deps.identifiers.next(), slot)), now);
       const stored = await tx.insertEvidence(rows);
       if (stored.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), verified: Object.freeze([]) });
+
+      const wrong = stored.flatMap((row) => errorEntryFromEvidence(command.learnerRef, this.deps.identifiers.next(), row.evidence) ?? []);
+      await tx.insertErrorEntries(wrong satisfies ErrorEntry[], now);
 
       // placed in the order they were given, so the sittings read the way the learner worked; the partition does not depend on it
       let sessions = await tx.sessions();
@@ -131,6 +139,10 @@ export class RecordMasteryEvidenceHandler {
           for (const v of advanced.verified) {
             await tx.verifyTransition(v.transitionId, v.verifiedAt, v.verifyingEvidence);
             verified.push({ transitionId: v.transitionId, verifiedAt: v.verifiedAt });
+          }
+          // a promotion verified at once, and one verified now that was stored earlier, each clears the concept's earlier open entries
+          for (const done of [...advanced.created.filter((t) => t.verifiedAt !== null).map((t) => t.transitionId), ...advanced.verified.map((v) => v.transitionId)]) {
+            await tx.resolveErrorEntries(done);
           }
           transitions.push(...advanced.created);
           floors.set(concept, advanced.floor);

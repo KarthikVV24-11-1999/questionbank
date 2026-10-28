@@ -9,12 +9,18 @@ import type { Pool } from 'pg';
 import { SuggestRemediationConceptsHandler } from '../application/handlers/remediation-handler.js';
 import { RecordMasteryEvidenceHandler } from '../application/handlers/record-evidence-handler.js';
 import type { Clock, IdentifierFactory } from '../application/ports.js';
+import { CreateBookmarkHandler, ListBookmarksHandler, ListErrorEntriesHandler, SetErrorCauseHandler } from '../application/handlers/notebook-handlers.js';
+import type { ItemStandingSource } from '../application/ports.js';
+import { PostgresBookmarkStore, PostgresErrorEntryStore } from '../infrastructure/notebook.repository.js';
 import { PostgresConceptReader } from '../infrastructure/concept-reader.js';
 import { PostgresLearningLedger } from '../infrastructure/learning-ledger.js';
 import { PostgresMasteryRuleSetRepository } from '../infrastructure/mastery-rule-set.repository.js';
 
 export { EVIDENCE_OUTCOMES, createMasteryEvidence } from '../domain/mastery-evidence.js';
 export type { DifficultyEstimate, EvidenceOutcome, MasteryEvidence } from '../domain/mastery-evidence.js';
+export type { ItemStanding } from '../domain/bookmark.js';
+export type { GaveUpSlot } from '../domain/error-entry.js';
+export type { ItemStandingSource } from '../application/ports.js';
 export type {
   AssembledEvidence,
   EvidenceSourceFailure,
@@ -62,4 +68,32 @@ export function learningForAssessment(deps: { readonly pool: Pool }): LearningFo
     throw new Error('learning composition is missing required dependency: pool');
   }
   return { remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool) }) };
+}
+
+/**
+ * What the learner's own notebook and bookmarks are made of (M7-38): the handlers a route will call, over the learner's own rows. Learning has no routes yet, so the
+ * root does not mount these; they are offered here so the surface is a reviewed set (`seam-surface.spec.ts`) and not whatever a route reaches for later.
+ * Bookmarks are shown at their item's standing, which is content's to say: `standings` is the port the root fills from content's seam.
+ */
+export interface LearningForLearner {
+  readonly setErrorCause: SetErrorCauseHandler;
+  readonly listErrorEntries: ListErrorEntriesHandler;
+  readonly createBookmark: CreateBookmarkHandler;
+  readonly listBookmarks: ListBookmarksHandler;
+}
+
+export function learningForLearner(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly standings: ItemStandingSource }): LearningForLearner {
+  for (const key of ['pool', 'clock', 'identifiers', 'standings'] as const) {
+    if (deps[key] === undefined) {
+      throw new Error(`learning composition is missing required dependency: ${key}`);
+    }
+  }
+  const entries = new PostgresErrorEntryStore(deps.pool);
+  const bookmarks = new PostgresBookmarkStore(deps.pool);
+  return {
+    setErrorCause: new SetErrorCauseHandler({ entries }),
+    listErrorEntries: new ListErrorEntriesHandler({ entries }),
+    createBookmark: new CreateBookmarkHandler({ bookmarks, clock: deps.clock, identifiers: deps.identifiers }),
+    listBookmarks: new ListBookmarksHandler({ bookmarks, standings: deps.standings }),
+  };
 }

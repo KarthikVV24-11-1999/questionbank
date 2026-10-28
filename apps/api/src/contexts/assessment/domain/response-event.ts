@@ -28,7 +28,7 @@ import { isNonBlank, isNonNegativeInteger, isUtcTimestamp, isUuid } from './uuid
  * The ability estimate per step in §12 belongs to practice attempts (H1) and
  * has nothing to attach to in a mock; it is out of scope here.
  */
-export const RESPONSE_EVENT_KINDS = ['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag'] as const;
+export const RESPONSE_EVENT_KINDS = ['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag', 'skip'] as const;
 export type ResponseEventKind = (typeof RESPONSE_EVENT_KINDS)[number];
 
 const ANSWER_BEARING: readonly ResponseEventKind[] = ['select', 'change'];

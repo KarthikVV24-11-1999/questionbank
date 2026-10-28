@@ -89,7 +89,7 @@ describe('projecting a log', () => {
       make(6, 'change', 'z', { afterSubmission: true }),
     ];
     const projection = projectLog(attempt, events);
-    expect(projection.slots).toEqual([{ slot: SLOT, answer: 'b', answerChanges: 1, flagged: true, timeOnItemMs: 3_000 }]);
+    expect(projection.slots).toEqual([{ slot: SLOT, answer: 'b', answerChanges: 1, flagged: true, skipped: false, timeOnItemMs: 3_000 }]);
   });
 
   it('reads the cap from the attempt: the same log projects differently under a different cap, and the server has no other source', () => {
@@ -98,6 +98,13 @@ describe('projecting a log', () => {
     expect(under(5_000)).toBe(5_000);
     expect(under(500_000)).toBe(99_000);
     expect(projectLog.length).toBe(2);
+  });
+
+  it('reads a skip as a slot the learner gave up on and as no answer, so scoring sees it as unattempted (M7-35)', () => {
+    const skipped = projectLog(attempt, [make(1, 'visit'), make(2, 'skip'), make(3, 'leave')]).slots.find((slot) => slot.slot === SLOT);
+    expect(skipped).toMatchObject({ skipped: true, answer: null });
+    const answeredThenSkipped = projectLog(attempt, [make(1, 'select', 'a'), make(2, 'skip')]).slots.find((slot) => slot.slot === SLOT);
+    expect(answeredThenSkipped).toMatchObject({ skipped: true, answer: 'a' });
   });
 
   it('gives nothing for a log with nothing that counts', () => {

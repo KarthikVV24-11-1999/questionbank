@@ -41,6 +41,7 @@ x-assessment-routes:
   - /v1/assessment/attempts/{attemptId}
   - /v1/assessment/attempts/{attemptId}/start
   - /v1/assessment/attempts/{attemptId}/result
+  - /v1/assessment/attempts/{attemptId}/slots/{slotId}/solution
   - /v1/assessment/attempts/{attemptId}/events
   - /v1/assessment/attempts/{attemptId}/submission
 
@@ -326,6 +327,46 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '412': { $ref: '#/components/responses/Problem' }
 
+  /v1/assessment/attempts/{attemptId}/slots/{slotId}/solution:
+    get:
+      operationId: getSlotSolution
+      x-handler: GetSlotSolution
+      summary: The worked solution for one question, once you have answered it or skipped it
+      description: |
+        **The first learner surface that carries a solution, and it carries one only behind the effort gate** (FRS 277). A slot's
+        solution opens when that slot has an answer or a skip on record, never because another slot does; for a mock it also waits for
+        submission. Before that the answer is `412` with reason `SOLUTION_NOT_RELEASED`, which is the same whether or not the question
+        has a solution. Someone else's attempt, or a slot that is not in it, is `404`.
+
+        The sections come in reading order: why the tempting wrong answers are wrong, then the method, then any other approach. The
+        `full` depth adds the first and the last and is part of a paid plan (`402`-class entitlement refusal); `basic` is the derivation
+        and is not withheld.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - name: slotId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: depth
+          in: query
+          required: false
+          schema: { type: string, enum: [basic, full], default: basic }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The solution, in reading order.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SlotSolution' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+
   /v1/assessment/attempts/{attemptId}/start:
     post:
       operationId: startAttempt
@@ -491,6 +532,43 @@ components:
             submittedAt: { type: string, format: date-time }
             pastDeadline: { type: boolean }
 
+    SlotSolution:
+      type: object
+      required: [attemptId, slotId, itemVersionId, solutionVersionId, depth, sections]
+      properties:
+        attemptId: { type: string, format: uuid }
+        slotId: { type: string, format: uuid }
+        itemVersionId: { type: string, format: uuid }
+        solutionVersionId: { type: string, format: uuid }
+        depth: { type: string, enum: [basic, full] }
+        sections:
+          type: array
+          description: In reading order. A `why_wrong` section, when there is one, always comes first.
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind: { type: string, enum: [why_wrong, method, alternate] }
+              label: { type: string }
+              applicabilityNote: { type: string }
+              analyses:
+                type: array
+                items:
+                  type: object
+                  required: [optionId, explanation]
+                  properties:
+                    optionId: { type: string }
+                    explanation: { type: object, description: Authored content, rendered by the content renderer. }
+              steps:
+                type: array
+                items:
+                  type: object
+                  required: [ordinal, body, conceptRefs]
+                  properties:
+                    ordinal: { type: integer }
+                    body: { type: object, description: Authored content, rendered by the content renderer. }
+                    conceptRefs: { type: array, items: { type: string } }
+
     AttemptResult:
       type: object
       required: [attemptId, status]
@@ -540,7 +618,7 @@ components:
               slot: { type: string, format: uuid }
               sequence: { type: integer, minimum: 0 }
               monotonicMs: { type: integer, minimum: 0 }
-              kind: { type: string, enum: [select, change, clear, visit, leave, flag, unflag] }
+              kind: { type: string, enum: [select, change, clear, visit, leave, flag, unflag, skip] }
               answer: {}
 
     IngestReport:

@@ -33,6 +33,8 @@ export interface SlotResponseTimingView {
   readonly slotRef: string;
   readonly itemVersionId: string;
   readonly respondedAt: string | null;
+  /** When the learner gave up on the slot, if they did and nothing stands for it (M7-38). */
+  readonly gaveUpAt: string | null;
   readonly timeOnItemMs: number;
 }
 
@@ -70,6 +72,7 @@ function toView(timing: SlotResponseTiming): SlotResponseTimingView {
     slotRef: timing.slotId,
     itemVersionId: timing.itemVersionId,
     respondedAt: timing.respondedAt,
+    gaveUpAt: timing.gaveUpAt,
     timeOnItemMs: timing.timeOnItemMs,
   });
 }

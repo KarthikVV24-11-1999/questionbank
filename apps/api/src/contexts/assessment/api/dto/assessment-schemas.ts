@@ -73,6 +73,10 @@ export const attemptIdSchema = z.object({ attemptId: uuid }).strict();
 
 export const attemptResultSchema = attemptIdSchema;
 
+export const slotSolutionSchema = z
+  .object({ attemptId: uuid, slotId: uuid, depth: z.enum(['basic', 'full']).default('basic') })
+  .strict();
+
 export const submitAttemptSchema = z
   .object({
     attemptId: uuid,

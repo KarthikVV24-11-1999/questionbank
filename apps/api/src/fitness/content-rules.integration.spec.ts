@@ -52,6 +52,8 @@ const APPEND_ONLY_CONTENT_TABLES = [
 ];
 const UPDATE_ONLY_CONTENT_TABLES = ['content.review_assignment', 'assessment.anchor_pool_member'];
 /** The assessment response log, the slots an attempt pinned and the exposure ledger: written once, never changed (M6-12, M6-18). */
+/** Views that state a rule over stored facts: the application reads them and writes nothing (M7-36). */
+const READ_ONLY_ASSESSMENT_VIEWS = ['assessment.solution_release'];
 const APPEND_ONLY_ASSESSMENT_TABLES = ['assessment.response_event', 'assessment.attempt_slot', 'assessment.exposure_ledger_entry', 'assessment.attempt'];
 // `assessment.attempt` is here because its UPDATE is not a table-level grant any more: the application role holds UPDATE on the seven lifecycle
 // columns only (M7-25), which the F40 column allow-list reads, so the table itself is SELECT and INSERT.
@@ -162,7 +164,9 @@ describe('F7/F40 — no TRUNCATE grant on a published-version table', () => {
 
     for (const [table, privileges] of byTable) {
       expect(privileges.has('TRUNCATE'), table).toBe(false);
-      if (
+      if (READ_ONLY_ASSESSMENT_VIEWS.includes(table)) {
+        expect([...privileges], table).toEqual(['SELECT']);
+      } else if (
         table.startsWith('platform.') ||
         table.startsWith('ai.') ||
         APPEND_ONLY_CONTENT_TABLES.includes(table) ||

@@ -69,14 +69,15 @@ describe('what content offers assessment (M6-14, M6-17)', () => {
     reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
   });
 
-  it('is exactly five handlers: the catalogue, the duplicate candidates, the two version reads and the answer keys for scoring', () => {
-    expect(Object.keys(offered).sort()).toEqual(['answerKeys', 'duplicates', 'itemVersion', 'listCatalogue', 'stimulusVersion']);
-    expect([offered.listCatalogue.name, offered.duplicates.name, offered.itemVersion.name, offered.stimulusVersion.name, offered.answerKeys.name]).toEqual([
+  it('is exactly six handlers: the catalogue, the duplicate candidates, the two version reads, the answer keys for scoring and the solution for a released slot', () => {
+    expect(Object.keys(offered).sort()).toEqual(['answerKeys', 'duplicates', 'itemVersion', 'listCatalogue', 'solution', 'stimulusVersion']);
+    expect([offered.listCatalogue.name, offered.duplicates.name, offered.itemVersion.name, offered.stimulusVersion.name, offered.answerKeys.name, offered.solution.name]).toEqual([
       'ListPublishedCatalogue',
       'GetDuplicateCandidates',
       'GetPublishedItemVersion',
       'GetPublishedStimulusVersion',
       'GetAnswerKeysForScoring',
+      'GetPublishedSolution',
     ]);
   });
 
@@ -141,10 +142,12 @@ describe('what content offers learning (M7-03)', () => {
     reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
   });
 
-  it('is exactly one read, the system\'s alone, and no command', () => {
-    expect(Object.keys(offered)).toEqual(['taxonomyForItemVersions']);
+  it('is exactly two reads, the system\'s alone, and no command', () => {
+    expect(Object.keys(offered)).toEqual(['taxonomyForItemVersions', 'itemStanding']);
     expect(offered.taxonomyForItemVersions.name).toBe('GetVersionTaxonomy');
+    expect(offered.itemStanding.name).toBe('GetItemStanding');
     expect(offered.taxonomyForItemVersions.policy.allowedRoles).toEqual(['system']);
+    expect(offered.itemStanding.policy.allowedRoles).toEqual(['system']);
   });
 
   it('refuses a seam built without a dependency, as register does', () => {
@@ -190,7 +193,7 @@ describe('what scoring offers learning (M7-02)', () => {
 
 describe('learning’s own composition (M7-04, M7-16)', () => {
   it('offers the one constructor and the vocabulary the root checks against, and the recorder the relay\'s consumer calls, and no route', () => {
-    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForAssessment', 'learningForRelay']);
+    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForAssessment', 'learningForLearner', 'learningForRelay']);
   });
 
   it('offers exactly one handler to assessment, a learner\'s own, answering in concept identifiers', () => {
@@ -198,6 +201,14 @@ describe('learning’s own composition (M7-04, M7-16)', () => {
     expect(Object.keys(offered)).toEqual(['remediationConcepts']);
     expect(offered.remediationConcepts.name).toBe('SuggestRemediationConcepts');
     expect(offered.remediationConcepts.policy.allowedRoles).toEqual(['learner']);
+  });
+
+  it('offers exactly four handlers to the learner, each theirs alone and none a route yet (M7-38)', () => {
+    const offered = learningComposition.learningForLearner({ pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) } });
+    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'listBookmarks', 'listErrorEntries', 'setErrorCause']);
+    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause']);
+    for (const handler of Object.values(offered)) expect(handler.policy.allowedRoles, handler.name).toEqual(['learner']);
+    expect(() => learningComposition.learningForLearner({ pool } as never)).toThrow(/missing required dependency/u);
   });
 
   it('offers exactly one handler to the relay, the system\'s alone', () => {

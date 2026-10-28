@@ -15,6 +15,8 @@ import { ContentFormReader } from '../infrastructure/content-form-reader.js';
 import { PostgresExposureLedger } from '../infrastructure/exposure-ledger.repository.js';
 import { PostgresFormRepository } from '../infrastructure/form.repository.js';
 import { Ed25519PackageSigner } from '../infrastructure/package-signer.js';
+import { PostgresSolutionReleases } from '../infrastructure/solution-release.repository.js';
+import { ContentSolutionReader } from '../infrastructure/content-solution-reader.js';
 import { PostgresResponseLog } from '../infrastructure/response-log.repository.js';
 import { ScoreSubmittedAttemptConsumer, type ScoringKeyReader, type ScoringSpecReader, type Scorer } from '../application/consumers/scoring-consumer.js';
 import type { ScoreRecordReader } from '../application/handlers/attempt-handlers.js';
@@ -64,6 +66,8 @@ export interface AssessmentCompositionDeps {
     readonly stimulusVersion: ConstructorParameters<typeof ContentFormReader>[0]['stimulusVersion'];
     /** The keys of pinned versions, for scoring and for nothing else (M6-40). */
     readonly answerKeys: ScoringKeyReader;
+    /** A published solution, for a slot the effort gate has released (M7-37): the learner's own, and reached only through a `ReleasedSlot`. */
+    readonly solution: ConstructorParameters<typeof ContentSolutionReader>[0]['solution'];
   };
 }
 
@@ -74,6 +78,8 @@ function assemble(deps: AssessmentCompositionDeps) {
     forms: new PostgresFormRepository(deps.pool),
     attempts: new PostgresAttemptRepository(deps.pool),
     responses: new PostgresResponseLog(deps.pool),
+    releases: new PostgresSolutionReleases(deps.pool),
+    solutions: new ContentSolutionReader({ solution: deps.content.solution }),
     corpus: new ContentCorpus({
       catalogue: deps.content.listCatalogue,
       duplicates: deps.content.duplicates,

@@ -46,7 +46,7 @@ export class LearningAttemptScoredConsumer implements OutboxConsumer {
     }
 
     const recorded = await this.deps.learning.recordEvidence.handle(
-      { learnerRef: assembled.value.learnerRef, evidence: assembled.value.evidence },
+      { learnerRef: assembled.value.learnerRef, evidence: assembled.value.evidence, gaveUp: assembled.value.gaveUp },
       { principal: SYSTEM, correlationId: envelope.correlationId },
     );
     if (recorded.ok) return;

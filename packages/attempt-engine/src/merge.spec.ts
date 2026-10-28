@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeLogs } from './merge.js';
+import { projectResponses } from './projection.js';
 import type { ResponseEvent } from './response-event.js';
 import { logFromEvents, type ResponseLog } from './response-log.js';
 import { randomEvents, seeded, shuffled } from './testing/generators.js';
@@ -122,5 +123,46 @@ describe('last-writer-wins is the wrong merge, and the test says which event it 
     // and the real merge, on the very same inputs, loses none
     const real = new Set(ids(merged(phone, laptop)));
     expect(lost.filter((id) => !real.has(id))).toEqual([]);
+  });
+});
+
+/**
+ * A skip on one device and an answer on another, for the same slot (M7-35). The set union keeps both, and the one canonical order — client
+ * sequence, then event id — decides which is the learner's latest word, so the projection cannot depend on which log was merged into which.
+ */
+describe('a skip and an answer for the same slot, from two devices', () => {
+  const OPTIONS = { intervalCapMs: 60_000 };
+  const base = { attemptId: 'a1', slot: 'q1', monotonicMs: 0 };
+  const skip = (sequence: number): ResponseEvent => ({ ...base, eventId: `phone-skip-${sequence}`, sequence, kind: 'skip' });
+  const answer = (sequence: number): ResponseEvent => ({ ...base, eventId: `laptop-select-${sequence}`, sequence, kind: 'select', answer: 'B' });
+  const slotOf = (log: ResponseLog) => projectResponses(log.events, OPTIONS).slots[0];
+
+  /** Planted violation: the log merged into wins the slot outright, so the outcome depends on which arrived first. */
+  function arrivalOrderWins(into: ResponseLog, _from: ResponseLog): ResponseLog {
+    return into;
+  }
+
+  it('resolves to the same slot in either arrival order, whichever came later on the clock', () => {
+    for (const [skipAt, answerAt] of [[5, 3], [3, 5]] as const) {
+      const phone = logOf([skip(skipAt)]);
+      const laptop = logOf([answer(answerAt)]);
+      const one = slotOf(merged(phone, laptop));
+      const other = slotOf(merged(laptop, phone));
+      expect(one).toEqual(other);
+      // the later of the two is the learner's latest word: a later skip stands beside the answer, a later answer withdraws the skip
+      expect(one?.answer).toBe('B');
+      expect(one?.skipped).toBe(skipAt > answerAt);
+    }
+  });
+
+  it('keeps both events, so neither device\'s account is lost', () => {
+    const merged2 = merged(logOf([skip(5)]), logOf([answer(3)]));
+    expect(ids(merged2)).toEqual(['laptop-select-3', 'phone-skip-5']);
+  });
+
+  it('is not vacuous: an arrival-order merge resolves the two orders differently, and the check sees it', () => {
+    const phone = logOf([skip(3)]);
+    const laptop = logOf([answer(5)]);
+    expect(slotOf(arrivalOrderWins(phone, laptop))).not.toEqual(slotOf(arrivalOrderWins(laptop, phone)));
   });
 });

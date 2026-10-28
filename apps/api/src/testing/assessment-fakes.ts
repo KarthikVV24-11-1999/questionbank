@@ -4,12 +4,13 @@ import { appendSlot, type Attempt, type AttemptSlot } from '../contexts/assessme
 import type { AssessmentEvent } from '../contexts/assessment/domain/events/assessment-events.js';
 import type { AttemptState } from '../contexts/assessment/domain/attempt-state.js';
 import { closeForm, openForm, publishForm, scheduleForm, type Form, type ScheduleWindow } from '../contexts/assessment/domain/form.js';
-import type { AttemptRepository, FormRepository, RepositoryError, ResponseLog } from '../contexts/assessment/domain/repository-ports.js';
+import type { AttemptRepository, FormRepository, RepositoryError, ResponseLog, SolutionReleases } from '../contexts/assessment/domain/repository-ports.js';
 import type { ResponseEvent } from '../contexts/assessment/domain/response-event.js';
 import type { JsonValue } from '../contexts/assessment/domain/form-package.js';
 import { Ed25519PackageSigner } from '../contexts/assessment/infrastructure/package-signer.js';
 import { deriveDeliveryPolicy, type PracticePolicy } from '../contexts/assessment/domain/delivery-policy.js';
-import type { AttemptPins, AttemptPinSource, FormContentReader, FormCorpus, LoadedCorpus, PracticePins, PracticePinSource } from '../contexts/assessment/application/ports.js';
+import { makeReleasedSlot, type ReleasedSlot } from '../contexts/assessment/domain/solution-release.js';
+import type { AttemptPins, AttemptPinSource, FormContentReader, FormCorpus, LoadedCorpus, PracticePins, PracticePinSource, SolutionContent, SolutionSource } from '../contexts/assessment/application/ports.js';
 import type { ApplicationError } from '../contexts/assessment/application/authorization.js';
 
 /**
@@ -277,5 +278,42 @@ export class StubJudge {
     this.asked.push({ slotId, answer });
     if (this.failWith !== null) return err(this.failWith);
     return ok(answer === 'right' ? 'correct' : 'incorrect');
+  }
+}
+
+/** An effort gate whose answers are set by the test: the slots named are released, with the version each pinned. The real gate is the database's view. */
+export class InMemorySolutionReleases implements SolutionReleases {
+  readonly #open = new Map<string, string>();
+
+  open(attemptId: string, slotId: string, itemVersionId: string): void {
+    this.#open.set(`${attemptId}/${slotId}`, itemVersionId);
+  }
+
+  async releasedSlot(attemptId: string, slotId: string): Promise<Result<ReleasedSlot | undefined, RepositoryError>> {
+    const version = this.#open.get(`${attemptId}/${slotId}`);
+    return ok(version === undefined ? undefined : makeReleasedSlot(attemptId, slotId, version));
+  }
+}
+
+/** A solution source that serves one fixed solution and records which released slots it was asked for. */
+export class StubSolutions implements SolutionSource {
+  readonly asked: { itemVersionId: string; depth: 'basic' | 'full' }[] = [];
+  failWith: ApplicationError | null = null;
+
+  async solutionFor(slot: ReleasedSlot, depth: 'basic' | 'full'): Promise<Result<SolutionContent, ApplicationError>> {
+    this.asked.push({ itemVersionId: slot.itemVersionId, depth });
+    if (this.failWith !== null) return err(this.failWith);
+    const step = (ordinal: number, text: string) => ({ ordinal, body: { blocks: [{ text }] }, conceptRefs: [] });
+    return ok({
+      solutionVersionId: '00000000-0000-4000-8000-0000000005a1',
+      targetItemVersionId: slot.itemVersionId,
+      steps: [step(1, 'Square both sides.'), step(2, 'So the answer is 9.')],
+      ...(depth === 'full'
+        ? {
+            distractorAnalyses: [{ optionId: 'b', misconception: { blocks: [{ text: 'Doubling is not squaring.' }] } }],
+            alternateApproaches: [{ label: 'By substitution', steps: [step(1, 'Try x = 3.')], applicabilityNote: 'Quick when the options are small.' }],
+          }
+        : {}),
+    });
   }
 }

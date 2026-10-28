@@ -29,7 +29,7 @@ function draft(overrides: Partial<ResponseEventDraft> = {}): ResponseEventDraft 
 
 describe('the vocabulary', () => {
   it('is the same closed seven the device engine captures', () => {
-    expect([...RESPONSE_EVENT_KINDS]).toEqual(['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag']);
+    expect([...RESPONSE_EVENT_KINDS]).toEqual(['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag', 'skip']);
   });
 });
 
@@ -126,7 +126,7 @@ describe('refusals', () => {
 
   it('accepts a number answer, a multi-option answer, and every answer-free kind', () => {
     expect(expectValue(acceptResponseEvent(live(), draft({ answer: 42 }), NOW)).answer).toBe(42);
-    for (const kind of ['clear', 'visit', 'leave', 'flag', 'unflag'] as const) {
+    for (const kind of ['clear', 'visit', 'leave', 'flag', 'unflag', 'skip'] as const) {
       const { answer: _ignored, ...bare } = draft({ kind });
       expect(expectValue(acceptResponseEvent(live(), bare, NOW)).answer).toBeNull();
     }

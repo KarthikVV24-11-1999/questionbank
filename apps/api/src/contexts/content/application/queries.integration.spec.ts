@@ -66,6 +66,8 @@ import { PostgresPublishedVersions } from '../infrastructure/published-versions.
 import { ListPublishedCatalogueHandler } from './queries/catalogue-queries.js';
 import { GetVersionTaxonomyHandler } from './queries/version-taxonomy-queries.js';
 import { PostgresVersionTaxonomy } from '../infrastructure/version-taxonomy.reader.js';
+import { GetItemStandingHandler } from './queries/item-standing-queries.js';
+import { PostgresItemStanding } from '../infrastructure/item-standing.reader.js';
 import { PostgresPublishedCatalogue } from '../infrastructure/published-catalogue.reader.js';
 import {
   GetPublishedItemVersionHandler,
@@ -1478,6 +1480,48 @@ describe('M7-03 — content offers the primary tag and authored difficulty of a 
       taxonomy: new PostgresVersionTaxonomy({ query: async () => Promise.reject(new Error('relation "secret" missing')) } as never),
     });
     const failure = expectError(await broken.handle({ itemVersionIds: [freshUuid()] }, as(system)));
+    expect(failure.code).toBe('PERSISTENCE_REJECTED');
+    expect(failure.message).not.toContain('secret');
+  });
+});
+
+describe('M7-38 — content offers where an item stands, for a learner\'s bookmarks', () => {
+  const system: PrincipalRef = { kind: 'system', id: freshUuid(), roleContext: ['system'] };
+  const standing = () => new GetItemStandingHandler({ standing: new PostgresItemStanding(database.pool) });
+
+  it('answers a published item with its current version, a suspended one with the same, and a retired one with the version it last had', async () => {
+    const published = await publishItem(await draftItem());
+    const suspended = await publishItem(await draftItem());
+    const retired = await publishItem(await draftItem());
+    expectValue(await new SuspendItemHandler(lifecycle()).handle({ itemId: suspended.itemId, justification: 'checking a report' }, asOps()));
+    expectValue(await new RetireItemHandler(lifecycle()).handle({ itemId: retired.itemId, retirementReason: 'superseded' }, asOps()));
+    const draft = await draftItem();
+
+    const ids = [published.itemId, suspended.itemId, retired.itemId, draft.itemId, freshUuid(), published.itemId];
+    const views = expectValue(await standing().handle({ itemIds: ids }, as(system)));
+    const byItem = new Map(views.map((view) => [view.itemId, view]));
+    expect(byItem.get(published.itemId)).toEqual({ itemId: published.itemId, state: 'published', itemVersionId: published.versions[0]!.versionId });
+    expect(byItem.get(suspended.itemId)).toMatchObject({ state: 'suspended', itemVersionId: suspended.versions[0]!.versionId });
+    expect(byItem.get(retired.itemId)).toMatchObject({ state: 'retired', itemVersionId: retired.versions[0]!.versionId });
+    // a draft was never something to bookmark from a delivery, and an unknown item is nothing: both absent
+    expect(views).toHaveLength(3);
+    expect(Object.keys(views[0]!).sort()).toEqual(['itemId', 'itemVersionId', 'state']);
+  });
+
+  it('answers an empty set with an empty answer, and refuses a value that is not an identifier and a set that is too large', async () => {
+    expect(expectValue(await standing().handle({ itemIds: [] }, as(system)))).toEqual([]);
+    expect(expectError(await standing().handle({ itemIds: ['not-an-id'] }, as(system))).code).toBe('ITEM_STANDING_QUERY_INVALID');
+    expect(expectError(await standing().handle({ itemIds: Array.from({ length: 501 }, () => freshUuid()) }, as(system))).code).toBe('ITEM_STANDING_QUERY_INVALID');
+  });
+
+  it('is the system\'s alone', async () => {
+    expect(standing().policy.allowedRoles).toEqual(['system']);
+    expect(expectError(await standing().handle({ itemIds: [] }, as(author))).kind).toBe('Authorization');
+  });
+
+  it('reports a failing store as a value that says nothing of the driver', async () => {
+    const broken = new GetItemStandingHandler({ standing: new PostgresItemStanding({ query: async () => Promise.reject(new Error('relation "secret" missing')) } as never) });
+    const failure = expectError(await broken.handle({ itemIds: [freshUuid()] }, as(system)));
     expect(failure.code).toBe('PERSISTENCE_REJECTED');
     expect(failure.message).not.toContain('secret');
   });

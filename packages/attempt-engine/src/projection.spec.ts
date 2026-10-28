@@ -76,6 +76,39 @@ describe('flag state', () => {
   });
 });
 
+describe('skip', () => {
+  it('is a slot the learner gave up on, and is not an answer', () => {
+    const slot = only([ev('visit', 1), ev('skip', 2), ev('leave', 3)]);
+    expect(slot?.skipped).toBe(true);
+    expect(slot?.answer).toBeNull();
+    expect(slot?.answerChanges).toBe(0);
+  });
+
+  it('is withdrawn by a later select or change, because the learner then attempted the question', () => {
+    expect(only([ev('skip', 1), ev('select', 2)])?.skipped).toBe(false);
+    expect(only([ev('skip', 1), ev('change', 2)])?.skipped).toBe(false);
+    expect(only([ev('skip', 1), ev('select', 2), ev('skip', 3)])?.skipped).toBe(true);
+  });
+
+  it('never discards a recorded answer: only a clear does', () => {
+    const slot = only([ev('select', 1, { answer: 'B' }), ev('skip', 2)]);
+    expect(slot?.answer).toBe('B');
+    expect(slot?.skipped).toBe(true);
+    expect(only([ev('select', 1, { answer: 'B' }), ev('skip', 2), ev('clear', 3)])?.answer).toBeNull();
+  });
+
+  it('is per slot', () => {
+    const slots = projectResponses([ev('skip', 1, { slot: 'q1' }), ev('select', 2, { slot: 'q2' })], OPTIONS).slots;
+    expect(slots.map((entry) => [entry.slot, entry.skipped])).toEqual([['q1', true], ['q2', false]]);
+  });
+
+  it('does not move the flag or the timing', () => {
+    const slot = only([ev('visit', 1, { at: 0 }), ev('skip', 2, { at: 500 }), ev('leave', 3, { at: 1000 })]);
+    expect(slot?.flagged).toBe(false);
+    expect(slot?.timeOnItemMs).toBe(1000);
+  });
+});
+
 describe('time on item', () => {
   it('sums visit to leave intervals', () => {
     const events = [ev('visit', 1, { at: 1000 }), ev('leave', 2, { at: 4000 }), ev('visit', 3, { at: 10_000 }), ev('leave', 4, { at: 12_000 })];
@@ -169,6 +202,7 @@ const arrivalOrderProjection: Projector = (events) => {
       answer: answers.get(slot) ?? null,
       answerChanges: 0,
       flagged: false,
+      skipped: false,
       timeOnItemMs: 0,
     })),
   };
