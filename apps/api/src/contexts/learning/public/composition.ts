@@ -12,6 +12,8 @@ import type { Clock, IdentifierFactory } from '../application/ports.js';
 import { CreateBookmarkHandler, ListBookmarksHandler, ListErrorEntriesHandler, SetErrorCauseHandler } from '../application/handlers/notebook-handlers.js';
 import type { ItemStandingSource } from '../application/ports.js';
 import { PostgresBookmarkStore, PostgresErrorEntryStore } from '../infrastructure/notebook.repository.js';
+import { GenerateDiagnosticReportHandler, GetDiagnosticReportHandler } from '../application/handlers/report-handlers.js';
+import { PostgresDiagnosticReportStore } from '../infrastructure/diagnostic-report.repository.js';
 import { PostgresConceptReader } from '../infrastructure/concept-reader.js';
 import { PostgresLearningLedger } from '../infrastructure/learning-ledger.js';
 import { PostgresMasteryRuleSetRepository } from '../infrastructure/mastery-rule-set.repository.js';
@@ -20,7 +22,9 @@ export { EVIDENCE_OUTCOMES, createMasteryEvidence } from '../domain/mastery-evid
 export type { DifficultyEstimate, EvidenceOutcome, MasteryEvidence } from '../domain/mastery-evidence.js';
 export type { ItemStanding } from '../domain/bookmark.js';
 export type { GaveUpSlot } from '../domain/error-entry.js';
-export type { ItemStandingSource } from '../application/ports.js';
+export type { ItemStandingSource, ReportSlotSource } from '../application/ports.js';
+export type { ReportSlot, Finding } from '../domain/diagnostic-report.js';
+export type { DiagnosticReportView, ReportedFinding, Remediation } from '../application/handlers/report-handlers.js';
 export type {
   AssembledEvidence,
   EvidenceSourceFailure,
@@ -36,6 +40,8 @@ export type {
  */
 export interface LearningForRelay {
   readonly recordEvidence: RecordMasteryEvidenceHandler;
+  /** The report for a scored mock (M7-42): run by the same consumer, after the evidence is recorded. */
+  readonly generateReport: GenerateDiagnosticReportHandler;
 }
 
 export function learningForRelay(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory }): LearningForRelay {
@@ -51,6 +57,7 @@ export function learningForRelay(deps: { readonly pool: Pool; readonly clock: Cl
       clock: deps.clock,
       identifiers: deps.identifiers,
     }),
+    generateReport: new GenerateDiagnosticReportHandler({ reports: new PostgresDiagnosticReportStore(deps.pool), clock: deps.clock, identifiers: deps.identifiers }),
   };
 }
 
@@ -80,6 +87,8 @@ export interface LearningForLearner {
   readonly listErrorEntries: ListErrorEntriesHandler;
   readonly createBookmark: CreateBookmarkHandler;
   readonly listBookmarks: ListBookmarksHandler;
+  /** The learner's report for a mock, findings ranked by marks lost, each with its remediation (M7-42, M7-43). */
+  readonly getReport: GetDiagnosticReportHandler;
 }
 
 export function learningForLearner(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly standings: ItemStandingSource }): LearningForLearner {
@@ -95,5 +104,6 @@ export function learningForLearner(deps: { readonly pool: Pool; readonly clock: 
     listErrorEntries: new ListErrorEntriesHandler({ entries }),
     createBookmark: new CreateBookmarkHandler({ bookmarks, clock: deps.clock, identifiers: deps.identifiers }),
     listBookmarks: new ListBookmarksHandler({ bookmarks, standings: deps.standings }),
+    getReport: new GetDiagnosticReportHandler({ reports: new PostgresDiagnosticReportStore(deps.pool), concepts: new PostgresConceptReader(deps.pool) }),
   };
 }

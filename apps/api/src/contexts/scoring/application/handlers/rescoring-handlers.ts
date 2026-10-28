@@ -11,7 +11,7 @@ import {
   type RescoringOperation,
 } from '../../domain/rescoring-operation.js';
 import type { RescoringOperationRepository, ScoreRecordRepository } from '../../domain/repository-ports.js';
-import type { AttemptsRescored } from '../../domain/events/scoring-events.js';
+import type { AttemptsRescored, AttemptScoreSuperseded } from '../../domain/events/scoring-events.js';
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
 import type { ApplicationContext, AuditRecorder, Clock, IdentifierFactory } from '../ports.js';
 import type { Handler } from '../handler-registry.js';
@@ -193,35 +193,43 @@ export class ExecuteRescoringHandler implements Handler<ExecuteRescoring, Rescor
     const rerun = await previewScope(this.deps, command.attempts);
     if (!rerun.ok) return err(rerun.error);
 
-    for (const successor of rerun.value.successors) {
-      const predecessor = successor.supersedesScoreRecordId as string;
-      const written = await this.deps.records.supersede(predecessor, successor, operation.value.operationId);
-      if (!written.ok) return err(toApplicationError(written.error));
-    }
-
     const completed = completeExecution(
       expectLoaded(await this.deps.operations.findById(command.operationId)),
       this.deps.clock.now().toISOString(),
     );
     if (!completed.ok) return err(toApplicationError(completed.error));
 
-    // The completion and its event are one write: the operation is never `completed` without its event (DEC-M7-6). The event
-    // names the operation and a count, not the attempts whose outcomes changed, so a consumer cannot learn which (D72).
-    const event: AttemptsRescored = {
-      eventId: this.deps.identifiers.next(),
-      eventType: 'AttemptsRescored',
-      schemaVersion: 1,
-      occurredAt: this.deps.clock.now(),
-      principal: context.principal,
-      correlationId: context.correlationId,
-      payload: {
-        rescoringOperationId: completed.value.operationId,
-        attemptCount: rerun.value.successors.length,
-        trigger: completed.value.trigger,
-        scope: completed.value.scope,
-      },
-    };
-    const finished = await this.deps.operations.save(completed.value, event);
+    // The supersessions, the completion and every announcement are one write (D72, ADR-0053): there is no state in which an attempt's score was replaced and
+    // its consumers were not told, nor one in which they were told of a replacement that did not happen. `AttemptsRescored` says the operation finished; each
+    // `AttemptScoreSuperseded` says which attempt, so a consumer holding what it derived from the earlier generation knows exactly what to reassemble.
+    const occurredAt = this.deps.clock.now();
+    const announce = <T extends AttemptsRescored | AttemptScoreSuperseded>(event: Pick<T, 'eventType' | 'payload'>) =>
+      ({ eventId: this.deps.identifiers.next(), schemaVersion: 1, occurredAt, principal: context.principal, correlationId: context.correlationId, ...event }) as T;
+    const supersessions = rerun.value.successors.map((successor) => ({ predecessorId: successor.supersedesScoreRecordId as string, successor }));
+    const events = [
+      ...supersessions.map(({ predecessorId, successor }) =>
+        announce<AttemptScoreSuperseded>({
+          eventType: 'AttemptScoreSuperseded',
+          payload: {
+            rescoringOperationId: completed.value.operationId,
+            attemptId: successor.attemptId,
+            scoreRecordId: successor.scoreRecordId,
+            supersededScoreRecordId: predecessorId,
+            generation: successor.generation,
+          },
+        }),
+      ),
+      announce<AttemptsRescored>({
+        eventType: 'AttemptsRescored',
+        payload: {
+          rescoringOperationId: completed.value.operationId,
+          attemptCount: supersessions.length,
+          trigger: completed.value.trigger,
+          scope: completed.value.scope,
+        },
+      }),
+    ];
+    const finished = await this.deps.operations.completeWithSuccessors(completed.value, supersessions, events);
     if (!finished.ok) return err(toApplicationError(finished.error));
 
     await this.deps.audit.record({

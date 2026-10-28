@@ -33,7 +33,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await database.pool.query('TRUNCATE learning.error_entry, learning.mastery_transition_evidence, learning.mastery_transition, learning.concept_state, learning.study_session, learning.mastery_evidence');
+  await database.pool.query('TRUNCATE learning.transition_revocation, learning.evidence_correction, learning.error_entry, learning.mastery_transition_evidence, learning.mastery_transition, learning.concept_state, learning.study_session, learning.mastery_evidence');
 });
 
 const clockAt = (iso: string) => ({ now: () => new Date(iso) });

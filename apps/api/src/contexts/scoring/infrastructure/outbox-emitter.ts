@@ -22,10 +22,8 @@ export class ScoringOutboxEmitter {
       [
         event.eventType,
         event.schemaVersion,
-        event.eventType === 'AttemptScored' ? 'ScoreRecord' : 'RescoringOperation',
-        event.eventType === 'AttemptScored'
-          ? event.payload.scoreRecordId
-          : event.payload.rescoringOperationId,
+        event.eventType === 'AttemptsRescored' ? 'RescoringOperation' : 'ScoreRecord',
+        event.eventType === 'AttemptsRescored' ? event.payload.rescoringOperationId : event.payload.scoreRecordId,
         JSON.stringify(event.payload),
         event.principal.kind,
         event.principal.id,

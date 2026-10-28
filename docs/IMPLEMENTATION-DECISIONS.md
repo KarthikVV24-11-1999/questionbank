@@ -490,3 +490,22 @@ A bookmark stores the item, not a version, so it follows the item to its current
 retired with the last version published; an item content does not know is shown as unknown and also kept. Standing is content's to say and arrives through the seam content offers
 Learning, never copied.
 → `contexts/learning/domain/bookmark.ts` · `contexts/content/application/queries/item-standing-queries.ts`
+
+### DEC-M7-19 — A re-score is announced by an event per attempt, written in the transaction that supersedes it
+`AttemptScoreSuperseded` names the operation, the attempt, the record that now stands, the one it replaced and the generation. One event per attempt and not a list in `AttemptsRescored`,
+because Learning's work and its failures are per attempt and an event that grows with the scope of a correction has no bound; and a fact of its own and not an `AttemptScored` for a successor,
+because a consumer should not have to open a payload to learn that a first score is a correction. The supersessions, the completion and every event are one write (ADR-0053).
+→ `contexts/scoring/domain/events/scoring-events.ts` · `contexts/scoring/infrastructure/rescoring-operation.repository.ts` · `docs/adr/ADR-0053-a-re-score-announces-each-attempt-it-superseded-and-learning-corrects-beside-the-record.md`
+
+### DEC-M7-20 — A corrected concept is re-decided from its evidence, and what disagrees is revoked
+A correction to a response restates the concept's history from nothing over the evidence as it now stands. The leading stored transitions that agree with the result are kept with the rules that
+decided them; everything from the first disagreement on is revoked beside the transition and replaced by what the corrected evidence gives, under the rule set in force when it is replayed.
+A promotion granted on an outcome that changed therefore does not survive its correction, and is created again only if the corrected evidence still earns it. Nothing is deleted.
+→ `contexts/learning/domain/mastery-transition.ts` · `contexts/learning/application/handlers/record-evidence-handler.ts` · `infra/migrations/20261031100000_learning_evidence_corrections.sql`
+
+### DEC-M7-21 — A skipped slot contributes its unearned marks to a finding
+A finding is the marks a concept cost: what was available less what was awarded, attributed to the item's primary concept (DEC-M7-5), ranked by that sum and not by a count of wrong
+answers. A skipped slot is included at its full marks, because the learner lost them to that concept whether or not they tried, and leaving them out would rank a concept they avoided
+below one they attempted and got wrong. It stays out of evidence (DEC-M7-15) and moves no mastery state; the finding counts skipped slots separately so *avoided* can be told from *tried
+and lost*. A dropped slot has no marks, a bonus paid in full and an indeterminate one could not be judged, so none is the learner's loss.
+→ `contexts/learning/domain/diagnostic-report.ts`

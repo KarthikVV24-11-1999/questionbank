@@ -1,7 +1,7 @@
 import type { PrincipalRef } from '@questionbank/domain-types';
 import type { Bookmark, ItemStanding } from '../domain/bookmark.js';
 import type { ErrorCause, ErrorEntry } from '../domain/error-entry.js';
-import type { MasteryEvidence } from '../domain/mastery-evidence.js';
+import type { EvidenceOutcome, MasteryEvidence } from '../domain/mastery-evidence.js';
 import type { MasteryRuleSet, MasteryThresholds } from '../domain/mastery-rule-set.js';
 import type { Result } from '../domain/result.js';
 import type { ApplicationError, AuthorizationContext } from './authorization.js';
@@ -110,6 +110,17 @@ export interface MasteryEvidenceSource {
   evidenceForScoredAttempt(attempt: ScoredAttemptRef): Promise<EvidenceSourceResult>;
 }
 
+/** What a stored response counts as: a re-score can change it, and can say it no longer counts. */
+export type EvidenceCorrectionOutcome = EvidenceOutcome | 'withdrawn';
+
+export interface StoredAttemptEvidence {
+  readonly evidenceId: string;
+  readonly slotRef: string;
+  readonly conceptIdentityId: string;
+  readonly taxonomyVersionId: string;
+  readonly outcome: EvidenceCorrectionOutcome;
+}
+
 /** A response ready to be stored: the evidence, whose it is, and what it is called. */
 export interface NewEvidenceRow {
   readonly evidenceId: string;
@@ -124,6 +135,14 @@ export interface NewEvidenceRow {
  * and the states it produced are never out of step.
  */
 export interface LedgerTransaction {
+  /** What the learner's ledger holds for one attempt, each response at what it counts as now: its latest correction if it has one. */
+  attemptEvidence(attemptRef: string): Promise<readonly StoredAttemptEvidence[]>;
+  /** Records what a re-score made of responses already stored; the rows they correct are left as they were (D72). */
+  correctEvidence(corrections: readonly { readonly evidenceId: string; readonly outcome: EvidenceCorrectionOutcome }[], recordedAt: Date): Promise<void>;
+  /** A concept's transitions that have not been revoked, oldest first. */
+  activeTransitions(taxonomyVersionId: string, conceptIdentityId: string): Promise<readonly import('../domain/mastery-transition.js').MasteryTransition[]>;
+  /** Revokes transitions a correction does not support. They are kept, with the responses they were made on, and no longer read as where the concept stands. */
+  revokeTransitions(transitionIds: readonly string[], revokedAt: Date): Promise<void>;
   /** Stores the evidence rows that are new, and returns those: a response already stored for its attempt and slot is not stored twice. */
   insertEvidence(rows: readonly NewEvidenceRow[]): Promise<readonly NewEvidenceRow[]>;
   /** The learner's sittings, earliest first. */
@@ -146,6 +165,8 @@ export interface LedgerTransaction {
     /** Per concept, the weakest state since it was last strong; absent or `null` while it is held at `strong`. */
     floors: ReadonlyMap<string, import('../domain/concept-state.js').MasteryState | null>,
   ): Promise<void>;
+  /** Removes the states of concepts a correction left with no evidence at all: a state is derived, and there is nothing left to derive it from. */
+  dropConceptStates(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<void>;
   /** Where each concept stands in its history of transitions: held at `strong` or not, the floor, and a promotion still awaiting verification. */
   conceptTracking(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<ReadonlyMap<string, ConceptTracking>>;
   /** Appends transitions with their qualifying and verifying responses. */
@@ -208,4 +229,29 @@ export interface LearningLedger {
 /** The learner's concept states, read for remediation (M7-28): the concepts to work on, weakest first, as identifiers and nothing else. */
 export interface ConceptReader {
   weakest(learnerRef: string, taxonomyVersionId: string, limit: number): Promise<Result<readonly string[], ApplicationError>>;
+}
+
+/** One scored attempt's slots as a report reads them: every slot, attributed to its concept, with marks as decimal text. */
+export interface ReportSlotSource {
+  slotsForScoredAttempt(attempt: ScoredAttemptRef): Promise<
+    | { readonly ok: true; readonly value: { readonly learnerRef: string; readonly slots: readonly import('../domain/diagnostic-report.js').ReportSlot[] } }
+    | { readonly ok: false; readonly error: EvidenceSourceFailure }
+  >;
+}
+
+export interface StoredReport {
+  readonly reportId: string;
+  readonly learnerRef: string;
+  readonly attemptRef: string;
+  readonly scoreRecordRef: string;
+  readonly generatedAt: string;
+  readonly findings: readonly import('../domain/diagnostic-report.js').Finding[];
+}
+
+/** Reports are appended and never changed. */
+export interface DiagnosticReportStore {
+  /** Stores the report; `false` where one already exists for the attempt's score record, which is left as it was. */
+  insert(report: StoredReport): Promise<Result<boolean, ApplicationError>>;
+  /** The newest report for the learner's attempt, which after a re-score is the one for the score that stands. */
+  latest(learnerRef: string, attemptRef: string): Promise<Result<StoredReport | null, ApplicationError>>;
 }

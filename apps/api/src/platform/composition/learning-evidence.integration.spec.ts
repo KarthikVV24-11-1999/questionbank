@@ -24,6 +24,9 @@ import { learningForRelay } from '../../contexts/learning/public/composition.js'
 import { OutboxRelay, type OutboxConsumer, type OutboxEnvelope } from '../outbox/relay.js';
 import { LearningAttemptScoredConsumer } from './learning-consumer.js';
 import { createApplication } from './app-factory.js';
+import { PostgresScoreRecordRepository } from '../../contexts/scoring/infrastructure/score-record.repository.js';
+import { PostgresRescoringOperationRepository } from '../../contexts/scoring/infrastructure/rescoring-operation.repository.js';
+import { ApproveRescoringHandler, DraftRescoringHandler, ExecuteRescoringHandler, RunRescoringDryRunHandler } from '../../contexts/scoring/application/handlers/rescoring-handlers.js';
 import { BACKGROUND, type Background } from './background.js';
 import { createRecordingTelemetry } from '../observability/recording-telemetry.js';
 import { COMPOSED_CONFIG } from '../../testing/composed-generation.js';
@@ -95,7 +98,7 @@ let attemptCounter = 0;
  * A mock really sat in assessment's tables — a stored active form, an attempt on it, responses at known server instants, a submission — and then
  * really scored: the answers scoring is given are the ones that counted (not the late ones), as the scoring consumer reads them from the log.
  */
-async function sat(versions: string[], did: Did[]): Promise<{ attemptId: string; event: ScoredAttemptEvent }> {
+async function sat(versions: string[], did: Did[]): Promise<{ attemptId: string; event: ScoredAttemptEvent; rescoreWith(keys: Map<number, typeof key>): ScoreAttempt }> {
   attemptCounter += 1;
   await database.pool.query('TRUNCATE assessment.exposure_ledger_entry, assessment.anchor_pool_member, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form CASCADE');
   const slots = versions.map((itemVersionId, i) => ({ slotId: id(TAG.slot, i + 1), ordinal: i + 1, itemId: id(TAG.item, i + 1), itemVersionId, stimulusVersionId: null }));
@@ -126,12 +129,12 @@ async function sat(versions: string[], did: Did[]): Promise<{ attemptId: string;
   // what stood at submission, per slot, among the answers that counted
   const stood = new Map<number, string | undefined>();
   for (const step of did.filter((d) => d.late !== true)) stood.set(step.slot, step.kind === 'clear' ? undefined : step.answer);
-  const command: ScoreAttempt = {
+  const commandWith = (keys: Map<number, typeof key>): ScoreAttempt => ({
     input: expectValue(
       createScoringInput({
         attemptId,
         pin: { examProfileVersionId: randomUUID(), markingRuleSetHash: HASH, ruleSchemaVersion: 1, taxonomyVersionId: TAXONOMY, itemVersionIds: versions },
-        sections: [{ ordinal: 1, slots: versions.map((itemVersionId, i) => slot(i + 1, itemVersionId, stood.get(i))).map((s, i) => ({ ...s, slotId: slots[i]!.slotId })) }],
+        sections: [{ ordinal: 1, slots: versions.map((itemVersionId, i) => ({ ...slot(i + 1, itemVersionId, stood.get(i)), slotId: slots[i]!.slotId, answerKey: keys.get(i) ?? key })) }],
         overrides: [],
       }),
     ),
@@ -139,11 +142,12 @@ async function sat(versions: string[], did: Did[]): Promise<{ attemptId: string;
     ruleSetHash: HASH,
     aggregation: DEFAULT_AGGREGATION,
     idempotencyKey: attemptId,
-  };
+  });
+  const command = commandWith(new Map());
   const record = expectValue(await score.handle(command, system));
   // the event as the relay would hand it on: read back from the outbox, not rebuilt
   const row = (await database.pool.query('SELECT payload, occurred_at FROM platform.outbox_message WHERE aggregate_id = $1', [record.scoreRecordId])).rows[0];
-  return { attemptId, event: { payload: row.payload, occurredAt: row.occurred_at } };
+  return { attemptId, event: { payload: row.payload, occurredAt: row.occurred_at }, rescoreWith: commandWith };
 }
 
 function slot(n: number, itemVersionId: string, chosen: string | undefined): CreateScoredSlot {
@@ -243,6 +247,46 @@ describe('a sat and scored attempt becomes evidence for each item\'s primary con
  * Learning's consumer on the real relay (M7-16): a scored attempt becomes learning rows by being drained, and not by being called. The outbox is cleared first, so
  * a message from an earlier test is not drained into this one's counts.
  */
+describe('a re-score reaches the learner through the composed relay (D72)', () => {
+  const NOW = new Date('2026-10-27T10:00:30.000Z');
+  const keyA = expectValue(createAnswerKey({ kind: 'SINGLE_CORRECT', optionId: 'A' }));
+  const admin = { principal: { kind: 'human' as const, id: uuid(), roleContext: ['admin'] }, correlationId: 'rescore', stepUpSatisfied: true };
+
+  it('delivers the announcement of a superseded score, and the outcome Learning holds is corrected beside the one it first recorded', async () => {
+    await database.pool.query('ALTER TABLE platform.outbox_message DISABLE TRIGGER outbox_message_event_immutable');
+    await database.pool.query('DELETE FROM platform.outbox_message');
+    await database.pool.query('ALTER TABLE platform.outbox_message ENABLE TRIGGER outbox_message_event_immutable');
+    const [a, b] = [await published('Rescore item one.', 'foundational', [tag(randomUUID(), 1, true)]), await published('Rescore item two.', 'advanced', [tag(randomUUID(), 1, true)])];
+    // slot 2 was answered A, and the key says B: incorrect — until a re-score finds the key was wrong
+    const sitting = await sat([a, b], [{ slot: 0, kind: 'select', answer: 'B', at: T('09:05') }, { slot: 1, kind: 'select', answer: 'A', at: T('09:20') }]);
+
+    const app = await createApplication(COMPOSED_CONFIG, { pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => NOW }, identifiers: uuidFactory });
+    await app.init();
+    try {
+      const relay = app.get<Background>(BACKGROUND).relay;
+      expect(await relay.drain(NOW)).toMatchObject({ delivered: 1, deadLettered: 0 });
+      const outcomes = async () => (await database.pool.query(`SELECT e.slot_ref, COALESCE(c.outcome, e.outcome) AS now, e.outcome AS first FROM learning.mastery_evidence e LEFT JOIN LATERAL (SELECT outcome FROM learning.evidence_correction WHERE evidence_id = e.evidence_id ORDER BY correction_seq DESC LIMIT 1) c ON true WHERE e.attempt_ref = $1 ORDER BY e.slot_ref`, [sitting.attemptId])).rows;
+      expect(await outcomes()).toEqual([{ slot_ref: expect.any(String), now: 'correct', first: 'correct' }, { slot_ref: expect.any(String), now: 'incorrect', first: 'incorrect' }]);
+
+      const records = new PostgresScoreRecordRepository(database.pool);
+      const operations = new PostgresRescoringOperationRepository(database.pool);
+      const deps = { records, operations, clock: { now: () => NOW }, identifiers: { next: () => randomUUID() }, audit: { record: async () => undefined } };
+      const corrected = [sitting.rescoreWith(new Map([[1, keyA]]))];
+      const operation = expectValue(await new DraftRescoringHandler(deps).handle({ trigger: 'KEY_DEFECT_CONFIRMED', scope: 'ITEM_VERSION', scopeRef: b, reason: 'the key was wrong' }, admin));
+      expectValue(await new RunRescoringDryRunHandler(deps).handle({ operationId: operation.operationId, attempts: corrected }, admin));
+      expectValue(await new ApproveRescoringHandler(deps).handle({ operationId: operation.operationId }, admin));
+      expectValue(await new ExecuteRescoringHandler(deps).handle({ operationId: operation.operationId, attempts: corrected }, admin));
+
+      expect(await relay.drain(NOW)).toMatchObject({ delivered: 1, deadLettered: 0, retried: 0 });
+      const [, second] = await outcomes();
+      expect(second).toMatchObject({ first: 'incorrect', now: 'correct' });
+      expect((await database.pool.query(`SELECT count(*)::int AS n FROM learning.evidence_correction`)).rows[0].n).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 describe('the relay delivers a scored attempt to learning', () => {
   const NOW = new Date('2026-10-27T10:00:30.000Z');
   const clearOutbox = async () => {

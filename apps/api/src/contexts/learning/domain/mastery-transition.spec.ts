@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { D002_THRESHOLDS, thresholdsWith } from '../../../testing/learning-thresholds.js';
 import { hashThresholds, type MasteryThresholds } from './mastery-rule-set.js';
 import type { ConceptEvidence } from './concept-state.js';
-import { advanceConcept, assessVerification, isNorthStarEvent, type Advance, type OpenPromotion, type PinnedRules } from './mastery-transition.js';
+import { advanceConcept, assessVerification, isNorthStarEvent, reconcileTransitions, type Advance, type OpenPromotion, type PinnedRules } from './mastery-transition.js';
 
 const CONCEPT = 'concept-1';
 const HOUR = 3_600_000;
@@ -252,5 +252,38 @@ describe('pinned on the rules that decided it', () => {
     // and had it been pinned to the loose one, it would have verified
     const pinnedLoose = { ...first.open!, rules: loose };
     expect(advance({ prior: all, arriving: later, held: true, floor: null, open: pinnedLoose, current: loose }).verified).toHaveLength(1);
+  });
+});
+
+describe('setting stored transitions beside the history corrected evidence gives (M7-40)', () => {
+  it('keeps everything when the corrected evidence gives the history already stored, whatever the identifiers and the rules that decided it', () => {
+    const { first, all } = qualified();
+    const again = advance({ prior: [], arriving: all, current: rules(D002_THRESHOLDS, 'rs-later') });
+    expect(again.created[0]!.ruleSetId).toBe('rs-later');
+    expect(reconcileTransitions(first.created, again.created)).toMatchObject({ kept: first.created.length, revoked: [], created: [] });
+  });
+
+  it('revokes a promotion whose qualifying responses are no longer the ones the corrected evidence gives, and creates what replaces it', () => {
+    const { first, all } = qualified();
+    // half of the right answers were wrong: the concept no longer qualifies, so the promotion has no replacement
+    const worse = all.map((e, i) => (e.outcome === 'correct' && i % 2 === 0 ? { ...e, outcome: 'incorrect' as const } : e));
+    const replayed = advance({ prior: [], arriving: worse });
+    const settled = reconcileTransitions(first.created, replayed.created);
+    expect(replayed.created).toEqual([]);
+    expect(settled.kept).toBe(0);
+    expect(settled.revoked).toEqual(first.created.map((t) => t.transitionId));
+    expect(settled.created).toEqual([]);
+  });
+
+  it('keeps the transitions before the first disagreement, with the rules that decided them, and replaces the rest', () => {
+    const { first } = qualified();
+    const [promotion] = first.created;
+    const regression = { ...promotion!, transitionId: 'r1', from: 'strong' as const, to: 'developing' as const, qualifyingEvidence: [], isRegression: true, occurredAt: at(60) };
+    const stored = [promotion!, regression];
+    const replayed = [{ ...promotion!, transitionId: 'new-1', ruleSetId: 'other' }, { ...regression, transitionId: 'new-2', to: 'weak' as const }];
+    const settled = reconcileTransitions(stored, replayed);
+    expect(settled.kept).toBe(1);
+    expect(settled.revoked).toEqual(['r1']);
+    expect(settled.created.map((t) => t.transitionId)).toEqual(['new-2']);
   });
 });

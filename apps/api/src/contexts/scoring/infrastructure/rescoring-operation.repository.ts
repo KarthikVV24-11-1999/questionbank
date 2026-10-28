@@ -3,7 +3,9 @@ import { err, ok, type Result } from '../domain/result.js';
 import { conflictError, notFoundError } from '../domain/scoring-error.js';
 import type { RepositoryError, RescoringOperationRepository } from '../domain/repository-ports.js';
 import type { RescoringOperation, RescoringState } from '../domain/rescoring-operation.js';
-import type { AttemptsRescored } from '../domain/events/scoring-events.js';
+import type { AttemptsRescored, AttemptScoreSuperseded } from '../domain/events/scoring-events.js';
+import type { ScoreRecord } from '../domain/score-record.js';
+import { PostgresScoreRecordRepository } from './score-record.repository.js';
 import { ScoringOutboxEmitter } from './outbox-emitter.js';
 import type { DryRunResult } from '../domain/rescoring-dry-run.js';
 
@@ -48,6 +50,33 @@ export class PostgresRescoringOperationRepository implements RescoringOperationR
    * overwriting an approval it never saw.
    */
   async save(operation: RescoringOperation, event?: AttemptsRescored): Promise<Result<RescoringOperation, RepositoryError>> {
+    return this.inTransaction(operation, async (client) => {
+      // The same client, so the event commits with the state change it reports or neither does (DEC-M7-6).
+      if (event !== undefined) await this.#outbox.emit(client, event);
+    });
+  }
+
+  async completeWithSuccessors(
+    operation: RescoringOperation,
+    supersessions: readonly { readonly predecessorId: string; readonly successor: ScoreRecord }[],
+    events: readonly (AttemptsRescored | AttemptScoreSuperseded)[],
+  ): Promise<Result<RescoringOperation, RepositoryError>> {
+    return this.inTransaction(operation, async (client) => {
+      for (const { predecessorId, successor } of supersessions) {
+        await PostgresScoreRecordRepository.supersedeOn(client, predecessorId, successor, operation.operationId);
+      }
+      for (const event of events) await this.#outbox.emit(client, event);
+    });
+  }
+
+  /**
+   * The version-guarded write of the operation, then `rest` on the same connection, then commit. A lost race writes nothing and `rest` does not run; a
+   * failure anywhere rolls back everything that went before it, the operation's own state included.
+   */
+  private async inTransaction(
+    operation: RescoringOperation,
+    rest: (client: PoolClient) => Promise<void>,
+  ): Promise<Result<RescoringOperation, RepositoryError>> {
     let client: PoolClient;
     try {
       client = await this.pool.connect();
@@ -91,8 +120,7 @@ export class PostgresRescoringOperationRepository implements RescoringOperationR
         client.release();
         return err(conflictError('CONFLICT', `re-score ${operation.operationId} was changed by someone else`));
       }
-      // The same client, so the event commits with the state change it reports or neither does (DEC-M7-6).
-      if (event !== undefined) await this.#outbox.emit(client, event);
+      await rest(client);
       await client.query('COMMIT');
       outcome = ok(operation);
     } catch (error) {

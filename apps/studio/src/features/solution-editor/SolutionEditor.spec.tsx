@@ -1,3 +1,4 @@
+// This spec has timed out intermittently, passing alone and on rerun, with the cause unknown (D83). Do not lengthen a timeout or skip it before the cause is found.
 import { describe, expect, it } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

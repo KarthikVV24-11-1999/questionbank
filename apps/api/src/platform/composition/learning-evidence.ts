@@ -9,6 +9,8 @@ import {
   type MasteryEvidence,
   type GaveUpSlot,
   type MasteryEvidenceSource,
+  type ReportSlot,
+  type ReportSlotSource,
   type ScoredAttemptRef,
 } from '../../contexts/learning/public/composition.js';
 import { ROLES } from '../auth/roles.js';
@@ -70,8 +72,42 @@ export function scoredAttemptOf(event: ScoredAttemptEvent): ScoredAttemptRef {
   };
 }
 
-export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource {
+export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, ReportSlotSource {
   constructor(private readonly deps: LearningEvidenceDeps) {}
+
+  /**
+   * Every slot of the scored attempt, for the diagnostic report (M7-41): its concept, what it was worth and what it earned, as scoring says and as decimal text.
+   * Unlike evidence this includes the slots that were not responses — the report attributes the marks a skipped question cost to its concept (DEC-M7-21). All or
+   * nothing, as evidence is: a slot whose item version content cannot resolve fails the attempt, so a report never ranks from part of an exam.
+   */
+  async slotsForScoredAttempt(attempt: ScoredAttemptRef): Promise<{ ok: true; value: { learnerRef: string; slots: readonly ReportSlot[] } } | { ok: false; error: import('../../contexts/learning/public/composition.js').EvidenceSourceFailure }> {
+    const context = { principal: SYSTEM, correlationId: `learning-report:${attempt.scoreRecordId}` };
+    const outcomes = await this.deps.scoring.outcomesForAttempt.handle({ attemptId: attempt.attemptId }, context);
+    if (!outcomes.ok) {
+      return outcomes.error.kind === 'NotFound'
+        ? { ok: false, error: { code: 'ATTEMPT_NOT_SCORED', message: `attempt ${attempt.attemptId} has no score record` } }
+        : { ok: false, error: { code: 'SOURCE_UNAVAILABLE', message: `scoring could not be read: ${outcomes.error.code}` } };
+    }
+    const timings = await this.deps.assessment.responseTimings.handle({ attemptId: attempt.attemptId }, context);
+    if (!timings.ok) return { ok: false, error: { code: 'SOURCE_UNAVAILABLE', message: `assessment could not be read: ${timings.error.code}` } };
+
+    const wanted = [...new Set(outcomes.value.map((slot) => slot.itemVersionId))];
+    const byVersion = new Map<string, { conceptIdentityId: string; taxonomyVersionId: string }>();
+    for (let at = 0; at < wanted.length; at += TAXONOMY_BATCH) {
+      const taxonomy = await this.deps.content.taxonomyForItemVersions.handle({ itemVersionIds: wanted.slice(at, at + TAXONOMY_BATCH) }, context);
+      if (!taxonomy.ok) return { ok: false, error: { code: 'SOURCE_UNAVAILABLE', message: `content could not be read: ${taxonomy.error.code}` } };
+      for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
+    }
+    const unresolved = wanted.filter((id) => !byVersion.has(id));
+    if (unresolved.length > 0) {
+      return { ok: false, error: { code: 'ITEM_VERSION_UNRESOLVED', message: `content has no published, tagged version for ${unresolved.length} of the attempt's item versions`, itemVersionIds: unresolved } };
+    }
+    const slots: ReportSlot[] = outcomes.value.map((slot) => {
+      const tag = byVersion.get(slot.itemVersionId)!;
+      return Object.freeze({ slotRef: slot.slotRef, conceptIdentityId: tag.conceptIdentityId, taxonomyVersionId: tag.taxonomyVersionId, outcome: slot.outcome, marksAwarded: slot.marksAwarded, marksAvailable: slot.marksAvailable });
+    });
+    return { ok: true, value: { learnerRef: timings.value.learnerRef, slots: Object.freeze(slots) } };
+  }
 
   async evidenceForScoredAttempt(attempt: ScoredAttemptRef): Promise<EvidenceSourceResult> {
     const context = { principal: SYSTEM, correlationId: `learning-evidence:${attempt.scoreRecordId}` };

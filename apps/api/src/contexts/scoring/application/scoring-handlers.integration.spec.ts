@@ -63,6 +63,15 @@ class SequentialIdentifiers implements IdentifierFactory {
   }
 }
 
+/** Every message an operation produced, whatever its aggregate: the operation's own and one per attempt it superseded. */
+async function outboxFor(operationId: string): Promise<{ event_type: string; payload: Record<string, unknown> }[]> {
+  const found = await database.pool.query(
+    `SELECT event_type, payload FROM platform.outbox_message WHERE payload->>'rescoringOperationId' = $1 ORDER BY occurred_at, outbox_message_id`,
+    [operationId],
+  );
+  return found.rows;
+}
+
 /** What the outbox holds for one aggregate: the only place an event of this context is written. */
 async function eventsFor(aggregateId: string): Promise<{ event_type: string; payload: Record<string, unknown> }[]> {
   const found = await database.pool.query(
@@ -302,6 +311,9 @@ describe('a score and its event are one transaction (M7-01, DEC-M7-6)', () => {
     );
     expect(state.rows[0].state).toBe('executing');
     expect(await eventsFor(operation.operationId)).toEqual([]);
+    // the supersession is in the transaction that failed: the first score still stands, and no second generation exists (D72)
+    const generations = await database.pool.query('SELECT generation, is_current FROM scoring.score_record WHERE attempt_id = $1 ORDER BY generation', [attemptId]);
+    expect(generations.rows).toEqual([{ generation: 1, is_current: true }]);
   });
 });
 
@@ -454,9 +466,35 @@ describe('re-scoring: the preview is the gate', () => {
     expectValue(await bench.approve.handle({ operationId: operation.operationId }, adminContext));
     expectValue(await bench.execute.handle({ operationId: operation.operationId, attempts: corrected }, adminContext));
 
-    const [rescored] = await eventsFor(operation.operationId);
-    expect(rescored!.event_type).toBe('AttemptsRescored');
-    expect(rescored!.payload.attemptCount).toBe(1);
+    const rescored = (await outboxFor(operation.operationId)).filter((e) => e.event_type === 'AttemptsRescored');
+    expect(rescored).toHaveLength(1);
+    expect(rescored[0]!.payload.attemptCount).toBe(1);
+  });
+
+  it('announces each attempt it superseded, naming the record that stands and the one it replaced (D72)', async () => {
+    const bench = harness();
+    const attempts = [randomUUID(), randomUUID(), randomUUID()];
+    for (const attemptId of attempts) await scored(attemptId, bench);
+    const first = (await database.pool.query('SELECT attempt_id, score_record_id FROM scoring.score_record WHERE attempt_id = ANY($1::uuid[])', [attempts])).rows;
+
+    const operation = expectValue(
+      await bench.draft.handle({ trigger: 'RULE_CORRECTION', scope: 'RULE_CHANGE', scopeRef: 'rs-d72', reason: 'rule corrected' }, opsContext),
+    );
+    const corrected = attempts.map((attemptId) => command(attemptId, keyA, 'B'));
+    expectValue(await bench.dryRun.handle({ operationId: operation.operationId, attempts: corrected }, opsContext));
+    expectValue(await bench.approve.handle({ operationId: operation.operationId }, adminContext));
+    expectValue(await bench.execute.handle({ operationId: operation.operationId, attempts: corrected }, adminContext));
+
+    const events = await outboxFor(operation.operationId);
+    const superseded = events.filter((e) => e.event_type === 'AttemptScoreSuperseded');
+    expect(superseded).toHaveLength(3);
+    expect(new Set(superseded.map((e) => e.payload.attemptId))).toEqual(new Set(attempts));
+    for (const event of superseded) {
+      const before = first.find((record) => record.attempt_id === event.payload.attemptId)!;
+      const now = await database.pool.query('SELECT score_record_id, generation FROM scoring.score_record WHERE attempt_id = $1 AND is_current', [event.payload.attemptId]);
+      expect(event.payload).toMatchObject({ rescoringOperationId: operation.operationId, supersededScoreRecordId: before.score_record_id, scoreRecordId: now.rows[0].score_record_id, generation: 2 });
+    }
+    expect(events.filter((e) => e.event_type === 'AttemptsRescored')).toHaveLength(1);
   });
 
   it('audits every step of the operation', async () => {

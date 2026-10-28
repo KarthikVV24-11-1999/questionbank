@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 import { applicationError, type ApplicationError } from '../application/authorization.js';
-import { LedgerAbort, type ConceptTracking, type LearningLedger, type LedgerTransaction, type NewEvidenceRow } from '../application/ports.js';
+import { LedgerAbort, type ConceptTracking, type EvidenceCorrectionOutcome, type LearningLedger, type LedgerTransaction, type NewEvidenceRow, type StoredAttemptEvidence } from '../application/ports.js';
 import type { ConceptEvidence, ConceptState, MasteryState } from '../domain/concept-state.js';
 import type { MasteryTransition } from '../domain/mastery-transition.js';
 import type { DifficultyEstimate, EvidenceOutcome } from '../domain/mastery-evidence.js';
@@ -74,6 +74,74 @@ class PostgresLedgerTransaction implements LedgerTransaction {
     return Object.freeze(stored);
   }
 
+  async attemptEvidence(attemptRef: string): Promise<readonly StoredAttemptEvidence[]> {
+    const { rows } = await this.client.query<{ evidence_id: string; slot_ref: string; concept_identity_id: string; taxonomy_version_id: string; outcome: EvidenceCorrectionOutcome }>(
+      `SELECT e.evidence_id, e.slot_ref, e.concept_identity_id, e.taxonomy_version_id, COALESCE(c.outcome, e.outcome) AS outcome
+         FROM learning.mastery_evidence e
+         LEFT JOIN LATERAL (SELECT outcome FROM learning.evidence_correction WHERE evidence_id = e.evidence_id ORDER BY correction_seq DESC LIMIT 1) c ON true
+        WHERE e.learner_ref = $1 AND e.attempt_ref = $2
+        ORDER BY e.slot_ref`,
+      [this.learnerRef, attemptRef],
+    );
+    return Object.freeze(rows.map((r) => Object.freeze({ evidenceId: r.evidence_id, slotRef: r.slot_ref, conceptIdentityId: r.concept_identity_id, taxonomyVersionId: r.taxonomy_version_id, outcome: r.outcome })));
+  }
+
+  async correctEvidence(corrections: readonly { readonly evidenceId: string; readonly outcome: EvidenceCorrectionOutcome }[], recordedAt: Date): Promise<void> {
+    for (const correction of corrections) {
+      await this.client.query('INSERT INTO learning.evidence_correction (evidence_id, outcome, recorded_at) VALUES ($1, $2, $3)', [correction.evidenceId, correction.outcome, recordedAt]);
+    }
+  }
+
+  async activeTransitions(taxonomyVersionId: string, conceptIdentityId: string): Promise<readonly MasteryTransition[]> {
+    const { rows } = await this.client.query<{
+      transition_id: string;
+      from_state: MasteryState;
+      to_state: MasteryState;
+      occurred_at: Date;
+      verified_at: Date | null;
+      is_regression: boolean;
+      rule_set_id: string;
+      rule_set_hash: string;
+    }>(
+      `SELECT transition_id, from_state, to_state, occurred_at, verified_at, is_regression, rule_set_id, rule_set_hash
+         FROM learning.mastery_transition t
+        WHERE learner_ref = $1 AND taxonomy_version_id = $2 AND concept_identity_id = $3
+          AND NOT EXISTS (SELECT 1 FROM learning.transition_revocation r WHERE r.transition_id = t.transition_id)
+        ORDER BY transition_seq`,
+      [this.learnerRef, taxonomyVersionId, conceptIdentityId],
+    );
+    const links = rows.length === 0
+      ? { rows: [] as { transition_id: string; evidence_id: string; role: 'qualifying' | 'verifying' }[] }
+      : await this.client.query<{ transition_id: string; evidence_id: string; role: 'qualifying' | 'verifying' }>(
+          'SELECT transition_id, evidence_id, role FROM learning.mastery_transition_evidence WHERE transition_id = ANY($1::uuid[]) ORDER BY evidence_id',
+          [rows.map((r) => r.transition_id)],
+        );
+    const behind = (id: string, role: 'qualifying' | 'verifying') => Object.freeze(links.rows.filter((l) => l.transition_id === id && l.role === role).map((l) => l.evidence_id));
+    return Object.freeze(
+      rows.map((r) =>
+        Object.freeze({
+          transitionId: r.transition_id,
+          conceptIdentityId,
+          from: r.from_state,
+          to: r.to_state,
+          qualifyingEvidence: behind(r.transition_id, 'qualifying'),
+          verifyingEvidence: behind(r.transition_id, 'verifying'),
+          occurredAt: iso(r.occurred_at),
+          verifiedAt: r.verified_at === null ? null : iso(r.verified_at),
+          isRegression: r.is_regression,
+          ruleSetId: r.rule_set_id,
+          ruleSetHash: r.rule_set_hash,
+        }),
+      ),
+    );
+  }
+
+  async revokeTransitions(transitionIds: readonly string[], revokedAt: Date): Promise<void> {
+    for (const transitionId of transitionIds) {
+      await this.client.query('INSERT INTO learning.transition_revocation (transition_id, revoked_at) VALUES ($1, $2)', [transitionId, revokedAt]);
+    }
+  }
+
   async sessions(): Promise<readonly StudySession[]> {
     const { rows } = await this.client.query<{ session_id: string; started_at: Date; ended_at: Date }>(
       'SELECT session_id, started_at, ended_at FROM learning.study_session WHERE learner_ref = $1 ORDER BY started_at, session_id',
@@ -109,10 +177,12 @@ class PostgresLedgerTransaction implements LedgerTransaction {
       occurred_at: Date;
       study_session_id: string;
     }>(
-      `SELECT evidence_id, concept_identity_id, item_version_ref, outcome, difficulty_estimate, occurred_at, study_session_id
-         FROM learning.mastery_evidence
-        WHERE learner_ref = $1 AND taxonomy_version_id = $2 AND concept_identity_id = ANY($3::uuid[])
-        ORDER BY occurred_at, evidence_id`,
+      `SELECT e.evidence_id, e.concept_identity_id, e.item_version_ref, COALESCE(c.outcome, e.outcome) AS outcome, e.difficulty_estimate, e.occurred_at, e.study_session_id
+         FROM learning.mastery_evidence e
+         LEFT JOIN LATERAL (SELECT outcome FROM learning.evidence_correction WHERE evidence_id = e.evidence_id ORDER BY correction_seq DESC LIMIT 1) c ON true
+        WHERE e.learner_ref = $1 AND e.taxonomy_version_id = $2 AND e.concept_identity_id = ANY($3::uuid[])
+          AND COALESCE(c.outcome, e.outcome) <> 'withdrawn'
+        ORDER BY e.occurred_at, e.evidence_id`,
       [this.learnerRef, taxonomyVersionId, conceptIdentityIds],
     );
     const byConcept = new Map<string, ConceptEvidence[]>();
@@ -154,6 +224,10 @@ class PostgresLedgerTransaction implements LedgerTransaction {
     }
   }
 
+  async dropConceptStates(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<void> {
+    await this.client.query('DELETE FROM learning.concept_state WHERE learner_ref = $1 AND taxonomy_version_id = $2 AND concept_identity_id = ANY($3::uuid[])', [this.learnerRef, taxonomyVersionId, conceptIdentityIds]);
+  }
+
   async conceptTracking(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<ReadonlyMap<string, ConceptTracking>> {
     const floors = await this.client.query<{ concept_identity_id: string; weakest_since_strong: MasteryState | null }>(
       `SELECT concept_identity_id, weakest_since_strong FROM learning.concept_state
@@ -171,8 +245,9 @@ class PostgresLedgerTransaction implements LedgerTransaction {
       rule_set_hash: string;
     }>(
       `SELECT DISTINCT ON (concept_identity_id) transition_id, concept_identity_id, to_state, is_regression, occurred_at, verified_at, rule_set_id, rule_set_hash
-         FROM learning.mastery_transition
+         FROM learning.mastery_transition t
         WHERE learner_ref = $1 AND taxonomy_version_id = $2 AND concept_identity_id = ANY($3::uuid[])
+          AND NOT EXISTS (SELECT 1 FROM learning.transition_revocation r WHERE r.transition_id = t.transition_id)
         ORDER BY concept_identity_id, transition_seq DESC`,
       [this.learnerRef, taxonomyVersionId, conceptIdentityIds],
     );

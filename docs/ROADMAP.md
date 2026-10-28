@@ -278,6 +278,13 @@ verification (F41) · authorization negative-path 100%
 > notebook cleared only by a verified mastery transition, and bookmarks that follow their item. **Open:** the notebook and bookmarks have no routes and the skip has no button (the learner
 > surfaces are Track H), and the effort gate has no rate limit on skipping.
 >
+> **Status, added 2026-10-31 (M7 Track F):** a re-score now announces each attempt it superseded, in the transaction that supersedes it, and Learning corrects beside the evidence it holds and
+> revokes a promotion granted on an outcome that changed ([ADR-0053](adr/ADR-0053-a-re-score-announces-each-attempt-it-superseded-and-learning-corrects-beside-the-record.md); D72 is closed).
+> Every scored mock gets a diagnostic report whose findings are ranked by the marks each concept cost, skipped questions included (DEC-M7-21), with the practice run that would address each;
+> a re-score gives a new report beside the old. Submission to top finding was measured at about a second through the real relay and scheduler. **Open, and not met:** "mock result to remediation
+> in one tap" is proved at the handler level only, because practice has no route (D78, Track H); the error notebook is not corrected by a re-score (D81); a large re-score queues ahead of
+> live submissions (D82); and the studio specs' intermittent timeouts are registered with no cause (D83).
+>
 > **Track C (what the quarantine cost):** the key-free argument can no longer be satisfied by a skipped test ([ADR-0047](adr/ADR-0047-a-gate-reads-the-structure-of-the-test-it-names.md)), the attempt routes' key-free proof runs again,
 > three coverage thresholds are back at 100, and the intermittent attempts spec is fixed and un-skipped: its 404 was never the application's (D73). Practice sessions are Track D.
 

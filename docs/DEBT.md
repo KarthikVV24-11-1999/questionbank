@@ -547,19 +547,6 @@ author chose is a judgement, and a mastery state that leans on it is only as goo
 ([ADR-0044](adr/ADR-0044-evidence-names-its-difficulty-an-estimate-and-its-concept.md)).
 **Cited** `apps/api/src/contexts/learning/domain/mastery-evidence.ts`
 
-### D72 — A re-score does not tell Learning which outcomes changed
-
-`ExecuteRescoring` supersedes score records and writes one `AttemptsRescored` carrying the operation, a count, the trigger and the scope. It
-names no attempt, and no `AttemptScored` is written for the successors. A consumer holding evidence assembled from generation 1 cannot learn
-that an outcome was corrected. The seam reads the current generation, so a later read is right; what is missing is the announcement.
-
-**M7 Track B built that consumer and did not close this.** It records each response once and never hears that a re-score corrected an outcome, so a
-learner whose attempt is re-scored keeps the evidence from the first score. Nothing works around it: guessing from `AttemptsRescored`'s count would be worse
-than the gap. It belongs in M7's acceptance note as a line that is not met.
-
-**Trigger** Either the successors of a re-score announce themselves (an `AttemptScored` for each), or `AttemptsRescored` lists the attempts it changed.
-**Cited** `apps/api/src/contexts/scoring/application/handlers/rescoring-handlers.ts`
-
 ### D74 — Evidence that arrives out of order is advanced as if it were last
 
 A concept's transitions are advanced from what is stored, one response at a time (DEC-M7-9). A response whose instant is *earlier* than a response already
@@ -623,6 +610,40 @@ quiet skip — the alternative, an event scoring cannot act on, would dead-lette
 the event needs a form-free shape. Until then the response log holds the responses and nothing reads them for mastery.
 **Cited** `apps/api/src/contexts/assessment/application/handlers/attempt-handlers.ts`
 
+### D81 — A re-score does not correct the error notebook
+
+A re-score corrects the evidence Learning holds and the transitions decided on it (D72, ADR-0053). It does not touch `learning.error_entry`: a response that was wrong and is now right still has
+an entry saying it was wrong, a response that was right and is now wrong has none, and an entry cleared by a transition that has since been revoked stays cleared (the table refuses to un-resolve
+one). The learner's notebook can therefore disagree with their corrected score until someone looks.
+
+**Trigger** The notebook is shown to a learner next to a report (Track H), or the first re-score that changes a learner's wrong answers in a real environment: entries get a withdrawal of
+their own, as evidence got a correction, and the guard permits it once.
+**Cited** `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts`
+
+### D82 — A burst of corrections queues ahead of a live submission
+
+The relay claims in occurrence order across every event type it carries, and a re-score writes one `AttemptScoreSuperseded` per attempt at once. A mock submitted after a large re-score is
+scored, announced and then waits behind whatever of the burst has not been delivered: the relay hands out at most `batchSize` × `maxRounds` (50 × 20 = 1,000) messages a drain, one drain a
+second, and each delivery is several reads and a ledger transaction. The batch cap is not what bounds the wait; the order is. The 60-second budget for a diagnostic report was measured with no
+backlog and does not hold behind one. The cost of a delivery and so the length of the wait for a given burst was not measured.
+
+**Trigger** The first re-score over more attempts than one drain delivers in a real environment, or any measurement of a submission behind a backlog: a priority on the outbox that claims
+interactive events first, with the guard that protects an event's columns taught about it.
+**Cited** `apps/api/src/platform/composition/learning-consumer.ts`
+
+### D83 — Studio component specs time out intermittently, cause unknown
+
+Two windows have seen studio specs time out, independently, and neither found a cause. Track D saw timeouts of about 315 seconds while the machine was starved (other work running
+on it); the specs were not recorded by name. Track F's window saw `ItemEditor.spec.tsx` and `SolutionEditor.spec.tsx` fail on typing-race timeouts. In both sightings the specs passed
+on their own and on a rerun, and neither change had touched code the specs exercise. Nothing is known of the cause: a machine too slow for the specs' timeouts, a race in how
+the specs type into the editors, and a defect in the editors themselves are all possible, and none has been shown. It has not been reproduced on purpose and has not been seen on CI.
+
+It is registered before it is diagnosed. D73 began as two sightings with no entry, and cost a week and a quarantine.
+
+**Trigger** The third sighting, or any run that fails twice in a row: run the failing spec 100 times in isolation and again under load with the interval and the cause recorded
+(D73 was found by observing what answered, not by reading the code), and do not skip or lengthen a timeout before the cause is known.
+**Cited** `apps/studio/src/features/item-editor/ItemEditor.spec.tsx`, `apps/studio/src/features/solution-editor/SolutionEditor.spec.tsx`
+
 ## Closed
 
 ### D73 — The attempts spec failed intermittently *(closed at M7-21)*
@@ -655,6 +676,17 @@ M7-19 covered their branches from tests that do not need the composed applicatio
 criteria (the union of two devices, the outage that drains) were not checked by the suite between the skip and the fix.
 
 **Cited** `apps/api/src/testing/loopback.ts`, `apps/api/src/testing/response-diagnosis.ts`, `apps/api/src/fitness/loopback-rules.ts`
+
+
+### D72 — A re-score does not tell Learning which outcomes changed *(closed at M7-40)*
+
+`ExecuteRescoring` superseded score records and wrote one `AttemptsRescored` carrying the operation, a count, the trigger and the scope. It named no attempt, and no `AttemptScored` was
+written for the successors, so a consumer holding evidence assembled from generation 1 could not learn that an outcome was corrected, and a learner whose attempt was re-scored kept the
+evidence from the first score. The supersessions also committed one at a time, before the completion and its event.
+
+Closed by M7-40 ([ADR-0053](adr/ADR-0053-a-re-score-announces-each-attempt-it-superseded-and-learning-corrects-beside-the-record.md)): every superseded attempt is announced
+(`AttemptScoreSuperseded`) in the transaction that supersedes it, and Learning corrects beside the evidence it holds, revoking a promotion that was granted on an outcome that changed.
+**Cited** `apps/api/src/contexts/scoring/application/handlers/rescoring-handlers.ts`
 
 
 ### D17 — Nothing drains the outbox *(closed at M6-38)*

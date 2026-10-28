@@ -112,6 +112,7 @@ class StubOperations implements RescoringOperationRepository {
     private readonly onSave: (o: RescoringOperation) => Result<RescoringOperation, RepositoryError> = ok,
   ) {}
   async save(operation: RescoringOperation) { return this.onSave(operation); }
+  async completeWithSuccessors(operation: RescoringOperation) { return this.onSave(operation); }
   async findById() { return this.onFind(); }
   async findByState(): Promise<Result<readonly RescoringOperation[], RepositoryError>> { return ok([]); }
 }
@@ -238,14 +239,16 @@ describe('re-scoring fails closed on every dependency', () => {
     );
   });
 
-  it('refuses execution when a successor cannot be written', async () => {
+  it('refuses execution when the successors and their announcements cannot be written together', async () => {
     const approved = drafted({ state: 'approved', dryRunResult: buildDryRunResult([]), authorizedBy: 'p' });
-    const handler = new ExecuteRescoringHandler(
-      deps(
-        new StubRecords(() => ok(record(randomUUID())), undefined, () => err(conflict)),
-        new StubOperations(() => ok(approved)),
-      ),
+    const executing = drafted({ state: 'executing', dryRunResult: buildDryRunResult([]), authorizedBy: 'p' });
+    let finds = 0;
+    let saves = 0;
+    const operations = new StubOperations(
+      () => (finds++ === 0 ? ok(approved) : ok(executing)),
+      (o) => (saves++ === 1 ? err(conflict) : ok(o)),
     );
+    const handler = new ExecuteRescoringHandler(deps(new StubRecords(() => ok(record(randomUUID()))), operations));
     expect(expectError(await handler.handle({ operationId: approved.operationId, attempts: [command()] }, admin)).code).toBe(
       'CONFLICT',
     );

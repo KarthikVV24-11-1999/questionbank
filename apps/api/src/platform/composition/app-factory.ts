@@ -28,7 +28,7 @@ import { register as registerGeneration, type GenerationCompositionDeps } from '
 import { register as registerScoring, scoringForAssessment, scoringForLearning } from '../../contexts/scoring/public/composition.js';
 import { learningForAssessment, learningForRelay } from '../../contexts/learning/public/composition.js';
 import { OutboxRelay, DEFAULT_RELAY_POLICY, type OutboxConsumer, type RelayPolicy } from '../outbox/relay.js';
-import { LearningAttemptScoredConsumer } from './learning-consumer.js';
+import { LearningAttemptScoredConsumer, LearningDiagnosticReportConsumer } from './learning-consumer.js';
 import { ScoredAttemptEvidenceSource } from './learning-evidence.js';
 import { Scheduler } from '../scheduling/scheduler.js';
 import { BACKGROUND, type Background } from './background.js';
@@ -190,19 +190,21 @@ export async function createApplication(
 
   // What runs beside the server: the relay that hands outbox messages to their consumers, and the scheduler that drives it and the
   // sweeps. Built here, started by the process (background.ts).
-  // Learning is the first consumer of `AttemptScored` (M7-16). It reads scoring, content and assessment through the seams each names for it, and the root
+  // Learning is the first consumer of `AttemptScored` (M7-16) and of `AttemptScoreSuperseded`, which says a re-score replaced an attempt's score (M7-40). It reads scoring, content and assessment through the seams each names for it, and the root
   // joins them; learning itself imports none of the three.
-  const learningConsumer = new LearningAttemptScoredConsumer({
-    evidence: new ScoredAttemptEvidenceSource({
-      scoring: scoringForLearning({ pool, clock, identifiers, audit, principals }),
-      content: contentForLearning(contentDeps),
-      assessment: assessmentForLearning({ pool }),
-    }),
-    learning: learningForRelay({ pool, clock, identifiers }),
+  const learningEvidence = new ScoredAttemptEvidenceSource({
+    scoring: scoringForLearning({ pool, clock, identifiers, audit, principals }),
+    content: contentForLearning(contentDeps),
+    assessment: assessmentForLearning({ pool }),
   });
+  const learningForConsumers = learningForRelay({ pool, clock, identifiers });
+  const learningConsumer = new LearningAttemptScoredConsumer({ evidence: learningEvidence, learning: learningForConsumers });
+  // the report is made after the evidence is recorded, by the same delivery (M7-42)
+  const reportConsumer = new LearningDiagnosticReportConsumer({ slots: learningEvidence, learning: learningForConsumers });
   const consumers = new Map<string, readonly OutboxConsumer[]>([
     ...assessmentConsumers(assessmentDeps),
-    ['AttemptScored', [learningConsumer]],
+    ['AttemptScored', [learningConsumer, reportConsumer]],
+    ['AttemptScoreSuperseded', [learningConsumer, reportConsumer]],
   ]);
   const relay = new OutboxRelay(pool, consumers, overrides.relayPolicy ?? DEFAULT_RELAY_POLICY);
   const scheduler = new Scheduler([

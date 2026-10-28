@@ -158,3 +158,26 @@ describe('assembling evidence from the two seams', () => {
     expect(ref).toEqual({ attemptId: 'a', scoreRecordId: 'r', scoredAt: '2026-10-27T10:00:00.000Z' });
   });
 });
+
+describe('assembling the slots of a report from the two seams (M7-41)', () => {
+  it('gives every slot, the ones that were not responses included, at its concept and its marks as text', async () => {
+    const slots = [slot(1, 'correct'), slot(2, 'unattempted'), slot(3, 'incorrect'), slot(4, 'dropped')];
+    const result = await seams({ outcomes: good(slots) }).slotsForScoredAttempt(ATTEMPT);
+    expect(result.ok && result.value.learnerRef).toBe(LEARNER);
+    expect(result.ok && result.value.slots.map((s) => [s.slotRef, s.outcome, s.marksAwarded, s.marksAvailable, s.taxonomyVersionId])).toEqual(slots.map((s) => [s.slotRef, s.outcome, '4', '4', TAXONOMY]));
+  });
+
+  it('says an attempt that was never scored is not scored, and that a seam which could not answer is unavailable', async () => {
+    const notFound = { ok: false, error: { kind: 'NotFound', code: 'NOT_FOUND', message: 'none' } };
+    expect(await seams({ outcomes: notFound }).slotsForScoredAttempt(ATTEMPT)).toMatchObject({ ok: false, error: { code: 'ATTEMPT_NOT_SCORED' } });
+    expect(await seams({ outcomes: { ok: false, error: { kind: 'Unavailable', code: 'X', message: 'x' } } }).slotsForScoredAttempt(ATTEMPT)).toMatchObject({ ok: false, error: { code: 'SOURCE_UNAVAILABLE' } });
+    expect(await seams({ outcomes: good([slot(1, 'correct')]), timings: () => ({ ok: false, error: { code: 'X' } }) }).slotsForScoredAttempt(ATTEMPT)).toMatchObject({ ok: false, error: { code: 'SOURCE_UNAVAILABLE' } });
+    expect(await seams({ outcomes: good([slot(1, 'correct')]), taxonomy: () => ({ ok: false, error: { code: 'X' } }) }).slotsForScoredAttempt(ATTEMPT)).toMatchObject({ ok: false, error: { code: 'SOURCE_UNAVAILABLE' } });
+  });
+
+  it('fails the attempt whole, naming the versions, when content cannot resolve one: a report never ranks from part of an exam', async () => {
+    const missing = randomUUID();
+    const result = await seams({ outcomes: good([slot(1, 'correct'), slot(2, 'incorrect', missing)]), taxonomy: (ids) => ({ ok: true, value: ids.filter((i) => i !== missing).map((i) => entry(i)) }) }).slotsForScoredAttempt(ATTEMPT);
+    expect(result).toMatchObject({ ok: false, error: { code: 'ITEM_VERSION_UNRESOLVED', itemVersionIds: [missing] } });
+  });
+});

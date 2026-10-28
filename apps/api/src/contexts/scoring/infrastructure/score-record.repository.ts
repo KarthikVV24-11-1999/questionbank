@@ -158,7 +158,7 @@ export class PostgresScoreRecordRepository implements ScoreRecordRepository {
 
   async save(record: ScoreRecord, event?: AttemptScored): Promise<Result<ScoreRecord, RepositoryError>> {
     return this.inTransaction(async (client) => {
-      await this.insert(client, record, null);
+      await PostgresScoreRecordRepository.insert(client, record, null);
       // The same client, so the event commits with the record or neither does (DEC-M7-6).
       if (event !== undefined) await this.#outbox.emit(client, event);
       return record;
@@ -171,15 +171,18 @@ export class PostgresScoreRecordRepository implements ScoreRecordRepository {
     rescoringOperationId?: string,
   ): Promise<Result<ScoreRecord, RepositoryError>> {
     return this.inTransaction(async (client) => {
-      // Standing the predecessor down first is what lets the partial unique
-      // index admit the successor. Both statements are in one transaction, so
-      // an attempt is never left with no current record.
-      await client.query(`UPDATE scoring.score_record SET is_current = false WHERE score_record_id = $1`, [
-        predecessorId,
-      ]);
-      await this.insert(client, successor, rescoringOperationId ?? null);
+      await PostgresScoreRecordRepository.supersedeOn(client, predecessorId, successor, rescoringOperationId ?? null);
       return successor;
     });
+  }
+
+  /**
+   * The supersession on a connection the caller owns, so a re-score can stand every predecessor down and write every successor in the transaction that also
+   * completes the operation and announces each attempt (D72). Standing the predecessor down first is what lets the partial unique index admit the successor.
+   */
+  static async supersedeOn(client: PoolClient, predecessorId: string, successor: ScoreRecord, rescoringOperationId: string | null): Promise<void> {
+    await client.query(`UPDATE scoring.score_record SET is_current = false WHERE score_record_id = $1`, [predecessorId]);
+    await PostgresScoreRecordRepository.insert(client, successor, rescoringOperationId);
   }
 
   async findById(scoreRecordId: string): Promise<Result<ScoreRecord, RepositoryError>> {
@@ -226,7 +229,7 @@ export class PostgresScoreRecordRepository implements ScoreRecordRepository {
     return toScoreRecord(row, sections.rows, outcomes.rows);
   }
 
-  private async insert(client: PoolClient, record: ScoreRecord, operationId: string | null): Promise<void> {
+  private static async insert(client: PoolClient, record: ScoreRecord, operationId: string | null): Promise<void> {
     await client.query(
       `INSERT INTO scoring.score_record
          (score_record_id, attempt_id, exam_profile_version_id, marking_rule_set_hash, rule_schema_version,

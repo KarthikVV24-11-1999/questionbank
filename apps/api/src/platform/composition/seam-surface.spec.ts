@@ -203,19 +203,19 @@ describe('learning’s own composition (M7-04, M7-16)', () => {
     expect(offered.remediationConcepts.policy.allowedRoles).toEqual(['learner']);
   });
 
-  it('offers exactly four handlers to the learner, each theirs alone and none a route yet (M7-38)', () => {
+  it('offers exactly five handlers to the learner, each theirs alone and none a route yet (M7-38, M7-42)', () => {
     const offered = learningComposition.learningForLearner({ pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) } });
-    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'listBookmarks', 'listErrorEntries', 'setErrorCause']);
-    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause']);
+    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'getReport', 'listBookmarks', 'listErrorEntries', 'setErrorCause']);
+    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause']);
     for (const handler of Object.values(offered)) expect(handler.policy.allowedRoles, handler.name).toEqual(['learner']);
     expect(() => learningComposition.learningForLearner({ pool } as never)).toThrow(/missing required dependency/u);
   });
 
-  it('offers exactly one handler to the relay, the system\'s alone', () => {
+  it('offers exactly two handlers to the relay, the system\'s alone', () => {
     const offered = learningComposition.learningForRelay({ pool, clock, identifiers });
-    expect(Object.keys(offered)).toEqual(['recordEvidence']);
-    expect(offered.recordEvidence.name).toBe('RecordMasteryEvidence');
-    expect(offered.recordEvidence.policy.allowedRoles).toEqual(['system']);
+    expect(Object.keys(offered)).toEqual(['recordEvidence', 'generateReport']);
+    expect(Object.values(offered).map((handler) => handler.name)).toEqual(['RecordMasteryEvidence', 'GenerateDiagnosticReport']);
+    for (const handler of Object.values(offered)) expect(handler.policy.allowedRoles, handler.name).toEqual(['system']);
   });
 
   it('refuses a seam built without a dependency, as register does', () => {

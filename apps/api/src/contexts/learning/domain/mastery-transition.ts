@@ -204,3 +204,32 @@ export function advanceConcept(input: AdvanceInput): Advance {
 
   return Object.freeze({ created: Object.freeze(created), verified: Object.freeze(verified), held, floor, open });
 }
+
+/** What a transition *did*, apart from its identity and the rules it was pinned to: two histories that agree on this agree on what happened to the learner. */
+function whatHappened(t: MasteryTransition): string {
+  return [t.from, t.to, t.occurredAt, t.verifiedAt ?? '', t.isRegression, [...t.qualifyingEvidence].sort().join(','), [...t.verifyingEvidence].sort().join(',')].join('|');
+}
+
+export interface Reconciliation {
+  /** Stored transitions that agree with the history the corrected evidence gives, from the first, and are left as they are, with the rules they were pinned to. */
+  readonly kept: number;
+  /** The stored transitions from the first disagreement on, which the corrected evidence does not support. */
+  readonly revoked: readonly string[];
+  /** What the corrected evidence gives from the first disagreement on, to be stored in their place. */
+  readonly created: readonly MasteryTransition[];
+}
+
+/**
+ * Sets the transitions a concept has stored beside the history its corrected evidence gives (M7-40, ADR-0053).
+ *
+ * A correction changes what a response was worth, and a promotion decided on the old worth must not outlive it. The concept is re-advanced from nothing over
+ * its evidence as it now stands, and the stored history is held against the result: the leading transitions that agree are kept — what happened before the
+ * correction is not restated, and keeps the rules that decided it — and everything from the first disagreement on is revoked and replaced by what the corrected
+ * evidence gives. A promotion granted on an outcome that changed is therefore not among what is kept: it is revoked, and it is created again only if the
+ * corrected evidence still earns it.
+ */
+export function reconcileTransitions(stored: readonly MasteryTransition[], replayed: readonly MasteryTransition[]): Reconciliation {
+  let kept = 0;
+  while (kept < stored.length && kept < replayed.length && whatHappened(stored[kept]!) === whatHappened(replayed[kept]!)) kept += 1;
+  return Object.freeze({ kept, revoked: Object.freeze(stored.slice(kept).map((t) => t.transitionId)), created: Object.freeze(replayed.slice(kept)) });
+}

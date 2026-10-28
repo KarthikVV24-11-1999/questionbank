@@ -25,7 +25,7 @@ afterAll(async () => {
   await database.close();
 });
 beforeEach(async () => {
-  await database.pool.query('TRUNCATE learning.error_entry, learning.mastery_transition_evidence, learning.mastery_transition, learning.concept_state');
+  await database.pool.query('TRUNCATE learning.transition_revocation, learning.evidence_correction, learning.error_entry, learning.mastery_transition_evidence, learning.mastery_transition, learning.concept_state');
 });
 
 async function state(learner: string, n: number, mastery: string, confidence: number, taxonomy = TAXONOMY): Promise<void> {

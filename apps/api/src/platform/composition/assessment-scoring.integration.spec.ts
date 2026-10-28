@@ -27,6 +27,7 @@ import { uuidFactory } from '../../testing/generation-context.js';
 import { seedPublishedProfile, type PublishedProfile } from '../../testing/published-profile.js';
 import { PostgresIdempotencyStore } from '../persistence/idempotency-store.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
+import { learningForLearner } from '../../contexts/learning/public/composition.js';
 
 /**
  * A submission becomes a score (M6-38 to M6-42): the real application, real Postgres, the real relay draining the real outbox to the
@@ -303,6 +304,35 @@ const contentDeps = () => ({
 });
 const curriculumDeps = () => ({ pool: database.pool, clock: { now: appClock }, identifiers: uuidFactory, audit: { record: async () => undefined }, principals: { resolve: () => null } });
 const scoringDeps = curriculumDeps;
+
+describe('a diagnostic report is readable within sixty seconds of the submission (M7-42)', () => {
+  it('goes from the submission to the top finding through the real relay and the scheduler on real timers, and prints the time it took', async () => {
+    const { who, attemptId } = await sat();
+    const learning = learningForLearner({ pool: database.pool, clock: { now: () => new Date() }, identifiers: uuidFactory, standings: { standings: async () => ({ ok: true as const, value: [] }) } });
+    const context = { principal: { kind: 'human' as const, id: who.id, roleContext: ['learner'] }, correlationId: 'timing' };
+
+    // the clock is the real one from here: the scheduler ticks as the process would, every second, and nothing in this test waits a fixed time
+    const stop = background.scheduler.start({ every: (ms, run) => { const timer = setInterval(run, ms); return () => clearInterval(timer); } }, () => new Date(), 1_000);
+    const begun = performance.now();
+    try {
+      const submitted = await submit(who, attemptId);
+      expect(submitted.status, JSON.stringify(submitted.body)).toBe(200);
+      let top: { marksLost: string; slots: number; skipped: number } | undefined;
+      while (top === undefined && performance.now() - begun < 60_000) {
+        const read = await learning.getReport.handle({ attemptId }, context);
+        if (read.ok) top = read.value.findings[0];
+        else await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const elapsedMs = performance.now() - begun;
+      // eslint-disable-next-line no-console
+      console.log(`M7-42: submission to top finding readable in ${(elapsedMs / 1000).toFixed(2)} s (budget 60 s)`);
+      expect(top).toMatchObject({ marksLost: '14', slots: 3, skipped: 1 });
+      expect(elapsedMs).toBeLessThan(60_000);
+    } finally {
+      stop();
+    }
+  }, 90_000);
+});
 
 describe('the result is the student\'s own, and carries nothing a student must not have (M6-41)', () => {
   const material = (stem: string): string[] => [...KEY_BEARING_FIELDS.map((field) => `"${field}"`), SOLUTION_TEXT, MISCONCEPTION_TEXT, stem, '"solution"', '"stem"'];

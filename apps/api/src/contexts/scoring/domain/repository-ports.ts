@@ -2,7 +2,7 @@ import type { Result } from './result.js';
 import type { ScoringError } from './scoring-error.js';
 import type { ScoreRecord } from './score-record.js';
 import type { RescoringOperation } from './rescoring-operation.js';
-import type { AttemptScored, AttemptsRescored } from './events/scoring-events.js';
+import type { AttemptScored, AttemptsRescored, AttemptScoreSuperseded } from './events/scoring-events.js';
 
 /**
  * What the application layer needs from persistence, declared by the domain so
@@ -38,6 +38,16 @@ export interface ScoreRecordRepository {
 export interface RescoringOperationRepository {
   /** The completion's event rides the same transaction as the state change it reports (DEC-M7-6). */
   save(operation: RescoringOperation, event?: AttemptsRescored): Promise<Result<RescoringOperation, RepositoryError>>;
+  /**
+   * Completes a re-score: every predecessor stood down, every successor written, the operation `completed` and every event — one per attempt and the
+   * operation's own — in **one transaction** (D72, ADR-0053). A correction that commits without its announcement is the defect `save(record, event)` closed
+   * for a first score, one layer up; there is no partial re-score for this port to produce.
+   */
+  completeWithSuccessors(
+    operation: RescoringOperation,
+    supersessions: readonly { readonly predecessorId: string; readonly successor: ScoreRecord }[],
+    events: readonly (AttemptsRescored | AttemptScoreSuperseded)[],
+  ): Promise<Result<RescoringOperation, RepositoryError>>;
   findById(operationId: string): Promise<Result<RescoringOperation, RepositoryError>>;
   findByState(state: RescoringOperation['state']): Promise<Result<readonly RescoringOperation[], RepositoryError>>;
 }

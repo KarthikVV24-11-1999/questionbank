@@ -33,6 +33,8 @@ export type {
 export type {
   AttemptScored,
   AttemptScoredPayload,
+  AttemptScoreSuperseded,
+  AttemptScoreSupersededPayload,
   AttemptsRescored,
   AttemptsRescoredPayload,
   ScoringEvent,
