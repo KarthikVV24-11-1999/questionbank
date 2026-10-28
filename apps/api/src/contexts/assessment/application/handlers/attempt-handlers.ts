@@ -17,7 +17,7 @@ import {
   SUBMIT_ATTEMPT_POLICY,
 } from '../policies.js';
 import type { ApplicationContext, AttemptPinSource, AuditRecorder, Clock, IdentifierFactory } from '../ports.js';
-import { toAttemptView, type AttemptView } from '../views.js';
+import { toAttemptView, toAttemptWithLogView, type AttemptView, type AttemptWithLogView } from '../views.js';
 
 /** What the result handler asks of scoring, in the shape assessment needs of it. */
 export interface ScoreRecordReader {
@@ -241,17 +241,21 @@ export class StartAttemptHandler implements Handler<StartAttempt, AttemptView> {
   }
 }
 
-export class GetAttemptHandler implements Handler<GetAttempt, AttemptView> {
+/** The learner's own attempt with the log of what has been done in it (D68), so a device with no record of the attempt can carry on from the server's. */
+export class GetAttemptHandler implements Handler<GetAttempt, AttemptWithLogView> {
   readonly name = 'GetAttempt';
   readonly policy = GET_ATTEMPT_POLICY;
 
   constructor(private readonly deps: AttemptDependencies) {}
 
-  async handle(query: GetAttempt, context: ApplicationContext): Promise<Result<AttemptView, ApplicationError>> {
+  async handle(query: GetAttempt, context: ApplicationContext): Promise<Result<AttemptWithLogView, ApplicationError>> {
     const denied = gate(this.policy, context);
     if (denied !== null) return err(denied);
     const owned = await ownAttempt(this.deps, query.attemptId, context);
-    return owned.ok ? ok(toAttemptView(owned.value, this.deps.clock.now().toISOString())) : owned;
+    if (!owned.ok) return owned;
+    const events = await this.deps.responses.findByAttempt(owned.value.attemptId);
+    if (!events.ok) return err(fromAssessment(events.error));
+    return ok(toAttemptWithLogView(toAttemptView(owned.value, this.deps.clock.now().toISOString()), events.value));
   }
 }
 

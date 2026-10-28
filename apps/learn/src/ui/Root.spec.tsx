@@ -9,7 +9,7 @@ import { Root } from './Root.js';
 
 afterEach(cleanup);
 
-const START = { attemptId: 'att-1', deviceRef: 'd', intervalCapMs: 90_000, deadline: '2026-10-21T11:30:00.000Z', serverNow: '2026-10-21T08:30:00.000Z' };
+const START = { attemptId: 'att-1', formId: 'form-1', deviceRef: 'd', intervalCapMs: 90_000, deadline: '2026-10-21T11:30:00.000Z', serverNow: '2026-10-21T08:30:00.000Z' };
 const form = formPackageSchema.parse(aPackageDocument());
 const hooks = () => {
   const ticks: Array<() => void> = [];

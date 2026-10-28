@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aRig, attemptDto } from '../testing/fakes.js';
+import { aRig, attemptDto, attemptWithLogDto } from '../testing/fakes.js';
 import { AttemptSession } from './attempt-session.js';
 import { loadRecord } from './persistence.js';
 
@@ -8,7 +8,7 @@ import { loadRecord } from './persistence.js';
  * The kills are in `tools/adversarial`, in a real browser; what runs here is what a browser cannot be made to do on demand (a monotonic
  * clock that jumps) and what does not need one.
  */
-const START = { attemptId: 'att-1', deviceRef: 'd', intervalCapMs: 90_000, deadline: '2026-10-21T11:30:00.000Z', serverNow: '2026-10-21T08:30:00.000Z' };
+const START = { attemptId: 'att-1', formId: 'form-1', deviceRef: 'd', intervalCapMs: 90_000, deadline: '2026-10-21T11:30:00.000Z', serverNow: '2026-10-21T08:30:00.000Z' };
 const THREE_HOURS = 3 * 3_600_000;
 const SLOT = 'q1';
 
@@ -84,7 +84,7 @@ describe('the device clock jumps (M6-55)', () => {
 
   it('a server that has the attempt already submitted gets the expiry, which it takes as a replay', async () => {
     const { session, clock, transport } = begin();
-    transport.getAttempt = async () => attemptDto({ state: 'submitted' });
+    transport.getAttempt = async () => attemptWithLogDto({ state: 'submitted' });
     clock.advance(THREE_HOURS);
     await session.pump();
     expect(session.getSnapshot()).toMatchObject({ phase: 'submitted', submission: { reason: 'expiry' } });
@@ -124,7 +124,7 @@ describe('a question left open when the app dies (M6-54)', () => {
     // killed and reopened a long time later, on a new clock origin that happens to be far ahead of the old visit
     const reopened = aRig({ storage: first.storage, newId: () => `r-${Math.random()}` });
     reopened.clock.reading = 5_000_000;
-    const resumed = AttemptSession.resume({ record: loadRecord(first.storage, 'att-1')!, server: attemptDto() }, reopened.ports);
+    const resumed = AttemptSession.resume({ record: loadRecord(first.storage, 'att-1')!, server: attemptWithLogDto() }, reopened.ports);
     reopened.clock.advance(7_000);
     resumed.leave();
     // without the revisit this interval would be 5,000,000 + 7,000 − 1,000 capped to 90,000; with it, only the seven seconds the app was open
@@ -136,7 +136,7 @@ describe('a question left open when the app dies (M6-54)', () => {
     first.session.goTo(SLOT);
     first.session.leave();
     const eventsBefore = loadRecord(first.storage, 'att-1')!.events.length;
-    AttemptSession.resume({ record: loadRecord(first.storage, 'att-1')!, server: attemptDto() }, aRig({ storage: first.storage }).ports);
+    AttemptSession.resume({ record: loadRecord(first.storage, 'att-1')!, server: attemptWithLogDto() }, aRig({ storage: first.storage }).ports);
     expect(loadRecord(first.storage, 'att-1')!.events).toHaveLength(eventsBefore);
 
     const second = begin();
@@ -144,7 +144,7 @@ describe('a question left open when the app dies (M6-54)', () => {
     second.transport.online = false;
     await second.session.submit('manual');
     const submitting = loadRecord(second.storage, 'att-1')!;
-    AttemptSession.resume({ record: submitting, server: attemptDto() }, aRig({ storage: second.storage }).ports);
+    AttemptSession.resume({ record: submitting, server: attemptWithLogDto() }, aRig({ storage: second.storage }).ports);
     expect(loadRecord(second.storage, 'att-1')!.events).toHaveLength(submitting.events.length);
   });
 });

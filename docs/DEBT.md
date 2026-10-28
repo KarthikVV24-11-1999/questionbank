@@ -496,29 +496,6 @@ Measured in `known-gaps.spec.ts`: a kill that lands before the write is on disk 
 IndexedDB with strict durability (a transaction that completes only once it is on disk) closes the window, and the test that describes it goes red.
 **Cited** `apps/learn/src/session/persistence.ts`
 
-### D67 — A tab reopened during an outage cannot resume the attempt
-
-The attempt continues through an outage while the page stays open, and everything it holds is on the device. Reopen the tab while the backend is still
-down and the app asks the server for the attempt (to take its deadline afresh, so a reload never restarts the clock) before it will carry on, and the
-service worker has cached the package but not an attempt: it shows nothing. The answers are still in the device's record; the learner cannot get at them
-until the backend is back. Resuming offline needs a deadline without the server, which means the device's wall clock as a stand-in, and that is a
-design decision (the server re-validates at submission, so the stand-in can only be wrong in the learner's disfavour or be ignored by the server).
-
-**Trigger** A decision on offline resume (a stored offset between the server's clock and the device's, taken at the last contact), or the first learner
-reported stuck on a blank page during an outage.
-**Cited** `apps/learn/src/bootstrap.ts`
-
-### D68 — The learner app does not pull the server's log: a second device starts from nothing
-
-The server holds every event it has acknowledged, and the app never reads them back. A device with no record of the attempt — a second device, or the same
-one after its storage was cleared — creates the attempt (the server returns the existing one), starts it (likewise) and begins an empty log. What the learner
-did before is not shown, and the new events are numbered from one again, which the server's ordering (client sequence, then id) interleaves with the old ones.
-The device-switch dimension of the roadmap's adversarial criterion is blocked on real devices, and this is the part of it that does not need one.
-
-**Trigger** The decision to support continuing an attempt on another device: the attempt route returns the log (or a projection and the last sequence),
-and a session resumes from it.
-**Cited** `apps/learn/src/bootstrap.ts`
-
 ### D69 — The learner app takes its bearer token from `localStorage`
 
 There is no sign-in. As in Studio, a developer sets `localStorage['qb-dev-token']` to a bearer token, and the app sends it. It is a development
@@ -656,14 +633,25 @@ it read, the source hands that on, and the report is labelled with it and not wi
 for the one that does.
 **Cited** `apps/api/src/contexts/learning/application/handlers/report-handlers.ts`
 
-### D86 — A learner's bookmarks are looked up in content in one call
+### D87 — A practice run's questions have no route, so the app starts a run it cannot show
 
-`ContentItemStandings` asks content for the standing of every bookmarked item in a single call. Content bounds a call, and a learner with more bookmarks than that bound gets
-`SOURCE_UNAVAILABLE` (a `503`) from `GET /v1/learning/bookmarks` and no list, rather than the list at the standing it could be given. The adapter holds no page size of its own:
-a number written there would be a second statement of content's bound, free to drift from it. Nobody is near the bound; a learner bookmarks questions by hand.
+A practice run is made and started by one tap (M7-58, DEC-M7-31) and exists on the server with its items chosen, each with an exposure row. No route gives a learner those
+items: the attempt route returns a count of slots and not their identifiers, and the content a learner is shown comes only from a signed form package, which a practice run
+(of no form) does not have. So the practice screen can show that the run has begun and how large it is, and says plainly that its questions cannot be shown; a learner cannot
+answer them, and the `GetPracticeFeedback` route has nothing to be asked about. The roadmap's one tap reaches the run and stops there.
 
-**Trigger** Content offers its bound through its seam, or a learner holds more bookmarks than it admits: the adapter asks in pages of the size content states, and the list stops depending on a count.
-**Cited** `apps/api/src/platform/composition/learning-standing.ts`
+**Trigger** The route that serves a practice run's slots and their delivery content, which is a new surface on the key-free boundary and gets a `KEY-FREE.md` row of its own before it is built; the practice screen then becomes the sitting.
+**Cited** `apps/learn/src/ui/PracticeScreen.tsx`
+
+### D88 — The learner screens are told their exam profile and taxonomy by the address, and name a concept by its identifier
+
+A practice run is made under an exam profile version, and "what is weakest" is asked about a taxonomy version; no route offers the learner either, and the attempt view does not name
+the profile. The screens take both from the address (`?profile=`, `?taxonomy=`), as the sitting takes its form and session, and carry them from screen to screen. A page opened without a profile
+says a run cannot be made from it instead of trying. No route offers the learner a concept's name, so a finding, a due concept and an escalation are named by the start of their identifier. Both are
+the development wiring D69 describes, and neither can reach a student's phone as it is.
+
+**Trigger** A route that gives a learner their exam profile and taxonomy version, and one that names concepts: the address parameters and the identifier labels are removed together.
+**Cited** `apps/learn/src/ui/screen-context.ts`
 
 ## Closed
 
@@ -867,3 +855,42 @@ not changed or deleted. `learning.open_review_escalation` is the one definition 
 shown all read it. A concept whose escalation was resolved can be escalated again if it lapses again; it has at most one open at a time.
 
 **Cited** `apps/api/src/contexts/learning/infrastructure/review.repository.ts`
+
+### D67 — A tab reopened during an outage cannot resume the attempt *(closed at M7-56)*
+
+The attempt continued through an outage while the page stayed open, and everything it held was on the device. Reopen the tab while the backend was down and the app asked the
+server for the attempt before it would carry on, and the service worker had cached the package but not an attempt: it showed nothing, and the answers in the device's record
+were out of reach. The cause was the order in `boot`: the device's record was read after two awaited network calls, so the one thing that survives an outage was consulted only
+when the network was up.
+
+**What closed it (M7-56, DEC-M7-30, ADR-0055).** `boot` reads the device's record first. The package is still fetched and verified before anything is created, started or shown, and a
+record is carried on only against a paper that verified and is of the form the record names. When the server cannot be reached (the network is down, or it is failing) a record that
+names its form and holds the offset between the server's clock and the device's, taken at the last contact, resumes from the device alone: the deadline it wrote down, read against the
+device's wall clock moved by that offset. The server re-validates at submission, which is what makes the stand-in safe; the ADR says in which direction it can be wrong. A server that
+answered and refused is not an outage and is not carried through.
+
+**Cited** `apps/learn/src/bootstrap.ts`
+
+### D68 — The learner app does not pull the server's log: a second device starts from nothing *(closed at M7-55)*
+
+The server held every event it had acknowledged, and the app never read them back. A device with no record of the attempt — a second device, or the same one after its storage was
+cleared — created the attempt (the server returns the existing one), started it (likewise) and began an empty log. What the learner did before was not shown, and the new events were
+numbered from one again, which the server's ordering (client sequence, then id) interleaves with the old ones. The number of the next event came from one place only, the device's own
+log, so returning the server's log from the attempt route would not by itself have fixed it.
+
+**What closed it (M7-55, DEC-M7-29).** `GET` of an attempt returns the log beside the attempt: the events that count, as the engine's own events. A session resumes from the union of
+what the device wrote down and what the server returned (the engine's own merge), so the counter is read from the merged log and a resumed device numbers after the last number either
+used. Proved with two devices against one attempt through the routes, with a control that numbers from one and is interleaved by the same ordering.
+
+**Cited** `apps/learn/src/bootstrap.ts`
+
+### D86 — A learner's bookmarks are looked up in content in one call *(closed at M7-55)*
+
+`ContentItemStandings` asked content for the standing of every bookmarked item in a single call. Content bounds a call, and a learner with more bookmarks than that bound got
+`SOURCE_UNAVAILABLE` (a `503`) from `GET /v1/learning/bookmarks` and no list. The adapter held no page size of its own, on the reasoning that a number written there would be a second
+statement of content's bound; the repository already stated that bound twice (`TAXONOMY_BATCH` in the evidence adapter, and content's own cap).
+
+**What closed it (M7-55, DEC-M7-28).** Content states its bound once, on the seam it offers Learning (`batchBound`), and both callers in the composition root page at it: the standings
+adapter and the three taxonomy reads of the evidence adapter, whose private constant is gone. The handlers still refuse one identifier more than the seam says, and a test holds the two together.
+
+**Cited** `apps/api/src/platform/composition/learning-standing.ts`

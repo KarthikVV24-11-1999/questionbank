@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
+import { practiceRunBody } from '@questionbank/contracts/practice-request';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ROLES } from '../auth/roles.js';
@@ -20,7 +21,7 @@ import { curriculumForAssessment } from '../../contexts/curriculum/public/compos
 import { scoringForAssessment } from '../../contexts/scoring/public/composition.js';
 import { KEY_BEARING_FIELDS } from '../../fitness/content-rules.js';
 import { COMPOSED_CONFIG } from '../../testing/composed-generation.js';
-import { MISCONCEPTION_TEXT, SOLUTION_TEXT, itemContent, publishItem } from '../../testing/content-publishing.js';
+import { MISCONCEPTION_TEXT, SOLUTION_TEXT, TAXONOMY, itemContent, publishItem } from '../../testing/content-publishing.js';
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
 import { expectValue } from '../../testing/expect-result.js';
 import { uuidFactory } from '../../testing/generation-context.js';
@@ -560,6 +561,70 @@ describe('a practice run has routes (M7-53, D78)', () => {
     const operator = await http().post('/v1/assessment/practice-attempts').set('Authorization', asOps()).set('Idempotency-Key', 'o').send({ examProfileVersionId: profile.profileVersionId, selectionStrategy: 'filtered', count: 1 });
     expect(operator.status).toBe(403);
     expect((await http().post('/v1/assessment/practice-attempts').send({})).status).toBe(401);
+  });
+});
+
+describe('from a finding to a started practice run, in one action (M7-58)', () => {
+  /** What one tap does: the request the learner app sends, and the start it follows with. The body is the one function both use. */
+  async function tap(who: Student, concept: string, key: string, count = 3) {
+    const created = await http()
+      .post('/v1/assessment/practice-attempts')
+      .set('Authorization', who.auth)
+      .set('Idempotency-Key', key)
+      .send(practiceRunBody({ examProfileVersionId: profile.profileVersionId, conceptIdentityIds: [concept], count }));
+    if (created.status >= 300) return { created, started: null };
+    return { created, started: await start(who, created.body.attempt.attemptId as string) };
+  }
+
+  it('takes a learner from the top finding of their report to a started run of items for that concept, through the routes the screens call', async () => {
+    // fresh items, because the mock's own are ones the learner has seen and a run does not repeat them: three of another concept first (so that a run not scoped to
+    // the finding's concept would take them, as they sort before), then three of the finding's
+    const other = { conceptIdentityId: randomUUID(), taxonomyVersionId: TAXONOMY, weight: 1, isPrimary: true };
+    for (const stem of ['An item of another concept, one.', 'An item of another concept, two.', 'An item of another concept, three.']) {
+      await publishItem(database.pool, { ...itemContent(stem), taxonomyTags: [other] });
+    }
+    for (const stem of ['A second item on the same concept, one.', 'A second item on the same concept, two.', 'A second item on the same concept, three.']) await publishItem(database.pool, itemContent(stem));
+    now = INSIDE;
+    const { who, attemptId } = await sat();
+    expect((await submit(who, attemptId)).status).toBe(200);
+    await drain();
+
+    const report = await http().get(`/v1/learning/attempts/${attemptId}/report`).set('Authorization', who.auth);
+    expect(report.status, JSON.stringify(report.body)).toBe(200);
+    const [top] = report.body.findings as { rank: number; conceptIdentityId: string }[];
+    expect(top!.rank).toBe(1);
+
+    const { created, started } = await tap(who, top!.conceptIdentityId, `tap-${randomUUID()}`);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(started!.status, JSON.stringify(started!.body)).toBe(200);
+    expect(started!.body).toMatchObject({ mode: 'practice', formId: null, state: 'in_progress', attemptId: created.body.attempt.attemptId });
+    expect(started!.body.slotCount).toBeGreaterThan(0);
+
+    // the run is about the concept the finding names, and no other: every item in it is tagged with it as primary
+    const concepts = await database.pool.query<{ concept_identity_id: string }>(
+      `SELECT DISTINCT t.concept_identity_id
+         FROM assessment.attempt_slot s
+         JOIN content.item_taxonomy_tag t ON t.item_version_id = s.item_version_id AND t.is_primary
+        WHERE s.attempt_id = $1`,
+      [created.body.attempt.attemptId],
+    );
+    expect(concepts.rows.map((row) => row.concept_identity_id)).toEqual([top!.conceptIdentityId]);
+    expect(started!.body.slotCount).toBe(3);
+  });
+
+  it('is one run however often the same tap is repeated: the key is the tap\'s, and a retry between the create and the start makes no second run', async () => {
+    now = INSIDE;
+    const { who, attemptId } = await sat();
+    expect((await submit(who, attemptId)).status).toBe(200);
+    await drain();
+    const concept = (await http().get(`/v1/learning/attempts/${attemptId}/report`).set('Authorization', who.auth)).body.findings[0].conceptIdentityId as string;
+    const key = `tap-${randomUUID()}`;
+    const first = await tap(who, concept, key);
+    const again = await tap(who, concept, key);
+    expect([first.created.status, again.created.status, again.created.body.replayed]).toEqual([201, 200, true]);
+    expect(again.created.body.attempt.attemptId).toBe(first.created.body.attempt.attemptId);
+    expect(again.started!.status).toBe(200);
+    expect(await count(`SELECT count(*)::int AS n FROM assessment.attempt WHERE student_id = $1 AND mode = 'practice'`, [who.id])).toBe(1);
   });
 });
 

@@ -85,7 +85,7 @@ import { GetDuplicateCandidatesForProposalHandler, GetDuplicateCandidatesHandler
 import { GetPublishedItemVersionHandler, GetPublishedStimulusVersionHandler } from '../application/queries/delivery-queries.js';
 import { GetAnswerKeysForScoringHandler } from '../application/queries/scoring-key-queries.js';
 import { PostgresPublishedVersions } from '../infrastructure/published-versions.reader.js';
-import { ListPublishedCatalogueHandler } from '../application/queries/catalogue-queries.js';
+import { ListPublishedCatalogueHandler, MAX_CATALOGUE_PAGE } from '../application/queries/catalogue-queries.js';
 import { GetVersionTaxonomyHandler } from '../application/queries/version-taxonomy-queries.js';
 import { PostgresVersionTaxonomy } from '../infrastructure/version-taxonomy.reader.js';
 import { GetItemStandingHandler } from '../application/queries/item-standing-queries.js';
@@ -407,6 +407,11 @@ export function contentForAssessment(deps: ContentCompositionDeps): ContentForAs
  * may ask of content, and is reviewed as one.
  */
 export interface ContentForLearning {
+  /**
+   * The most identifiers one call to either read below takes (D86, DEC-M7-28). Content states it here, once, and a caller pages at it: a number written in the
+   * caller would be a second statement of content's bound, free to drift from it. It is a consequence of this seam's contract and no domain threshold.
+   */
+  readonly batchBound: number;
   readonly taxonomyForItemVersions: GetVersionTaxonomyHandler;
   /** Where a bookmarked item stands: published, suspended or retired, and the version to show (M7-38). */
   readonly itemStanding: GetItemStandingHandler;
@@ -414,5 +419,5 @@ export interface ContentForLearning {
 
 export function contentForLearning(deps: ContentCompositionDeps): ContentForLearning {
   const bag = assemble(deps);
-  return { taxonomyForItemVersions: new GetVersionTaxonomyHandler(bag), itemStanding: new GetItemStandingHandler(bag) };
+  return { batchBound: MAX_CATALOGUE_PAGE, taxonomyForItemVersions: new GetVersionTaxonomyHandler(bag), itemStanding: new GetItemStandingHandler(bag) };
 }

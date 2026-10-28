@@ -183,7 +183,9 @@ export class StubServer {
     }
     if (method === 'GET' && tail === '') {
       if (this.options.restartDeadlineOnRead === true && attempt.startedAt !== 0) this.#attempt = { ...attempt, deadline: this.#now() + this.options.durationMs };
-      return this.#json(response, 200, this.#dto());
+      // The attempt with the log of what the server holds, in its order (D68): the client sequence, then the event id.
+      const log = [...this.events.values()].sort((a, b) => a.sequence - b.sequence || (a.eventId < b.eventId ? -1 : a.eventId > b.eventId ? 1 : 0));
+      return this.#json(response, 200, { ...this.#dto(), events: log });
     }
     if (method === 'POST' && tail === '/events') {
       const body = (await this.#body(request)) as { events: ResponseEvent[] };

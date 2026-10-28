@@ -15,7 +15,7 @@ import { LearnApp } from './LearnApp.js';
 afterEach(cleanup);
 
 const form = formPackageSchema.parse(aPackageDocument());
-const START = { attemptId: 'att-1', deviceRef: 'd', intervalCapMs: 90_000, deadline: '2026-10-21T11:30:00.000Z', serverNow: '2026-10-21T08:30:00.000Z' };
+const START = { attemptId: 'att-1', formId: 'form-1', deviceRef: 'd', intervalCapMs: 90_000, deadline: '2026-10-21T11:30:00.000Z', serverNow: '2026-10-21T08:30:00.000Z' };
 
 function sitting() {
   const rig = aRig();

@@ -1,5 +1,5 @@
 import type { SyncPolicy } from '@questionbank/attempt-engine';
-import type { AttemptDto, ResultDto } from '../api/schemas.js';
+import type { AttemptDto, AttemptWithLogDto, ResultDto } from '../api/schemas.js';
 
 /**
  * What the attempt session is given, and the only things it reaches outside itself for. A session reads no clock, opens no
@@ -11,8 +11,17 @@ export interface MonotonicClock {
   now(): number;
 }
 
+/**
+ * The device's wall clock, in milliseconds since the epoch. **Not the attempt's clock** (that is the monotonic one above): it is read to take the offset between
+ * the server's clock and this one at every contact, and to stand in for the server's reading when the app is reopened with no server to ask (D67).
+ */
+export interface WallClock {
+  now(): number;
+}
+
 export interface AttemptTransport {
-  getAttempt(attemptId: string): Promise<AttemptDto>;
+  /** The attempt with the log of what has been done in it (D68). */
+  getAttempt(attemptId: string): Promise<AttemptWithLogDto>;
   /** Sends events as the engine produced them. Resolves with the ids the server holds; throws if it could not be reached or refused the request. */
   sendEvents(attemptId: string, deviceRef: string, events: readonly unknown[]): Promise<{ readonly acknowledged: readonly string[]; readonly rejected: readonly string[] }>;
   submit(attemptId: string, reason: 'manual' | 'expiry' | 'recovered', idempotencyKey: string): Promise<AttemptDto>;
@@ -27,6 +36,7 @@ export interface KeyValueStore {
 
 export interface SessionPorts {
   readonly clock: MonotonicClock;
+  readonly wall: WallClock;
   readonly transport: AttemptTransport;
   readonly storage: KeyValueStore;
   readonly newId: () => string;

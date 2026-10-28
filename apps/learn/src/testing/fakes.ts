@@ -1,7 +1,9 @@
-import type { AssessmentApi } from '../api/assessment-api.js';
-import type { AttemptDto, ResultDto } from '../api/schemas.js';
+import type { AssessmentApi, PracticeRequest } from '../api/assessment-api.js';
+import type { LearningApi } from '../api/learning-api.js';
+import type { DiagnosticReportDto, PaceAnalyticsDto, ReviewPlanDto } from '../api/learning-schemas.js';
+import type { AttemptDto, AttemptWithLogDto, ResultDto } from '../api/schemas.js';
 import type { PackageResponse, SigningKey } from '../package/load.js';
-import type { AttemptTransport, KeyValueStore, MonotonicClock, SessionPorts } from '../session/ports.js';
+import type { AttemptTransport, KeyValueStore, MonotonicClock, SessionPorts, WallClock } from '../session/ports.js';
 import { DEFAULT_SYNC_POLICY } from '../session/ports.js';
 
 /** A clock the test moves. The origin is arbitrary, as a monotonic clock's is: only differences mean anything. */
@@ -12,6 +14,17 @@ export class ManualClock implements MonotonicClock {
   }
   advance(ms: number): void {
     this.reading += ms;
+  }
+}
+
+/**
+ * A wall clock the test sets, in epoch milliseconds. Its origin matters here (unlike the monotonic clock's): the offset to the server's clock is taken
+ * against it, and a test moves it to say the device's clock was wrong.
+ */
+export class ManualWallClock implements WallClock {
+  constructor(public reading = Date.parse('2026-10-21T08:30:00.000Z')) {}
+  now(): number {
+    return this.reading;
   }
 }
 
@@ -46,6 +59,8 @@ export const attemptDto = (overrides: Partial<AttemptDto> = {}): AttemptDto => (
   ...overrides,
 });
 
+export const attemptWithLogDto = (overrides: Partial<AttemptWithLogDto> = {}): AttemptWithLogDto => ({ ...attemptDto(), events: [], ...overrides });
+
 /** The server, as far as the session can tell: online or not, holding what it was sent, refusing what a test says to refuse. */
 export class FakeTransport implements AttemptTransport {
   online = true;
@@ -60,10 +75,10 @@ export class FakeTransport implements AttemptTransport {
   /** What the server says is left, from its own clock; `null` leaves the attempt as it was started (a long time to go). */
   serverRemainingMs: number | null = null;
 
-  async getAttempt(): Promise<AttemptDto> {
+  async getAttempt(): Promise<AttemptWithLogDto> {
     if (!this.online) throw new TypeError('network unreachable');
-    if (this.serverRemainingMs === null) return attemptDto();
-    return attemptDto({ serverNow: new Date(Date.parse(attemptDto().deadline!) - this.serverRemainingMs).toISOString() });
+    if (this.serverRemainingMs === null) return attemptWithLogDto();
+    return attemptWithLogDto({ serverNow: new Date(Date.parse(attemptDto().deadline!) - this.serverRemainingMs).toISOString() });
   }
 
   async sendEvents(_attemptId: string, _deviceRef: string, events: readonly unknown[]) {
@@ -93,11 +108,12 @@ export class FakeTransport implements AttemptTransport {
 
 export function aRig(overrides: Partial<SessionPorts> = {}) {
   const clock = new ManualClock();
+  const wall = new ManualWallClock();
   const transport = new FakeTransport();
   const storage = new MemoryStorage();
   let n = 0;
-  const ports: SessionPorts = { clock, transport, storage, newId: () => `ev-${(n += 1)}`, syncPolicy: DEFAULT_SYNC_POLICY, ...overrides };
-  return { clock, transport, storage, ports };
+  const ports: SessionPorts = { clock, wall, transport, storage, newId: () => `ev-${(n += 1)}`, syncPolicy: DEFAULT_SYNC_POLICY, ...overrides };
+  return { clock, wall, transport, storage, ports };
 }
 
 /** A whole fake server for the bootstrap: a signed package, a key, and the attempt routes. */
@@ -105,7 +121,7 @@ export class FakeApi implements AssessmentApi {
   readonly calls: string[] = [];
   createdKeys: string[] = [];
   attempt = attemptDto({ state: 'created', startedAt: null, deadline: null });
-  stored: AttemptDtoLike | null = null;
+  stored: AttemptWithLogDto | null = null;
 
   constructor(
     public packageResponse: PackageResponse,
@@ -131,13 +147,54 @@ export class FakeApi implements AssessmentApi {
     this.calls.push('startAttempt');
     return attemptDto();
   }
-  async getAttempt(attemptId: string): Promise<AttemptDto> {
+  readonly practiceRequests: { request: PracticeRequest; key: string }[] = [];
+  async createPracticeAttempt(request: PracticeRequest, key: string): Promise<AttemptDto> {
+    this.calls.push('createPracticeAttempt');
+    this.practiceRequests.push({ request, key });
+    return attemptDto({ attemptId: 'run-1', mode: 'practice', formId: null, sessionRef: null, shiftId: null, durationMs: null, windowClosesAt: null, state: 'created', slotCount: request.count });
+  }
+  /** When set, the server is out of reach for `getAttempt` with this failure; the package and the key are still served (as the service worker's copy would be). */
+  attemptFailure: Error | null = null;
+  async getAttempt(attemptId: string): Promise<AttemptWithLogDto> {
     this.calls.push('getAttempt');
     void attemptId;
+    if (this.attemptFailure !== null) throw this.attemptFailure;
     return this.stored ?? (await this.transport.getAttempt());
   }
   sendEvents = (...args: Parameters<FakeTransport['sendEvents']>) => this.transport.sendEvents(...args);
   submit = (...args: Parameters<FakeTransport['submit']>) => this.transport.submit(...args);
   getResult = () => this.transport.getResult();
 }
-type AttemptDtoLike = AttemptDto;
+
+
+/** Learning as far as a screen can tell: the answers a test sets, and the order in which the screen asked. */
+export class FakeLearningApi implements LearningApi {
+  readonly calls: string[] = [];
+  plan: ReviewPlanDto | Error = { asOf: '2026-10-28T10:00:00.000Z', due: [], escalated: [] };
+  weakest: readonly string[] | Error = [];
+  reports = new Map<string, DiagnosticReportDto | Error>();
+  paces = new Map<string, PaceAnalyticsDto | Error>();
+
+  async getReviewPlan(): Promise<ReviewPlanDto> {
+    this.calls.push('getReviewPlan');
+    if (this.plan instanceof Error) throw this.plan;
+    return this.plan;
+  }
+  async suggestRemediation(taxonomyVersionId: string): Promise<readonly string[]> {
+    this.calls.push(`suggestRemediation ${taxonomyVersionId}`);
+    if (this.weakest instanceof Error) throw this.weakest;
+    return this.weakest;
+  }
+  async getReport(attemptId: string): Promise<DiagnosticReportDto> {
+    this.calls.push(`getReport ${attemptId}`);
+    const report = this.reports.get(attemptId) ?? new Error('REPORT_NOT_FOUND');
+    if (report instanceof Error) throw report;
+    return report;
+  }
+  async getPace(attemptId: string): Promise<PaceAnalyticsDto> {
+    this.calls.push(`getPace ${attemptId}`);
+    const pace = this.paces.get(attemptId) ?? new Error('PACE_NOT_FOUND');
+    if (pace instanceof Error) throw pace;
+    return pace;
+  }
+}

@@ -254,7 +254,7 @@ verification (F41) · authorization negative-path 100%
 - Every concept state is traceable to the specific responses that produced it
 - A verified mastery gain requires confirmation ≥ 48h later in a different session
 - A diagnostic report is generated for every submitted mock, top finding within 60s
-- **Mock result → remediation entry is one tap**
+- **Mock result → remediation entry is one tap** *(met as written: one action on a finding makes a practice run about its concept and starts it, proved through the routes the report screen calls; the run's questions cannot yet be shown in the app, D87)*
 - Event taxonomy conformance ≥ 99%
 
 > **Status, added 2026-10-27 (M7 Tracks A and B):** the evidence seams are built ([ADR-0042](adr/ADR-0042-a-score-and-its-event-are-written-in-one-transaction.md),
@@ -301,6 +301,15 @@ verification (F41) · authorization negative-path 100%
 > one of the six contexts has one, and `learning-contract.spec.ts` makes an unrouted Learning handler a stated decision (DEC-M7-26). Practice has its three routes and the key-free surface covers them (D78 closed);
 > an escalation is resolved by the fold that made it (D85 closed, DEC-M7-27). **Open:** the screens and "one tap" demonstrated end to end are H2 (D67, D68); a learner with more bookmarks than content answers for in one call
 > gets no list (D86); D79 is untouched — a route does not change whose rules practice feedback is judged under.
+>
+> **Status, added 2026-11-03 (M7 Track H2):** the learner has three screens. The home screen names one next action, an escalated concept first, from the server's answers and no threshold of its own (DEC-M7-33); the report screen
+> ranks findings by the marks they cost, each with the one tap to practise it, and shows the pace with the questions whose time is *not known* kept apart from fast and slow, and says when a paper was re-scored (DEC-M7-32); the
+> practice screen shows the run the tap made. **The one tap is demonstrated end to end** against the real routes, from the top finding of a scored mock to a started run of items for that concept and no other (DEC-M7-31),
+> and the run is as far as it goes: no route serves a run's questions, so the app starts a run it cannot show (D87), and the screens take the exam profile and taxonomy from the address and name concepts by identifier (D88).
+> The resume path was wrong before the screens were built on it: `boot` read the device's record after two network calls, and a device with no log numbered from one. It reads the device first and resumes offline against a stored
+> offset to the server's clock ([ADR-0055](adr/ADR-0055-a-reopened-app-reads-the-device-first-and-stands-its-clock-in-for-the-servers.md), DEC-M7-30; D67 closed), and the attempt route returns the log so a second device continues the
+> numbering (DEC-M7-29; D68 closed). Content states its batch bound once and its two callers page at it (DEC-M7-28; D86 closed). **Open:** D66 wants real-device evidence; D84 is not closed by showing its label. The learner bundle
+> grew by 13.6 kB raw and 3.9 kB gzipped and its budget was raised with the reason written in `bundle-budget.json`.
 
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { boot } from './bootstrap.js';
-import { aRig, attemptDto, FakeApi } from './testing/fakes.js';
+import { aRig, attemptDto, attemptWithLogDto, FakeApi } from './testing/fakes.js';
 import { aPackageDocument, aSigner, encode, slotIds } from './testing/signed-package.js';
 import { AttemptSession } from './session/attempt-session.js';
 import { loadRecord } from './session/persistence.js';
@@ -20,7 +20,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     const result = await boot(params(api, rig));
     expect(result.kind).toBe('ready');
     if (result.kind !== 'ready') return;
-    expect(api.calls).toEqual(['getPackage', 'getSigningKey', 'createAttempt', 'startAttempt']);
+    expect(api.calls).toEqual(['getPackage', 'getSigningKey', 'createAttempt', 'startAttempt', 'getAttempt']);
     expect(api.createdKeys).toEqual(['begin-1']);
     expect(result.form.sections[0]!.slots.map((slot) => slot.slotId)).toEqual([...slotIds]);
     expect(result.session.getSnapshot()).toMatchObject({ phase: 'in_progress', intervalCapMs: 90_000, remainingMs: 10_800_000 });
@@ -55,7 +55,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
 
     const reloaded = aRig({ storage: first.storage, newId: () => `reload-${Math.random()}` });
     const api2 = new FakeApi(signedResponse(), key);
-    api2.stored = attemptDto({ formId: '00000000-0000-4000-8000-0000000000f1', serverNow: '2026-10-21T10:30:00.000Z' });
+    api2.stored = attemptWithLogDto({ formId: '00000000-0000-4000-8000-0000000000f1', serverNow: '2026-10-21T10:30:00.000Z' });
     const resumed = await boot(params(api2, reloaded));
     expect(resumed.kind).toBe('ready');
     if (resumed.kind !== 'ready') return;
@@ -70,12 +70,12 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     const opened = await boot(params(new FakeApi(signedResponse(), key), first));
     expect(opened.kind).toBe('ready');
     const api = new FakeApi(signedResponse(), key);
-    api.stored = attemptDto({ formId: 'another-form' });
+    api.stored = attemptWithLogDto({ formId: 'another-form' });
     expect((await boot(params(api, aRig({ storage: first.storage })))).kind).toBe('ready');
     expect(api.calls).toContain('createAttempt');
 
     const abandoned = new FakeApi(signedResponse(), key);
-    abandoned.stored = attemptDto({ formId: '00000000-0000-4000-8000-0000000000f1', state: 'abandoned' });
+    abandoned.stored = attemptWithLogDto({ formId: '00000000-0000-4000-8000-0000000000f1', state: 'abandoned' });
     expect((await boot(params(abandoned, aRig({ storage: first.storage })))).kind).toBe('ready');
     expect(abandoned.calls).toContain('createAttempt');
   });
@@ -85,7 +85,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     const opened = await boot(params(new FakeApi(signedResponse(), key), first));
     if (opened.kind !== 'ready') throw new Error('not ready');
     const api = new FakeApi(signedResponse(), key);
-    api.stored = attemptDto({ formId: '00000000-0000-4000-8000-0000000000f1', state: 'submitted', submission: { reason: 'manual', submittedAt: 't', pastDeadline: false } });
+    api.stored = attemptWithLogDto({ formId: '00000000-0000-4000-8000-0000000000f1', state: 'submitted', submission: { reason: 'manual', submittedAt: 't', pastDeadline: false } });
     const resumed = await boot(params(api, aRig({ storage: first.storage })));
     expect(resumed.kind === 'ready' && resumed.session.getSnapshot().phase).toBe('submitted');
   });
@@ -102,5 +102,116 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
   it('lets a failure to reach the server for the package or the key surface, rather than invent a package', async () => {
     const rig = aRig();
     await expect(boot(params(new FakeApi(signedResponse(), new Error('key route down')), rig))).rejects.toThrow('key route down');
+  });
+
+  describe('the device first (D67)', () => {
+    const FORM = '00000000-0000-4000-8000-0000000000f1';
+    /** A sitting begun on a device whose wall clock ran five minutes behind the server's, then closed with an answer in it. */
+    const earlier = async () => {
+      const first = aRig();
+      first.wall.reading = Date.parse('2026-10-21T08:25:00.000Z');
+      const opened = await boot(params(new FakeApi(signedResponse(), key), first));
+      if (opened.kind !== 'ready') throw new Error('not ready');
+      opened.session.goTo(slotIds[0]);
+      opened.session.select(slotIds[0], 'b');
+      return first;
+    };
+    const reopened = (first: Awaited<ReturnType<typeof earlier>>, wall = '2026-10-21T09:25:00.000Z') => {
+      const rig = aRig({ storage: first.storage, newId: () => `reopen-${Math.random()}` });
+      rig.wall.reading = Date.parse(wall);
+      return rig;
+    };
+    const outage = (api: FakeApi, error: unknown = new TypeError('Failed to fetch')) => {
+      api.attemptFailure = error as Error;
+      return api;
+    };
+
+    it('reads what the device wrote down before it asks the network for anything', async () => {
+      const first = await earlier();
+      const rig = reopened(first);
+      const seen: string[] = [];
+      const device = rig.ports.storage;
+      const storage = { getItem: (name: string) => (seen.push('device'), device.getItem(name)), setItem: (name: string, value: string) => device.setItem(name, value), removeItem: (name: string) => device.removeItem(name) };
+      const api = new FakeApi(signedResponse(), key);
+      const served = api.getPackage.bind(api);
+      api.getPackage = async () => (seen.push('network'), served());
+      await boot(params(api, { ...rig, ports: { ...rig.ports, storage } }));
+      expect(seen.slice(0, 3)).toEqual(['device', 'device', 'network']);
+    });
+
+    it('resumes from the device alone when the server cannot be reached, against the deadline it wrote down and the offset it took', async () => {
+      const first = await earlier();
+      const rig = reopened(first);
+      const api = outage(new FakeApi(signedResponse(), key));
+      const resumed = await boot(params(api, rig));
+      expect(api.calls).toEqual(['getPackage', 'getSigningKey', 'getAttempt']);
+      expect(resumed.kind).toBe('ready');
+      if (resumed.kind !== 'ready') return;
+      // an hour later by this device's clock, which was five minutes behind the server's: 09:30 by the server's, two hours to go
+      expect(resumed.session.getSnapshot().remainingMs).toBe(2 * 3_600_000);
+      expect(resumed.session.getSnapshot().projection.slots.find((slot) => slot.slot === slotIds[0])?.answer).toBe('b');
+    });
+
+    it('counts a failing server as out of reach, whether it said so in problem details or not, and a refusing one as not', async () => {
+      for (const failure of [{ status: 502 }, { problem: { status: 503 } }]) {
+        const first = await earlier();
+        const resumed = await boot(params(outage(new FakeApi(signedResponse(), key), Object.assign(new Error('down'), failure)), reopened(first)));
+        expect(resumed.kind).toBe('ready');
+      }
+      for (const failure of [{ status: 404 }, { problem: { status: 403 } }, {}]) {
+        const first = await earlier();
+        const refused = Object.assign(new Error('refused'), failure);
+        await expect(boot(params(outage(new FakeApi(signedResponse(), key), refused), reopened(first)))).rejects.toThrow('refused');
+      }
+    });
+
+    it('still shows nothing on a paper that does not verify, whatever the device holds and whether or not the server is there', async () => {
+      const first = await earlier();
+      const response = signedResponse();
+      const tampered = Uint8Array.from(response.bytes);
+      tampered[30] = tampered[30]! ^ 0x01;
+      const api = outage(new FakeApi({ ...response, bytes: tampered, digest: aSigner().sign(tampered).digest }, key));
+      expect(await boot(params(api, reopened(first)))).toEqual({ kind: 'package-refused', refusal: 'SIGNATURE_DOES_NOT_VERIFY' });
+      expect(api.calls).toEqual(['getPackage', 'getSigningKey']);
+    });
+
+    it('does not carry a record of one form into the paper of another when it cannot ask the server', async () => {
+      const first = await earlier();
+      const record = JSON.parse(first.storage.data.get('qb.attempt.att-1')!);
+      first.storage.data.set('qb.attempt.att-1', JSON.stringify({ ...record, formId: 'another-form' }));
+      const api = outage(new FakeApi(signedResponse(), key));
+      await expect(boot(params(api, reopened(first)))).rejects.toThrow('Failed to fetch');
+      expect(api.calls).not.toContain('createAttempt');
+    });
+
+    it('does not resume offline from a record that never took an offset to the server\'s clock or never said which form it was of', async () => {
+      for (const missing of ['formId', 'serverOffsetMs']) {
+        const first = await earlier();
+        const record = JSON.parse(first.storage.data.get('qb.attempt.att-1')!);
+        first.storage.data.set('qb.attempt.att-1', JSON.stringify({ ...record, [missing]: null }));
+        await expect(boot(params(outage(new FakeApi(signedResponse(), key)), reopened(first)))).rejects.toThrow('Failed to fetch');
+      }
+      expect(FORM).toBeDefined();
+    });
+  });
+
+  describe('a device that holds no record of the attempt (D68)', () => {
+    const held = (eventId: string, sequence: number, kind: 'visit' | 'select', slot: string, answer?: string) => ({
+      eventId, attemptId: 'att-1', slot, sequence, monotonicMs: sequence * 10, kind, ...(answer === undefined ? {} : { answer }),
+    });
+
+    it('continues the server\'s log and its numbering, instead of beginning an empty one and numbering from one', async () => {
+      const rig = aRig();
+      const api = new FakeApi(signedResponse(), key);
+      api.stored = attemptWithLogDto({ events: [held('s1', 1, 'visit', slotIds[0]), held('s2', 2, 'select', slotIds[0], 'c'), held('s3', 3, 'visit', slotIds[1])] });
+      const resumed = await boot(params(api, rig));
+      expect(api.calls).toEqual(['getPackage', 'getSigningKey', 'createAttempt', 'startAttempt', 'getAttempt']);
+      if (resumed.kind !== 'ready') throw new Error('not ready');
+      expect(resumed.session.getSnapshot().projection.slots.find((slot) => slot.slot === slotIds[0])?.answer).toBe('c');
+      resumed.session.select(slotIds[1], 'd');
+      const written = loadRecord(rig.storage, 'att-1')!.events;
+      expect(written.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
+      expect(written.at(-1)).toMatchObject({ slot: slotIds[1], kind: 'select', answer: 'd' });
+    });
   });
 });

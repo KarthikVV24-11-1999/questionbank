@@ -32,6 +32,10 @@ const recordSchema = z
     deviceRef: z.string(),
     intervalCapMs: z.number().int().min(1),
     deadline: z.string(),
+    /** The form the attempt is of, so a reopened app can tell, with no server to ask, whether this record is for the paper in front of it. Absent from a record written before it was kept. */
+    formId: z.string().nullable().default(null),
+    /** Milliseconds from this device's wall clock to the server's, taken at the last contact (D67). Absent from a record written before it was kept. */
+    serverOffsetMs: z.number().nullable().default(null),
     submissionReason: z.enum(['manual', 'expiry', 'recovered']).nullable(),
     events: z.array(eventSchema),
     acknowledgedIds: z.array(z.string()),

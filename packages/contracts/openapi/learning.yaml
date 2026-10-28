@@ -288,10 +288,11 @@ components:
 
     DiagnosticReport:
       type: object
-      required: [reportId, attemptId, generatedAt, findings]
+      required: [reportId, attemptId, scoreRecordId, generatedAt, findings]
       properties:
         reportId: { type: string, format: uuid }
         attemptId: { type: string, format: uuid }
+        scoreRecordId: { type: string, format: uuid, description: The score record this report is labelled with (D84). After a re-score it can name an earlier record than the one that stands. }
         generatedAt: { type: string, format: date-time }
         findings:
           type: array

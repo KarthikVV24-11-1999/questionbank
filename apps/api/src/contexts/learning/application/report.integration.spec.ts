@@ -58,10 +58,14 @@ describe('a report for a scored mock', () => {
     expect(expectValue(await generator().handle(command(first, '0'), system))).toMatchObject({ created: false, reportId: null });
     expect((await database.pool.query('SELECT count(*)::int AS n FROM learning.diagnostic_report')).rows[0].n).toBe(1);
 
-    expectValue(await generator().handle(command(randomUUID(), '3'), system));
+    expect(expectValue(await reader().handle({ attemptId: attempt }, learnerContext(learner))).scoreRecordId).toBe(first);
+    const second = randomUUID();
+    expectValue(await generator().handle(command(second, '3'), system));
     expect((await database.pool.query('SELECT count(*)::int AS n FROM learning.diagnostic_report')).rows[0].n).toBe(2);
-    // the learner reads the report for the score that stands; the one they were first shown is still on record
-    expect(expectValue(await reader().handle({ attemptId: attempt }, learnerContext(learner))).findings[0]!.marksLost).toBe('1');
+    // the learner reads the report for the score that stands, labelled with it so a screen can say the first was replaced; the one they were first shown is still on record
+    const standing = expectValue(await reader().handle({ attemptId: attempt }, learnerContext(learner)));
+    expect(standing.findings[0]!.marksLost).toBe('1');
+    expect(standing.scoreRecordId).toBe(second);
   });
 
   it('says a concept the learner is weak on is one a targeted run would take, and a concept the learner has no standing on yet is not', async () => {

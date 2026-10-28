@@ -41,6 +41,7 @@ export interface LearnViolation {
 export const STATE_ALLOWLIST: Readonly<Record<string, string>> = {
   'apps/learn/src/ui/LearnApp.tsx': 'whether the submit confirmation is open',
   'apps/learn/src/ui/Root.tsx': 'how booting went (loading, refused, failed, ready)',
+  'apps/learn/src/ui/use-remote.ts': 'how a request is going (loading, loaded, failed), for the screens that read Learning; never the learner\'s own state',
 };
 /** The one file that touches the browser's own storage, connectivity, clock and timers, and wires them to the session as ports. */
 export const HOST_FILES: readonly string[] = ['apps/learn/src/main.tsx'];

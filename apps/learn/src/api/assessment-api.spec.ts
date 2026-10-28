@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@questionbank/contracts/client';
+import { practiceRunBody } from '@questionbank/contracts/practice-request';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { createAssessmentApi } from './assessment-api.js';
-import { attemptSchema, ingestReportSchema, signingKeySchema } from './schemas.js';
-import { attemptDto } from '../testing/fakes.js';
+import { attemptSchema, attemptWithLogSchema, ingestReportSchema, loggedEventSchema, signingKeySchema } from './schemas.js';
+import { attemptDto, attemptWithLogDto } from '../testing/fakes.js';
 
 interface Call {
   readonly url: string;
@@ -35,10 +36,27 @@ describe('the learner app\'s conversation with the server', () => {
     expect(calls[0]!.headers['Idempotency-Key']).toBe('key-1');
     expect(calls[0]!.headers['Authorization']).toBe('Bearer tok');
 
-    const second = rig(() => json(attemptDto()));
+    const second = rig((call) => json(call.method === 'GET' ? attemptWithLogDto() : attemptDto()));
     await second.api.startAttempt('a/b');
     await second.api.getAttempt('a/b');
     expect(second.calls.map((call) => `${call.method} ${call.url}`)).toEqual(['POST http://api.test/v1/assessment/attempts/a%2Fb/start', 'GET http://api.test/v1/assessment/attempts/a%2Fb']);
+  });
+
+  it('reads an attempt with its log, and refuses a reply that has none', async () => {
+    const event = { eventId: 'e1', attemptId: 'a', slot: 's', sequence: 3, monotonicMs: 40, kind: 'select', answer: ['a', 2] };
+    const withLog = rig(() => json(attemptWithLogDto({ events: [event as never] })));
+    expect((await withLog.api.getAttempt('a')).events).toEqual([event]);
+    const without = rig(() => json(attemptDto()));
+    await expect(without.api.getAttempt('a')).rejects.toThrow('events');
+  });
+
+  it('makes a practice run with the body the one function builds and the tap\'s key, and reads a run that is of no form', async () => {
+    const run = attemptDto({ attemptId: 'run-1', mode: 'practice', formId: null, sessionRef: null, shiftId: null, durationMs: null, windowClosesAt: null, state: 'created', slotCount: 10 });
+    const { api, calls } = rig(() => json({ attempt: run, replayed: false }, 201));
+    const made = await api.createPracticeAttempt({ examProfileVersionId: 'p', conceptIdentityIds: ['c1'], count: 10 }, 'page:c1');
+    expect(made).toEqual(run);
+    expect(calls[0]).toMatchObject({ method: 'POST', url: 'http://api.test/v1/assessment/practice-attempts', body: practiceRunBody({ examProfileVersionId: 'p', conceptIdentityIds: ['c1'], count: 10 }) });
+    expect(calls[0]!.headers['Idempotency-Key']).toBe('page:c1');
   });
 
   it('sends events and reports the acknowledged ids and only the rejected ones', async () => {
@@ -86,6 +104,15 @@ describe('the mirrored schemas are held to the document', () => {
   it('Attempt: every field the server requires is one the client reads, and the client reads no other', () => {
     const attempt = doc.components.schemas['Attempt']!;
     expect([...(attempt.required ?? [])].sort()).toEqual(keysOf(attemptSchema));
+  });
+
+  it('AttemptWithLog: the document\'s event carries the fields the client reads, the answer alone optional', () => {
+    const log = doc.components.schemas['AttemptWithLog'] as unknown as { allOf: [unknown, { required: string[]; properties: { events: { items: { required: string[]; properties: Record<string, unknown> } } } }] };
+    expect(log.allOf[1].required).toEqual(['events']);
+    const item = log.allOf[1].properties.events.items;
+    expect(Object.keys(item.properties).sort()).toEqual(keysOf(loggedEventSchema));
+    expect([...item.required].sort()).toEqual(keysOf(loggedEventSchema).filter((key) => key !== 'answer'));
+    expect(keysOf(attemptWithLogSchema)).toEqual([...keysOf(attemptSchema), 'events'].sort());
   });
 
   it('IngestReport and the signing key carry the fields the client reads', () => {

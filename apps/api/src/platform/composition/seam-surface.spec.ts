@@ -142,12 +142,24 @@ describe('what content offers learning (M7-03)', () => {
     reviewPolicy: { warnAfterHours: 48, escalateAfterHours: 72, leaseHours: 4, sampleRate: 0.05 },
   });
 
-  it('is exactly two reads, the system\'s alone, and no command', () => {
-    expect(Object.keys(offered)).toEqual(['taxonomyForItemVersions', 'itemStanding']);
+  it('is exactly two reads and the bound on a call to them, the reads the system\'s alone, and no command', () => {
+    expect(Object.keys(offered)).toEqual(['batchBound', 'taxonomyForItemVersions', 'itemStanding']);
     expect(offered.taxonomyForItemVersions.name).toBe('GetVersionTaxonomy');
     expect(offered.itemStanding.name).toBe('GetItemStanding');
     expect(offered.taxonomyForItemVersions.policy.allowedRoles).toEqual(['system']);
     expect(offered.itemStanding.policy.allowedRoles).toEqual(['system']);
+  });
+
+  it('refuses one more identifier than the bound it states, on each read, and takes the bound itself (D86)', async () => {
+    const system = { principal: { kind: 'system' as const, id: '00000000-0000-4000-8000-0000000000f7', roleContext: ['system' as const] }, correlationId: 'bound' };
+    const ids = (count: number) => Array.from({ length: count }, (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`);
+    const over = ids(offered.batchBound + 1);
+    expect(await offered.itemStanding.handle({ itemIds: over }, system)).toMatchObject({ ok: false, error: { code: 'ITEM_STANDING_QUERY_INVALID' } });
+    expect(await offered.taxonomyForItemVersions.handle({ itemVersionIds: over }, system)).toMatchObject({ ok: false, error: { code: 'VERSION_TAXONOMY_QUERY_INVALID' } });
+    // at the bound the question is put to the store (and not refused for its size)
+    const atBound = ids(offered.batchBound);
+    expect(await offered.itemStanding.handle({ itemIds: atBound }, system)).not.toMatchObject({ error: { code: 'ITEM_STANDING_QUERY_INVALID' } });
+    expect(await offered.taxonomyForItemVersions.handle({ itemVersionIds: atBound }, system)).not.toMatchObject({ error: { code: 'VERSION_TAXONOMY_QUERY_INVALID' } });
   });
 
   it('refuses a seam built without a dependency, as register does', () => {

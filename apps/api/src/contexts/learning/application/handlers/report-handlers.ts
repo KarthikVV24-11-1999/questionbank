@@ -64,6 +64,8 @@ export interface ReportedFinding extends Finding {
 export interface DiagnosticReportView {
   readonly reportId: string;
   readonly attemptId: string;
+  /** The score record the report is labelled with (D84, DEC-M7-32), so a reader can compare it with the record that stands and say the exam was re-scored. */
+  readonly scoreRecordId: string;
   readonly generatedAt: string;
   readonly findings: readonly ReportedFinding[];
 }
@@ -93,6 +95,6 @@ export class GetDiagnosticReportHandler {
     const findings = found.value.findings.map((f) =>
       Object.freeze({ ...f, remediation: Object.freeze({ strategy: 'targeted' as const, taxonomyVersionId: f.taxonomyVersionId, conceptIdentityId: f.conceptIdentityId, selected: targeted.get(f.taxonomyVersionId)!.has(f.conceptIdentityId) }) }),
     );
-    return ok(Object.freeze({ reportId: found.value.reportId, attemptId: query.attemptId, generatedAt: found.value.generatedAt, findings: Object.freeze(findings) }));
+    return ok(Object.freeze({ reportId: found.value.reportId, attemptId: query.attemptId, scoreRecordId: found.value.scoreRecordRef, generatedAt: found.value.generatedAt, findings: Object.freeze(findings) }));
   }
 }

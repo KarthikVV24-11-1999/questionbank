@@ -1,5 +1,6 @@
 import { createClient, type ApiClient } from '@questionbank/contracts/client';
-import { attemptSchema, createdAttemptSchema, ingestReportSchema, resultSchema, signingKeySchema, type AttemptDto, type ResultDto } from './schemas.js';
+import { practiceRunBody } from '@questionbank/contracts/practice-request';
+import { attemptSchema, attemptWithLogSchema, createdAttemptSchema, ingestReportSchema, resultSchema, signingKeySchema, type AttemptDto, type ResultDto } from './schemas.js';
 import type { AttemptTransport } from '../session/ports.js';
 import type { PackageResponse, SigningKey } from '../package/load.js';
 
@@ -10,8 +11,16 @@ import type { PackageResponse, SigningKey } from '../package/load.js';
 export interface AssessmentApi extends AttemptTransport {
   createAttempt(formId: string, sessionRef: string, idempotencyKey: string): Promise<AttemptDto>;
   startAttempt(attemptId: string): Promise<AttemptDto>;
+  /** A practice run about the given concepts (M7-58). The key makes a retried tap return the run it already made. */
+  createPracticeAttempt(request: PracticeRequest, idempotencyKey: string): Promise<AttemptDto>;
   getPackage(formId: string): Promise<PackageResponse>;
   getSigningKey(): Promise<SigningKey>;
+}
+
+export interface PracticeRequest {
+  readonly examProfileVersionId: string;
+  readonly conceptIdentityIds: readonly string[];
+  readonly count: number;
 }
 
 export function createAssessmentApi(client: ApiClient): AssessmentApi {
@@ -19,8 +28,18 @@ export function createAssessmentApi(client: ApiClient): AssessmentApi {
   return {
     createAttempt: async (formId, sessionRef, idempotencyKey) =>
       (await client.request({ method: 'POST', path: '/v1/assessment/attempts', body: { formId, sessionRef }, headers: { 'Idempotency-Key': idempotencyKey }, responseSchema: createdAttemptSchema })).attempt,
+    createPracticeAttempt: async (request, idempotencyKey) =>
+      (
+        await client.request({
+          method: 'POST',
+          path: '/v1/assessment/practice-attempts',
+          body: practiceRunBody({ examProfileVersionId: request.examProfileVersionId, conceptIdentityIds: request.conceptIdentityIds, count: request.count }),
+          headers: { 'Idempotency-Key': idempotencyKey },
+          responseSchema: createdAttemptSchema,
+        })
+      ).attempt,
     startAttempt: (attemptId) => client.request({ method: 'POST', path: attempt(attemptId, '/start'), responseSchema: attemptSchema }),
-    getAttempt: (attemptId) => client.request({ path: attempt(attemptId), responseSchema: attemptSchema }),
+    getAttempt: (attemptId) => client.request({ path: attempt(attemptId), responseSchema: attemptWithLogSchema }),
     sendEvents: async (attemptId, deviceRef, events) => {
       const report = await client.request({ method: 'POST', path: attempt(attemptId, '/events'), body: { deviceRef, events }, responseSchema: ingestReportSchema });
       return { acknowledged: report.acknowledged, rejected: report.results.filter((result) => result.outcome === 'rejected').map((result) => result.eventId) };

@@ -226,6 +226,38 @@ describe('GetAttempt', () => {
     expect(expectError(await new GetAttemptHandler(r.deps).handle({ attemptId }, ctx('learner', id(TAG.student, 9)))).kind).toBe('NotFound');
     expect(expectError(await new GetAttemptHandler(r.deps).handle({ attemptId: id(TAG.attempt, 999) }, ctx())).kind).toBe('NotFound');
   });
+
+  it('returns the log of what has been done, as the engine shapes an event, in the order the server keeps it (D68)', async () => {
+    const r = rig();
+    const attemptId = await started(r);
+    const answered = { ...wire(attemptId, 2, 'select'), answer: ['a', 'c'] };
+    expectValue(await new IngestResponseEventsHandler(r.deps).handle({ attemptId, events: [answered, wire(attemptId, 1)] }, ctx()));
+    const view = expectValue(await new GetAttemptHandler(r.deps).handle({ attemptId }, ctx()));
+    expect(view.events).toEqual([
+      { eventId: id(TAG.event, 1), attemptId, slot: id(TAG.slot, 1), sequence: 1, monotonicMs: 10, kind: 'visit' },
+      { eventId: id(TAG.event, 2), attemptId, slot: id(TAG.slot, 1), sequence: 2, monotonicMs: 20, kind: 'select', answer: ['a', 'c'] },
+    ]);
+  });
+
+  it('leaves out an event that arrived after the submission, and says nothing of what the server added', async () => {
+    const r = rig();
+    const attemptId = await started(r);
+    const ingest = new IngestResponseEventsHandler(r.deps);
+    expectValue(await ingest.handle({ attemptId, events: [wire(attemptId, 1)] }, ctx()));
+    await new SubmitAttemptHandler(r.deps).handle({ attemptId, reason: 'manual', idempotencyKey: 'k' }, ctx());
+    expectValue(await ingest.handle({ attemptId, events: [wire(attemptId, 2)] }, ctx()));
+    const view = expectValue(await new GetAttemptHandler(r.deps).handle({ attemptId }, ctx()));
+    expect(view.events.map((event) => event.eventId)).toEqual([id(TAG.event, 1)]);
+    expect(Object.keys(view.events[0]!).sort()).toEqual(['attemptId', 'eventId', 'kind', 'monotonicMs', 'sequence', 'slot']);
+  });
+
+  it('is an empty log for an attempt nothing has been done in, and fails, retryably, when the log cannot be read', async () => {
+    const r = rig();
+    const attemptId = await started(r);
+    expect(expectValue(await new GetAttemptHandler(r.deps).handle({ attemptId }, ctx())).events).toEqual([]);
+    r.responses.findByAttempt = async () => err(conflictError('CONFLICT', 'down', 'x'));
+    expect(expectError(await new GetAttemptHandler(r.deps).handle({ attemptId }, ctx())).code).toBe('CONFLICT');
+  });
 });
 
 describe('GetAttemptResult', () => {

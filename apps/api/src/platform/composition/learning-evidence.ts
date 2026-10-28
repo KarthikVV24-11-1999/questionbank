@@ -50,8 +50,7 @@ const applicationError = <K extends 'NotFound' | 'Unavailable'>(kind: K, code: s
 
 const SYSTEM: PrincipalRef = { kind: 'system', id: '00000000-0000-4000-8000-0000000000f7', roleContext: [ROLES.system] };
 
-/** Content's own cap on one call; an attempt is seventy-five slots, so this is a bound and not a cost. */
-const TAXONOMY_BATCH = 500;
+type Taxonomy = { conceptIdentityId: string; taxonomyVersionId: string; difficultyEstimate: string };
 
 export interface LearningEvidenceDeps {
   readonly scoring: ScoringForLearning;
@@ -80,6 +79,18 @@ export function scoredAttemptOf(event: ScoredAttemptEvent): ScoredAttemptRef {
 export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, ReportSlotSource, PaceSlotSource {
   constructor(private readonly deps: LearningEvidenceDeps) {}
 
+  /** What content says of each version, asked in pages of the size content states (D86); the first page it refuses fails the lot, naming its reason. */
+  private async taxonomyOf(versionIds: readonly string[], context: { principal: PrincipalRef; correlationId: string }) {
+    const bound = this.deps.content.batchBound;
+    const byVersion = new Map<string, Taxonomy>();
+    for (let at = 0; at < versionIds.length; at += bound) {
+      const taxonomy = await this.deps.content.taxonomyForItemVersions.handle({ itemVersionIds: versionIds.slice(at, at + bound) }, context);
+      if (!taxonomy.ok) return { ok: false as const, code: taxonomy.error.code };
+      for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
+    }
+    return { ok: true as const, byVersion };
+  }
+
   /**
    * Every slot of the scored attempt, for the diagnostic report (M7-41): its concept, what it was worth and what it earned, as scoring says and as decimal text.
    * Unlike evidence this includes the slots that were not responses — the report attributes the marks a skipped question cost to its concept (DEC-M7-21). All or
@@ -97,12 +108,9 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, Repor
     if (!timings.ok) return { ok: false, error: { code: 'SOURCE_UNAVAILABLE', message: `assessment could not be read: ${timings.error.code}` } };
 
     const wanted = [...new Set(outcomes.value.map((slot) => slot.itemVersionId))];
-    const byVersion = new Map<string, { conceptIdentityId: string; taxonomyVersionId: string }>();
-    for (let at = 0; at < wanted.length; at += TAXONOMY_BATCH) {
-      const taxonomy = await this.deps.content.taxonomyForItemVersions.handle({ itemVersionIds: wanted.slice(at, at + TAXONOMY_BATCH) }, context);
-      if (!taxonomy.ok) return { ok: false, error: { code: 'SOURCE_UNAVAILABLE', message: `content could not be read: ${taxonomy.error.code}` } };
-      for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
-    }
+    const taxonomy = await this.taxonomyOf(wanted, context);
+    if (!taxonomy.ok) return { ok: false, error: { code: 'SOURCE_UNAVAILABLE', message: `content could not be read: ${taxonomy.code}` } };
+    const byVersion = taxonomy.byVersion;
     const unresolved = wanted.filter((id) => !byVersion.has(id));
     if (unresolved.length > 0) {
       return { ok: false, error: { code: 'ITEM_VERSION_UNRESOLVED', message: `content has no published, tagged version for ${unresolved.length} of the attempt's item versions`, itemVersionIds: unresolved } };
@@ -133,12 +141,9 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, Repor
 
     const given = outcomes.value.filter((slot) => (EVIDENCE_OUTCOMES as readonly string[]).includes(slot.outcome));
     const wanted = [...new Set(given.map((slot) => slot.itemVersionId))];
-    const byVersion = new Map<string, { conceptIdentityId: string; taxonomyVersionId: string; difficultyEstimate: string }>();
-    for (let at = 0; at < wanted.length; at += TAXONOMY_BATCH) {
-      const taxonomy = await this.deps.content.taxonomyForItemVersions.handle({ itemVersionIds: wanted.slice(at, at + TAXONOMY_BATCH) }, context);
-      if (!taxonomy.ok) return unavailable('content', taxonomy.error.code);
-      for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
-    }
+    const taxonomy = await this.taxonomyOf(wanted, context);
+    if (!taxonomy.ok) return unavailable('content', taxonomy.code);
+    const byVersion = taxonomy.byVersion;
     const timed = new Map(timings.value.slots.map((timing) => [timing.slotRef, timing]));
     const slots: PaceSlot[] = [];
     for (const slot of given) {
@@ -184,15 +189,9 @@ export class ScoredAttemptEvidenceSource implements MasteryEvidenceSource, Repor
 
     const gaveUpSlots = outcomes.value.filter((slot) => slot.outcome === 'unattempted' && (gaveUpAt.get(slot.slotRef) ?? null) !== null);
     const wanted = [...new Set([...given, ...gaveUpSlots].map((slot) => slot.itemVersionId))];
-    const byVersion = new Map<string, { conceptIdentityId: string; taxonomyVersionId: string; difficultyEstimate: string }>();
-    for (let at = 0; at < wanted.length; at += TAXONOMY_BATCH) {
-      const taxonomy = await this.deps.content.taxonomyForItemVersions.handle(
-        { itemVersionIds: wanted.slice(at, at + TAXONOMY_BATCH) },
-        context,
-      );
-      if (!taxonomy.ok) return fail('SOURCE_UNAVAILABLE', `content could not be read: ${taxonomy.error.code}`);
-      for (const entry of taxonomy.value) byVersion.set(entry.itemVersionId, entry);
-    }
+    const taxonomy = await this.taxonomyOf(wanted, context);
+    if (!taxonomy.ok) return fail('SOURCE_UNAVAILABLE', `content could not be read: ${taxonomy.code}`);
+    const byVersion = taxonomy.byVersion;
 
     const withoutInstant = given.filter((slot) => (respondedAt.get(slot.slotRef) ?? null) === null).map((slot) => slot.slotRef);
     if (withoutInstant.length > 0) {

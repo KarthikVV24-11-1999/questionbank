@@ -8,6 +8,8 @@ const record: SessionRecord = {
   deviceRef: 'd',
   intervalCapMs: 90_000,
   deadline: '2026-10-21T11:30:00.000Z',
+  formId: 'form-1',
+  serverOffsetMs: 250,
   submissionReason: null,
   events: [{ eventId: 'e1', attemptId: 'att-1', slot: 'q1', sequence: 1, monotonicMs: 5, kind: 'select', answer: ['a', 'b'] }],
   acknowledgedIds: ['e1'],
@@ -54,5 +56,12 @@ describe('what survives a reload (M6-50)', () => {
     expect(activeAttemptId(storage)).toBe('att-2');
     clearRecord(storage, 'att-2');
     expect(activeAttemptId(storage)).toBeNull();
+  });
+
+  it('reads a record written before the form and the clock offset were kept, as having neither', () => {
+    const storage = new MemoryStorage();
+    const { formId: _formId, serverOffsetMs: _serverOffsetMs, ...older } = record;
+    storage.setItem('qb.attempt.att-1', JSON.stringify(older));
+    expect(loadRecord(storage, 'att-1')).toMatchObject({ attemptId: 'att-1', formId: null, serverOffsetMs: null });
   });
 });

@@ -556,3 +556,48 @@ definition of an escalation that stands, read by what is due, by `weakest` and b
 escalation's key now includes the instant it was made. A strong concept is not escalated at all: otherwise it would be resolved and made again by every delivery that touched it.
 → `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts` · `apps/api/src/contexts/learning/infrastructure/learning-ledger.ts` · `infra/migrations/20261101130000_learning_review_escalation_resolution.sql`
 
+### DEC-M7-28 — A seam states the bound on a call to it, once, and a caller pages at what it says
+Content bounds a call to the reads it offers Learning, and the number was written in three places: content's own cap, a private constant in the evidence adapter, and — by omission — nowhere in
+the bookmarks adapter, which asked in one call and answered `503` past the bound. `ContentForLearning` now carries `batchBound`, the cap its handlers refuse above, and the composition root's two
+adapters page at it. This is not a domain threshold: what counts as slow or how many lapses escalate is policy and belongs in the versioned rule set; a batch size is a consequence of the callee's
+contract and belongs to the callee. A test refuses one identifier more than the seam advertises, on each read, so the advertised number and the enforced one cannot part. The adapters stay in the
+composition root; Learning learns nothing of the number.
+→ `apps/api/src/contexts/content/public/composition.ts` · `apps/api/src/platform/composition/learning-standing.ts` · `apps/api/src/platform/composition/learning-evidence.ts`
+
+### DEC-M7-29 — The attempt route returns the log, and a resumed device numbers from the log it merged
+`GET` of an attempt returns the attempt and `events`: the log of what has been done in it, as the attempt engine's own events (`slot`, `sequence`, `monotonicMs`, `kind`, `answer`), in the server's
+order, with nothing the server added (no item version, receipt instant or device) and without the events that arrived after the submission, which are kept and not scored. **The log, not a
+projection with the last sequence:** a device rebuilds its state through the engine from events, so what it shows and the number it gives its next event are both read from one log; a projection
+would be a second account of the attempt for the device to keep in step with it. A resumed session holds the union by event id of the device's record and the server's log, built by the
+engine's own merge (REL-06), which does not require sequence numbers to be distinct, because a server log written before this change can hold two devices' events under one number. The events the
+server returned are acknowledged, so they are not sent back. The cost is size: a three-hour sitting is some thousands of events, read once at boot.
+→ `apps/api/src/contexts/assessment/application/views.ts` · `apps/api/src/contexts/assessment/application/handlers/attempt-handlers.ts` · `apps/learn/src/session/attempt-session.ts` · `packages/contracts/openapi/assessment.yaml`
+
+### DEC-M7-30 — A reopened app reads the device first, and stands the device's clock in for the server's when the server cannot be asked
+`boot` reads the stored record before the package and the key, and verifies the package before it creates, starts or shows anything. If the server then cannot be reached — the request fails to
+connect, or the server answers 5xx — a record that names its form (the verified paper's) and holds an offset to the server's clock resumes from the device alone. The offset is the server's reading
+of its clock minus the device's wall clock, taken at every contact (starting, resuming, and the check the session makes at the local deadline) and kept in the record; the deadline is the one the
+record wrote down. A server that answers and refuses (4xx) is not an outage and surfaces as before; a record written before these facts were kept cannot resume offline and says so by failing as it
+did. The stand-in is read once, at resume: the timer runs on the monotonic clock from then on. See ADR-0055 for which way it can be wrong.
+→ `apps/learn/src/bootstrap.ts` · `apps/learn/src/session/attempt-session.ts` · `apps/learn/src/session/persistence.ts` · `docs/adr/ADR-0055-a-reopened-app-reads-the-device-first-and-stands-its-clock-in-for-the-servers.md`
+
+### DEC-M7-31 — The one tap is a run scoped to the concept it names, made and started by one action
+Tapping a finding, a due concept or an escalation makes a `filtered` practice run whose scope is that concept and starts it, in one action that is two requests (create, then start) under one idempotency
+key for the tap. A `targeted` run is Learning's choice of the weakest few concepts and would be about the tapped concept only if it were among them: a finding ranked sixth is not, and a run of the
+five weakest is not what its tap said. The finding's own `remediation` still says whether a targeted run would include it. The body of the request is one function in the contracts package, used by the screen and
+by the API's end-to-end test, so the tap the test proves is the tap the screen makes. A run is started because one that is created and not started has not begun, and a retry after the create returns the run
+it made. Excluding what the learner has seen is the server's default, and a learner who has sat every item of a concept is told that no item matches, in the server's words.
+→ `packages/contracts/src/practice-request.ts` · `apps/learn/src/practice/start-practice.ts` · `apps/api/src/platform/composition/assessment-scoring.integration.spec.ts`
+
+### DEC-M7-32 — A report names the score record it is labelled with, and a screen says a paper was re-scored by comparing it with the record that stands
+`GET` of a report returns `scoreRecordId`, the record the report is labelled with (D84). The report screen reads the attempt's result as well, which names the record that stands and its generation: a report
+labelled with another record is of a replaced score, and one labelled with the record that stands, past the first generation, is the report of a re-score. Nothing is inferred beyond that, and where the standing score
+cannot be read the screen says nothing of a re-score. D84 itself stays open: the label can still be the message's and not the record the findings were read from.
+→ `apps/api/src/contexts/learning/application/handlers/report-handlers.ts` · `apps/learn/src/report/rescore-label.ts`
+
+### DEC-M7-33 — The home screen names one next action, from the server's answers in the roadmap's order, and asks only until one answers
+Escalated first (the review plan's first), then what is due (the plan's most overdue), then the weakest concept (only for a taxonomy the page was told of), then the last sitting's report, then nothing. The sources
+are asked in that order and the asking stops at the first that answers. The screen holds no threshold, no count and no score: what is due and what is weakest are the server's, and a concept whose escalation was
+resolved is absent because the plan no longer lists it (D85). A report the server does not have is not an error; any other failure is shown as a failure, and never as "nothing to do".
+→ `apps/learn/src/home/next-action.ts` · `apps/learn/src/ui/HomeScreen.tsx`
+

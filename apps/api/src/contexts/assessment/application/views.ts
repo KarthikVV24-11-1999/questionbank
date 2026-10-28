@@ -1,5 +1,6 @@
 import type { Attempt } from '../domain/attempt.js';
 import type { Form } from '../domain/form.js';
+import type { ResponseAnswer, ResponseEvent } from '../domain/response-event.js';
 
 /**
  * The operator's view of a form. It names the item versions the form pins and
@@ -116,5 +117,52 @@ export function toAttemptView(attempt: Attempt, serverNow: string): AttemptView 
             submittedAt: attempt.submission.submittedAt,
             pastDeadline: attempt.deadline !== null && attempt.submission.submittedAt >= attempt.deadline,
           }),
+  });
+}
+
+/**
+ * One thing the learner did, as a device's engine holds it: the fields of the engine's `ResponseEvent` and nothing the server added (no item version, no
+ * receipt instant, no device). A device resuming an attempt it holds no record of rebuilds its log from these (D68).
+ */
+export interface LoggedEventView {
+  readonly eventId: string;
+  readonly attemptId: string;
+  readonly slot: string;
+  readonly sequence: number;
+  readonly monotonicMs: number;
+  readonly kind: string;
+  readonly answer?: ResponseAnswer;
+}
+
+/**
+ * The attempt, and the log of what has been done in it (D68, DEC-M7-29). **The log, and not a projection of it with the last sequence:** a device rebuilds its
+ * state through the attempt engine from the events themselves, so what it shows and the number it gives its next event are both read from the one
+ * log, and a projection would be a second account of the attempt for the device to keep in step with it.
+ *
+ * Events that reached the server after the attempt was submitted are left out. They are kept and not scored, and an attempt takes no new
+ * event once it is submitted, so no number they used can be given again.
+ */
+export interface AttemptWithLogView extends AttemptView {
+  readonly events: readonly LoggedEventView[];
+}
+
+export function toAttemptWithLogView(view: AttemptView, events: readonly ResponseEvent[]): AttemptWithLogView {
+  return Object.freeze({
+    ...view,
+    events: Object.freeze(
+      events
+        .filter((event) => !event.afterSubmission)
+        .map((event) =>
+          Object.freeze({
+            eventId: event.eventId,
+            attemptId: event.attemptId,
+            slot: event.slotId,
+            sequence: event.sequence,
+            monotonicMs: event.clientMonotonicMs,
+            kind: event.kind,
+            ...(event.answer === null ? {} : { answer: event.answer }),
+          }),
+        ),
+    ),
   });
 }

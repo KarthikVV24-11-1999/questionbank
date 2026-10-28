@@ -384,20 +384,23 @@ paths:
     get:
       operationId: getAttempt
       x-handler: GetAttempt
-      summary: The student's own attempt, with the server's clock reading
-      description: Someone else's attempt is `404`, the same answer as one that does not exist.
+      summary: The student's own attempt, with the server's clock reading and the log of what has been done in it
+      description: |
+        Someone else's attempt is `404`, the same answer as one that does not exist. The log is the events the server holds that count — those
+        that arrived after the submission are kept and not scored, and are left out — so a device with no record of the attempt rebuilds its own
+        log from them and numbers its next event after the last (D68).
       tags: [attempts]
       parameters:
         - $ref: '#/components/parameters/AttemptId'
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
-          description: The attempt.
+          description: The attempt, and its log.
           headers:
             X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Attempt' }
+              schema: { $ref: '#/components/schemas/AttemptWithLog' }
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
@@ -635,6 +638,33 @@ components:
             reason: { type: string, enum: [manual, expiry, recovered] }
             submittedAt: { type: string, format: date-time }
             pastDeadline: { type: boolean }
+
+    AttemptWithLog:
+      description: An attempt and the log of what has been done in it (D68).
+      allOf:
+        - $ref: '#/components/schemas/Attempt'
+        - type: object
+          required: [events]
+          properties:
+            events:
+              type: array
+              description: In the server's order, the client sequence and then the event id. The fields of the device's own event; nothing the server added.
+              items:
+                type: object
+                required: [eventId, attemptId, slot, sequence, monotonicMs, kind]
+                properties:
+                  eventId: { type: string, format: uuid }
+                  attemptId: { type: string, format: uuid }
+                  slot: { type: string, format: uuid }
+                  sequence: { type: integer, minimum: 0 }
+                  monotonicMs: { type: integer, minimum: 0 }
+                  kind: { type: string, enum: [select, change, clear, visit, leave, flag, unflag, skip] }
+                  answer:
+                    description: Present for `select` and `change`.
+                    oneOf:
+                      - { type: string }
+                      - { type: number }
+                      - { type: array, items: { oneOf: [{ type: string }, { type: number }] } }
 
     SlotSolution:
       type: object

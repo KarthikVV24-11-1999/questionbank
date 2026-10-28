@@ -7,22 +7,41 @@ import { z } from 'zod';
  */
 export const attemptSchema = z.object({
   attemptId: z.string(),
-  formId: z.string(),
-  mode: z.enum(['mock', 'diagnostic']),
+  /** Null for a practice run, which is of no form. */
+  formId: z.string().nullable(),
+  mode: z.enum(['mock', 'diagnostic', 'practice']),
   state: z.enum(['created', 'in_progress', 'submitted', 'abandoned']),
-  sessionRef: z.string(),
-  shiftId: z.string(),
+  sessionRef: z.string().nullable(),
+  shiftId: z.string().nullable(),
   slotCount: z.number().int(),
-  durationMs: z.number().int(),
+  durationMs: z.number().int().nullable(),
   /** The one cap on a visit's time on item. Read, never chosen: the projection the learner sees uses this and no other. */
   intervalCapMs: z.number().int().min(1),
-  windowClosesAt: z.string(),
+  windowClosesAt: z.string().nullable(),
   startedAt: z.string().nullable(),
   deadline: z.string().nullable(),
   serverNow: z.string(),
   submission: z.object({ reason: z.enum(['manual', 'expiry', 'recovered']), submittedAt: z.string(), pastDeadline: z.boolean() }).nullable(),
 });
 export type AttemptDto = z.infer<typeof attemptSchema>;
+
+/**
+ * One event of the log, as the engine holds it. The server's route names exactly these fields and nothing it added, so a device resuming an attempt it
+ * holds no record of rebuilds its log from them (D68).
+ */
+export const loggedEventSchema = z.object({
+  eventId: z.string(),
+  attemptId: z.string(),
+  slot: z.string(),
+  sequence: z.number().int().min(0),
+  monotonicMs: z.number().int().min(0),
+  kind: z.enum(['select', 'change', 'clear', 'visit', 'leave', 'flag', 'unflag', 'skip']),
+  answer: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]).optional(),
+});
+
+/** The attempt as `GET` gives it: the view, and the log of what has been done in it. */
+export const attemptWithLogSchema = attemptSchema.extend({ events: z.array(loggedEventSchema) });
+export type AttemptWithLogDto = z.infer<typeof attemptWithLogSchema>;
 
 export const createdAttemptSchema = z.object({ attempt: attemptSchema, replayed: z.boolean() });
 

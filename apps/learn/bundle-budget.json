@@ -1,6 +1,12 @@
 {
-  "baseline": { "rawBytes": 508776, "gzipBytes": 155457 },
-  "budget": { "rawBytes": 520000, "gzipBytes": 160000 },
+  "baseline": {
+    "rawBytes": 522414,
+    "gzipBytes": 159314
+  },
+  "budget": {
+    "rawBytes": 533000,
+    "gzipBytes": 164000
+  },
   "maxHeadroom": 1.05,
-  "why": "Everything a learner downloads to open the app: the page, the one script and the service worker. The script is 504 kB raw and 154 kB gzipped, and 370 kB of it (114 kB gzipped) is React's DOM renderer, which cannot be split smaller; the shell's own code is about 54 kB. That is over the 500 kB at which the build warns about a single chunk, so the budget is stated here, above it, rather than the warning silenced: the figure that crosses the link is the gzipped one, 155 kB, which is about 3 s on a 3G link of 400 kbit/s and under 1 s at 1.6 Mbit/s. The budget leaves 2% (raw) and 3% (gzipped) of room above the baseline; raising it is an edit to this file's baseline, with a reason."
+  "why": "Everything a learner downloads to open the app: the page, the one script and the service worker. The script is 518 kB raw and 159 kB gzipped, and 370 kB of it (114 kB gzipped) is React's DOM renderer, which cannot be split smaller; the other 148 kB is the shell's own code and the libraries it validates with. That is over the 500 kB at which the build warns about a single chunk, so the budget is stated here, above it, rather than the warning silenced: the figure that crosses the link is the gzipped one, 159 kB, which is about 3.2 s on a 3G link of 400 kbit/s and under 1 s at 1.6 Mbit/s. The budget leaves 2% (raw) and 3% (gzipped) of room above the baseline; raising it is an edit to this file's baseline, with a reason. M7 Track H2 raised it from a baseline of 508,776 raw and 155,457 gzipped (M6-58) to the figures above: +13.6 kB raw and +3.9 kB gzipped (2.7% and 2.5%). Resuming from the device and from the server's log (the stored offset, the merge, the wall-clock port) cost 2.6 kB raw and 0.7 kB gzipped (measured on its own commit); the home, practice and report screens, their request hooks and the schemas that validate what Learning answers cost the remaining 11 kB raw and 3.1 kB gzipped. The screens are in the one script because the budget is about what crosses the link to open the app, and a learner who is sent to a report or a practice run would otherwise pay a second round trip to open it."
 }

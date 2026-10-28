@@ -662,6 +662,65 @@ describe('M6-33 — device switch: two devices, disjoint events, one union', () 
   });
 });
 
+describe('M7-55 — a second device carries on from the server\'s log, and its numbering (D68)', () => {
+  /**
+   * What a device with no record of the attempt does: read the attempt, take its log, and number its next event after the last number in it. This is
+   * the learner app's rule (the session numbers from its log's last sequence), stated here over the same wire shape the route gives it.
+   */
+  async function deviceB(who: Student, attemptId: string, slots: readonly string[], numberFrom: 'the log' | 'one'): Promise<WireEvent[]> {
+    const { logFromEvents } = await import('@questionbank/attempt-engine');
+    const read = await getAttempt(who, attemptId);
+    expect(read.status, JSON.stringify(read.body)).toBe(200);
+    const log = logFromEvents(attemptId, read.body.events);
+    if (!log.ok) throw new Error(`the route's log does not rebuild: ${log.reason}`);
+    const after = numberFrom === 'the log' ? (log.log.events.at(-1)?.sequence ?? 0) : 0;
+    return evening(attemptId, slots).map((event) => ({ ...event, sequence: event.sequence + after }));
+  }
+
+  it('returns what the learner has already done, in the order the server keeps it, as the engine\'s own events', async () => {
+    const { who, attemptId } = await startedAttempt();
+    const empty = await getAttempt(who, attemptId);
+    expect(empty.body.events).toEqual([]);
+    const first = evening(attemptId, slotIds.slice(0, 2));
+    expect((await sendEvents(who, attemptId, [...first].reverse(), app, 'device-a')).status).toBe(200);
+    const read = await getAttempt(who, attemptId);
+    expect(read.body.events).toEqual(first);
+  });
+
+  it('two devices against one attempt: the second continues the first\'s numbering, and the server\'s order puts every one of its events after the first\'s', async () => {
+    const { who, attemptId } = await startedAttempt();
+    const fromA = evening(attemptId, slotIds.slice(0, 3));
+    expect((await sendEvents(who, attemptId, fromA, app, 'device-a')).status).toBe(200);
+
+    const fromB = await deviceB(who, attemptId, slotIds.slice(3), 'the log');
+    expect(Math.min(...fromB.map((event) => event.sequence))).toBe(Math.max(...fromA.map((event) => event.sequence)) + 1);
+    expect((await sendEvents(who, attemptId, fromB, app, 'device-b')).status).toBe(200);
+
+    const read = await getAttempt(who, attemptId);
+    const sequences = (read.body.events as WireEvent[]).map((event) => event.sequence);
+    expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
+    expect(new Set(sequences).size).toBe(sequences.length);
+    expect((read.body.events as WireEvent[]).map((event) => event.eventId)).toEqual([...fromA, ...fromB].map((event) => event.eventId));
+  });
+
+  it('control: a device that numbers from one, as an empty log would have it, is interleaved with the first by the same ordering', async () => {
+    const { who, attemptId } = await startedAttempt();
+    const fromA = evening(attemptId, slotIds.slice(0, 3));
+    await sendEvents(who, attemptId, fromA, app, 'device-a');
+    const fromB = await deviceB(who, attemptId, slotIds.slice(3), 'one');
+    await sendEvents(who, attemptId, fromB, app, 'device-b');
+    const slotsInOrder = ((await getAttempt(who, attemptId)).body.events as WireEvent[]).map((event) => event.slot);
+    const firstOfB = slotsInOrder.findIndex((slot) => slotIds.slice(3).includes(slot));
+    const lastOfA = slotsInOrder.map((slot) => slotIds.slice(0, 3).includes(slot)).lastIndexOf(true);
+    expect(firstOfB).toBeLessThan(lastOfA);
+  });
+
+  it('shows no one else\'s attempt, with its log', async () => {
+    const { attemptId } = await startedAttempt();
+    expect((await getAttempt(student(), attemptId)).status).toBe(404);
+  });
+});
+
 describe('M6-35 — a complete backend outage in the middle of an attempt loses nothing', () => {
   it('drives the engine\'s queue against real ingestion, with the server unreachable for the middle of the attempt', async () => {
     const engine = await import('@questionbank/attempt-engine');

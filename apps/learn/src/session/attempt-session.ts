@@ -5,6 +5,8 @@ import {
   createAttempt,
   createSyncQueue,
   enqueue,
+  logFromEvents,
+  mergeLogs,
   nextBatch,
   projectAttempt,
   recordFailure,
@@ -23,7 +25,7 @@ import {
   type SyncQueue,
   type SyncStatus,
 } from '@questionbank/attempt-engine';
-import type { AttemptDto, ResultDto } from '../api/schemas.js';
+import type { AttemptWithLogDto, ResultDto } from '../api/schemas.js';
 import { saveRecord, type SessionRecord } from './persistence.js';
 import type { SessionPorts } from './ports.js';
 
@@ -67,6 +69,8 @@ export interface SessionSnapshot {
 
 export interface SessionStart {
   readonly attemptId: string;
+  /** The form the attempt is of: written down, so a reopened app can tell with no server to ask whether its record is for the paper in front of it. */
+  readonly formId: string;
   readonly deviceRef: string;
   /** From the attempt response — read, not chosen. */
   readonly intervalCapMs: number;
@@ -75,12 +79,22 @@ export interface SessionStart {
   readonly serverNow: string;
 }
 
-export interface ResumeFromRecord {
-  readonly record: SessionRecord;
-  /** A fresh read of the attempt: the deadline is the server's, so a reload resumes against it and does not restart it. */
-  readonly server: AttemptDto;
-}
+/** A record this device wrote with the two facts an offline resume needs: which paper it is of, and the offset to the server's clock. */
+export type OfflineResumable = SessionRecord & { readonly formId: string; readonly serverOffsetMs: number };
 
+/**
+ * What an attempt is resumed from. Three ways, and one rule for all of them: **the log the session holds is the union (by event id) of what this
+ * device wrote down and what the server holds**, built by the engine's own merge, and every number the session gives an event after that is read
+ * from it.
+ *
+ *  - this device's record and a fresh read of the attempt: the deadline is the server's, so a reload resumes against it and does not restart it;
+ *  - this device's record alone, the server unreachable (D67): the deadline is the one written down, read against this device's wall clock moved by the offset taken at the last contact;
+ *  - no record, the server's read alone (D68): a second device, or this one after its storage was cleared, carries on from the server's log and its numbering.
+ */
+export type ResumeFromRecord =
+  | { readonly record: SessionRecord; readonly server: AttemptWithLogDto }
+  | { readonly record: OfflineResumable; readonly server: null }
+  | { readonly record: null; readonly server: AttemptWithLogDto; readonly deviceRef: string };
 
 /** A new attempt, started. The engine always starts a created one, so there is no refusal to handle. */
 function freshAttempt(attemptId: string): Attempt {
@@ -103,15 +117,18 @@ export class AttemptSession {
   #sending = false;
   #listeners = new Set<() => void>();
   #cached: SessionSnapshot | null = null;
+  #serverOffsetMs: number | null;
 
   private constructor(
-    private readonly init: { readonly attemptId: string; readonly deviceRef: string; readonly intervalCapMs: number; readonly deadline: string },
+    private readonly init: { readonly attemptId: string; readonly formId: string | null; readonly deviceRef: string; readonly intervalCapMs: number; readonly deadline: string },
+    serverOffsetMs: number | null,
     private readonly ports: SessionPorts,
     attempt: Attempt,
     timer: AttemptTimer,
     phase: Phase,
   ) {
     this.#attempt = attempt;
+    this.#serverOffsetMs = serverOffsetMs;
     this.#timer = timer;
     this.#phase = phase;
     this.#queue = createSyncQueue(init.attemptId, ports.syncPolicy);
@@ -120,7 +137,8 @@ export class AttemptSession {
   /** A new attempt that has just been started on the server. */
   static begin(start: SessionStart, ports: SessionPorts): AttemptSession {
     const session = new AttemptSession(
-      { attemptId: start.attemptId, deviceRef: start.deviceRef, intervalCapMs: start.intervalCapMs, deadline: start.deadline },
+      { attemptId: start.attemptId, formId: start.formId, deviceRef: start.deviceRef, intervalCapMs: start.intervalCapMs, deadline: start.deadline },
+      Date.parse(start.serverNow) - ports.wall.now(),
       ports,
       freshAttempt(start.attemptId),
       AttemptSession.timerFor(start.deadline, start.serverNow, ports),
@@ -131,32 +149,49 @@ export class AttemptSession {
   }
 
   /**
-   * An attempt this device was already sitting, rebuilt through the engine from what it wrote down. **The deadline is read afresh from the
-   * server**, and the time left is the difference between it and the server's own reading of its clock — so a reload resumes against the
-   * same deadline and never restarts it, however long the app was closed.
+   * An attempt carried on from what was written down, from the server's log, or both (`ResumeFromRecord`). **The deadline is the server's whenever the
+   * server could be asked**, and the time left is the difference between it and the server's own reading of its clock — so a reload resumes against the
+   * same deadline and never restarts it, however long the app was closed. When it could not be asked the stand-in is the device's wall clock moved by the
+   * offset taken at the last contact (D67): it is read once, here, and the timer runs on the monotonic clock from then on, so it can only be wrong by what
+   * the wall clock did in between, and the server decides at submission whatever it said.
    */
-  static resume({ record, server }: ResumeFromRecord, ports: SessionPorts): AttemptSession {
-    let current = freshAttempt(record.attemptId);
-    for (const event of record.events) {
+  static resume(source: ResumeFromRecord, ports: SessionPorts): AttemptSession {
+    const { record, server } = source;
+    const attemptId = record === null ? server.attemptId : record.attemptId;
+    let current = freshAttempt(attemptId);
+    for (const event of record?.events ?? []) {
       const captured = captureResponse(current, event);
       if (!captured.ok) throw new Error(`the stored log does not rebuild: ${captured.reason}`);
       current = captured.attempt;
     }
-    const submitted = record.submissionReason !== null || server.state === 'submitted';
+    // The server's log joins the device's by the engine's merge (REL-06): set union by event id, in the canonical order, so the last sequence of the
+    // result is the last number either of them used and the next event is numbered after it.
+    // The wire's event is the engine's, field for field (`attemptWithLogSchema`); the cast is the one place the two are said to be the same.
+    const held = logFromEvents(attemptId, (server?.events ?? []) as readonly ResponseEvent[]);
+    if (!held.ok) throw new Error(`the server's log does not rebuild: ${held.reason}`);
+    const merged = mergeLogs(current.log, held.log);
+    if (!merged.ok) throw new Error(`the stored log and the server's do not merge: ${merged.reason}`);
+    current = { ...current, log: merged.log };
+
+    const submitted = (record?.submissionReason ?? null) !== null || server?.state === 'submitted';
     if (submitted) {
-      const reason = record.submissionReason ?? server.submission?.reason ?? 'manual';
+      const reason = record?.submissionReason ?? server?.submission?.reason ?? 'manual';
       // An in-progress attempt with no submission always takes one, so the result is the attempt.
-      current = (submitAttempt(current, { reason, idempotencyKey: `submission:${record.attemptId}` }) as { attempt: Attempt }).attempt;
+      current = (submitAttempt(current, { reason, idempotencyKey: `submission:${attemptId}` }) as { attempt: Attempt }).attempt;
     }
+    const deadline = server?.deadline ?? record?.deadline;
+    if (deadline === undefined) throw new Error('the attempt has no deadline to resume against');
+    const offset = server === null ? record.serverOffsetMs : Date.parse(server.serverNow) - ports.wall.now();
     const session = new AttemptSession(
-      { attemptId: record.attemptId, deviceRef: record.deviceRef, intervalCapMs: server.intervalCapMs, deadline: server.deadline ?? record.deadline },
+      { attemptId, formId: record?.formId ?? server?.formId ?? null, deviceRef: record === null ? source.deviceRef : record.deviceRef, intervalCapMs: server === null ? record.intervalCapMs : server.intervalCapMs, deadline },
+      offset,
       ports,
       current,
-      AttemptSession.timerFor(server.deadline ?? record.deadline, server.serverNow, ports),
-      server.state === 'submitted' ? 'submitted' : submitted ? 'submitting' : 'in_progress',
+      server === null ? AttemptSession.timerAgainstWall(deadline, offset, ports) : AttemptSession.timerFor(deadline, server.serverNow, ports),
+      server?.state === 'submitted' ? 'submitted' : submitted ? 'submitting' : 'in_progress',
     );
-    session.#acknowledged = new Set(record.acknowledgedIds);
-    session.#rejected = new Set(record.rejectedIds);
+    session.#acknowledged = new Set([...(record?.acknowledgedIds ?? []), ...(server?.events ?? []).map((event) => event.eventId)]);
+    session.#rejected = new Set(record?.rejectedIds ?? []);
     for (const event of current.log.events) {
       if (!session.#acknowledged.has(event.eventId) && !session.#rejected.has(event.eventId)) session.#enqueue(event);
     }
@@ -167,6 +202,12 @@ export class AttemptSession {
     if (open !== null && session.#phase === 'in_progress') session.#record('visit', open);
     session.#persist();
     return session;
+  }
+
+  /** The time left against the device's wall clock moved by an offset taken earlier: the stand-in for the server's reading when there is none to ask. */
+  private static timerAgainstWall(deadline: string, offsetMs: number, ports: SessionPorts): AttemptTimer {
+    const left = Date.parse(deadline) - (ports.wall.now() + offsetMs);
+    return startTimer(left, ports.clock.now());
   }
 
   private static timerFor(deadline: string, serverNow: string, ports: SessionPorts): AttemptTimer {
@@ -311,6 +352,9 @@ export class AttemptSession {
     try {
       const server = await this.ports.transport.getAttempt(this.init.attemptId);
       if (server.state !== 'in_progress' || server.deadline === null) return null;
+      // A contact: the offset between the two clocks is taken afresh, so a reopen with no server to ask stands in for it with the latest.
+      this.#serverOffsetMs = Date.parse(server.serverNow) - this.ports.wall.now();
+      this.#persist();
       return Date.parse(server.deadline) - Date.parse(server.serverNow);
     } catch {
       return null;
@@ -405,6 +449,8 @@ export class AttemptSession {
       deviceRef: this.init.deviceRef,
       intervalCapMs: this.init.intervalCapMs,
       deadline: this.init.deadline,
+      formId: this.init.formId,
+      serverOffsetMs: this.#serverOffsetMs,
       submissionReason: this.#attempt.submission?.reason ?? null,
       events: this.#attempt.log.events,
       acknowledgedIds: [...this.#acknowledged],

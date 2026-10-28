@@ -19,6 +19,8 @@ function seams(options: {
   outcomes?: unknown;
   taxonomy?: (ids: readonly string[]) => unknown;
   calls?: (readonly string[])[];
+  /** What content says one call takes (D86); the adapter pages at it and at nothing of its own. */
+  bound?: number;
   /** Per slot ref; defaults to a response at a distinct minute for every slot, all before the score. */
   timings?: (slots: readonly string[]) => unknown;
 }) {
@@ -26,6 +28,7 @@ function seams(options: {
     outcomesForAttempt: { handle: async () => options.outcomes },
   } as unknown as ScoringForLearning;
   const content = {
+    batchBound: options.bound ?? 500,
     taxonomyForItemVersions: {
       handle: async (query: { itemVersionIds: readonly string[] }) => {
         options.calls?.push(query.itemVersionIds);
@@ -90,12 +93,37 @@ describe('assembling evidence from the two seams', () => {
     expect(result.ok && result.value.notEvidence).toBe(3);
   });
 
-  it('batches within content\'s cap: 501 distinct versions are two calls of 500 and 1', async () => {
-    const slots = Array.from({ length: 501 }, (_, n) => slot(n, 'correct'));
-    const calls: (readonly string[])[] = [];
-    const result = await seams({ outcomes: good(slots), calls }).evidenceForScoredAttempt(ATTEMPT);
-    expect(calls.map((c) => c.length)).toEqual([500, 1]);
-    expect(result.ok && result.value.evidence).toHaveLength(501);
+  describe('pages at the bound content states (D86), at every place it is asked', () => {
+    const slots = Array.from({ length: 7 }, (_, n) => slot(n, 'correct'));
+
+    it('for evidence: seven versions under a bound of three are calls of 3, 3 and 1', async () => {
+      const calls: (readonly string[])[] = [];
+      const result = await seams({ outcomes: good(slots), calls, bound: 3 }).evidenceForScoredAttempt(ATTEMPT);
+      expect(calls.map((c) => c.length)).toEqual([3, 3, 1]);
+      expect(result.ok && result.value.evidence).toHaveLength(7);
+    });
+
+    it('for the report: the same', async () => {
+      const calls: (readonly string[])[] = [];
+      const result = await seams({ outcomes: good(slots), calls, bound: 3 }).slotsForScoredAttempt(ATTEMPT);
+      expect(calls.map((c) => c.length)).toEqual([3, 3, 1]);
+      expect(result.ok && result.value.slots).toHaveLength(7);
+    });
+
+    it('for pace: the same', async () => {
+      const calls: (readonly string[])[] = [];
+      const result = await seams({ outcomes: good(slots), calls, bound: 3 }).paceSlotsForAttempt(LEARNER, ATTEMPT.attemptId);
+      expect(calls.map((c) => c.length)).toEqual([3, 3, 1]);
+      expect(result.ok && result.value).toHaveLength(7);
+    });
+
+    it('fails the whole read, naming content\'s reason, when a later page is refused', async () => {
+      let page = 0;
+      const refused = { ok: false, error: { kind: 'Validation', code: 'VERSION_TAXONOMY_QUERY_INVALID' } };
+      const result = await seams({ outcomes: good(slots), bound: 3, taxonomy: (ids) => (++page === 2 ? refused : { ok: true, value: ids.map((id) => entry(id)) }) }).evidenceForScoredAttempt(ATTEMPT);
+      expect(result).toMatchObject({ ok: false, error: { code: 'SOURCE_UNAVAILABLE' } });
+      expect(JSON.stringify(result)).toContain('VERSION_TAXONOMY_QUERY_INVALID');
+    });
   });
 
   it('fails the whole attempt, naming the versions, when content cannot resolve one — never partial evidence', async () => {
