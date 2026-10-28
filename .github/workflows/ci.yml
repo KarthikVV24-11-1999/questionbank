@@ -78,7 +78,10 @@ jobs:
           node-version: '22'
       - run: corepack enable
       - run: corepack pnpm install --frozen-lockfile
-      - run: corepack pnpm -r --workspace-concurrency=1 test
+      - name: '@questionbank/api — unit and integration, with the coverage thresholds'
+        run: corepack pnpm --filter @questionbank/api test
+      - name: '@questionbank/seed'
+        run: corepack pnpm --filter @questionbank/seed test
 
   fitness:
     runs-on: ubuntu-latest

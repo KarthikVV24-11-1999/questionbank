@@ -80,14 +80,15 @@ describe('planted violations — one per assertion', () => {
     expect(declared.every((v) => v === minEnginesNode(resolve(REPO_ROOT, 'package.json')))).toBe(false);
   });
 
-  it('removing --workspace-concurrency=1 from the integration job is a violation', () => {
+  it('a recursive run in the integration job without --workspace-concurrency=1 is a violation', () => {
     const mutated = structuredClone(real) as typeof real;
-    mutated.jobs!['integration']!.steps = (mutated.jobs!['integration']!.steps as unknown as { run?: string }[]).map(
-      (step) =>
-        step.run?.includes('--workspace-concurrency=1')
-          ? { ...step, run: step.run.replace(' --workspace-concurrency=1', '') }
-          : step,
-    ) as never;
+    (mutated.jobs!['integration']!.steps as unknown as { run?: string }[]).push({ run: 'corepack pnpm -r test' });
     expect(checkWorkflow(mutated).some((v) => v.rule === 'MISSING_WORKSPACE_CONCURRENCY_1')).toBe(true);
+  });
+
+  it('a recursive run in the integration job that is serialised is not', () => {
+    const mutated = structuredClone(real) as typeof real;
+    (mutated.jobs!['integration']!.steps as unknown as { run?: string }[]).push({ run: 'corepack pnpm -r --workspace-concurrency=1 test' });
+    expect(checkWorkflow(mutated).some((v) => v.rule === 'MISSING_WORKSPACE_CONCURRENCY_1')).toBe(false);
   });
 });

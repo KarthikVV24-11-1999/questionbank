@@ -67,7 +67,9 @@ export function checkWorkflow(workflow: Workflow): CiViolation[] {
   }
 
   const integrationSteps = (jobs['integration']?.steps ?? []).map((step) => step.run ?? '').join('\n');
-  if (integrationSteps.length > 0 && !integrationSteps.includes('--workspace-concurrency=1')) {
+  // The database is shared, so no two packages' suites may run at once. Named `--filter` steps are serial by construction; a recursive run is only safe serialised.
+  const runsRecursively = /\bpnpm\s+(-r|--recursive)\b/u.test(integrationSteps);
+  if (runsRecursively && !integrationSteps.includes('--workspace-concurrency=1')) {
     violations.push({ rule: 'MISSING_WORKSPACE_CONCURRENCY_1', detail: 'integration' });
   }
 

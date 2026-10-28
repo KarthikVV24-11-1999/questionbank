@@ -27,6 +27,14 @@ describe('the concept map', () => {
     expect(Object.isFrozen(built.conceptStates)).toBe(true);
   });
 
+  it('orders concepts by identity whatever order the evidence arrived in, so both outcomes of the comparison run', () => {
+    const arrival = ['c-d', 'c-a', 'c-e', 'c-c', 'c-b'];
+    const built = conceptMapOf(LEARNER, TAXONOMY, new Map(arrival.map((c) => [c, [ev(1, 1, 0)]])), D002_THRESHOLDS, at(2));
+    expect(built.conceptStates.map((s) => s.conceptIdentityId)).toEqual(['c-a', 'c-b', 'c-c', 'c-d', 'c-e']);
+    const reversed = conceptMapOf(LEARNER, TAXONOMY, new Map([...arrival].reverse().map((c) => [c, [ev(1, 1, 0)]])), D002_THRESHOLDS, at(2));
+    expect(reversed.conceptStates.map((s) => s.conceptIdentityId)).toEqual(['c-a', 'c-b', 'c-c', 'c-d', 'c-e']);
+  });
+
   it('answers a concept it has no state for with null, and does not invent a row', () => {
     expect(stateOf(map(), 'c-b')).toMatchObject({ state: 'strong' });
     expect(stateOf(map(), 'c-none')).toBeNull();
