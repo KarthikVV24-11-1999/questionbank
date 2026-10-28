@@ -536,6 +536,23 @@ At `escalateAtLapses` lapses (the rule set's, 3 in version 2 of the default) a c
 the concept, what it cost, and the targeted practice it escalates to (DOMAIN-MODEL: escalate to remediation rather than more repetition). That it happens once is the table's key, not a check in code:
 `learning.review_escalation` is keyed by learner, taxonomy version and concept, written with `ON CONFLICT DO NOTHING`, and a row is history that is never changed. A delivery reports only the
 concepts it escalated itself, so a replay and a later lapse say nothing. An escalated concept leaves what is due, and comes first in what a targeted run is about (`weakest`), whatever its state:
-without that the finding would be one no run is built from. An escalation is not withdrawn when the concept recovers or when a re-score lowers the lapse count (D85).
+without that the finding would be one no run is built from. An escalation is withdrawn when the concept recovers or a re-score lowers the lapse count (D85, DEC-M7-27).
 → `contexts/learning/application/handlers/record-evidence-handler.ts` · `contexts/learning/infrastructure/review.repository.ts` · `contexts/learning/infrastructure/concept-reader.ts` · `infra/migrations/20261101120000_learning_review_escalation.sql`
+
+### DEC-M7-26 — Learning's handlers are the policies its handlers declare, read from source
+Whether a handler has a route is a question about the set of handlers, and Learning has no `HandlerRegistry` to ask. The set is read from the `policy(…)` declarations in `application/handlers/`:
+a handler cannot run without one (`authorize` takes it), so the declaration is the one place each already names itself exhaustively. A registry built only so that it could be enumerated would be
+a second list free to drift from the first; `fitness/source-scan.ts` is the precedent for reading source as a gate's subject. A `policy(` call the literal pattern cannot read is counted and fails the
+contract, so a handler declared in a shape the scan does not understand cannot be missed. `learning-contract.spec.ts` holds every name to a route in `learning.yaml` or to a stated reason it has none,
+and holds the learner, system and operator sets to INV-01 — the other direction of F15, which an endpoint without a spec fails and a handler without an endpoint does not. The same milestone made the
+anatomy gate require a layer to hold TypeScript source and not merely exist, which `learning/api/` had passed for want of a file.
+→ `apps/api/src/fitness/policy-declarations.ts` · `apps/api/src/contracts/learning-contract.spec.ts` · `apps/api/src/testing/context-anatomy.ts`
+
+### DEC-M7-27 — An escalation stands exactly while the fold would make it, and a resolution is a row beside it
+A concept is escalated while it has lapsed `escalateAtLapses` times and is not `strong`; the delivery that touches a concept decides both whether to escalate it and whether an open escalation
+still stands, from the evidence as it now stands, so a recovery and a re-score that removes a lapse resolve it by the same computation that made it. The reason is recorded (`recovered`,
+`lapses_corrected`). The resolution is a row beside the escalation and the escalation is never changed: `learning.review_escalation_resolution`, with `learning.open_review_escalation` as the single
+definition of an escalation that stands, read by what is due, by `weakest` and by the review plan. A concept has at most one open escalation, and may be escalated again after one is resolved, so the
+escalation's key now includes the instant it was made. A strong concept is not escalated at all: otherwise it would be resolved and made again by every delivery that touched it.
+→ `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts` · `apps/api/src/contexts/learning/infrastructure/learning-ledger.ts` · `infra/migrations/20261101130000_learning_review_escalation_resolution.sql`
 

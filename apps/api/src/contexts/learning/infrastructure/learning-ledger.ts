@@ -242,15 +242,32 @@ class PostgresLedgerTransaction implements LedgerTransaction {
   async escalate(taxonomyVersionId: string, escalations: readonly { readonly conceptIdentityId: string; readonly lapseCount: number }[], ruleSetId: string, escalatedAt: Date): Promise<readonly string[]> {
     const fresh: string[] = [];
     for (const e of escalations) {
+      // one open escalation at a time (DEC-M7-27): a concept whose escalation stands is not escalated again, and one whose escalation was resolved can be
       const { rowCount } = await this.client.query(
         `INSERT INTO learning.review_escalation (learner_ref, taxonomy_version_id, concept_identity_id, escalated_at, lapse_count, rule_set_id)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (learner_ref, taxonomy_version_id, concept_identity_id) DO NOTHING`,
+         SELECT $1::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::integer, $6::uuid
+          WHERE NOT EXISTS (SELECT 1 FROM learning.open_review_escalation o WHERE o.learner_ref = $1::uuid AND o.taxonomy_version_id = $2::uuid AND o.concept_identity_id = $3::uuid)
+         ON CONFLICT DO NOTHING`,
         [this.learnerRef, taxonomyVersionId, e.conceptIdentityId, escalatedAt, e.lapseCount, ruleSetId],
       );
       if (rowCount === 1) fresh.push(e.conceptIdentityId);
     }
     return fresh;
+  }
+
+  async resolveEscalations(taxonomyVersionId: string, resolutions: readonly { readonly conceptIdentityId: string; readonly reason: 'recovered' | 'lapses_corrected' }[], ruleSetId: string, resolvedAt: Date) {
+    const resolved: { conceptIdentityId: string; reason: 'recovered' | 'lapses_corrected' }[] = [];
+    for (const r of resolutions) {
+      const { rowCount } = await this.client.query(
+        `INSERT INTO learning.review_escalation_resolution (learner_ref, taxonomy_version_id, concept_identity_id, escalated_at, resolved_at, reason, rule_set_id)
+         SELECT o.learner_ref, o.taxonomy_version_id, o.concept_identity_id, o.escalated_at, $4, $5, $6
+           FROM learning.open_review_escalation o
+          WHERE o.learner_ref = $1 AND o.taxonomy_version_id = $2 AND o.concept_identity_id = $3`,
+        [this.learnerRef, taxonomyVersionId, r.conceptIdentityId, resolvedAt, r.reason, ruleSetId],
+      );
+      if (rowCount === 1) resolved.push({ conceptIdentityId: r.conceptIdentityId, reason: r.reason });
+    }
+    return resolved;
   }
 
   async dropReviewSchedules(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<void> {

@@ -578,16 +578,6 @@ misled — they are shown less than the full picture — and nothing is lost: th
 **Trigger** The review schedule (Track G) needs the decayed state for every concept to say what is due; the remediation read moves onto the same read at that point.
 **Cited** `apps/api/src/contexts/learning/infrastructure/concept-reader.ts`
 
-### D78 — Practice has no route
-
-`CreatePracticeAttempt`, `GrowPracticeAttempt` and `GetPracticeFeedback` are handlers with policies and tests, and no HTTP route: a route needs an OpenAPI
-operation, a generated contract, a controller method and an entry in the key-free `attempt-responses` surface, and those belong with the screens that call them. The
-contract spec names the unrouted set, so a handler cannot be left unrouted by accident; it lists these as the learner's, apart from the scheduler's two.
-
-**Trigger** Track H, the learner surfaces: the practice screen is the first caller that is not a test. The operations are added to the assessment document and the
-generated schemas, and the unrouted set in `assessment-contract.spec.ts` shrinks to the scheduler's two.
-**Cited** `apps/api/src/contracts/assessment-contract.spec.ts`
-
 ### D79 — Practice feedback is judged under the first section's rules
 
 A practice slot belongs to no form, so it has no section and no marks. `ScoringResponseJudge` puts it to marking as the first section's, worth one unit that is
@@ -618,9 +608,12 @@ one). The learner's notebook can therefore disagree with their corrected score u
 
 **What does and does not inherit it (M7-47).** The review schedule does not. It is derived from the evidence as it now stands, which a re-score corrects, and it never reads the notebook, so
 a corrected sitting corrects the lapse count with it. The design note that a schedule "reads concept state and error entries" is not followed for that reason: the one source it could have read
-that is not corrected is the one it leaves alone. What a re-score still does not reach is the escalation already recorded from the uncorrected count (D85).
+that is not corrected is the one it leaves alone. The escalation recorded from an uncorrected count is resolved when a re-score takes the lapses away (D85, closed).
 
-**Trigger** The notebook is shown to a learner next to a report (Track H), or the first re-score that changes a learner's wrong answers in a real environment: entries get a withdrawal of
+*Re-read at M7-53.* The notebook now has a route (`GET /v1/learning/error-entries`), so a learner's client can read an entry a re-score has made wrong. The trigger below is not met:
+nothing yet shows the notebook beside a report, and no re-score has changed a learner's wrong answers outside a test. It stays open, and the route is what makes it nearer.
+
+**Trigger** The notebook is shown to a learner next to a report (the screens, Track H2), or the first re-score that changes a learner's wrong answers in a real environment: entries get a withdrawal of
 their own, as evidence got a correction, and the guard permits it once.
 **Cited** `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts`
 
@@ -663,16 +656,14 @@ it read, the source hands that on, and the report is labelled with it and not wi
 for the one that does.
 **Cited** `apps/api/src/contexts/learning/application/handlers/report-handlers.ts`
 
-### D85 — An escalation is never withdrawn
+### D86 — A learner's bookmarks are looked up in content in one call
 
-A concept escalated to remediation (M7-48, DEC-M7-25) stays escalated. The row is history, so nothing deletes it, and nothing marks it resolved: not the concept recovering, and not a re-score
-that corrects the responses its lapses were counted from. The schedule itself *is* recomputed from corrected evidence, so after a re-score the schedule can say fewer lapses than the
-escalation recorded, and the concept stays out of what is due and first in what a targeted run takes. A learner who has recovered is therefore still shown a remediation finding, and one whose
-lapses were a mis-scored sitting is shown one they did not earn. The cost is a finding that is stale, not a mastery state that is wrong; no transition reads it.
+`ContentItemStandings` asks content for the standing of every bookmarked item in a single call. Content bounds a call, and a learner with more bookmarks than that bound gets
+`SOURCE_UNAVAILABLE` (a `503`) from `GET /v1/learning/bookmarks` and no list, rather than the list at the standing it could be given. The adapter holds no page size of its own:
+a number written there would be a second statement of content's bound, free to drift from it. Nobody is near the bound; a learner bookmarks questions by hand.
 
-**Trigger** The first learner surface that shows escalations (Track H), or any re-score of a concept that has one: give the escalation a resolution (a row beside it, as a revocation sits beside a
-transition) decided by the same fold that made it, and let `due` and `weakest` read only the unresolved.
-**Cited** `apps/api/src/contexts/learning/infrastructure/review.repository.ts`
+**Trigger** Content offers its bound through its seam, or a learner holds more bookmarks than it admits: the adapter asks in pages of the size content states, and the list stops depending on a count.
+**Cited** `apps/api/src/platform/composition/learning-standing.ts`
 
 ## Closed
 
@@ -850,3 +841,29 @@ browser outlives it until the next run's sweep.
 
 **Cited** `tools/adversarial/src/chrome.ts`, `tools/adversarial/src/profiles.ts`
 
+### D78 — Practice has no route *(closed at M7-53)*
+
+`CreatePracticeAttempt`, `GrowPracticeAttempt` and `GetPracticeFeedback` were handlers with policies and tests and no HTTP route: a route needs an OpenAPI
+operation, a contract, a controller method and an entry in the key-free `attempt-responses` surface. The contract spec named the unrouted set so that a handler could
+not be left unrouted by accident, and listed these as the learner's, apart from the scheduler's two.
+
+**What closed it (M7-53).** The three have operations in `assessment.yaml` (`POST /v1/assessment/practice-attempts`, `POST …/attempts/{attemptId}/practice-items`,
+`GET …/attempts/{attemptId}/slots/{slotId}/feedback`), controller methods, and their responses in the `attempt-responses` key-free scan. A run is started, answered and
+submitted through the attempt routes that already existed. Assessment's unrouted set is the scheduler's two, `SubmitExpiredAttempts` and `SweepWindows`, which a request
+never makes. Another learner's run answers `404` on the grow and feedback routes, as an absent one does. D79 is not closed by this: a route does not change under whose
+rules feedback is judged.
+
+**Cited** `apps/api/src/contracts/assessment-contract.spec.ts`
+
+### D85 — An escalation is never withdrawn *(closed at M7-54)*
+
+A concept escalated to remediation (M7-48, DEC-M7-25) stayed escalated: nothing marked it resolved, neither the concept recovering nor a re-score correcting the responses
+its lapses were counted from. A learner who had recovered was shown a remediation finding, and one whose lapses were a mis-scored sitting was shown one they did not earn.
+
+**What closed it (M7-54, DEC-M7-27).** The fold that makes an escalation decides when it stands. A concept is escalated while it has lapsed `escalateAtLapses` times and is not
+`strong`; a delivery that touches a concept whose escalation would not be made now resolves it, with the reason (`recovered`, or `lapses_corrected` where the count no longer
+reaches the threshold). The resolution is a row beside the escalation (`learning.review_escalation_resolution`), as a revocation sits beside a transition; the escalation is
+not changed or deleted. `learning.open_review_escalation` is the one definition of "still stands", and what is due, what a targeted run is about and what the learner is
+shown all read it. A concept whose escalation was resolved can be escalated again if it lapses again; it has at most one open at a time.
+
+**Cited** `apps/api/src/contexts/learning/infrastructure/review.repository.ts`

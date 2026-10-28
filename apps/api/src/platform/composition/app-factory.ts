@@ -26,10 +26,11 @@ import { curriculumForAssessment, curriculumForGeneration, register as registerC
 import { assessmentConsumers, assessmentForLearning, assessmentJobs, register as registerAssessment } from '../../contexts/assessment/public/composition.js';
 import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
 import { register as registerScoring, scoringForAssessment, scoringForLearning } from '../../contexts/scoring/public/composition.js';
-import { learningForAssessment, learningForRelay } from '../../contexts/learning/public/composition.js';
+import { learningForAssessment, learningForRelay, register as registerLearning } from '../../contexts/learning/public/composition.js';
 import { OutboxRelay, DEFAULT_RELAY_POLICY, type OutboxConsumer, type RelayPolicy } from '../outbox/relay.js';
 import { LearningAttemptScoredConsumer, LearningDiagnosticReportConsumer } from './learning-consumer.js';
 import { ScoredAttemptEvidenceSource } from './learning-evidence.js';
+import { ContentItemStandings } from './learning-standing.js';
 import { Scheduler } from '../scheduling/scheduler.js';
 import { BACKGROUND, type Background } from './background.js';
 
@@ -197,6 +198,8 @@ export async function createApplication(
     content: contentForLearning(contentDeps),
     assessment: assessmentForLearning({ pool }),
   });
+  // The learner's routes read what the same evidence source reads, for the pace of an attempt, and ask content for the standing of a bookmarked item.
+  const learningModule = registerLearning({ pool, clock, identifiers, principals, paceSlots: learningEvidence, standings: new ContentItemStandings(contentForLearning(contentDeps)) });
   const learningForConsumers = learningForRelay({ pool, clock, identifiers });
   const learningConsumer = new LearningAttemptScoredConsumer({ evidence: learningEvidence, learning: learningForConsumers });
   // the report is made after the evidence is recorded, by the same delivery (M7-42)
@@ -214,7 +217,7 @@ export async function createApplication(
   ]);
   const background: Background = { relay, scheduler };
 
-  const rootImports = [contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, HealthModule.register(pool)];
+  const rootImports = [contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
   // `app.close()` never double-closes a connection the caller still owns

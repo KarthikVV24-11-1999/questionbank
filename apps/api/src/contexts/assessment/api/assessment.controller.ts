@@ -5,7 +5,7 @@ import type { ZodType } from 'zod';
 import type { ApplicationError } from '../application/authorization.js';
 import type { Handler, HandlerRegistry } from '../application/handler-registry.js';
 import type { ApplicationContext } from '../application/ports.js';
-import { assembleDraftFormSchema, attemptIdSchema, createAttemptSchema, formIdSchema, ingestEventsSchema, scheduleFormSchema, slotSolutionSchema, submitAttemptSchema } from './dto/assessment-schemas.js';
+import { assembleDraftFormSchema, attemptIdSchema, createAttemptSchema, createPracticeAttemptSchema, formIdSchema, growPracticeAttemptSchema, practiceFeedbackSchema, ingestEventsSchema, scheduleFormSchema, slotSolutionSchema, submitAttemptSchema } from './dto/assessment-schemas.js';
 import { statusForKind, toProblemDetails, validationProblem } from './problem-details.js';
 
 /** What a package is served as: its own type, so nothing mistakes it for an API response. */
@@ -26,7 +26,7 @@ type ParseOutcome =
  * HTTP for the assessment context: **an operator assembles a draft form, reads it,
  * publishes it and schedules it** (M6-23).
  *
- * Four operator routes, each an operator's act, and two student-facing ones (below). `SweepWindows` is not reachable from here:
+ * Four operator routes, each an operator's act, and two student-facing ones (below); a learner's practice run has three more (M7-53, D78). `SweepWindows` is not reachable from here:
  * applying the clock to stored state is what a scheduler will call, and a command
  * only a scheduler would call has no route (D36, DEC-M4-15's precedent).
  *
@@ -91,6 +91,34 @@ export class AssessmentController {
     await this.run(response, headers, 'CreateAttempt', 201, () => this.parse(createAttemptSchema, { ...this.object(body), idempotencyKey: headers['idempotency-key'] }), undefined, (value) =>
       (value as { replayed: boolean }).replayed ? 200 : 201,
     );
+  }
+
+  /** A practice run (M7-53, D78): the same attempt, in the practice mode. It is started, answered and submitted through the attempt routes below. */
+  @Post('/v1/assessment/practice-attempts')
+  async createPracticeAttempt(@Body() body: unknown, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'CreatePracticeAttempt', 201, () => this.parse(createPracticeAttemptSchema, { ...this.object(body), idempotencyKey: headers['idempotency-key'] }), undefined, (value) =>
+      (value as { replayed: boolean }).replayed ? 200 : 201,
+    );
+  }
+
+  @Post('/v1/assessment/attempts/:attemptId/practice-items')
+  async growPracticeAttempt(
+    @Param('attemptId') attemptId: string,
+    @Body() body: unknown,
+    @Headers() headers: Record<string, string>,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.run(response, headers, 'GrowPracticeAttempt', 200, () => this.parse(growPracticeAttemptSchema, { ...this.object(body), attemptId }));
+  }
+
+  @Get('/v1/assessment/attempts/:attemptId/slots/:slotId/feedback')
+  async getPracticeFeedback(
+    @Param('attemptId') attemptId: string,
+    @Param('slotId') slotId: string,
+    @Headers() headers: Record<string, string>,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.run(response, headers, 'GetPracticeFeedback', 200, () => this.parse(practiceFeedbackSchema, { attemptId, slotId }));
   }
 
   @Get('/v1/assessment/attempts/:attemptId')

@@ -38,7 +38,10 @@ x-assessment-routes:
   - /v1/assessment/forms/{formId}/package
   - /v1/assessment/package-signing-key
   - /v1/assessment/attempts
+  - /v1/assessment/practice-attempts
   - /v1/assessment/attempts/{attemptId}
+  - /v1/assessment/attempts/{attemptId}/practice-items
+  - /v1/assessment/attempts/{attemptId}/slots/{slotId}/feedback
   - /v1/assessment/attempts/{attemptId}/start
   - /v1/assessment/attempts/{attemptId}/result
   - /v1/assessment/attempts/{attemptId}/slots/{slotId}/solution
@@ -276,6 +279,107 @@ paths:
         '409': { $ref: '#/components/responses/Problem' }
         '412': { $ref: '#/components/responses/Problem' }
 
+  /v1/assessment/practice-attempts:
+    post:
+      operationId: createPracticeAttempt
+      x-handler: CreatePracticeAttempt
+      summary: A learner starts a practice run
+      description: |
+        The same attempt, in the practice mode: no form, no window and no deadline. It is started, answered and submitted through the attempt routes.
+        Needs `Idempotency-Key`: the same key again returns the run it already made (`200`). A run starts with the items the policy selects from the
+        published catalogue; the `targeted` strategy asks Learning which concepts. Nothing here names a form, and a body that sends a deadline has it ignored.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePracticeAttemptRequest' }
+      responses:
+        '201':
+          description: The run was created.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedAttempt' }
+        '200':
+          description: This key had already created the run; here it is.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedAttempt' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/attempts/{attemptId}/practice-items:
+    post:
+      operationId: growPracticeAttempt
+      x-handler: GrowPracticeAttempt
+      summary: Add items to a practice run in progress
+      description: Chosen under the policy the run was created under, none repeating one already in it. Another learner's run is not found.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GrowPracticeAttemptRequest' }
+      responses:
+        '200':
+          description: The run, with its new slot count.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attempt' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/attempts/{attemptId}/slots/{slotId}/feedback:
+    get:
+      operationId: getPracticeFeedback
+      x-handler: GetPracticeFeedback
+      summary: What the learner is told of one answer while a practice run is open
+      description: |
+        A verdict on the learner's own recorded answer and nothing else: not the marks, not the rule, not the correct option and not the solution (ADR-0050).
+        A mock gives none (`422 FEEDBACK_NOT_IMMEDIATE`). Another learner's run is not found.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - name: slotId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The verdict.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PracticeFeedback' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
   /v1/assessment/attempts/{attemptId}:
     get:
       operationId: getAttempt
@@ -512,15 +616,15 @@ components:
       required: [attemptId, formId, mode, state, sessionRef, shiftId, slotCount, durationMs, intervalCapMs, windowClosesAt, startedAt, deadline, serverNow, submission]
       properties:
         attemptId: { type: string, format: uuid }
-        formId: { type: string, format: uuid }
-        mode: { type: string, enum: [mock, diagnostic] }
+        formId: { type: [string, 'null'], format: uuid, description: Null for a practice run. }
+        mode: { type: string, enum: [mock, diagnostic, practice] }
         state: { type: string, enum: [created, in_progress, submitted, abandoned] }
-        sessionRef: { type: string }
-        shiftId: { type: string }
+        sessionRef: { type: [string, 'null'] }
+        shiftId: { type: [string, 'null'] }
         slotCount: { type: integer }
-        durationMs: { type: integer }
+        durationMs: { type: [integer, 'null'], description: Null for an untimed attempt. }
         intervalCapMs: { type: integer, minimum: 1, description: The longest one visit-to-leave interval counts towards time on item. Pinned for this attempt; a device projects with this value and chooses none of its own. }
-        windowClosesAt: { type: string, format: date-time }
+        windowClosesAt: { type: [string, 'null'], format: date-time }
         startedAt: { type: [string, 'null'], format: date-time }
         deadline: { type: [string, 'null'], format: date-time, description: The server's, fixed at start. }
         serverNow: { type: string, format: date-time, description: For the device to compute its clock offset once. }
@@ -592,6 +696,36 @@ components:
                 type: object
                 required: [slotId, correctness, marksAwarded, marksAvailable, ruleAppliedId]
                 additionalProperties: true
+
+    CreatePracticeAttemptRequest:
+      type: object
+      required: [examProfileVersionId, selectionStrategy, count]
+      properties:
+        examProfileVersionId: { type: string, format: uuid }
+        selectionStrategy: { type: string, minLength: 1 }
+        scopeFilter:
+          type: object
+          properties:
+            conceptIdentityIds: { type: array, items: { type: string, format: uuid } }
+            subject: { type: [string, 'null'], minLength: 1 }
+            itemTypes: { type: array, items: { type: string, minLength: 1 } }
+        difficultyBand: { type: [string, 'null'], minLength: 1 }
+        excludeRecentlySeen: { type: boolean }
+        count: { type: integer, minimum: 1, description: How many items to start with; the handler holds the upper bound. }
+
+    GrowPracticeAttemptRequest:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer, minimum: 1 }
+
+    PracticeFeedback:
+      type: object
+      required: [attemptId, slotId, outcome]
+      properties:
+        attemptId: { type: string, format: uuid }
+        slotId: { type: string, format: uuid }
+        outcome: { type: string, enum: [correct, incorrect, unattempted, indeterminate] }
 
     CreatedAttempt:
       type: object

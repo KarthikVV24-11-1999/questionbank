@@ -2,6 +2,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { sourceFilesIn } from '../../testing/context-anatomy.js';
 
 const CONTEXT_DIR = fileURLToPath(new URL('.', import.meta.url));
 
@@ -14,6 +15,10 @@ describe('the learning context anatomy', () => {
       const path = join(CONTEXT_DIR, directory);
       expect(existsSync(path)).toBe(true);
       expect(statSync(path).isDirectory()).toBe(true);
+    });
+
+    it(`has TypeScript source in ${directory}/, not only a placeholder`, () => {
+      expect(sourceFilesIn(join(CONTEXT_DIR, directory)).length).toBeGreaterThan(0);
     });
   }
 

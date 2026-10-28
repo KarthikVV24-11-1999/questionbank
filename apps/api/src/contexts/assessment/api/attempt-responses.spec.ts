@@ -2,8 +2,9 @@ import type { Response } from 'express';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../platform/config/config.js';
 import { KEY_BEARING_FIELDS } from '../../../fitness/content-rules.js';
-import { InMemoryAttempts, InMemoryForms, InMemoryResponses, StubPins, StubScoreRecords } from '../../../testing/assessment-fakes.js';
+import { InMemoryAttempts, InMemoryForms, InMemoryResponses, StubCorpus, StubJudge, StubPins, StubScoreRecords } from '../../../testing/assessment-fakes.js';
 import { SESSION_REF, TAG, anActiveForm, id } from '../../../testing/assessment-fixtures.js';
+import type { AssemblyCandidate } from '../domain/assembly.js';
 import { HandlerRegistry } from '../application/handler-registry.js';
 import {
   CreateAttemptHandler,
@@ -13,6 +14,8 @@ import {
   StartAttemptHandler,
   SubmitAttemptHandler,
 } from '../application/handlers/attempt-handlers.js';
+import { GetPracticeFeedbackHandler } from '../application/handlers/practice-feedback-handler.js';
+import { CreatePracticeAttemptHandler, GrowPracticeAttemptHandler } from '../application/handlers/practice-handlers.js';
 import { AssessmentController, type PrincipalResolver } from './assessment.controller.js';
 
 /**
@@ -25,6 +28,10 @@ import { AssessmentController, type PrincipalResolver } from './assessment.contr
  */
 const STUDENT = id(TAG.student, 1);
 const FORM = anActiveForm();
+const candidate = (n: number): AssemblyCandidate => ({
+  itemId: id(TAG.item, n), itemVersionId: id(TAG.itemVersion, n), itemType: 'SINGLE_CORRECT_MCQ', difficultyBand: 'moderate',
+  conceptIdentityIds: [id(0xc0, n)], stimulusVersionId: null, isPublished: true, isAnchor: false, anchorExposureCap: null,
+});
 const PRINCIPAL = { kind: 'human' as const, id: STUDENT, roleContext: ['learner'] };
 
 /** Every name that is key material somewhere in the system; the scan looks for each as a JSON key. */
@@ -65,6 +72,9 @@ function rig() {
     attempts,
     responses: new InMemoryResponses(attempts),
     pins: new StubPins(),
+    practicePins: new StubPins(),
+    corpus: new StubCorpus({ candidates: [101, 102, 103, 104].map(candidate), exposure: new Map(), nearDuplicates: new Map(), unevaluated: [] }),
+    judge: new StubJudge(),
     intervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
     scoreRecord,
     clock: { now: () => new Date('2026-10-21T09:00:00.000Z') },
@@ -78,14 +88,17 @@ function rig() {
     new IngestResponseEventsHandler(deps),
     new SubmitAttemptHandler(deps),
     new GetAttemptResultHandler(deps),
+    new CreatePracticeAttemptHandler(deps),
+    new GrowPracticeAttemptHandler(deps),
+    new GetPracticeFeedbackHandler(deps),
   ] as never);
   const principals: PrincipalResolver = { resolve: () => PRINCIPAL };
-  return { controller: new AssessmentController(registry, principals), scoreRecord };
+  return { controller: new AssessmentController(registry, principals), scoreRecord, attempts };
 }
 
 describe('what the attempt routes write to a response', () => {
   it('serves no key material on any attempt response', async () => {
-    const { controller, scoreRecord } = rig();
+    const { controller, scoreRecord, attempts } = rig();
     const bodies: Written[] = [];
     const call = async (go: (response: Response) => Promise<void>) => {
       const { response, written } = fakeResponse();
@@ -113,8 +126,21 @@ describe('what the attempt routes write to a response', () => {
     scoreRecord.records.set(attemptId, { scoreRecordId: id(TAG.attempt, 90), totalRaw: '4', itemOutcomes: [{ slotId: id(TAG.slot, 1), correctness: 'correct' }] });
     const result = await call((r) => controller.getAttemptResult(attemptId, {}, r));
 
+    // and a practice run, which is the same attempt and has three routes of its own: created, grown, sat, and told how an answer went
+    const run = await call((r) => controller.createPracticeAttempt({ examProfileVersionId: id(TAG.profile), selectionStrategy: 'filtered', scopeFilter: { subject: 'physics' }, count: 2 }, { 'idempotency-key': 'p' }, r));
+    const runId = (run.body as { attempt: { attemptId: string } }).attempt.attemptId;
+    await call((r) => controller.startAttempt(runId, {}, r));
+    await call((r) => controller.growPracticeAttempt(runId, { count: 1 }, {}, r));
+    const practiceSlot = attempts.stored.get(runId)!.slots[0]!.slotId;
+    const practiceEvents = [
+      { eventId: id(TAG.event, 11), slot: practiceSlot, sequence: 1, kind: 'select', answer: 'right', monotonicMs: 10 },
+    ];
+    await call((r) => controller.ingestEvents(runId, { deviceRef: 'phone', events: practiceEvents }, {}, r));
+    const feedback = await call((r) => controller.getPracticeFeedback(runId, practiceSlot, {}, r));
+    expect((feedback.body as { outcome: string }).outcome).toBe('correct');
+
     // every one answered, and with a body: a scan of nothing proves nothing
-    expect(bodies.map((b) => b.status)).toEqual([201, 200, 200, 200, 200, 200, 200, 200, 200, 200]);
+    expect(bodies.map((b) => b.status)).toEqual([201, 200, 200, 200, 200, 200, 200, 200, 200, 200, 201, 200, 200, 200, 200]);
     expect(bodies.every((b) => typeof b.body === 'object' && b.body !== null)).toBe(true);
     expect((result.body as { status: string }).status).toBe('scored');
     expect(JSON.stringify(bodies).length).toBeGreaterThan(1_000);

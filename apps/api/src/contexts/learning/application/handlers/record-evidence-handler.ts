@@ -62,6 +62,8 @@ export interface RecordedEvidence {
   readonly verified: readonly { readonly transitionId: string; readonly verifiedAt: string }[];
   /** Concepts this delivery escalated to remediation because they lapsed often enough (M7-48): each is named once, in the delivery that escalated it. */
   readonly escalated: readonly { readonly taxonomyVersionId: string; readonly conceptIdentityId: string; readonly lapseCount: number }[];
+  /** Escalations this delivery resolved (D85): the concept recovered, or a correction took the lapses it was escalated for away. The escalation is kept; a resolution sits beside it. */
+  readonly resolved: readonly { readonly taxonomyVersionId: string; readonly conceptIdentityId: string; readonly reason: 'recovered' | 'lapses_corrected' }[];
 }
 
 export interface RecordMasteryEvidenceDependencies {
@@ -122,7 +124,7 @@ export class RecordMasteryEvidenceHandler {
       }
       await tx.correctEvidence(corrections, now);
 
-      if (stored.length === 0 && corrections.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), corrected: 0, revoked: Object.freeze([]), verified: Object.freeze([]), escalated: Object.freeze([]) });
+      if (stored.length === 0 && corrections.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), corrected: 0, revoked: Object.freeze([]), verified: Object.freeze([]), escalated: Object.freeze([]), resolved: Object.freeze([]) });
 
       const wrong = stored.flatMap((row) => errorEntryFromEvidence(command.learnerRef, this.deps.identifiers.next(), row.evidence) ?? []);
       await tx.insertErrorEntries(wrong satisfies ErrorEntry[], now);
@@ -142,6 +144,7 @@ export class RecordMasteryEvidenceHandler {
       const verified: { transitionId: string; verifiedAt: string }[] = [];
       const revoked: string[] = [];
       const escalated: { taxonomyVersionId: string; conceptIdentityId: string; lapseCount: number }[] = [];
+      const resolved: { taxonomyVersionId: string; conceptIdentityId: string; reason: 'recovered' | 'lapses_corrected' }[] = [];
       const asOf = now.toISOString();
       // only the taxonomy versions this delivery actually changed: one whose responses were all stored already, and none corrected, is left as it is
       for (const taxonomy of new Set([...stored.map((r) => r.evidence.taxonomyVersionId), ...corrected.keys()])) {
@@ -215,15 +218,26 @@ export class RecordMasteryEvidenceHandler {
         if (review !== undefined) {
           const schedules = touched.flatMap((concept) => scheduleOf(concept, evidenceByConcept.get(concept) ?? [], review) ?? []);
           await tx.saveReviewSchedules(taxonomy, schedules, ruleSet.ruleSetId);
-          // a concept that has lapsed often enough is not given a still shorter interval; it is escalated, once (DEC-M7-25)
-          const lapsed = schedules.filter((schedule) => escalationDue(schedule, review));
+          // A concept that has lapsed often enough is not given a still shorter interval; it is escalated (DEC-M7-25). One that has recovered is not escalated, and its
+          // escalation, if it has one, is resolved: the same fold decides both, so an escalation stands exactly while this would make it (D85, DEC-M7-27).
+          const strong = new Set(map.conceptStates.filter((state) => state.state === 'strong').map((state) => state.conceptIdentityId));
+          const lapsed = schedules.filter((schedule) => escalationDue(schedule, review) && !strong.has(schedule.conceptIdentityId));
           const fresh = new Set(await tx.escalate(taxonomy, lapsed.map((s) => ({ conceptIdentityId: s.conceptIdentityId, lapseCount: s.lapseCount })), ruleSet.ruleSetId, now));
           escalated.push(...lapsed.filter((s) => fresh.has(s.conceptIdentityId)).map((s) => ({ taxonomyVersionId: taxonomy, conceptIdentityId: s.conceptIdentityId, lapseCount: s.lapseCount })));
+          const standing = new Set(lapsed.map((s) => s.conceptIdentityId));
+          const lapsedOften = new Set(schedules.filter((schedule) => escalationDue(schedule, review)).map((schedule) => schedule.conceptIdentityId));
+          const settled = await tx.resolveEscalations(
+            taxonomy,
+            touched.filter((concept) => !standing.has(concept)).map((concept) => ({ conceptIdentityId: concept, reason: lapsedOften.has(concept) ? ('recovered' as const) : ('lapses_corrected' as const) })),
+            ruleSet.ruleSetId,
+            now,
+          );
+          resolved.push(...settled.map((r) => ({ taxonomyVersionId: taxonomy, conceptIdentityId: r.conceptIdentityId, reason: r.reason })));
           await tx.dropReviewSchedules(taxonomy, [...changed].filter((concept) => (evidenceByConcept.get(concept) ?? []).length === 0));
         }
         maps.push(map);
       }
-      return Object.freeze({ recorded: stored.length, replayed: rows.length - stored.length, maps: Object.freeze(maps), transitions: Object.freeze(transitions), corrected: corrections.length, revoked: Object.freeze(revoked), verified: Object.freeze(verified), escalated: Object.freeze(escalated) });
+      return Object.freeze({ recorded: stored.length, replayed: rows.length - stored.length, maps: Object.freeze(maps), transitions: Object.freeze(transitions), corrected: corrections.length, revoked: Object.freeze(revoked), verified: Object.freeze(verified), escalated: Object.freeze(escalated), resolved: Object.freeze(resolved) });
     });
   }
 }

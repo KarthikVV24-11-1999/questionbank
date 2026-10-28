@@ -3,9 +3,12 @@
  * the context, so what the root needs to implement Learning's port is offered here: the port and the shapes it speaks in, and
  * the one constructor that makes evidence. Everything the root assembles it assembles from the other contexts' seams.
  *
- * It has no `register` yet: the context has no routes. What the root runs of it is the recorder the relay's consumer calls, and nothing else.
+ * `register` mounts the learner's own routes (M7-52, M7-53) over the handlers `learningForLearner` offers; the recorder the relay's consumer calls is offered beside it.
  */
+import type { DynamicModule } from '@nestjs/common';
 import type { Pool } from 'pg';
+import { LearningModule } from '../api/learning.module.js';
+import type { PrincipalResolver } from '../api/learning.controller.js';
 import { SuggestRemediationConceptsHandler } from '../application/handlers/remediation-handler.js';
 import { RecordMasteryEvidenceHandler } from '../application/handlers/record-evidence-handler.js';
 import type { Clock, IdentifierFactory } from '../application/ports.js';
@@ -83,8 +86,8 @@ export function learningForAssessment(deps: { readonly pool: Pool }): LearningFo
 }
 
 /**
- * What the learner's own notebook and bookmarks are made of (M7-38): the handlers a route will call, over the learner's own rows. Learning has no routes yet, so the
- * root does not mount these; they are offered here so the surface is a reviewed set (`seam-surface.spec.ts`) and not whatever a route reaches for later.
+ * What the learner's own surface is made of (M7-38): the handlers a route calls, over the learner's own rows. They are offered here so the surface is a reviewed set
+ * (`seam-surface.spec.ts`) and not whatever a route reaches for later.
  * Bookmarks are shown at their item's standing, which is content's to say: `standings` is the port the root fills from content's seam.
  */
 export interface LearningForLearner {
@@ -98,6 +101,8 @@ export interface LearningForLearner {
   readonly paceAnalytics: GetPaceAnalyticsHandler;
   /** What the learner has due for review: concepts, never items (M7-47). */
   readonly reviewPlan: GetReviewPlanHandler;
+  /** The concepts the learner would practise next, weakest first (M7-28). */
+  readonly remediationConcepts: SuggestRemediationConceptsHandler;
 }
 
 export function learningForLearner(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly standings: ItemStandingSource; readonly paceSlots: PaceSlotSource }): LearningForLearner {
@@ -116,5 +121,23 @@ export function learningForLearner(deps: { readonly pool: Pool; readonly clock: 
     getReport: new GetDiagnosticReportHandler({ reports: new PostgresDiagnosticReportStore(deps.pool), concepts: new PostgresConceptReader(deps.pool) }),
     paceAnalytics: new GetPaceAnalyticsHandler({ slots: deps.paceSlots, ruleSets: new PostgresMasteryRuleSetRepository(deps.pool) }),
     reviewPlan: new GetReviewPlanHandler({ reviews: new PostgresReviewStore(deps.pool), concepts: new PostgresConceptReader(deps.pool), clock: deps.clock }),
+    remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool) }),
   };
+}
+
+export interface LearningCompositionDeps {
+  readonly pool: Pool;
+  readonly clock: Clock;
+  readonly identifiers: IdentifierFactory;
+  readonly standings: ItemStandingSource;
+  readonly paceSlots: PaceSlotSource;
+  readonly principals: PrincipalResolver;
+}
+
+/** The learner's routes, over the handlers `learningForLearner` offers: the same assembly, so a route reads what the seam offers and nothing more. */
+export function register(deps: LearningCompositionDeps): DynamicModule {
+  if (deps.principals === undefined) {
+    throw new Error('learning composition is missing required dependency: principals');
+  }
+  return LearningModule.register({ handlers: learningForLearner(deps), principals: deps.principals });
 }

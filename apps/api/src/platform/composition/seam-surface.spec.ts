@@ -192,8 +192,8 @@ describe('what scoring offers learning (M7-02)', () => {
 });
 
 describe('learning’s own composition (M7-04, M7-16)', () => {
-  it('offers the one constructor and the vocabulary the root checks against, and the recorder the relay\'s consumer calls, and no route', () => {
-    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForAssessment', 'learningForLearner', 'learningForRelay']);
+  it('offers the one constructor and the vocabulary the root checks against, the recorder the relay\'s consumer calls, and the learner\'s routes', () => {
+    expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForAssessment', 'learningForLearner', 'learningForRelay', 'register']);
   });
 
   it('offers exactly one handler to assessment, a learner\'s own, answering in concept identifiers', () => {
@@ -203,12 +203,13 @@ describe('learning’s own composition (M7-04, M7-16)', () => {
     expect(offered.remediationConcepts.policy.allowedRoles).toEqual(['learner']);
   });
 
-  it('offers exactly seven handlers to the learner, each theirs alone and none a route yet (M7-38, M7-42, M7-46, M7-47)', () => {
+  it('offers exactly eight handlers to the learner, each theirs alone, and the routes are made of nothing else (M7-38, M7-42, M7-46, M7-47, M7-52)', () => {
     const offered = learningComposition.learningForLearner({ pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true, value: [] }) } });
-    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'getReport', 'listBookmarks', 'listErrorEntries', 'paceAnalytics', 'reviewPlan', 'setErrorCause']);
-    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'GetPaceAnalytics', 'GetReviewPlan', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause']);
+    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'getReport', 'listBookmarks', 'listErrorEntries', 'paceAnalytics', 'remediationConcepts', 'reviewPlan', 'setErrorCause']);
+    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'GetPaceAnalytics', 'GetReviewPlan', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause', 'SuggestRemediationConcepts']);
     for (const handler of Object.values(offered)) expect(handler.policy.allowedRoles, handler.name).toEqual(['learner']);
     expect(() => learningComposition.learningForLearner({ pool } as never)).toThrow(/missing required dependency/u);
+    expect(() => learningComposition.register({ pool, clock, identifiers, standings: offered.listBookmarks as never, paceSlots: {} as never } as never)).toThrow(/missing required dependency: principals/u);
   });
 
   it('offers exactly two handlers to the relay, the system\'s alone', () => {

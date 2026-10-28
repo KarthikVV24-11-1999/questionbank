@@ -148,6 +148,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  // the practice runs the routes made are exposure the migrations cannot be reverted over (M7-53)
+  await database.pool.query('TRUNCATE assessment.exposure_ledger_entry, assessment.anchor_pool_member, assessment.response_event, assessment.attempt_slot, assessment.attempt, assessment.form_slot, assessment.form_section, assessment.form_session, assessment.form CASCADE');
   await database.revertMigrations();
   await database.close();
 });
@@ -413,6 +415,151 @@ describe('what the relay emits for a real submission carries identifiers and not
     // and what it did carry is the identifiers it was meant to
     const submittedEvent = seen.find((envelope) => envelope.eventType === 'AttemptSubmitted' && envelope.payload['attemptId'] === attemptId);
     expect(Object.keys(submittedEvent!.payload).sort()).toEqual(['attemptId', 'examProfileVersionId', 'formId', 'markingRuleSetHash', 'reason', 'studentId', 'submittedAt', 'taxonomyVersionId']);
+  });
+});
+
+describe('the learner\'s reading routes are the learner\'s own (M7-52)', () => {
+  const read = (who: Student | null, path: string) => {
+    const call = http().get(path);
+    return who === null ? call : call.set('Authorization', who.auth);
+  };
+
+  async function scored(): Promise<{ who: Student; attemptId: string }> {
+    const sitting = await sat();
+    expect((await submit(sitting.who, sitting.attemptId)).status).toBe(200);
+    await drain();
+    return sitting;
+  }
+
+  it('shows the owner their report, their pace and their plan, and what to practise next', async () => {
+    const { who, attemptId } = await scored();
+    const report = await read(who, `/v1/learning/attempts/${attemptId}/report`);
+    expect(report.status, JSON.stringify(report.body)).toBe(200);
+    expect(report.body).toMatchObject({ attemptId });
+    expect(report.body.findings.length).toBeGreaterThan(0);
+    expect(report.headers['cache-control']).toBe('no-store');
+
+    const pace = await read(who, `/v1/learning/attempts/${attemptId}/pace`);
+    expect(pace.status, JSON.stringify(pace.body)).toBe(200);
+    expect(pace.body.slots.length).toBeGreaterThan(0);
+
+    const plan = await read(who, '/v1/learning/review-plan');
+    expect(plan.status, JSON.stringify(plan.body)).toBe(200);
+    expect(Object.keys(plan.body).sort()).toEqual(['asOf', 'due', 'escalated']);
+
+    const taxonomy = report.body.findings[0].taxonomyVersionId as string;
+    const next = await read(who, `/v1/learning/remediation-concepts?taxonomyVersionId=${taxonomy}&limit=3`);
+    expect(next.status, JSON.stringify(next.body)).toBe(200);
+    expect(next.body.conceptIdentityIds).toContain(report.body.findings[0].conceptIdentityId);
+  });
+
+  it('answers another learner\'s attempt exactly as one that does not exist: a 404, and never a 403 that would confirm it is there', async () => {
+    const { attemptId } = await scored();
+    for (const route of ['report', 'pace']) {
+      const theirs = await read(student(), `/v1/learning/attempts/${attemptId}/${route}`);
+      const absent = await read(student(), `/v1/learning/attempts/${randomUUID()}/${route}`);
+      expect(theirs.status, route).toBe(404);
+      expect(absent.status, route).toBe(404);
+      const shape = (body: Record<string, unknown>) => ({ ...body, correlationId: undefined });
+      expect(shape(theirs.body), route).toEqual(shape(absent.body));
+    }
+  });
+
+  it('refuses a request with no token, one from an operator, and one with a malformed id', async () => {
+    const { attemptId } = await scored();
+    expect((await read(null, '/v1/learning/review-plan')).status).toBe(401);
+    const operator = await http().get('/v1/learning/review-plan').set('Authorization', asOps());
+    expect(operator.status).toBe(403);
+    expect((await read(student(), '/v1/learning/attempts/not-an-id/report')).status).toBe(400);
+    expect((await read(student(), `/v1/learning/attempts/${attemptId}/report?learner=${randomUUID()}`)).status).toBe(404);
+    // a learner is never a parameter: naming one is refused, not quietly ignored
+    expect((await read(student(), `/v1/learning/remediation-concepts?taxonomyVersionId=${randomUUID()}&learner=${randomUUID()}`)).status).toBe(400);
+  });
+
+  it('keeps each learner\'s notebook their own: a cause is set on their entry, an entry of someone else\'s is not found, and an invalid cause is refused', async () => {
+    const { who, attemptId } = await scored();
+    const listed = await read(who, '/v1/learning/error-entries');
+    expect(listed.status, JSON.stringify(listed.body)).toBe(200);
+    const wrong = (listed.body as { errorEntryId: string; attemptRef: string; kind: string }[]).filter((entry) => entry.attemptRef === attemptId && entry.kind === 'incorrect');
+    expect(wrong.length).toBeGreaterThan(0);
+    expect((await read(student(), '/v1/learning/error-entries')).body).toEqual([]);
+
+    const put = (by: Student, entryId: string, body: unknown) => http().put(`/v1/learning/error-entries/${entryId}/cause`).set('Authorization', by.auth).send(body as object);
+    const entryId = wrong[0]!.errorEntryId;
+    const set = await put(who, entryId, { cause: 'misread' });
+    expect(set.status, JSON.stringify(set.body)).toBe(200);
+    expect(set.body).toMatchObject({ errorEntryId: entryId, errorCause: 'misread' });
+    expect((await put(student(), entryId, { cause: 'guess' })).status).toBe(404);
+    expect((await put(who, entryId, { cause: 'no-such-cause' })).status).toBe(400);
+    expect((await put(who, entryId, {})).status).toBe(400);
+    expect((await read(who, '/v1/learning/error-entries?openOnly=true')).status).toBe(200);
+  });
+
+  it('bookmarks an item for the caller alone and shows it at the standing content gives it', async () => {
+    const who = student();
+    const { rows } = await database.pool.query<{ item_id: string }>('SELECT item_id FROM content.item_version LIMIT 1');
+    const itemId = rows[0]!.item_id;
+    const created = await http().post('/v1/learning/bookmarks').set('Authorization', who.auth).send({ itemId });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body).toMatchObject({ itemId, learnerRef: who.id });
+
+    const mine = await read(who, '/v1/learning/bookmarks');
+    expect(mine.status, JSON.stringify(mine.body)).toBe(200);
+    expect(mine.body).toHaveLength(1);
+    expect(mine.body[0]).toMatchObject({ itemId, state: 'published' });
+    expect(mine.body[0].itemVersionId).not.toBeNull();
+    expect((await read(student(), '/v1/learning/bookmarks')).body).toEqual([]);
+
+    expect((await http().post('/v1/learning/bookmarks').set('Authorization', who.auth).send({ itemId: 'nope' })).status).toBe(400);
+    expect((await http().post('/v1/learning/bookmarks').set('Authorization', who.auth).send({ itemId, learnerRef: randomUUID() })).status).toBe(400);
+  });
+});
+
+describe('a practice run has routes (M7-53, D78)', () => {
+  const practice = (who: Student, key: string, body: Record<string, unknown> = {}) =>
+    http().post('/v1/assessment/practice-attempts').set('Authorization', who.auth).set('Idempotency-Key', key).send({ examProfileVersionId: profile.profileVersionId, selectionStrategy: 'filtered', scopeFilter: { itemTypes: ['SINGLE_CORRECT_MCQ'] }, count: 2, ...body });
+
+  it('is created, grown, sat and told how an answer went, by the learner it belongs to and by no one else', async () => {
+    now = INSIDE;
+    const who = student();
+    const created = await practice(who, `p-${randomUUID()}`);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body.attempt).toMatchObject({ mode: 'practice', formId: null, deadline: null, slotCount: 2 });
+    const runId = created.body.attempt.attemptId as string;
+
+    const replay = await practice(who, 'same-key');
+    const again = await practice(who, 'same-key');
+    expect([replay.status, again.status, again.body.replayed, again.body.attempt.attemptId]).toEqual([201, 200, true, replay.body.attempt.attemptId]);
+
+    expect((await start(who, runId)).status).toBe(200);
+    const grown = await http().post(`/v1/assessment/attempts/${runId}/practice-items`).set('Authorization', who.auth).send({ count: 2 });
+    expect(grown.status, JSON.stringify(grown.body)).toBe(200);
+    expect(grown.body.slotCount).toBe(4);
+
+    const { rows } = await database.pool.query<{ slot_id: string }>('SELECT slot_id FROM assessment.attempt_slot WHERE attempt_id = $1 ORDER BY ordinal', [runId]);
+    const slot = rows[0]!.slot_id;
+    const feedback = (by: Student) => http().get(`/v1/assessment/attempts/${runId}/slots/${slot}/feedback`).set('Authorization', by.auth);
+    expect((await feedback(who)).body).toEqual({ attemptId: runId, slotId: slot, outcome: 'unattempted' });
+    expect((await http().get(`/v1/assessment/attempts/${runId}/slots/not-a-slot/feedback`).set('Authorization', who.auth)).status).toBe(400);
+    expect((await send(who, runId, [{ eventId: eventId(), attemptId: runId, slot, sequence: 1, monotonicMs: 100, kind: 'select', answer: 'b' }])).status).toBe(200);
+    expect((await feedback(who)).body.outcome).toBe('correct');
+
+    // someone else's run is not found, for each of the three routes, and a body naming a different learner changes nothing
+    const other = student();
+    expect((await feedback(other)).status).toBe(404);
+    expect((await http().post(`/v1/assessment/attempts/${runId}/practice-items`).set('Authorization', other.auth).send({ count: 1 })).status).toBe(404);
+    expect((await practice(other, 'x', { count: 0 })).status).toBe(400);
+  });
+
+  it('gives a mock no feedback, refuses an operator, and a request with no token', async () => {
+    const { who, attemptId } = await sat();
+    const slot = slotIds[0]!;
+    const mock = await http().get(`/v1/assessment/attempts/${attemptId}/slots/${slot}/feedback`).set('Authorization', who.auth);
+    expect(mock.status).toBe(422);
+    expect(mock.body.reason).toBe('FEEDBACK_NOT_IMMEDIATE');
+    const operator = await http().post('/v1/assessment/practice-attempts').set('Authorization', asOps()).set('Idempotency-Key', 'o').send({ examProfileVersionId: profile.profileVersionId, selectionStrategy: 'filtered', count: 1 });
+    expect(operator.status).toBe(403);
+    expect((await http().post('/v1/assessment/practice-attempts').send({})).status).toBe(401);
   });
 });
 

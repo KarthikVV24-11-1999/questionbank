@@ -23,8 +23,8 @@ export class PostgresConceptReader implements ConceptReader {
         `SELECT concept_identity_id
            FROM learning.concept_state
           WHERE learner_ref = $1 AND taxonomy_version_id = $2
-            AND (state IN ('weak', 'developing') OR EXISTS (SELECT 1 FROM learning.review_escalation e WHERE e.learner_ref = concept_state.learner_ref AND e.taxonomy_version_id = concept_state.taxonomy_version_id AND e.concept_identity_id = concept_state.concept_identity_id))
-          ORDER BY EXISTS (SELECT 1 FROM learning.review_escalation e WHERE e.learner_ref = concept_state.learner_ref AND e.taxonomy_version_id = concept_state.taxonomy_version_id AND e.concept_identity_id = concept_state.concept_identity_id) DESC,
+            AND (state IN ('weak', 'developing') OR EXISTS (SELECT 1 FROM learning.open_review_escalation e WHERE e.learner_ref = concept_state.learner_ref AND e.taxonomy_version_id = concept_state.taxonomy_version_id AND e.concept_identity_id = concept_state.concept_identity_id))
+          ORDER BY EXISTS (SELECT 1 FROM learning.open_review_escalation e WHERE e.learner_ref = concept_state.learner_ref AND e.taxonomy_version_id = concept_state.taxonomy_version_id AND e.concept_identity_id = concept_state.concept_identity_id) DESC,
                    (state = 'weak') DESC, confidence ASC, concept_identity_id
           LIMIT $3`,
         [learnerRef, taxonomyVersionId, limit],

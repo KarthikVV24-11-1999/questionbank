@@ -1,0 +1,447 @@
+openapi: 3.1.0
+info:
+  title: Question Bank — Learning API
+  version: 1.0.0
+  description: |
+    The learner's own Learning surface (M7-52). Every operation names its handler in `x-handler`, which `learning-contract.spec.ts`
+    reconciles against the policies the handlers declare.
+
+    **Every route is the caller's own.** The learner is the authenticated principal and appears in no path, query or body, so no route can
+    name another learner. An attempt that is not the caller's answers `404`, exactly as one that does not exist: a `403` would confirm it is there.
+
+    **Three handlers have no route**, and the contract spec names each with its reason: the report and the evidence are made by the relay when
+    a score lands, and the rule set is published by operations under step-up. Nothing here carries an answer key; the key-free scan of this
+    directory covers this document too.
+servers:
+  - url: https://api.questionbank.example
+    description: Production
+
+x-learning-routes:
+  - /v1/learning/attempts/{attemptId}/report
+  - /v1/learning/attempts/{attemptId}/pace
+  - /v1/learning/review-plan
+  - /v1/learning/remediation-concepts
+  - /v1/learning/error-entries
+  - /v1/learning/error-entries/{errorEntryId}/cause
+  - /v1/learning/bookmarks
+
+tags:
+  - name: learner
+
+paths:
+  /v1/learning/attempts/{attemptId}/report:
+    get:
+      operationId: getDiagnosticReport
+      x-handler: GetDiagnosticReport
+      summary: The learner's diagnostic report for a scored attempt, findings ranked by marks lost
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The learner's diagnostic report for a scored attempt, findings ranked by marks lost.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiagnosticReport' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/attempts/{attemptId}/pace:
+    get:
+      operationId: getPaceAnalytics
+      x-handler: GetPaceAnalytics
+      summary: The learner's time against outcome for a scored attempt, with what the interval cap discarded reported as not known
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The learner's time against outcome for a scored attempt, with what the interval cap discarded reported as not known.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaceAnalytics' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/review-plan:
+    get:
+      operationId: getReviewPlan
+      x-handler: GetReviewPlan
+      summary: What the learner has due for review, and the concepts escalated to remediation
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: What the learner has due for review, and the concepts escalated to remediation.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewPlan' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/remediation-concepts:
+    get:
+      operationId: suggestRemediationConcepts
+      x-handler: SuggestRemediationConcepts
+      summary: The concepts the learner would practise next, weakest first
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: taxonomyVersionId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: The concepts the learner would practise next, weakest first.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RemediationConcepts' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/learning/error-entries:
+    get:
+      operationId: listErrorEntries
+      x-handler: ListErrorEntries
+      summary: The learner's error notebook
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: openOnly
+          in: query
+          required: false
+          schema: { type: string, enum: ['true', 'false'] }
+      responses:
+        '200':
+          description: The learner's entries, one for each response that cost marks or was given up on.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ErrorEntry' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/learning/error-entries/{errorEntryId}/cause:
+    put:
+      operationId: setErrorCause
+      x-handler: SetErrorCause
+      summary: Give a wrong response its cause
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: errorEntryId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetErrorCauseRequest' }
+      responses:
+        '200':
+          description: The entry with its cause. An entry that is not the caller's is not found.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEntry' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/learning/bookmarks:
+    get:
+      operationId: listBookmarks
+      x-handler: ListBookmarks
+      summary: The learner's bookmarks, each at its item's standing now
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Every bookmark; none is dropped for what happened to its item.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ResolvedBookmark' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+    post:
+      operationId: createBookmark
+      x-handler: CreateBookmark
+      summary: Bookmark an item
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBookmarkRequest' }
+      responses:
+        '201':
+          description: The bookmark.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bookmark' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+components:
+  parameters:
+    AttemptId:
+      name: attemptId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string }
+
+  headers:
+    CorrelationId:
+      description: Echoed on every response, error or not (§8).
+      schema: { type: string }
+
+  responses:
+    Problem:
+      description: RFC 9457 Problem Details.
+      headers:
+        X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  schemas:
+    Remediation:
+      type: object
+      required: [strategy, taxonomyVersionId, conceptIdentityId, selected]
+      properties:
+        strategy: { type: string, enum: [targeted] }
+        taxonomyVersionId: { type: string, format: uuid }
+        conceptIdentityId: { type: string, format: uuid }
+        selected: { type: boolean }
+
+    ReportedFinding:
+      type: object
+      required: [rank, conceptIdentityId, taxonomyVersionId, marksLost, marksAvailable, slots, skipped, remediation]
+      properties:
+        rank: { type: integer, minimum: 1, description: 1 is the concept that cost the most. }
+        conceptIdentityId: { type: string, format: uuid }
+        taxonomyVersionId: { type: string, format: uuid }
+        marksLost: { type: string, description: Decimal text. }
+        marksAvailable: { type: string, description: Decimal text. }
+        slots: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+        remediation: { $ref: '#/components/schemas/Remediation' }
+
+    DiagnosticReport:
+      type: object
+      required: [reportId, attemptId, generatedAt, findings]
+      properties:
+        reportId: { type: string, format: uuid }
+        attemptId: { type: string, format: uuid }
+        generatedAt: { type: string, format: date-time }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/ReportedFinding' }
+
+    SlotPace:
+      type: object
+      required: [slotRef, conceptIdentityId, outcome, pace, atLeastMs, atMostMs]
+      properties:
+        slotRef: { type: string }
+        conceptIdentityId: { type: string, format: uuid }
+        outcome: { type: string, enum: [correct, incorrect] }
+        pace: { type: string, enum: [slow, fast, unknown] }
+        atLeastMs: { type: integer, minimum: 0 }
+        atMostMs: { type: [integer, 'null'], description: Null where a visit never closed and there is no bound. }
+
+    ConceptPace:
+      type: object
+      required: [conceptIdentityId, taxonomyVersionId, slowCorrect, slowWrong, fastCorrect, fastWrong, unknownCorrect, unknownWrong]
+      properties:
+        conceptIdentityId: { type: string, format: uuid }
+        taxonomyVersionId: { type: string, format: uuid }
+        slowCorrect: { type: integer, minimum: 0 }
+        slowWrong: { type: integer, minimum: 0 }
+        fastCorrect: { type: integer, minimum: 0 }
+        fastWrong: { type: integer, minimum: 0 }
+        unknownCorrect: { type: integer, minimum: 0 }
+        unknownWrong: { type: integer, minimum: 0 }
+
+    PaceAnalytics:
+      type: object
+      required: [attemptId, slots, concepts, ruleSets]
+      properties:
+        attemptId: { type: string, format: uuid }
+        slots:
+          type: array
+          items: { $ref: '#/components/schemas/SlotPace' }
+        concepts:
+          type: array
+          items: { $ref: '#/components/schemas/ConceptPace' }
+        ruleSets:
+          type: array
+          items:
+            type: object
+            required: [taxonomyVersionId, ruleSetId, thresholdsHash]
+            properties:
+              taxonomyVersionId: { type: string, format: uuid }
+              ruleSetId: { type: string }
+              thresholdsHash: { type: string }
+
+    ScheduledConcept:
+      type: object
+      required: [taxonomyVersionId, conceptIdentityId, dueAt, intervalDays, consecutiveSuccesses, lapseCount, lastObservedAt]
+      properties:
+        taxonomyVersionId: { type: string, format: uuid }
+        conceptIdentityId: { type: string, format: uuid }
+        dueAt: { type: string, format: date-time }
+        intervalDays: { type: number }
+        consecutiveSuccesses: { type: integer, minimum: 0 }
+        lapseCount: { type: integer, minimum: 0 }
+        lastObservedAt: { type: string, format: date-time }
+
+    EscalationFinding:
+      type: object
+      required: [taxonomyVersionId, conceptIdentityId, lapseCount, escalatedAt, remediation]
+      properties:
+        taxonomyVersionId: { type: string, format: uuid }
+        conceptIdentityId: { type: string, format: uuid }
+        lapseCount: { type: integer, minimum: 0 }
+        escalatedAt: { type: string, format: date-time }
+        remediation: { $ref: '#/components/schemas/Remediation' }
+
+    ReviewPlan:
+      type: object
+      required: [asOf, due, escalated]
+      properties:
+        asOf: { type: string, format: date-time }
+        due:
+          type: array
+          description: Most overdue first.
+          items: { $ref: '#/components/schemas/ScheduledConcept' }
+        escalated:
+          type: array
+          items: { $ref: '#/components/schemas/EscalationFinding' }
+
+    RemediationConcepts:
+      type: object
+      required: [conceptIdentityIds]
+      properties:
+        conceptIdentityIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    ErrorEntry:
+      type: object
+      required: [errorEntryId, learnerRef, attemptRef, slotRef, itemVersionRef, conceptIdentityId, taxonomyVersionId, kind, errorCause, occurredAt, resolvedByTransitionId]
+      properties:
+        errorEntryId: { type: string, format: uuid }
+        learnerRef: { type: string }
+        attemptRef: { type: string, format: uuid }
+        slotRef: { type: string }
+        itemVersionRef: { type: string, format: uuid }
+        conceptIdentityId: { type: string, format: uuid }
+        taxonomyVersionId: { type: string, format: uuid }
+        kind: { type: string, enum: [incorrect, gave_up] }
+        errorCause: { type: [string, 'null'], enum: [conceptual, calculation, misread, time, guess, gave_up, null] }
+        occurredAt: { type: string, format: date-time }
+        resolvedByTransitionId: { type: [string, 'null'] }
+
+    SetErrorCauseRequest:
+      type: object
+      required: [cause]
+      properties:
+        cause: { type: string, enum: [conceptual, calculation, misread, time, guess] }
+
+    Bookmark:
+      type: object
+      required: [bookmarkId, learnerRef, itemId, createdAt]
+      properties:
+        bookmarkId: { type: string, format: uuid }
+        learnerRef: { type: string }
+        itemId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+
+    ResolvedBookmark:
+      type: object
+      required: [bookmarkId, learnerRef, itemId, createdAt, state, itemVersionId]
+      properties:
+        bookmarkId: { type: string, format: uuid }
+        learnerRef: { type: string }
+        itemId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        state: { type: string, enum: [published, suspended, retired, unknown] }
+        itemVersionId: { type: [string, 'null'], format: uuid }
+
+    CreateBookmarkRequest:
+      type: object
+      required: [itemId]
+      properties:
+        itemId: { type: string, format: uuid }
+
+    ProblemDetails:
+      type: object
+      required: [type, title, status, detail, code, retryable, correlationId, reason]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string }
+        retryable: { type: boolean }
+        correlationId: { type: string }
+        reason: { type: string }

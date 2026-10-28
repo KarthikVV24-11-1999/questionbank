@@ -184,10 +184,15 @@ export interface LedgerTransaction {
   /** Stores the schedules of concepts a delivery touched, replacing each one's previous (M7-47): a schedule is derived, and is the same row recomputed. */
   saveReviewSchedules(taxonomyVersionId: string, schedules: readonly import('../domain/review-schedule.js').ReviewSchedule[], ruleSetId: string): Promise<void>;
   /**
-   * Records that concepts have lapsed often enough to be escalated (M7-48), and returns the ones that were **not already** escalated: a concept escalates once, and a
-   * delivery that finds it escalated writes nothing and reports nothing.
+   * Records that concepts have lapsed often enough to be escalated (M7-48), and returns the ones that were **not already** escalated: a concept has one open escalation
+   * at a time, and a delivery that finds it escalated writes nothing and reports nothing. A concept whose earlier escalation was resolved can be escalated again (D85).
    */
   escalate(taxonomyVersionId: string, escalations: readonly { readonly conceptIdentityId: string; readonly lapseCount: number }[], ruleSetId: string, escalatedAt: Date): Promise<readonly string[]>;
+  /**
+   * Resolves the open escalations of these concepts (D85), each with why, and returns the ones that had one. The escalation is not changed: the resolution is a row
+   * beside it, and a concept with none open is passed over.
+   */
+  resolveEscalations(taxonomyVersionId: string, resolutions: readonly { readonly conceptIdentityId: string; readonly reason: 'recovered' | 'lapses_corrected' }[], ruleSetId: string, resolvedAt: Date): Promise<readonly { readonly conceptIdentityId: string; readonly reason: 'recovered' | 'lapses_corrected' }[]>;
   /** Removes the schedules of concepts a correction left with no evidence at all. */
   dropReviewSchedules(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<void>;
 }

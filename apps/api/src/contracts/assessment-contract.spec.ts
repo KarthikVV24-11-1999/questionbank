@@ -17,6 +17,9 @@ import {
   START_ATTEMPT_POLICY,
   GET_ATTEMPT_POLICY,
   GET_SLOT_SOLUTION_POLICY,
+  CREATE_PRACTICE_ATTEMPT_POLICY,
+  GROW_PRACTICE_ATTEMPT_POLICY,
+  GET_PRACTICE_FEEDBACK_POLICY,
   INGEST_RESPONSE_EVENTS_POLICY,
   SUBMIT_ATTEMPT_POLICY,
   GET_FORM_POLICY,
@@ -48,8 +51,8 @@ const document = (name: string): OpenApi => parse(read(`../../../../packages/con
 
 const declaredHandlers = Object.values(SPEC.paths).flatMap((item) => Object.values(item).map((operation) => operation['x-handler'] as string));
 const OPERATOR_HANDLERS = ['AssembleDraftForm', 'GetForm', 'PublishForm', 'ScheduleForm'];
-const STUDENT_HANDLERS = ['GetFormPackage', 'GetPackageSigningKey', 'CreateAttempt', 'StartAttempt', 'GetAttempt', 'GetAttemptResult', 'GetSlotSolution', 'IngestResponseEvents', 'SubmitAttempt'];
-const POLICIES = [GET_ATTEMPT_RESULT_POLICY, GET_SLOT_SOLUTION_POLICY, SUBMIT_EXPIRED_ATTEMPTS_POLICY, CREATE_ATTEMPT_POLICY, START_ATTEMPT_POLICY, GET_ATTEMPT_POLICY, INGEST_RESPONSE_EVENTS_POLICY, SUBMIT_ATTEMPT_POLICY, ASSEMBLE_DRAFT_FORM_POLICY, GET_FORM_PACKAGE_POLICY, GET_PACKAGE_SIGNING_KEY_POLICY, GET_FORM_POLICY, PUBLISH_FORM_POLICY, SCHEDULE_FORM_POLICY, SWEEP_WINDOWS_POLICY];
+const STUDENT_HANDLERS = ['GetFormPackage', 'GetPackageSigningKey', 'CreateAttempt', 'StartAttempt', 'GetAttempt', 'GetAttemptResult', 'GetSlotSolution', 'IngestResponseEvents', 'SubmitAttempt', 'CreatePracticeAttempt', 'GrowPracticeAttempt', 'GetPracticeFeedback'];
+const POLICIES = [CREATE_PRACTICE_ATTEMPT_POLICY, GROW_PRACTICE_ATTEMPT_POLICY, GET_PRACTICE_FEEDBACK_POLICY, GET_ATTEMPT_RESULT_POLICY, GET_SLOT_SOLUTION_POLICY, SUBMIT_EXPIRED_ATTEMPTS_POLICY, CREATE_ATTEMPT_POLICY, START_ATTEMPT_POLICY, GET_ATTEMPT_POLICY, INGEST_RESPONSE_EVENTS_POLICY, SUBMIT_ATTEMPT_POLICY, ASSEMBLE_DRAFT_FORM_POLICY, GET_FORM_PACKAGE_POLICY, GET_PACKAGE_SIGNING_KEY_POLICY, GET_FORM_POLICY, PUBLISH_FORM_POLICY, SCHEDULE_FORM_POLICY, SWEEP_WINDOWS_POLICY];
 const POLICY_BY_NAME = Object.fromEntries(POLICIES.map((entry) => [entry.name, entry]));
 
 /** The set difference both ways: what the document lists that it lacks, and what it has that the list lacks. */
@@ -60,8 +63,8 @@ function routeDrift(spec: Pick<OpenApi, 'paths' | 'x-assessment-routes'>): { rea
 }
 
 describe('F15 — every endpoint reconciles with a real handler', () => {
-  it('names a handler on every operation, and exactly these thirteen: four an operator calls, nine a student does', () => {
-    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(13);
+  it('names a handler on every operation, and exactly these sixteen: four an operator calls, twelve a student does', () => {
+    expect(Object.values(SPEC.paths).flatMap((item) => Object.keys(item))).toHaveLength(16);
     expect([...declaredHandlers].sort()).toEqual([...OPERATOR_HANDLERS, ...STUDENT_HANDLERS].sort());
   });
 
@@ -87,7 +90,7 @@ describe('F15 — every endpoint reconciles with a real handler', () => {
 
   it('registers every declared handler without boot failing', () => {
     const handlers = declaredHandlers.map((name) => ({ name, policy: POLICY_BY_NAME[name]!, async handle() { return { ok: true as const, value: undefined }; } }));
-    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(13);
+    expect(HandlerRegistry.of(handlers as unknown as Handler<never, unknown>[]).names).toHaveLength(16);
   });
 });
 
@@ -112,8 +115,8 @@ describe('the scheduler\'s commands have no route (D36)', () => {
     scoreRecord: new StubScoreRecords(),
     });
     const unrouted = registry.names.filter((name) => !declaredHandlers.includes(name));
-    // The practice commands have no route yet (D78): the learner surfaces are Track H's. They are a learner's, not the scheduler's.
-    expect([...unrouted].sort()).toEqual(['CreatePracticeAttempt', 'GetPracticeFeedback', 'GrowPracticeAttempt', 'SubmitExpiredAttempts', 'SweepWindows']);
+    // The practice commands are routed (D78 closed with M7-53): what is left is the scheduler's two, which a request never makes.
+    expect([...unrouted].sort()).toEqual(['SubmitExpiredAttempts', 'SweepWindows']);
     expect([...POLICY_BY_NAME['SubmitExpiredAttempts']!.allowedRoles]).toEqual([ROLES.system]);
     expect(CONTROLLER.replace(/\/\*\*[\s\S]*?\*\//gu, '')).not.toContain('SubmitExpiredAttempts');
     expect([...POLICY_BY_NAME['SweepWindows']!.allowedRoles]).toEqual([ROLES.system]);

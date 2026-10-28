@@ -269,7 +269,7 @@ verification (F41) · authorization negative-path 100%
 > ([ADR-0048](adr/ADR-0048-the-attempt-admits-practice-by-constraint-not-by-exception.md)), a run's slot list grows while its pin only gains rows, targeted selection crosses one seam
 > carrying concepts and never items, filtered selection runs over the published catalogue, immediate feedback serves a verdict and not the key
 > ([ADR-0050](adr/ADR-0050-immediate-feedback-serves-a-verdict-and-not-the-key.md)), a run can be put down and picked up with no deadline, and every practice delivery is in the exposure
-> ledger ([ADR-0049](adr/ADR-0049-a-practice-delivery-is-exposure-under-its-own-key.md)). **Open:** practice has no route (D78), a practice submission is not scored and so does not yet move mastery (D77),
+> ledger ([ADR-0049](adr/ADR-0049-a-practice-delivery-is-exposure-under-its-own-key.md)). **Open:** a practice submission is not scored and so does not yet move mastery (D77),
 > feedback is judged under the first section's rules (D79), and remediation reads stored rather than decayed state (D76). D75 is closed; D80 records the runner-only adversarial seed.
 >
 > **Status, added 2026-10-30 (M7 Track E):** the response log can say a learner gave up on a question (`skip`, [ADR-0051](adr/ADR-0051-the-response-log-can-say-a-learner-gave-up.md)), and a
@@ -282,7 +282,7 @@ verification (F41) · authorization negative-path 100%
 > revokes a promotion granted on an outcome that changed ([ADR-0053](adr/ADR-0053-a-re-score-announces-each-attempt-it-superseded-and-learning-corrects-beside-the-record.md); D72 is closed).
 > Every scored mock gets a diagnostic report whose findings are ranked by the marks each concept cost, skipped questions included (DEC-M7-21), with the practice run that would address each;
 > a re-score gives a new report beside the old. Submission to top finding was measured at about a second through the real relay and scheduler. **Open, and not met:** "mock result to remediation
-> in one tap" is proved at the handler level only, because practice has no route (D78, Track H); the error notebook is not corrected by a re-score (D81); a large re-score queues ahead of
+> in one tap" is proved at the handler level only, because the screens that tap are Track H2; the error notebook is not corrected by a re-score (D81); a large re-score queues ahead of
 > live submissions (D82); and the studio specs' intermittent timeouts are registered with no cause (D83).
 >
 > **Status, added 2026-11-01 (M7 Track G):** the response projection says what the interval cap discarded (DEC-M7-22), so a five-minute think no longer reads as two minutes with nothing to show it, and
@@ -290,10 +290,17 @@ verification (F41) · authorization negative-path 100%
 > ([ADR-0054](adr/ADR-0054-a-metric-that-lost-information-reports-that-it-did-and-does-not-guess.md), DEC-M7-23). "Slow" is a time per authored band in the rule set, published as version 2 of the
 > platform default, as are the review values (DEC-M7-24). A review schedule is kept per concept, never per item, shortens on failure and is derived from evidence, so a re-score corrects it
 > (D81 is restated: the schedule does not inherit it). A concept that lapses `escalateAtLapses` times is escalated to remediation once and not repeated (DEC-M7-25). **Open:** an escalation is
-> never withdrawn (D85); the thresholds are chosen and not measured; none of this has a route until Track H.
+> never withdrawn (D85, closed at M7-54); the thresholds are chosen and not measured; none of this has a route until Track H1.
 >
 > **Track C (what the quarantine cost):** the key-free argument can no longer be satisfied by a skipped test ([ADR-0047](adr/ADR-0047-a-gate-reads-the-structure-of-the-test-it-names.md)), the attempt routes' key-free proof runs again,
 > three coverage thresholds are back at 100, and the intermittent attempts spec is fixed and un-skipped: its 404 was never the application's (D73). Practice sessions are Track D.
+
+>
+> **Status, added 2026-11-02 (M7 Track H1):** Learning has an API layer. Eight routes, each the caller's own — report, pace, review plan, what to practise next, the error notebook with its cause, and bookmarks —
+> and a learner asking for another's attempt gets the `404` an absent one gets. The anatomy gate now asks for source in each of the five directories (it was red on `learning/api/` before the layer existed), every
+> one of the six contexts has one, and `learning-contract.spec.ts` makes an unrouted Learning handler a stated decision (DEC-M7-26). Practice has its three routes and the key-free surface covers them (D78 closed);
+> an escalation is resolved by the fold that made it (D85 closed, DEC-M7-27). **Open:** the screens and "one tap" demonstrated end to end are H2 (D67, D68); a learner with more bookmarks than content answers for in one call
+> gets no list (D86); D79 is untouched — a route does not change whose rules practice feedback is judged under.
 
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation
 

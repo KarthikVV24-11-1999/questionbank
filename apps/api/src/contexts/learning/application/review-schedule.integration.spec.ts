@@ -35,7 +35,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await database.pool.query('TRUNCATE learning.review_escalation, learning.review_schedule, learning.transition_revocation, learning.evidence_correction, learning.error_entry, learning.mastery_transition_evidence, learning.mastery_transition, learning.concept_state, learning.study_session, learning.mastery_evidence');
+  await database.pool.query('TRUNCATE learning.review_escalation_resolution, learning.review_escalation, learning.review_schedule, learning.transition_revocation, learning.evidence_correction, learning.error_entry, learning.mastery_transition_evidence, learning.mastery_transition, learning.concept_state, learning.study_session, learning.mastery_evidence');
 });
 
 const record = (now = at(30)) => new RecordMasteryEvidenceHandler({ ledger: new PostgresLearningLedger(database.pool), ruleSets, clock: { now: () => new Date(now) }, identifiers: { next: () => randomUUID() } });
@@ -243,7 +243,7 @@ describe('escalation to remediation (M7-48)', () => {
     expect(expectValue(await reader.weakest(learner, TAXONOMY, 5))).toEqual([escalated, weaker]);
   });
 
-  it('still offers an escalated concept once it has become strong, since the escalation stands', async () => {
+  it('keeps offering an escalated concept whose state is changed outside a delivery, because only a delivery resolves an escalation', async () => {
     const learner = randomUUID();
     const concept = randomUUID();
     await lapse(learner, concept, LIMIT);
@@ -257,6 +257,92 @@ describe('escalation to remediation (M7-48)', () => {
     const view = expectValue(await plan().handle({}, asLearner(learner)));
     expect(view.escalated).toHaveLength(6);
     expect(view.escalated.filter((f) => f.remediation.selected)).toHaveLength(5);
+  });
+});
+
+describe('an escalation is resolved by the fold that made it (D85)', () => {
+  const LIMIT = PLATFORM_THRESHOLDS_V2.review!.escalateAtLapses;
+  // the day after the last response a spec delivers, so that the state read is the earned one and not one decay has already lowered
+  const NOW = at(48);
+  const plan = () => new GetReviewPlanHandler({ reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(NOW) } });
+  const asLearner = (id: string) => ({ principal: { kind: 'human' as const, id, roleContext: ['learner'] }, correlationId: 'c' });
+  const rows = async (learner: string) =>
+    (await database.pool.query(
+      `SELECT e.concept_identity_id, e.lapse_count, r.reason FROM learning.review_escalation e
+         LEFT JOIN learning.review_escalation_resolution r USING (learner_ref, taxonomy_version_id, concept_identity_id, escalated_at)
+        WHERE e.learner_ref = $1 ORDER BY e.escalated_at`,
+      [learner],
+    )).rows;
+  /** `LIMIT` failing sittings, each its own attempt with an id the caller keeps so one can be delivered again corrected. */
+  const failing = (concept: string, attempts: string[]) => attempts.map((attempt, i) => sitting(attempt, concept, i * 2, 'incorrect'));
+  async function escalated(learner: string, concept: string, attempts: string[]) {
+    for (const evidence of failing(concept, attempts)) expectValue(await record(NOW).handle({ learnerRef: learner, evidence }, system));
+    expect(await rows(learner)).toEqual([{ concept_identity_id: concept, lapse_count: LIMIT, reason: null }]);
+  }
+
+  it('resolves it when the concept recovers: earned and verified strong, the escalation is kept and the concept is no longer shown as escalated', async () => {
+    const learner = randomUUID();
+    const concept = randomUUID();
+    await escalated(learner, concept, Array.from({ length: LIMIT }, () => randomUUID()));
+    let resolved: unknown[] = [];
+    for (const day of [40, 42, 44, 47]) {
+      resolved.push(...expectValue(await record(NOW).handle({ learnerRef: learner, evidence: sitting(randomUUID(), concept, day, 'correct') }, system)).resolved);
+    }
+    const state = (await database.pool.query(`SELECT state FROM learning.concept_state WHERE learner_ref = $1`, [learner])).rows[0];
+    expect(state).toEqual({ state: 'strong' });
+    expect(resolved).toEqual([{ taxonomyVersionId: TAXONOMY, conceptIdentityId: concept, reason: 'recovered' }]);
+    expect(await rows(learner)).toEqual([{ concept_identity_id: concept, lapse_count: LIMIT, reason: 'recovered' }]);
+    expect(expectValue(await plan().handle({}, asLearner(learner))).escalated).toEqual([]);
+    expect(expectValue(await new PostgresConceptReader(database.pool).weakest(learner, TAXONOMY, 5))).toEqual([]);
+  });
+
+  it('resolves it when a re-score takes a lapse away, and the concept goes back to being repeated', async () => {
+    const learner = randomUUID();
+    const concept = randomUUID();
+    const attempts = Array.from({ length: LIMIT }, () => randomUUID());
+    await escalated(learner, concept, attempts);
+    // the last sitting was mis-scored: delivered again, with the same attempt and slots, every response is right
+    const last = sitting(attempts[LIMIT - 1]!, concept, (LIMIT - 1) * 2, 'correct');
+    const done = expectValue(await record(NOW).handle({ learnerRef: learner, attemptRef: attempts[LIMIT - 1]!, evidence: last }, system));
+    expect(done.resolved).toEqual([{ taxonomyVersionId: TAXONOMY, conceptIdentityId: concept, reason: 'lapses_corrected' }]);
+    expect(await rows(learner)).toEqual([{ concept_identity_id: concept, lapse_count: LIMIT, reason: 'lapses_corrected' }]);
+    const view = expectValue(await plan().handle({}, asLearner(learner)));
+    expect(view.escalated).toEqual([]);
+    expect(view.due.map((d) => d.conceptIdentityId)).toEqual([concept]);
+  });
+
+  it('escalates the concept again if it lapses after its escalation was resolved, and not while one stands', async () => {
+    const learner = randomUUID();
+    const concept = randomUUID();
+    const attempts = Array.from({ length: LIMIT }, () => randomUUID());
+    await escalated(learner, concept, attempts);
+    expectValue(await record(NOW).handle({ learnerRef: learner, attemptRef: attempts[LIMIT - 1]!, evidence: sitting(attempts[LIMIT - 1]!, concept, (LIMIT - 1) * 2, 'correct') }, system));
+    const again = expectValue(await record(at(49)).handle({ learnerRef: learner, evidence: sitting(randomUUID(), concept, LIMIT * 2, 'incorrect') }, system));
+    expect(again.escalated.map((e) => e.conceptIdentityId)).toEqual([concept]);
+    expect((await rows(learner)).map((r) => r.reason)).toEqual(['lapses_corrected', null]);
+    const more = expectValue(await record(at(50)).handle({ learnerRef: learner, evidence: sitting(randomUUID(), concept, LIMIT * 2 + 2, 'incorrect') }, system));
+    expect(more.escalated).toEqual([]);
+    expect(await rows(learner)).toHaveLength(2);
+    expect(expectValue(await plan().handle({}, asLearner(learner))).escalated).toHaveLength(1);
+  });
+
+  it('is history too: a resolution cannot be changed or removed', async () => {
+    const learner = randomUUID();
+    const concept = randomUUID();
+    const attempts = Array.from({ length: LIMIT }, () => randomUUID());
+    await escalated(learner, concept, attempts);
+    expectValue(await record(NOW).handle({ learnerRef: learner, attemptRef: attempts[LIMIT - 1]!, evidence: sitting(attempts[LIMIT - 1]!, concept, (LIMIT - 1) * 2, 'correct') }, system));
+    await expect(database.pool.query(`UPDATE learning.review_escalation_resolution SET reason = 'recovered'`)).rejects.toThrow(/learning_escalation_is_history/u);
+    await expect(database.pool.query('DELETE FROM learning.review_escalation_resolution')).rejects.toThrow(/learning_escalation_is_history/u);
+  });
+
+  it('resolves nothing for a concept that was never escalated, and a delivery that changes nothing says so', async () => {
+    const learner = randomUUID();
+    const concept = randomUUID();
+    const first = sitting(randomUUID(), concept, 0, 'correct');
+    expect(expectValue(await record(NOW).handle({ learnerRef: learner, evidence: first }, system)).resolved).toEqual([]);
+    expect(expectValue(await record(NOW).handle({ learnerRef: learner, evidence: first }, system)).resolved).toEqual([]);
+    expect(await rows(learner)).toEqual([]);
   });
 });
 

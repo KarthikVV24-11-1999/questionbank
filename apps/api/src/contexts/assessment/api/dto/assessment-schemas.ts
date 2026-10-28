@@ -71,6 +71,29 @@ export const createAttemptSchema = z.object({
 
 export const attemptIdSchema = z.object({ attemptId: uuid }).strict();
 
+/**
+ * A practice run (M7-53, D78). The strategy and the scope are checked by the domain, which owns the vocabulary and says which part is wrong; the
+ * boundary checks the shape. `count` is checked against the run's bound by the handler. Nothing here can set a form, a window or a deadline: a run has none.
+ */
+export const createPracticeAttemptSchema = z
+  .object({
+    examProfileVersionId: uuid,
+    selectionStrategy: z.string().min(1),
+    scopeFilter: z
+      .object({ conceptIdentityIds: z.array(uuid).optional(), subject: z.string().min(1).nullable().optional(), itemTypes: z.array(z.string().min(1)).optional() })
+      .strict()
+      .optional(),
+    difficultyBand: z.string().min(1).nullable().optional(),
+    excludeRecentlySeen: z.boolean().optional(),
+    count: z.number().int(),
+    idempotencyKey,
+  })
+  .strict();
+
+export const growPracticeAttemptSchema = z.object({ attemptId: uuid, count: z.number().int() }).strict();
+
+export const practiceFeedbackSchema = z.object({ attemptId: uuid, slotId: uuid }).strict();
+
 export const attemptResultSchema = attemptIdSchema;
 
 export const slotSolutionSchema = z
