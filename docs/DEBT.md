@@ -644,6 +644,21 @@ It is registered before it is diagnosed. D73 began as two sightings with no entr
 (D73 was found by observing what answered, not by reading the code), and do not skip or lengthen a timeout before the cause is known.
 **Cited** `apps/studio/src/features/item-editor/ItemEditor.spec.tsx`, `apps/studio/src/features/solution-editor/SolutionEditor.spec.tsx`
 
+### D84 — A report can be labelled with an older score record than the one its findings were built from
+
+A report is labelled with the score record the *message* names (`scoreRecordRef`, from the event payload), and its findings are built from scoring's per-slot outcomes, which
+are read at delivery from the record that stands *then*. The outcomes view carries no record identifier, so nothing in the report path can say which record it read. When a
+message is delivered after a second re-score has replaced the record it names (a delivery that waited in the relay behind a retry, or a first score announced and then superseded
+before Learning heard of it), the report is labelled with the older record and holds the newer one's findings. Because a re-score deliberately writes a new report beside the old one
+so the learner keeps a record of what they were told (D3), such a report corrupts that record silently: it reads as the generation-1 report and says what generation 2 said, and if the
+real generation-1 report has not been made yet, it takes its place in the one-per-score-record constraint. The evidence path is not affected: it reconciles to whatever stands and
+labels nothing.
+
+**Trigger** Any report read in a place a learner or an auditor compares generations, or the next change to scoring's outcomes seam: the view returns the identifier of the record
+it read, the source hands that on, and the report is labelled with it and not with the message's. A delivery whose message names a record that no longer stands then makes the report
+for the one that does.
+**Cited** `apps/api/src/contexts/learning/application/handlers/report-handlers.ts`
+
 ## Closed
 
 ### D73 — The attempts spec failed intermittently *(closed at M7-21)*

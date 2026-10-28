@@ -8,6 +8,9 @@ import { DEFAULT_REMEDIATION_LIMIT } from './remediation-handler.js';
 /**
  * `GenerateDiagnosticReport` — the report for one scored mock (M7-42). The system's alone: the relay's consumer runs it when a score is written, and again when a
  * re-score replaces it, which gives a new report beside the old one and never changes the old one (D3). The same score record twice is one report.
+ *
+ * **The label is the message's, and the findings are the current record's (D84).** The two agree unless a delivery arrives after a second re-score; then the report carries an
+ * older record's label and a newer record's findings.
  */
 export const GENERATE_DIAGNOSTIC_REPORT_POLICY = policy('GenerateDiagnosticReport', [ROLES.system]);
 
