@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectResponses, type ResponseEvent } from '@questionbank/attempt-engine';
-import type { Page } from 'playwright-core';
+import type { BrowserContext, Page } from 'playwright-core';
 import { launchChrome, type RunningChrome } from './chrome.js';
 import { defaultEvidenceDir, recordPage, writeEvidence, type Recorder } from './evidence.js';
 import type { Interruption, Option, Scenario, SlotIndex, Step } from './scenario.js';
@@ -90,6 +90,22 @@ const skewScript = (offsetMs: number) => `(() => {
   };
 })();`;
 
+/**
+ * Clears everything a browser keeps for an origin — `localStorage` and `sessionStorage`, Cache Storage, IndexedDB and service worker registrations — so a
+ * scenario begins as a first visit. A profile is shared by the scenarios that run in one browser, and a browser keys all of that by origin (scheme, host and
+ * port); a server that listens on a port an earlier scenario's server used is, to the browser, the same site, and it would inherit that scenario's device
+ * record and its worker. (That was D80: a record the new server had never issued, answered 404.) The origin is cleared before the scenario's first page.
+ */
+export async function clearCarriedOver(context: BrowserContext, origin: string): Promise<void> {
+  const blank = await context.newPage();
+  try {
+    const session = await context.newCDPSession(blank);
+    await session.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' });
+  } finally {
+    await blank.close({ runBeforeUnload: false }).catch(() => undefined);
+  }
+}
+
 export async function freshChrome(environment: RunEnvironment): Promise<RunningChrome> {
   environment.chrome.current = await launchChrome(environment.chrome.profileDir);
   return environment.chrome.current;
@@ -153,6 +169,8 @@ export interface RunOptions {
   readonly waitMs?: number;
   /** Where a run that times out leaves its console, network log and screenshot (D80). `false`: nowhere, for a run that is meant to fail. */
   readonly evidence?: { readonly dir: string } | false;
+  /** The port the scenario's server listens on, for a test that needs two scenarios to be the same origin to the browser. */
+  readonly port?: number;
 }
 
 /** A condition that never came true: this module's own wait, a step's watchdog, or one of the browser library's. */
@@ -166,6 +184,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     distDir: environment.distDir,
     durationMs: DURATION_MS,
     intervalCapMs: INTERVAL_CAP_MS,
+    ...(options.port === undefined ? {} : { port: options.port }),
     ...(options.sabotage === 'server-drops-events' ? { dropEvents: true } : {}),
     ...(options.sabotage === 'server-restarts-deadline-on-read' ? { restartDeadlineOnRead: true } : {}),
   });
@@ -178,6 +197,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
   let wallSkewMs = 0;
   let deadline0: number | null = null;
   let chrome = environment.chrome.current ?? (await freshChrome(environment));
+  await clearCarriedOver(chrome.context, server.origin);
   let page = null as Page | null;
   // the page most recently opened, with what it logged: the one a timeout is about, whether or not it was ever settled into `page`
   let watched: { readonly page: Page; readonly recorder: Recorder } | null = null;

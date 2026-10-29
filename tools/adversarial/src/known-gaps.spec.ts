@@ -1,21 +1,20 @@
 import { resolve } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, describe, expect, it } from 'vitest';
-import { freshChrome, leveldbHolds, newProfileDir, waitFor, type RunEnvironment } from './browser-run.js';
+import { clearCarriedOver, freshChrome, leveldbHolds, newProfileDir, waitFor, type RunEnvironment } from './browser-run.js';
 import type { RunningChrome } from './chrome.js';
 import { StubServer } from './stub-server.js';
 
 /**
- * Two things the adversarial runs do not and cannot claim, written down as tests that pass while the gap is there and go red the day it
- * closes, so the register entry that names each (D66, D67) cannot go stale unnoticed.
+ * One thing the adversarial runs do not and cannot claim (D66), written down as a test that passes while the gap is there and goes red the day it closes, so
+ * the register entry that names it cannot go stale unnoticed. And, beside it, what a tab reopened during an outage does (D67, closed):
  *
  *   - **D66** — Chrome keeps a page's `localStorage` writes in memory and commits them to disk some seconds later. A browser killed
  *     outright (the way an out-of-memory phone kills one) inside that window loses what the learner did in it, **unless the server
  *     already has it**. A closed tab, a crashed tab and a browser that quits keep everything; the hundred runs show it.
- *   - **D67** — a tab reopened while the backend is down resumes from the device **only if the service worker already holds the package**, which it
- *     does after a visit it controlled (a reload, or a second visit) and does not after a first visit alone: that page was loaded before the worker
- *     controlled anything, so its package request went straight to the network and nothing was kept. The reopen then has no paper to verify, and the
- *     app says the server failed. The first half is a test that passes; the second is the gap, held open.
+ *   - **D67** — a tab reopened while the backend is down resumes from the device, whether the earlier visit was reloaded or not. A reloaded visit is
+ *     controlled by the service worker, which caches the package for it; a first visit alone is not, so the page puts the package in the worker's cache
+ *     itself once it has rendered. Both are plain tests.
  *
  * The control beside the first (a kill once the write is on disk loses nothing) shows the loss is the window and not the kill.
  */
@@ -30,6 +29,7 @@ async function sitting(): Promise<{ server: StubServer; chrome: RunningChrome }>
   const server = new StubServer({ distDir: environment.distDir, durationMs: 3_600_000, intervalCapMs: 120_000 });
   await server.start();
   const chrome = environment.chrome.current ?? (await freshChrome(environment));
+  await clearCarriedOver(chrome.context, server.origin);
   return { server, chrome };
 }
 
@@ -133,17 +133,17 @@ describe('a tab reopened during an outage (D67)', () => {
     }
   });
 
-  it.fails('resumes the attempt after a first visit that was never reloaded (it does not: the package was never cached, so the reopen has no paper to verify)', async () => {
+  it('resumes the attempt after a first visit that was never reloaded: the page put the package in the worker\'s cache itself (DEC-M7-35)', async () => {
     const { server, chrome } = await sitting();
     try {
       const page = await answerOffline(chrome, server, 'b', async (visit) => {
-        // Whatever would put the package in the cache has the time to: this waits for it, and goes on without it after three seconds.
+        // The page puts the package in the cache after it renders: this gives that the time to finish, and goes on without it after three seconds.
         await visit.evaluate(() => navigator.serviceWorker.ready.then(() => undefined)).catch(() => undefined);
         await waitFor('the worker holds the package', () => packageIsCached(visit), 3_000).catch(() => undefined);
         await visit.getByRole('region', { name: 'Question 1' }).waitFor(); // a visit that reloaded itself in the meantime is showing the question again
       });
       await page.close();
-      // D67, the open half. When this goes red, a first visit leaves the package behind.
+      // D67's other half: a first visit alone, no reload. It was held open here until the page began to put the package in the cache itself.
       expect(await reopenDuringOutage(chrome, server)).toEqual({ question: true, optionB: true });
     } finally {
       await server.stop();

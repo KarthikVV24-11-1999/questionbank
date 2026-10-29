@@ -1,6 +1,6 @@
 # ADR-0055 — A reopened app reads the device first, and stands its own clock in for the server's when the server cannot be asked
 
-**Status** Accepted · M7 Track H2, M7-56 · Part-closes D67 (a reopened tab resumes offline once the service worker holds the package; a first visit alone leaves none, and D67 stays open for that) · Refines the resume of [ADR-0039](ADR-0039-the-learner-shell-is-a-view-of-the-engine-and-verifies-what-it-shows.md)
+**Status** Accepted · M7 Track H2, M7-56 · Closes D67, the first part here and the second by DEC-M7-35 (see the correction at the end) · Refines the resume of [ADR-0039](ADR-0039-the-learner-shell-is-a-view-of-the-engine-and-verifies-what-it-shows.md)
 
 ## Context
 
@@ -41,4 +41,4 @@ Neither direction lets a learner gain marks, which is the property the offset ha
 
 The decision stands and the part it assumed was wrong. The unit tests gave `boot` a package during the outage, as the worker is described to do, and the entry was closed on that. In a real Chrome the worker
 caches the package only for a page it controls, and it does not take over the page that installed it, so a first visit that is never reloaded leaves the shell in the cache and no package. The reopen then has no
-paper to verify and, rightly under the rule above, shows nothing. `known-gaps.spec.ts` holds both halves: the resume with the package cached passes, and the first-visit case is held open. D67 stays open for the second.
+paper to verify and, rightly under the rule above, shows nothing. `known-gaps.spec.ts` holds both halves: the resume with the package cached passes, and the first-visit case was held open until the second part closed it. That is closed by DEC-M7-35: the page puts the package in the worker's cache itself on a first visit, and `known-gaps.spec.ts` holds both halves as plain tests.

@@ -158,11 +158,62 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
         const resumed = await boot(params(outage(new FakeApi(signedResponse(), key), Object.assign(new Error('down'), failure)), reopened(first)));
         expect(resumed.kind).toBe('ready');
       }
-      for (const failure of [{ status: 404 }, { problem: { status: 403 } }, {}]) {
+      for (const failure of [{ status: 409 }, { problem: { status: 403 } }, {}]) {
         const first = await earlier();
         const refused = Object.assign(new Error('refused'), failure);
         await expect(boot(params(outage(new FakeApi(signedResponse(), key), refused), reopened(first)))).rejects.toThrow('refused');
       }
+    });
+
+    describe('a server that has never heard of the record\'s attempt (DEC-M7-34)', () => {
+      /** The server answers the first ask about an attempt (the device's record) with `failure`, and every later one as it normally would. */
+      const deniesFirstAsk = (api: FakeApi, failure: object) => {
+        const real = api.getAttempt.bind(api);
+        let asked = 0;
+        api.getAttempt = async (id: string) => {
+          asked += 1;
+          if (asked === 1) {
+            api.calls.push('getAttempt');
+            throw Object.assign(new Error('not found'), failure);
+          }
+          return real(id);
+        };
+        return api;
+      };
+      const denied = (api: FakeApi, failure: object) => {
+        api.attemptFailure = Object.assign(new Error('answered'), failure);
+        return api;
+      };
+
+      it('starts a clean attempt rather than throwing, and says nothing when the record held nothing the server lacked', async () => {
+        const first = await earlier();
+        const record = JSON.parse(first.storage.data.get('qb.attempt.att-1')!);
+        first.storage.data.set('qb.attempt.att-1', JSON.stringify({ ...record, acknowledgedIds: record.events.map((event: { eventId: string }) => event.eventId) }));
+        const api = deniesFirstAsk(new FakeApi(signedResponse(), key), { status: 404 });
+        const result = await boot(params(api, reopened(first)));
+        expect(api.calls).toEqual(['getPackage', 'getSigningKey', 'getAttempt', 'createAttempt', 'startAttempt', 'getAttempt']);
+        expect(result.kind).toBe('ready');
+        expect(result).not.toHaveProperty('discarded');
+      });
+
+      it('reports the events the server never had, in the result', async () => {
+        const first = await earlier();
+        const unsent = (JSON.parse(first.storage.data.get('qb.attempt.att-1')!) as { events: unknown[] }).events.length;
+        expect(unsent).toBeGreaterThan(0);
+        const api = deniesFirstAsk(new FakeApi(signedResponse(), key), { problem: { status: 404 } });
+        const result = await boot(params(api, reopened(first)));
+        expect(result).toMatchObject({ kind: 'ready', discarded: { attemptId: 'att-1', unsentEvents: unsent } });
+        expect(api.calls).toContain('createAttempt');
+      });
+
+      it('does not treat a refusal, a conflict or a failure as a denied record: they still throw, and create nothing', async () => {
+        for (const failure of [{ status: 403 }, { status: 409 }, { problem: { status: 403 } }]) {
+          const first = await earlier();
+          const api = denied(new FakeApi(signedResponse(), key), failure);
+          await expect(boot(params(api, reopened(first)))).rejects.toThrow('answered');
+          expect(api.calls).not.toContain('createAttempt');
+        }
+      });
     });
 
     it('still shows nothing on a paper that does not verify, whatever the device holds and whether or not the server is there', async () => {

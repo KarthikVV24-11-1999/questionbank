@@ -14,8 +14,11 @@ const only = process.env['QB_ADVERSARIAL_SEED'];
 const seeds = only === undefined ? Array.from({ length: RUNS }, (_, index) => FIRST_SEED + index) : [Number(only)];
 
 /**
- * Runs share a few browsers, one scenario at a time in each: a seed is a function of its seed alone, so which browser plays it, and
- * what else is playing beside it, changes nothing about what it does. (A browser killed by one run is replaced before the next.)
+ * Runs share a few browsers, one scenario at a time in each, and a browser's profile outlives the scenario: its `localStorage`, Cache Storage and service
+ * worker registrations are kept per origin, and a scenario whose server listens on a port an earlier one used is the same origin to the browser. Left alone
+ * that made a seed a function of its seed and of what the previous seed in the same browser left behind (D80). So each scenario clears its origin before its
+ * first page (`clearCarriedOver`), and `isolation.spec.ts` holds that to account: which browser plays a seed, and what else is playing beside it, changes
+ * nothing about what it does. (A browser killed by one run is replaced before the next.)
  */
 const WORKERS = Math.max(1, Math.min(Number(process.env['QB_ADVERSARIAL_WORKERS'] ?? 4), Math.floor(availableParallelism() / 2)));
 const distDir = resolve(import.meta.dirname, '../../../apps/learn/dist');

@@ -31,6 +31,24 @@ const hooks = () => {
 };
 
 describe('the root', () => {
+  it('says once, above the paper, that earlier answers could not be found, when boot left a record behind with something in it', async () => {
+    const session = AttemptSession.begin(START, aRig().ports);
+    const host = hooks();
+    render(<Root boot={async () => ({ kind: 'ready', session, form, discarded: { attemptId: 'old', unsentEvents: 2 } })} every={host.every} onOnline={host.onOnline} />);
+    expect(await screen.findByRole('region', { name: 'Question 1' })).toBeInTheDocument();
+    expect(screen.getAllByRole('note')).toHaveLength(1);
+    expect(screen.getByRole('note')).toHaveTextContent(/earlier answers could not be found on the server/u);
+    expect(screen.getByRole('note').textContent).not.toMatch(/404|storage|cache|status/iu);
+  });
+
+  it('says nothing of the kind when nothing was left behind', async () => {
+    const session = AttemptSession.begin(START, aRig().ports);
+    const host = hooks();
+    render(<Root boot={async () => ({ kind: 'ready', session, form })} every={host.every} onOnline={host.onOnline} />);
+    expect(await screen.findByRole('region', { name: 'Question 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
   it('opens the sitting once booted, and drives the engine\'s ticks and the network\'s return from the host', async () => {
     const rig = aRig();
     const session = AttemptSession.begin(START, rig.ports);

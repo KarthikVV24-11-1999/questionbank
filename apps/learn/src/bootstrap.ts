@@ -18,12 +18,21 @@ import type { SessionPorts } from './session/ports.js';
  * With the record and the package in hand the server is asked for the attempt, to take its deadline afresh so a reload never restarts the clock. If it
  * cannot be reached — the network is down, or the server is failing (5xx) — a record that says which form it is of and holds an offset to the server's
  * clock carries on from the device alone, against the deadline it wrote down. A refusal that is not an outage (the server answered and said no) is
- * not an outage and is not carried through.
+ * not an outage and is not carried through — with one exception: a server that answers 404 for the record's attempt has never issued it (a device
+ * carrying a record from another server, or from before a reset), the record cannot be reconciled with anything, and the sitting begins clean as it does for
+ * a record of another form. If the record held events the server never had, the result says so (`discarded`, DEC-M7-34) and the screen tells the learner.
  */
 export type BootResult =
-  | { readonly kind: 'ready'; readonly session: AttemptSession; readonly form: FormPackage }
+  | { readonly kind: 'ready'; readonly session: AttemptSession; readonly form: FormPackage; readonly discarded?: DiscardedRecord }
   | { readonly kind: 'package-refused'; readonly refusal: PackageRefusal }
   | { readonly kind: 'cannot-start'; readonly reason: string };
+
+/** A device record the server denied having an attempt for, and so was left behind (DEC-M7-34): what the learner could have lost by it. */
+export interface DiscardedRecord {
+  readonly attemptId: string;
+  /** Events the device held that the server had neither acknowledged nor rejected. */
+  readonly unsentEvents: number;
+}
 
 export interface BootParams {
   readonly api: AssessmentApi;
@@ -43,6 +52,12 @@ function unreachable(error: unknown): boolean {
   return typeof status === 'number' && status >= 500;
 }
 
+/** Whether the server answered and does not have the attempt: 404 and nothing else, so a refusal (403), a conflict (409) or a failure (500) is still not this. */
+function unknownToServer(error: unknown): boolean {
+  const problem = error as { status?: unknown; problem?: { status?: unknown } };
+  return (problem.status ?? problem.problem?.status) === 404;
+}
+
 export async function boot(params: BootParams): Promise<BootResult> {
   const { api, ports } = params;
   const activeId = activeAttemptId(ports.storage);
@@ -53,15 +68,24 @@ export async function boot(params: BootParams): Promise<BootResult> {
   if (!loaded.ok) return { kind: 'package-refused', refusal: loaded.refusal };
   const formId = loaded.form.form.formId;
 
+  let discarded: DiscardedRecord | undefined;
   if (record !== null) {
     let server: Awaited<ReturnType<AssessmentApi['getAttempt']>> | null = null;
     try {
       server = await api.getAttempt(record.attemptId);
     } catch (error) {
-      if (!unreachable(error) || record.formId !== formId || record.serverOffsetMs === null) throw error;
-      return { kind: 'ready', session: AttemptSession.resume({ record: { ...record, formId, serverOffsetMs: record.serverOffsetMs }, server: null }, ports), form: loaded.form };
+      // The server answered and has never heard of the attempt this device wrote down: the record cannot be reconciled with anything, so it is left behind
+      // and a clean attempt begins below, as for a record of another form. What it held that the server never had is reported, not dropped silently.
+      if (unknownToServer(error)) {
+        const unsent = record.events.filter((event) => !record.acknowledgedIds.includes(event.eventId) && !record.rejectedIds.includes(event.eventId)).length;
+        if (unsent > 0) discarded = { attemptId: record.attemptId, unsentEvents: unsent };
+      } else if (unreachable(error) && record.formId === formId && record.serverOffsetMs !== null) {
+        return { kind: 'ready', session: AttemptSession.resume({ record: { ...record, formId, serverOffsetMs: record.serverOffsetMs }, server: null }, ports), form: loaded.form };
+      } else {
+        throw error;
+      }
     }
-    if (server.formId === formId && (server.state === 'in_progress' || server.state === 'submitted')) {
+    if (server !== null && server.formId === formId && (server.state === 'in_progress' || server.state === 'submitted')) {
       return { kind: 'ready', session: AttemptSession.resume({ record, server }, ports), form: loaded.form };
     }
   }
@@ -72,7 +96,7 @@ export async function boot(params: BootParams): Promise<BootResult> {
   // An attempt that already has a log — this is a second device, or this one after its storage was cleared — carries on from it and its numbering (D68).
   const held = await api.getAttempt(started.attemptId);
   if (held.events.length > 0) {
-    return { kind: 'ready', session: AttemptSession.resume({ record: null, server: held, deviceRef: params.deviceRef }, ports), form: loaded.form };
+    return { kind: 'ready', session: AttemptSession.resume({ record: null, server: held, deviceRef: params.deviceRef }, ports), form: loaded.form, ...(discarded === undefined ? {} : { discarded }) };
   }
   return {
     kind: 'ready',
@@ -81,5 +105,6 @@ export async function boot(params: BootParams): Promise<BootResult> {
       ports,
     ),
     form: loaded.form,
+    ...(discarded === undefined ? {} : { discarded }),
   };
 }

@@ -7,6 +7,7 @@ import { createLearningApi } from './api/learning-api.js';
 import { boot } from './bootstrap.js';
 import { activeAttemptId } from './session/persistence.js';
 import { registerServiceWorker } from './sw/register.js';
+import { warmPackageCache } from './sw/warm-package.js';
 import { HomeScreen } from './ui/HomeScreen.js';
 import { PracticeScreen } from './ui/PracticeScreen.js';
 import { ReportScreen } from './ui/ReportScreen.js';
@@ -46,7 +47,14 @@ const ports: SessionPorts = {
 };
 
 let registration: { update(): Promise<unknown> } | null = null;
-void registerServiceWorker(navigator.serviceWorker, '/sw.js').then((r) => (registration = r));
+// Whether a worker already controlled this page: if not, this is a first visit, and the package is put in the worker's cache by the page (DEC-M7-35).
+const controlledAtLoad = navigator.serviceWorker?.controller != null;
+void registerServiceWorker(navigator.serviceWorker, '/sw.js').then((r) => {
+  registration = r;
+  if (r !== null && formId !== null) {
+    void warmPackageCache({ controlledAtLoad, origin: window.location.origin, cacheStorage: window.caches, request: (path) => client.requestBytes({ path }) }, formId);
+  }
+});
 
 function App(): JSX.Element {
   const reportOf = params.get('report');

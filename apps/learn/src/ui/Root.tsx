@@ -65,5 +65,12 @@ export function Root({ boot, every, onOnline, onUpdateWanted }: RootProps): JSX.
   if (booted === null) return <p role="status">Opening your paper…</p>;
   if (booted.kind === 'package-refused') return <p role="alert">{REFUSALS[booted.refusal]}</p>;
   if (booted.kind === 'cannot-start') return <p role="alert">The attempt could not be started: {booted.reason}.</p>;
-  return <LearnApp session={booted.session} form={booted.form} />;
+  if (booted.discarded === undefined) return <LearnApp session={booted.session} form={booted.form} />;
+  // Said once, above the paper (DEC-M7-34): the device held answers the server never had and could not be reconciled with it.
+  return (
+    <>
+      <p role="note">Some of your earlier answers could not be found on the server, so this paper has started again from the beginning.</p>
+      <LearnApp session={booted.session} form={booted.form} />
+    </>
+  );
 }

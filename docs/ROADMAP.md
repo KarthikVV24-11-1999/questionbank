@@ -270,7 +270,7 @@ verification (F41) · authorization negative-path 100%
 > carrying concepts and never items, filtered selection runs over the published catalogue, immediate feedback serves a verdict and not the key
 > ([ADR-0050](adr/ADR-0050-immediate-feedback-serves-a-verdict-and-not-the-key.md)), a run can be put down and picked up with no deadline, and every practice delivery is in the exposure
 > ledger ([ADR-0049](adr/ADR-0049-a-practice-delivery-is-exposure-under-its-own-key.md)). **Open:** a practice submission is not scored and so does not yet move mastery (D77),
-> feedback is judged under the first section's rules (D79), and remediation reads stored rather than decayed state (D76). D75 is closed; D80 records the runner-only adversarial seed.
+> feedback is judged under the first section's rules (D79), and remediation reads stored rather than decayed state (D76). D75 is closed; D80, the runner-only adversarial seed, is closed: the seeds shared a browser profile (DEC-M7-34).
 >
 > **Status, added 2026-10-30 (M7 Track E):** the response log can say a learner gave up on a question (`skip`, [ADR-0051](adr/ADR-0051-the-response-log-can-say-a-learner-gave-up.md)), and a
 > solution is released per question, over stored facts, only after an attempt or a skip on that question — for a mock, also the submission. It is served on the first learner route that
@@ -307,8 +307,8 @@ verification (F41) · authorization negative-path 100%
 > practice screen shows the run the tap made. **The one tap is demonstrated end to end** against the real routes, from the top finding of a scored mock to a started run of items for that concept and no other (DEC-M7-31),
 > and the run is as far as it goes: no route serves a run's questions, so the app starts a run it cannot show (D87), and the screens take the exam profile and taxonomy from the address and name concepts by identifier (D88).
 > The resume path was wrong before the screens were built on it: `boot` read the device's record after two network calls, and a device with no log numbered from one. It reads the device first and resumes offline against a stored
-> offset to the server's clock ([ADR-0055](adr/ADR-0055-a-reopened-app-reads-the-device-first-and-stands-its-clock-in-for-the-servers.md), DEC-M7-30; D67 half closed: a reopened tab resumes offline once the worker holds the package, and a first visit alone leaves none), and the attempt route returns the log so a second device continues the
-> numbering (DEC-M7-29; D68 closed). Content states its batch bound once and its two callers page at it (DEC-M7-28; D86 closed). **Open:** D66 wants real-device evidence; D67's first-visit half; D84 is not closed by showing its label. The learner bundle
+> offset to the server's clock ([ADR-0055](adr/ADR-0055-a-reopened-app-reads-the-device-first-and-stands-its-clock-in-for-the-servers.md), DEC-M7-30; D67 closed, the second part by DEC-M7-35: a first visit puts the package in the worker's cache itself), and the attempt route returns the log so a second device continues the
+> numbering (DEC-M7-29; D68 closed). Content states its batch bound once and its two callers page at it (DEC-M7-28; D86 closed). **Open:** D66 wants real-device evidence; D84 is not closed by showing its label. The learner bundle
 > grew by 13.6 kB raw and 3.9 kB gzipped and its budget was raised with the reason written in `bundle-budget.json`.
 
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation

@@ -22,6 +22,8 @@ export interface StubOptions {
   readonly distDir: string;
   readonly durationMs: number;
   readonly intervalCapMs: number;
+  /** The port to listen on. Default: any free one, which is a new origin for the browser each time; a test that needs the same origin twice names one. */
+  readonly port?: number;
   /** The server's clock. Default: the system clock. */
   readonly now?: () => number;
   /** Fields added to every item of the package before it is signed: a server that leaks, to see what a client does with a leak. */
@@ -76,7 +78,7 @@ export class StubServer {
 
   async start(): Promise<void> {
     this.#server = createServer((request, response) => void this.#handle(request, response));
-    await new Promise<void>((resolve) => this.#server!.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => this.#server!.listen(this.options.port ?? 0, '127.0.0.1', resolve));
   }
 
   async stop(): Promise<void> {
