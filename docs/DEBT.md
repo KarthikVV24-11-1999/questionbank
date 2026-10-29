@@ -536,15 +536,39 @@ and a qualification already recorded is not reconsidered in the light of a respo
 learner's transitions from the evidence in order, under the rule sets they were pinned to.
 **Cited** `apps/api/src/contexts/learning/application/handlers/record-evidence-handler.ts`
 
-### D80 — One adversarial seed times out on a CI runner and not on a developer machine
+### D67 — A tab reopened during an outage resumes only if the service worker already holds the package; a first visit alone leaves none *(half closed at M7-56)*
 
-On `e604236`, seed 20261081 timed out after 60 seconds waiting for `getByRole('region', { name: /^Question \d/u })` in the browser run, so ninety-nine of a hundred
-runs produced a result and the run's length assertion failed. The same seed passes locally. It is the runner-only failure M6's close recorded with its cause unknown,
-and it was not in the track that found it (Track C changed a comment in the adversarial tooling). It has not recurred in the runs since. Nothing is known of the cause:
-a slow runner, a package the shell did not finish rendering, or a real defect in the seed's path are all possible, and none has been shown.
+The attempt continued through an outage while the page stayed open, and everything it held was on the device. Reopen the tab while the backend was down and the app asked the
+server for the attempt before it would carry on. The cause was the order in `boot`: the device's record was read after two awaited network calls, so the one thing that survives an
+outage was consulted only when the network was up.
 
-**Trigger** The next runner failure of this suite: the failing seed's path, its console and network log and a screenshot at the timeout are what the run does not yet keep.
-**Cited** `tools/adversarial/src/browser-run.ts`
+**What M7-56 closed (DEC-M7-30, ADR-0055).** `boot` reads the device's record first. The package is still fetched and verified before anything is created, started or shown, and a record
+is carried on only against a paper that verified and is of the form the record names. When the server cannot be reached a record that names its form and holds the offset between the
+server's clock and the device's resumes from the device alone, against the deadline it wrote down. A server that answered and refused is not an outage and is not carried through.
+Shown in a real Chrome (`known-gaps.spec.ts`): a tab reopened with the backend down shows the question with the learner's answer checked, when the worker holds the package.
+
+**What is still open.** The package comes from the service worker's cache when the server is failing, and the worker caches it only for a page it controls. A worker does not take over the
+page that installed it (no `clients.claim`, by design: a new shell must not be swapped under an attempt), so the first page of a first visit asks for the package straight from the network
+and nothing is kept; the cache holds the shell and no paper. A learner who opened the app once, answered, and lost the tab during an outage reopens to the shell and the words *request
+failed with status 503*: the answers are on the device and out of reach, which is the symptom this entry was opened for. It is cured by any later visit while the backend is up (a reload, or
+the next day's), so it bites the learner who has not yet had one. Measured, with the console, network log and screenshot of the reopen: the package and key requests are answered 503 by the
+worker, which has nothing to fall back on.
+
+**Trigger** A decision on how the package reaches the cache on a first visit — the page asking for it once the worker controls it, or the worker fetching it when it installs — and the test that
+holds this half open goes red the day it does. Real-device evidence that a first visit is lost to an outage is what makes the decision worth taking now.
+**Cited** `apps/learn/src/bootstrap.ts` · `tools/adversarial/src/known-gaps.spec.ts`
+
+### D80 — Adversarial seeds time out on a CI runner and not on a developer machine
+
+On `e604236`, seed 20261081 timed out after 60 seconds waiting for `getByRole('region', { name: /^Question \d/u })` in the browser run, so ninety-nine of a hundred runs produced a result and
+the run's length assertion failed. On `cc2e6b3`, seeds 20261125 and 20261085 timed out at the same wait. The two latest pass when replayed alone on a developer machine under `CI=1` (the same 60 seconds), as the first did. Nothing is known of the cause: a slow runner, a package the shell did not finish rendering, or a real defect in the seed's path are all possible, and none has been shown.
+The one thing the capture of D67 established is what it is not: a first visit whose package is never cached (D67) does not render the question, but no seed reopens a tab during an outage, so it is not this.
+
+**What is kept now.** A run that times out writes the page's console, every request and what became of it (and whether the worker answered), a screenshot, and what the page was showing, to
+`tools/adversarial/failures/seed-<n>/`, and the workflow uploads that directory as the `adversarial-failures` artifact after the job, passing or failing. The first runner failure after this carries its own evidence.
+
+**Trigger** The next runner failure of this suite: download the artifact and read `summary.json` first. If the page was blank, the shell did not render; if it showed an error, the log says which request failed.
+**Cited** `tools/adversarial/src/browser-run.ts` · `tools/adversarial/src/evidence.ts`
 
 ### D76 — Remediation reads a concept's stored state, not its decayed one
 
@@ -855,21 +879,6 @@ not changed or deleted. `learning.open_review_escalation` is the one definition 
 shown all read it. A concept whose escalation was resolved can be escalated again if it lapses again; it has at most one open at a time.
 
 **Cited** `apps/api/src/contexts/learning/infrastructure/review.repository.ts`
-
-### D67 — A tab reopened during an outage cannot resume the attempt *(closed at M7-56)*
-
-The attempt continued through an outage while the page stayed open, and everything it held was on the device. Reopen the tab while the backend was down and the app asked the
-server for the attempt before it would carry on, and the service worker had cached the package but not an attempt: it showed nothing, and the answers in the device's record
-were out of reach. The cause was the order in `boot`: the device's record was read after two awaited network calls, so the one thing that survives an outage was consulted only
-when the network was up.
-
-**What closed it (M7-56, DEC-M7-30, ADR-0055).** `boot` reads the device's record first. The package is still fetched and verified before anything is created, started or shown, and a
-record is carried on only against a paper that verified and is of the form the record names. When the server cannot be reached (the network is down, or it is failing) a record that
-names its form and holds the offset between the server's clock and the device's, taken at the last contact, resumes from the device alone: the deadline it wrote down, read against the
-device's wall clock moved by that offset. The server re-validates at submission, which is what makes the stand-in safe; the ADR says in which direction it can be wrong. A server that
-answered and refused is not an outage and is not carried through.
-
-**Cited** `apps/learn/src/bootstrap.ts`
 
 ### D68 — The learner app does not pull the server's log: a second device starts from nothing *(closed at M7-55)*
 

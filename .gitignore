@@ -6,3 +6,6 @@ coverage/
 .env.local
 .env.*.local
 *.pgpass
+
+# what an adversarial run leaves when it times out (read it, then delete it)
+tools/adversarial/failures/

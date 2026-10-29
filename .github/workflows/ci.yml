@@ -52,6 +52,13 @@ jobs:
       - run: corepack pnpm install --frozen-lockfile
       - run: google-chrome --version
       - run: corepack pnpm --filter @questionbank/adversarial test
+      # A run that times out leaves its console, network log and screenshot here (D80); the step runs after a failure, which is the only time there is anything.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adversarial-failures
+          path: tools/adversarial/failures/
+          if-no-files-found: ignore
 
   integration:
     runs-on: ubuntu-latest

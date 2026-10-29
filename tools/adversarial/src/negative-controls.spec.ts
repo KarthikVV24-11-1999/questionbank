@@ -32,7 +32,7 @@ describe('the adversarial harness is red when something is wrong', () => {
   });
 
   it.each(failures)('fails with %s planted, and says what it found', async (sabotage, message) => {
-    await expect(runScenario(generateScenario(SEED), environment, { sabotage, waitMs: 4_000 })).rejects.toThrow(message);
+    await expect(runScenario(generateScenario(SEED), environment, { sabotage, waitMs: 4_000, evidence: false })).rejects.toThrow(message);
   });
 
   it('names every planted defect it can plant: none is left without a case', () => {

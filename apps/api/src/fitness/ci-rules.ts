@@ -37,6 +37,15 @@ export const REQUIRED_JOBS = ['typecheck', 'unit', 'integration', 'fitness', 'bu
 /** A `run:` step containing an inline assertion — the shape DEC-M0-3 forbids. */
 const INLINE_ASSERTION_PATTERN = /\bgrep\b.*&&\s*exit\s*1|\btest\s+-[a-z]\s|\[\[.*\]\]\s*\|\|\s*exit/u;
 
+/**
+ * A step that only keeps what an earlier step left (an artifact upload after a failure) may run when that step failed. It asserts nothing and gates
+ * nothing, so it is the one conditional DEC-M0-3 has no quarrel with; any other step with a condition, and this one with any other condition, is
+ * still a violation.
+ */
+function keepsEvidence(step: WorkflowStep): boolean {
+  return step.uses !== undefined && /^actions\/upload-artifact@/u.test(step.uses) && step.if === 'always()';
+}
+
 export function parseWorkflow(path: string): Workflow {
   return parse(readFileSync(path, 'utf8')) as Workflow;
 }
@@ -57,7 +66,7 @@ export function checkWorkflow(workflow: Workflow): CiViolation[] {
       if (step['continue-on-error'] === true) {
         violations.push({ rule: 'CONTINUE_ON_ERROR', detail: name });
       }
-      if (step.if !== undefined) {
+      if (step.if !== undefined && !keepsEvidence(step)) {
         violations.push({ rule: 'CONDITIONAL_STEP', detail: `${name}: if: ${step.if}` });
       }
       if (step.run !== undefined && INLINE_ASSERTION_PATTERN.test(step.run)) {

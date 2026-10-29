@@ -578,7 +578,7 @@ server returned are acknowledged, so they are not sent back. The cost is size: a
 connect, or the server answers 5xx — a record that names its form (the verified paper's) and holds an offset to the server's clock resumes from the device alone. The offset is the server's reading
 of its clock minus the device's wall clock, taken at every contact (starting, resuming, and the check the session makes at the local deadline) and kept in the record; the deadline is the one the
 record wrote down. A server that answers and refuses (4xx) is not an outage and surfaces as before; a record written before these facts were kept cannot resume offline and says so by failing as it
-did. The stand-in is read once, at resume: the timer runs on the monotonic clock from then on. See ADR-0055 for which way it can be wrong.
+did. The stand-in is read once, at resume: the timer runs on the monotonic clock from then on. It needs the package as well, and the service worker has that only after a visit it controlled (D67). See ADR-0055 for which way it can be wrong.
 → `apps/learn/src/bootstrap.ts` · `apps/learn/src/session/attempt-session.ts` · `apps/learn/src/session/persistence.ts` · `docs/adr/ADR-0055-a-reopened-app-reads-the-device-first-and-stands-its-clock-in-for-the-servers.md`
 
 ### DEC-M7-31 — The one tap is a run scoped to the concept it names, made and started by one action

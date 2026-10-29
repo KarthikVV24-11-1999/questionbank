@@ -1,12 +1,12 @@
 # ADR-0055 — A reopened app reads the device first, and stands its own clock in for the server's when the server cannot be asked
 
-**Status** Accepted · M7 Track H2, M7-56 · Closes D67 · Refines the resume of [ADR-0039](ADR-0039-the-learner-shell-is-a-view-of-the-engine-and-verifies-what-it-shows.md)
+**Status** Accepted · M7 Track H2, M7-56 · Part-closes D67 (a reopened tab resumes offline once the service worker holds the package; a first visit alone leaves none, and D67 stays open for that) · Refines the resume of [ADR-0039](ADR-0039-the-learner-shell-is-a-view-of-the-engine-and-verifies-what-it-shows.md)
 
 ## Context
 
 `boot` fetched and verified the package, then read the device's record of the attempt, then asked the server for the attempt to take its deadline afresh. The device's record is the one thing that
 survives an outage and holds every answer the learner has given, and it was read after two awaited network calls and used only if a third succeeded. A tab reopened while the backend was down
-therefore showed nothing, in exactly the condition the record exists for. The service worker serves the package and its key from its cache when the network is down, and never an attempt.
+therefore showed nothing, in exactly the condition the record exists for. The service worker serves the package and its key from its cache when the network is down, and never an attempt. (It has them only for a page it controlled: see the correction at the end.)
 
 The package rule is not in question and does not move: nothing is created, started or shown on a paper nobody vouched for.
 
@@ -36,3 +36,9 @@ Neither direction lets a learner gain marks, which is the property the offset ha
 - The offset is refreshed at every contact, so the window in which a wrong wall clock can matter is the time since the last contact, which is the time the server was unreachable.
 - Nothing about D66 changes: a browser killed outright still loses what it had not yet written to disk, and that wants real-device evidence.
 - The attempt route now returns the log (DEC-M7-29), so a device that holds no record at all continues from the server's, which is the other half of resuming and does not need a clock.
+
+## Correction after a real-Chrome run
+
+The decision stands and the part it assumed was wrong. The unit tests gave `boot` a package during the outage, as the worker is described to do, and the entry was closed on that. In a real Chrome the worker
+caches the package only for a page it controls, and it does not take over the page that installed it, so a first visit that is never reloaded leaves the shell in the cache and no package. The reopen then has no
+paper to verify and, rightly under the rule above, shows nothing. `known-gaps.spec.ts` holds both halves: the resume with the package cached passes, and the first-visit case is held open. D67 stays open for the second.

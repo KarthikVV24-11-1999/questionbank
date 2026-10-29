@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { projectResponses, type ResponseEvent } from '@questionbank/attempt-engine';
 import type { Page } from 'playwright-core';
 import { launchChrome, type RunningChrome } from './chrome.js';
+import { defaultEvidenceDir, recordPage, writeEvidence, type Recorder } from './evidence.js';
 import type { Interruption, Option, Scenario, SlotIndex, Step } from './scenario.js';
 import { StubServer } from './stub-server.js';
 
@@ -150,7 +151,13 @@ export interface RunOptions {
   readonly sabotage?: Sabotage;
   /** How long a condition may take to come true before the run fails. */
   readonly waitMs?: number;
+  /** Where a run that times out leaves its console, network log and screenshot (D80). `false`: nowhere, for a run that is meant to fail. */
+  readonly evidence?: { readonly dir: string } | false;
 }
+
+/** A condition that never came true: this module's own wait, a step's watchdog, or one of the browser library's. */
+const timedOut = (error: unknown): boolean =>
+  error instanceof Error && (error.name === 'TimeoutError' || /^timed out waiting for: /u.test(error.message) || /did not finish within \d+ ms$/u.test(error.message));
 
 export async function runScenario(scenario: Scenario, environment: RunEnvironment, options: RunOptions = {}): Promise<RunReport> {
   const waitMs = options.waitMs ?? WAIT_MS;
@@ -172,9 +179,12 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
   let deadline0: number | null = null;
   let chrome = environment.chrome.current ?? (await freshChrome(environment));
   let page = null as Page | null;
+  // the page most recently opened, with what it logged: the one a timeout is about, whether or not it was ever settled into `page`
+  let watched: { readonly page: Page; readonly recorder: Recorder } | null = null;
 
   const open = async (): Promise<Page> => {
     const opened = await chrome.context.newPage();
+    watched = { page: opened, recorder: recordPage(opened) };
     if (options.sabotage === 'device-forgets-responses') {
       await opened.addInitScript(() => {
         const real = Storage.prototype.setItem;
@@ -195,8 +205,8 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     }
     if (wallSkewMs !== 0) await opened.addInitScript(skewScript(wallSkewMs));
     await opened.goto(PAGE_URL(server.origin));
-    // On a CI runner one seed in a run has timed out here without a cause being found (D80).
-    await opened.getByRole('region', { name: /^Question \d/u }).waitFor({ timeout: WAIT_MS });
+    // On a CI runner seeds have timed out here without a cause being found (D80): a timeout leaves its evidence (see `writeEvidence`).
+    await opened.getByRole('region', { name: /^Question \d/u }).waitFor({ timeout: waitMs });
     page = opened;
     return opened;
   };
@@ -392,6 +402,13 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       cachedAttemptRequests,
       cachesInspected: cacheInfo.names,
     };
+  } catch (error) {
+    const last = watched as { readonly page: Page; readonly recorder: Recorder } | null; // assigned inside `open`, which the compiler cannot see from here
+    if (options.evidence !== false && timedOut(error) && last !== null) {
+      const where = await writeEvidence({ seed: scenario.seed, page: last.page, recorder: last.recorder, error, server, dir: options.evidence?.dir ?? defaultEvidenceDir() }).catch(() => null);
+      if (where !== null) console.error(`seed ${scenario.seed} timed out; console, network log and screenshot are in ${where}`);
+    }
+    throw error;
   } finally {
     await page?.close({ runBeforeUnload: false }).catch(() => undefined);
     await server.stop();

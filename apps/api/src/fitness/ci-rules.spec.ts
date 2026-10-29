@@ -68,6 +68,21 @@ describe('planted violations — one per assertion', () => {
     expect(checkWorkflow(mutated).some((v) => v.rule === 'CONDITIONAL_STEP')).toBe(true);
   });
 
+  it('an artifact upload that runs after a failure is not a violation', () => {
+    const upload = (real.jobs!['adversarial']!.steps as unknown as { uses?: string; if?: string }[]).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+    expect(upload?.if).toBe('always()');
+    expect(checkWorkflow(real).some((v) => v.rule === 'CONDITIONAL_STEP')).toBe(false);
+  });
+
+  it('an upload on any other condition, and any other step on always(), are violations', () => {
+    const mutated = structuredClone(real) as typeof real;
+    const steps = mutated.jobs!['adversarial']!.steps as unknown as { uses?: string; if?: string; run?: string }[];
+    steps.find((step) => step.uses?.startsWith('actions/upload-artifact@'))!.if = "github.ref == 'refs/heads/main'";
+    expect(checkWorkflow(mutated).filter((v) => v.rule === 'CONDITIONAL_STEP')).toHaveLength(1);
+    steps.push({ run: 'corepack pnpm --filter @questionbank/adversarial test', if: 'always()' });
+    expect(checkWorkflow(mutated).filter((v) => v.rule === 'CONDITIONAL_STEP')).toHaveLength(2);
+  });
+
   it('a dropped required job is a violation', () => {
     const mutated = structuredClone(real) as typeof real;
     delete mutated.jobs!['integration'];

@@ -23,6 +23,10 @@ Every run is a function of its seed. A failure prints `replay with QB_ADVERSARIA
 seed alone (`QB_ADVERSARIAL_SEED=<n> corepack pnpm --filter @questionbank/adversarial test`) replays it. `QB_ADVERSARIAL_TRACE=1` prints
 each step; `QB_ADVERSARIAL_RUNS` and `QB_ADVERSARIAL_WORKERS` change the count and the number of browsers.
 
+A run that times out also leaves what the page did, in `tools/adversarial/failures/seed-<n>/`: `console.log`, `network.log`, `screenshot.png` and
+`summary.json` (what the page was showing, whether the worker controlled it, the keys it held). CI uploads that directory as the `adversarial-failures`
+artifact; read `summary.json` first (D80).
+
 No test sleeps for a duration. Every wait is for a condition (a record holding an event, the status saying all is sent, a file holding
 the bytes) with a timeout that only turns a condition that never comes true into a failure.
 
