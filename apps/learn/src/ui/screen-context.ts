@@ -1,3 +1,5 @@
+import type { ScreenAnalytics } from '../analytics/emitter.js';
+
 /**
  * What the host tells a screen about where it was opened (D88): the exam profile a practice run is made under, the taxonomy "weakest" is asked about, the
  * attempt this device last sat, and a key that is the same for every try of one tap on this page. All of it arrives as identifiers; the screens name a
@@ -9,6 +11,8 @@ export interface ScreenContext {
   readonly lastAttemptId: string | null;
   /** Fixed for the life of the page, so a tap retried on it makes one run. */
   readonly pageKey: string;
+  /** Where a screen says that something happened (M7-62). It cannot fail a render or a request. */
+  readonly analytics: ScreenAnalytics;
 }
 
 /** The address of a screen, carrying the context on so the next screen is opened where this one was. */

@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { attemptDto, FakeApi, FakeLearningApi } from '../testing/fakes.js';
 import { concept, escalation, notFound, plan, PROFILE, report, scheduled, TAXONOMY, unreachable } from '../testing/learning-fixtures.js';
 import { HomeScreen } from './HomeScreen.js';
+import { NO_ANALYTICS } from '../analytics/emitter.js';
+import { analyticsRig, expectConforming } from '../testing/analytics-rig.js';
 import type { ScreenContext } from './screen-context.js';
 
 afterEach(cleanup);
 
-const context = (overrides: Partial<ScreenContext> = {}): ScreenContext => ({ examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: null, pageKey: 'page-1', ...overrides });
+const context = (overrides: Partial<ScreenContext> = {}): ScreenContext => ({ examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: null, pageKey: 'page-1', analytics: NO_ANALYTICS, ...overrides });
 const server = () => new FakeApi({} as never, new Error('no key'));
 
 function open(learning: FakeLearningApi, overrides: Partial<ScreenContext> = {}, assessment = server()) {
@@ -40,6 +42,19 @@ describe('the home screen (M7-57)', () => {
     weakest.weakest = [concept(3)];
     open(weakest);
     expect(await screen.findByText('This is the concept you are weakest on.')).toBeInTheDocument();
+  });
+
+  it('says a practice run started from the next action was a recommendation, and says nothing of a finding having been tapped', async () => {
+    const { analytics, sent } = analyticsRig();
+    const learning = new FakeLearningApi();
+    learning.plan = plan({ due: [scheduled(1)] });
+    const { onOpen } = open(learning, { analytics });
+    await userEvent.click(await screen.findByRole('button', { name: 'Practise this' }));
+    await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(sent.map((event) => event.event_name)).toEqual(['practice.session_started']);
+    expectConforming(sent);
+    expect(sent[0]!.payload).toMatchObject({ selection_strategy: 'filtered', source: 'recommendation', concept_ids: [concept(1)] });
   });
 
   it('shows a concept whose escalation was resolved no more, because the plan no longer lists it', async () => {

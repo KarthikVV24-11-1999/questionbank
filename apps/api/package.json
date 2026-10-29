@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --coverage",
+    "event-conformance": "node scripts/event-conformance.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "fitness": "vitest run --project unit src/fitness",

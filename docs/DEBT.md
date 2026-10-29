@@ -643,6 +643,54 @@ the development wiring D69 describes, and neither can reach a student's phone as
 **Trigger** A route that gives a learner their exam profile and taxonomy version, and one that names concepts: the address parameters and the identifier labels are removed together.
 **Cited** `apps/learn/src/ui/screen-context.ts`
 
+### D89 — Six events the taxonomy specifies are owned by no milestone
+
+`item.defect_reported`, `item.defect_resolved`, `ai.tutor_turn`, `client.error`, `performance.render_measured` and `accessibility.assistive_tech_detected` have an `Owner` of `none` in
+[EVENT-TAXONOMY.md](EVENT-TAXONOMY.md). ADR-0022 moved the item defect intake to M5, M5's deliverables do not list it, and nothing of it exists. No milestone builds a tutor, a client
+error reporter, render timing or assistive-technology detection. `ai.tutor_turn` is also not a past-tense fact, which the naming rule asks of every event (§2).
+
+**Trigger** A milestone's deliverables take the surface that can know the fact, and the Owner column says so; or the event is removed from the catalog by a taxonomy version bump.
+**Cited** `apps/api/src/fitness/event-conformance.ts`
+
+### D90 — Analytics events are written to a local directory, not to Parquet in object storage
+
+EVENT-TAXONOMY §1 rule 2 says date-partitioned Parquet in object storage and never the OLTP database. There is no object storage wired at M7, so the ingestion edge writes to a port, and
+the implementation behind it is one line of JSON per event in `dt=YYYY-MM-DD/events.ndjson` under a local directory (memory under test). The edge, the envelope and the checks are what M7
+delivers; conformance is measured before the sink (DEC-M7-36). An event that conforms has not reached analytics.
+
+**Trigger** Object storage is wired, which M8's production environment brings: a sink that writes Parquet partitioned by the same date is a second implementation of the same port.
+**Cited** `apps/api/src/platform/analytics/sink.ts`
+
+### D91 — Thirty-one events whose surface shipped before capture existed are not emitted
+
+Events owned by M1 (taxonomy), M3 (item authoring and publication), M4 (review decisions), M5 (generation and prechecks) and M6 (the mock attempt: started, answered, flagged, interrupted,
+submitted, the package download, a failed sync) have a surface that has existed for milestones, and nothing emits them. The taxonomy was specified for M0 and capture begins at M7, and M7 wired
+only the events its own surfaces produce, so the mock attempt's whole funnel (`mock.attempt_started` against `mock.attempt_submitted` is the completion rate M8 is accepted on) is not captured.
+Some are the cheapest to add: `mock.attempt_submitted`, `item.published` and `item.review_decided` are facts a domain event in the outbox already carries.
+
+**Trigger** The first real learner. M8's closed beta opens the mock attempt to people whose events cannot be recovered afterwards; the M6 events are captured, derived from the outbox where a
+domain event carries the fact, before it does.
+**Cited** `apps/api/src/fitness/event-conformance.ts`
+
+### D92 — Ten events M7 owns have no call site, and the one it emits from the server is at-most-once
+
+Ten of the fourteen events M7 owns are not emitted, each for a fact that does not exist where it would be emitted:
+
+- `practice.session_abandoned` — a run is put down and picked up with no deadline; nothing ever says it was abandoned.
+- `solution.viewed` — no screen shows a solution; the route serves one, and a served response is not a view.
+- `remediation.set_generated` — what to practise next is computed on each read; no set is stored, so there is no moment of generation.
+- `mastery.regressed` — `days_since_gain` needs the instant of the gain the concept held, which the recorder's read of a concept does not return.
+- `review.due_completed`, `review.due_skipped` — the schedule is derived from evidence; no action of the learner completes or skips a due review.
+- `error_notebook.entry_reviewed` — no route or screen marks an entry reviewed.
+- `practice.item_answered`, `practice.session_completed`, `remediation.set_completed` — held by D87 and D77, which are their own entries.
+
+And `mastery.gain_verified` is emitted by the relay's consumer after the recorder has committed. If the process dies between the two, the redelivery finds the evidence stored and the gain is
+not announced again. An outbox row for the gain, written in the recorder's transaction, would make it at-least-once.
+
+**Trigger** Each event when the surface that can know it exists (D87's route, a solution screen, a review action); the gain's outbox row with the sink of D90, since an event that cannot be
+stored makes at-least-once delivery of nothing.
+**Cited** `apps/api/src/fitness/event-conformance.ts`
+
 ## Closed
 
 ### D67 — A tab reopened during an outage cannot resume the attempt *(closed in two parts: M7-56, then the repair after M7 Track H2)*

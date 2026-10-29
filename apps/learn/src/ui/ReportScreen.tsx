@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import { useEffect, type JSX } from 'react';
 import type { AssessmentApi } from '../api/assessment-api.js';
 import type { LearningApi } from '../api/learning-api.js';
 import type { DiagnosticReportDto, PaceAnalyticsDto } from '../api/learning-schemas.js';
@@ -13,13 +13,15 @@ interface Loaded {
   /** `null` where the pace could not be read: the report stands without it, and says so. */
   readonly pace: PaceAnalyticsDto | null;
   readonly label: RescoreLabel;
+  /** When the score the report is about was computed, if it could be read. */
+  readonly resultAt: string | null;
 }
 
 /** The report, and beside it what can be read: the pace, and the score that stands. Only the report is required; the others fail soft and say so. */
 async function loadReport(learning: LearningApi, assessment: Pick<AssessmentApi, 'getResult'>, attemptId: string): Promise<Loaded> {
   const [report, pace, result] = await Promise.all([learning.getReport(attemptId), learning.getPace(attemptId).catch(() => null), assessment.getResult(attemptId).catch(() => null)]);
   const standing = result?.score === undefined ? null : { scoreRecordId: result.score.scoreRecordId, generation: result.score.generation };
-  return { report, pace, label: rescoreLabel(report, standing) };
+  return { report, pace, label: rescoreLabel(report, standing), resultAt: result?.score?.computedAt ?? null };
 }
 
 function Rescored({ label }: { readonly label: RescoreLabel }): JSX.Element | null {
@@ -95,6 +97,10 @@ export function ReportScreen({
   readonly onOpen: (href: string) => void;
 }): JSX.Element {
   const loaded = useRemote(() => loadReport(learning, assessment, attemptId));
+  // `mock.diagnostic_viewed`: the report was shown. The screen has no drill-down, so the deepest level reached is the top one (0).
+  useEffect(() => {
+    if (loaded.status === 'loaded') context.analytics.emit('mock.diagnostic_viewed', { findings_shown: loaded.value.report.findings.length, deepest_drill_level: 0 }, { attempt_id: attemptId });
+  }, [loaded.status]);
   return (
     <main aria-label="Report" style={{ padding: TOKENS.spaceMedium }}>
       <h1>Your report</h1>
@@ -116,7 +122,7 @@ export function ReportScreen({
                       Lost {finding.marksLost} of {finding.marksAvailable} marks across {finding.slots} {finding.slots === 1 ? 'question' : 'questions'}
                       {finding.skipped > 0 ? `, ${finding.skipped} skipped` : ''}.
                     </p>
-                    <PractiseButton conceptIdentityId={finding.conceptIdentityId} label={`Practise ${conceptLabel(finding.conceptIdentityId)}`} assessment={assessment} context={context} onOpen={onOpen} />
+                    <PractiseButton conceptIdentityId={finding.conceptIdentityId} label={`Practise ${conceptLabel(finding.conceptIdentityId)}`} source="remediation" finding={{ rank: finding.rank, resultAt: loaded.value.resultAt }} assessment={assessment} context={context} onOpen={onOpen} />
                   </li>
                 ))}
             </ol>

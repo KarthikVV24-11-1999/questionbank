@@ -7,6 +7,7 @@ import {
   type OnModuleDestroy,
   type Provider,
 } from '@nestjs/common';
+import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { Pool } from 'pg';
 import type { AppConfig } from '../config/config.js';
@@ -17,6 +18,11 @@ import { PostgresAuditRecorder, type AuditRecorderLike } from '../persistence/au
 import { PostgresIdempotencyStore, type IdempotencyStore } from '../persistence/idempotency-store.js';
 import { createMediaStore, type MediaStore } from '../persistence/filesystem-media-store.js';
 import { createPrincipalResolver, type PrincipalResolver } from '../auth/principal-resolver.js';
+import { AnalyticsModule } from '../analytics/analytics.module.js';
+import { AnalyticsEdge } from '../analytics/edge.js';
+import { ServerEmitter } from '../analytics/server-emitter.js';
+import { LocalDirectorySink, MemorySink, type AnalyticsSink } from '../analytics/sink.js';
+import { createLogger } from '../observability/logger.js';
 import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.js';
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
@@ -63,6 +69,8 @@ export interface CreateApplicationOverrides {
   readonly idempotency?: IdempotencyStore;
   readonly principals?: PrincipalResolver;
   readonly telemetry?: Telemetry;
+  /** Where admitted analytics events go. Absent: a directory beside the media store in a process that runs for real, memory under test (the Parquet sink is M8's, D90). */
+  readonly analyticsSink?: AnalyticsSink;
   /** Substituted only to prove F11 across the composed set (app-factory.spec.ts) — never in production. */
   readonly contentRegister?: typeof registerContent;
   readonly curriculumRegister?: typeof registerCurriculum;
@@ -132,6 +140,13 @@ export async function createApplication(
   const principals =
     overrides.principals ??
     createPrincipalResolver({ config: { signingKey: config.authSigningKey, issuer: config.authIssuer } });
+  // The ingestion edge (M7-61): every analytics event is admitted or quarantined here, and a quarantine is logged as it happens (EVENT-TAXONOMY §1 rule 3).
+  const analyticsLog = createLogger({ logLevel: config.logLevel, nodeEnv: config.nodeEnv });
+  const analyticsSink = overrides.analyticsSink ?? (config.nodeEnv === 'test' ? new MemorySink() : new LocalDirectorySink(join(config.mediaStorageRoot, '..', 'analytics')));
+  const analyticsEdge = new AnalyticsEdge(analyticsSink, () => clock.now(), (entry) =>
+    analyticsLog.log({ level: 'warn', message: 'analytics event quarantined', correlationId: 'n/a', context: 'platform.analytics', attributes: { errorCode: entry.reason } }),
+  );
+  const analytics = new ServerEmitter({ edge: analyticsEdge, appVersion: 'api' });
 
   const contentRegister = overrides.contentRegister ?? registerContent;
   const curriculumRegister = overrides.curriculumRegister ?? registerCurriculum;
@@ -201,7 +216,7 @@ export async function createApplication(
   // The learner's routes read what the same evidence source reads, for the pace of an attempt, and ask content for the standing of a bookmarked item.
   const learningModule = registerLearning({ pool, clock, identifiers, principals, paceSlots: learningEvidence, standings: new ContentItemStandings(contentForLearning(contentDeps)) });
   const learningForConsumers = learningForRelay({ pool, clock, identifiers });
-  const learningConsumer = new LearningAttemptScoredConsumer({ evidence: learningEvidence, learning: learningForConsumers });
+  const learningConsumer = new LearningAttemptScoredConsumer({ evidence: learningEvidence, learning: learningForConsumers, analytics });
   // the report is made after the evidence is recorded, by the same delivery (M7-42)
   const reportConsumer = new LearningDiagnosticReportConsumer({ slots: learningEvidence, learning: learningForConsumers });
   const consumers = new Map<string, readonly OutboxConsumer[]>([
@@ -217,7 +232,7 @@ export async function createApplication(
   ]);
   const background: Background = { relay, scheduler };
 
-  const rootImports = [contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
+  const rootImports = [AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
   // `app.close()` never double-closes a connection the caller still owns

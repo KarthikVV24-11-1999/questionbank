@@ -2,7 +2,7 @@ import { ROLES } from '../../../../platform/auth/roles.js';
 import { conceptMapOf, type ConceptMap } from '../../domain/concept-map.js';
 import type { ConceptEvidence, MasteryState } from '../../domain/concept-state.js';
 import { errorEntryFromEvidence, errorEntryFromGaveUp, type ErrorEntry, type GaveUpSlot } from '../../domain/error-entry.js';
-import { advanceConcept, reconcileTransitions, type MasteryTransition, type OpenPromotion } from '../../domain/mastery-transition.js';
+import { advanceConcept, isNorthStarEvent, reconcileTransitions, type MasteryTransition, type OpenPromotion } from '../../domain/mastery-transition.js';
 import type { MasteryEvidence } from '../../domain/mastery-evidence.js';
 import type { MasteryRuleSet } from '../../domain/mastery-rule-set.js';
 import { escalationDue, scheduleOf } from '../../domain/review-schedule.js';
@@ -54,6 +54,18 @@ export interface RecordedEvidence {
   readonly maps: readonly ConceptMap[];
   /** The transitions this delivery created, oldest first; a promotion verified within the delivery is already verified. */
   readonly transitions: readonly MasteryTransition[];
+  /**
+   * Gains this delivery verified: a weak concept held at strong and then confirmed, the north-star event. One per promotion that became verified here, whether it
+   * was verified at once or was stored earlier and confirmed now; a correction (a re-score) that recreates a gain is not a new one and is not listed.
+   */
+  readonly gains: readonly {
+    readonly transitionId: string;
+    readonly taxonomyVersionId: string;
+    readonly conceptIdentityId: string;
+    readonly promotedAt: string;
+    readonly verifiedAt: string;
+    readonly evidenceCount: number;
+  }[];
   /** Responses already stored whose outcome this delivery corrected, or withdrew (D72). */
   readonly corrected: number;
   /** Transitions revoked because the corrected evidence no longer supports them. They are kept, and no longer read as where the concept stands. */
@@ -124,7 +136,7 @@ export class RecordMasteryEvidenceHandler {
       }
       await tx.correctEvidence(corrections, now);
 
-      if (stored.length === 0 && corrections.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), corrected: 0, revoked: Object.freeze([]), verified: Object.freeze([]), escalated: Object.freeze([]), resolved: Object.freeze([]) });
+      if (stored.length === 0 && corrections.length === 0) return Object.freeze({ recorded: 0, replayed: rows.length, maps: Object.freeze([]), transitions: Object.freeze([]), corrected: 0, revoked: Object.freeze([]), verified: Object.freeze([]), gains: Object.freeze([]), escalated: Object.freeze([]), resolved: Object.freeze([]) });
 
       const wrong = stored.flatMap((row) => errorEntryFromEvidence(command.learnerRef, this.deps.identifiers.next(), row.evidence) ?? []);
       await tx.insertErrorEntries(wrong satisfies ErrorEntry[], now);
@@ -142,6 +154,7 @@ export class RecordMasteryEvidenceHandler {
       const maps: ConceptMap[] = [];
       const transitions: MasteryTransition[] = [];
       const verified: { transitionId: string; verifiedAt: string }[] = [];
+      const gains: RecordedEvidence['gains'][number][] = [];
       const revoked: string[] = [];
       const escalated: { taxonomyVersionId: string; conceptIdentityId: string; lapseCount: number }[] = [];
       const resolved: { taxonomyVersionId: string; conceptIdentityId: string; reason: 'recovered' | 'lapses_corrected' }[] = [];
@@ -201,6 +214,12 @@ export class RecordMasteryEvidenceHandler {
           for (const v of advanced.verified) {
             await tx.verifyTransition(v.transitionId, v.verifiedAt, v.verifyingEvidence);
             verified.push({ transitionId: v.transitionId, verifiedAt: v.verifiedAt });
+            if (known.open !== null && known.open.transitionId === v.transitionId && known.open.from === 'weak') {
+              gains.push({ transitionId: v.transitionId, taxonomyVersionId: taxonomy, conceptIdentityId: concept, promotedAt: known.open.occurredAt, verifiedAt: v.verifiedAt, evidenceCount: known.open.qualifyingEvidence.length + v.verifyingEvidence.length });
+            }
+          }
+          for (const t of advanced.created.filter(isNorthStarEvent)) {
+            gains.push({ transitionId: t.transitionId, taxonomyVersionId: taxonomy, conceptIdentityId: concept, promotedAt: t.occurredAt, verifiedAt: t.verifiedAt!, evidenceCount: t.qualifyingEvidence.length + t.verifyingEvidence.length });
           }
           // a promotion verified at once, and one verified now that was stored earlier, each clears the concept's earlier open entries
           for (const done of [...advanced.created.filter((t) => t.verifiedAt !== null).map((t) => t.transitionId), ...advanced.verified.map((v) => v.transitionId)]) {
@@ -237,7 +256,7 @@ export class RecordMasteryEvidenceHandler {
         }
         maps.push(map);
       }
-      return Object.freeze({ recorded: stored.length, replayed: rows.length - stored.length, maps: Object.freeze(maps), transitions: Object.freeze(transitions), corrected: corrections.length, revoked: Object.freeze(revoked), verified: Object.freeze(verified), escalated: Object.freeze(escalated), resolved: Object.freeze(resolved) });
+      return Object.freeze({ recorded: stored.length, replayed: rows.length - stored.length, maps: Object.freeze(maps), transitions: Object.freeze(transitions), corrected: corrections.length, revoked: Object.freeze(revoked), verified: Object.freeze(verified), gains: Object.freeze(gains), escalated: Object.freeze(escalated), resolved: Object.freeze(resolved) });
     });
   }
 }

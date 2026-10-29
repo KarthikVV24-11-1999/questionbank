@@ -4,11 +4,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { attemptWithLogDto } from '../testing/fakes.js';
 import { PROFILE, TAXONOMY } from '../testing/learning-fixtures.js';
 import { PracticeScreen } from './PracticeScreen.js';
+import { NO_ANALYTICS } from '../analytics/emitter.js';
 import type { ScreenContext } from './screen-context.js';
 
 afterEach(cleanup);
 
-const context: ScreenContext = { examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: null, pageKey: 'p' };
+const context: ScreenContext = { examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: null, pageKey: 'p', analytics: NO_ANALYTICS };
 const practiceRun = (overrides = {}) => attemptWithLogDto({ attemptId: 'run-1', mode: 'practice', formId: null, sessionRef: null, shiftId: null, durationMs: null, windowClosesAt: null, state: 'in_progress', slotCount: 10, ...overrides });
 const show = (read: () => Promise<ReturnType<typeof practiceRun>>) => render(<PracticeScreen assessment={{ getAttempt: read }} attemptId="run-1" context={context} />);
 

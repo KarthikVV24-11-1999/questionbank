@@ -6,18 +6,21 @@ import type { ResultDto } from '../api/schemas.js';
 import { FakeApi, FakeLearningApi } from '../testing/fakes.js';
 import { concept, finding, pace, PROFILE, report, TAXONOMY } from '../testing/learning-fixtures.js';
 import { ReportScreen } from './ReportScreen.js';
+import { clientEnvelopeSchema, findPii } from '@questionbank/contracts/analytics';
+import { NO_ANALYTICS, type ScreenAnalytics } from '../analytics/emitter.js';
+import { analyticsRig, expectConforming } from '../testing/analytics-rig.js';
 import type { ScreenContext } from './screen-context.js';
 
 afterEach(cleanup);
 
-const context: ScreenContext = { examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: 'att-1', pageKey: 'page-1' };
+const context: ScreenContext = { examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: 'att-1', pageKey: 'page-1', analytics: NO_ANALYTICS };
 const scored = (scoreRecordId: string, generation: number): ResultDto => ({
   attemptId: 'att-1',
   status: 'scored',
   score: { scoreRecordId, attemptId: 'att-1', generation, totalRaw: '10', totalMaxAvailable: '24', computedAt: 't', sectionScores: [], itemOutcomes: [] },
 });
 
-function open(options: { report?: ReturnType<typeof report> | Error; pace?: ReturnType<typeof pace> | Error; result?: ResultDto | Error } = {}) {
+function open(options: { report?: ReturnType<typeof report> | Error; pace?: ReturnType<typeof pace> | Error; result?: ResultDto | Error; analytics?: ScreenAnalytics } = {}) {
   const learning = new FakeLearningApi();
   learning.reports.set('att-1', options.report ?? report());
   learning.paces.set('att-1', options.pace ?? pace());
@@ -28,8 +31,9 @@ function open(options: { report?: ReturnType<typeof report> | Error; pace?: Retu
     return answer;
   };
   const onOpen = vi.fn();
-  const view = render(<ReportScreen learning={learning} assessment={assessment} attemptId="att-1" context={context} onOpen={onOpen} />);
-  return { onOpen, assessment, learning, view };
+  const element = () => <ReportScreen learning={learning} assessment={assessment} attemptId="att-1" context={{ ...context, analytics: options.analytics ?? NO_ANALYTICS }} onOpen={onOpen} />;
+  const view = render(element());
+  return { onOpen, assessment, learning, view, renderAgain: () => view.rerender(element()) };
 }
 
 describe('the report screen (M7-59)', () => {
@@ -59,6 +63,66 @@ describe('the report screen (M7-59)', () => {
     expect(assessment.calls).toEqual(['createPracticeAttempt', 'startAttempt']);
     expect(assessment.practiceRequests[0]!.request.conceptIdentityIds).toEqual([concept(2)]);
     expect(onOpen).toHaveBeenCalledWith(`?practice=att-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+  });
+
+  describe('what it says happened (M7-62)', () => {
+    const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const computedTwoHoursAgo = (): ResultDto => ({ ...scored('score-1', 1), score: { ...scored('score-1', 1).score!, computedAt: '2026-10-29T06:00:30.000Z' } });
+
+    it('says the report was viewed, once, with how many findings it showed and that it has no drill-down', async () => {
+      const { analytics, sent } = analyticsRig();
+      const { renderAgain } = open({ analytics });
+      await screen.findByRole('region', { name: 'Findings' });
+      await settle();
+      renderAgain();
+      await settle();
+      expect(sent.map((event) => event.event_name)).toEqual(['mock.diagnostic_viewed']);
+      expect(sent[0]).toMatchObject({ payload: { findings_shown: 2, deepest_drill_level: 0 }, context: { attempt_id: 'att-1' } });
+      expectConforming(sent);
+    });
+
+    it('says the finding was tapped, with its rank and the hours since the score, and then that the run it made started, from a remediation', async () => {
+      const { analytics, sent } = analyticsRig();
+      const { onOpen } = open({ analytics, result: computedTwoHoursAgo() });
+      const buttons = await screen.findAllByRole('button', { name: /^Practise Concept/u });
+      await userEvent.click(buttons[1]!);
+      await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
+      await settle();
+      expect(sent.map((event) => event.event_name)).toEqual(['mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.session_started']);
+      expect(sent[1]).toMatchObject({ payload: { finding_rank: 2, hours_after_result: 1.99 }, context: { concept_identity_id: concept(2) } });
+      expectConforming(sent);
+      expect(sent[2]).toMatchObject({ payload: { selection_strategy: 'filtered', source: 'remediation', concept_ids: [concept(2)], item_count: expect.any(Number) }, context: { attempt_id: 'att-1' } });
+    });
+
+    it('says the hours are not known where the score\'s time could not be read, rather than a number', async () => {
+      // the payload as the screen built it, before the emitter writes it down as JSON (where a NaN would quietly become null)
+      const built: Array<{ name: string; payload: Record<string, unknown> }> = [];
+      open({ analytics: { emit: (name, payload) => void built.push({ name, payload }), nowMs: () => Date.parse('2026-10-29T08:00:00.000Z'), flush: () => undefined } });
+      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise Concept/u }))[0]!);
+      await settle();
+      expect(built.find((event) => event.name === 'mock.remediation_clicked')!.payload).toEqual({ finding_rank: 1, hours_after_result: null });
+    });
+
+    it('emits only events whose envelope the contract accepts, with no personal data in any of them', async () => {
+      const { analytics, sent } = analyticsRig();
+      const { onOpen } = open({ analytics, result: computedTwoHoursAgo() });
+      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise Concept/u }))[0]!);
+      await vi.waitFor(() => expect(onOpen).toHaveBeenCalled());
+      await settle();
+      expect(sent.length).toBe(3);
+      for (const event of sent) {
+        expect(clientEnvelopeSchema.safeParse(event).success, event.event_name).toBe(true);
+        expect(findPii(event), event.event_name).toEqual([]);
+      }
+    });
+
+    it('costs the learner nothing when the edge is down: the report is shown and the tap still opens the run', async () => {
+      const { analytics } = analyticsRig({ send: async () => Promise.reject(new TypeError('Failed to fetch')) });
+      const { onOpen, assessment } = open({ analytics });
+      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise Concept/u }))[0]!);
+      await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
+      expect(assessment.calls).toEqual(['createPracticeAttempt', 'startAttempt']);
+    });
   });
 
   it('shows the pace beside the findings, and reads the questions whose time is not known as not known, never as fast or slow', async () => {

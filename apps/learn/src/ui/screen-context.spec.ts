@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { PROFILE, TAXONOMY } from '../testing/learning-fixtures.js';
+import { NO_ANALYTICS } from '../analytics/emitter.js';
 import { conceptLabel, screenHref, type ScreenContext } from './screen-context.js';
 
-const context = (overrides: Partial<ScreenContext> = {}): ScreenContext => ({ examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: 'att-9', pageKey: 'k', ...overrides });
+const context = (overrides: Partial<ScreenContext> = {}): ScreenContext => ({ examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: 'att-9', pageKey: 'k', analytics: NO_ANALYTICS, ...overrides });
 
 describe('the address of a screen', () => {
   it('names the screen and carries the profile and the taxonomy on, and not the last sitting or the page\'s key', () => {

@@ -254,7 +254,7 @@ verification (F41) · authorization negative-path 100%
 - Every concept state is traceable to the specific responses that produced it
 - A verified mastery gain requires confirmation ≥ 48h later in a different session
 - A diagnostic report is generated for every submitted mock, top finding within 60s
-- **Mock result → remediation entry is one tap** *(met as written: one action on a finding makes a practice run about its concept and starts it, proved through the routes the report screen calls; the run's questions cannot yet be shown in the app, D87)*
+- **Mock result → remediation entry is one tap** *(partial: one action on a finding makes a practice run about its concept and starts it, proved through the routes the report screen calls, but the run's questions cannot be shown in the app, D87, so nothing is remediated; [M7-ACCEPTANCE.md](M7-ACCEPTANCE.md))*
 - Event taxonomy conformance ≥ 99%
 
 > **Status, added 2026-10-27 (M7 Tracks A and B):** the evidence seams are built ([ADR-0042](adr/ADR-0042-a-score-and-its-event-are-written-in-one-transaction.md),
@@ -270,22 +270,22 @@ verification (F41) · authorization negative-path 100%
 > carrying concepts and never items, filtered selection runs over the published catalogue, immediate feedback serves a verdict and not the key
 > ([ADR-0050](adr/ADR-0050-immediate-feedback-serves-a-verdict-and-not-the-key.md)), a run can be put down and picked up with no deadline, and every practice delivery is in the exposure
 > ledger ([ADR-0049](adr/ADR-0049-a-practice-delivery-is-exposure-under-its-own-key.md)). **Open:** a practice submission is not scored and so does not yet move mastery (D77),
-> feedback is judged under the first section's rules (D79), and remediation reads stored rather than decayed state (D76). D75 is closed; D80, the runner-only adversarial seed, is closed: the seeds shared a browser profile (DEC-M7-34).
+> feedback is judged under the first section's rules (D79), and remediation reads stored rather than decayed state (D76). D75 is closed; D80 records the runner-only adversarial seed.
 >
-> **Status, added 2026-10-30 (M7 Track E):** the response log can say a learner gave up on a question (`skip`, [ADR-0051](adr/ADR-0051-the-response-log-can-say-a-learner-gave-up.md)), and a
+> **Status, added 2026-10-28 (M7 Track E):** the response log can say a learner gave up on a question (`skip`, [ADR-0051](adr/ADR-0051-the-response-log-can-say-a-learner-gave-up.md)), and a
 > solution is released per question, over stored facts, only after an attempt or a skip on that question — for a mock, also the submission. It is served on the first learner route that
 > carries one, distractor-first ([ADR-0052](adr/ADR-0052-a-solution-is-served-only-through-a-gate-the-database-states.md)), and `KEY-FREE.md` gained its first row that asserts a solution is present. Learning keeps an error
 > notebook cleared only by a verified mastery transition, and bookmarks that follow their item. **Open:** the notebook and bookmarks have no routes and the skip has no button (the learner
 > surfaces are Track H), and the effort gate has no rate limit on skipping.
 >
-> **Status, added 2026-10-31 (M7 Track F):** a re-score now announces each attempt it superseded, in the transaction that supersedes it, and Learning corrects beside the evidence it holds and
+> **Status, added 2026-10-28 (M7 Track F):** a re-score now announces each attempt it superseded, in the transaction that supersedes it, and Learning corrects beside the evidence it holds and
 > revokes a promotion granted on an outcome that changed ([ADR-0053](adr/ADR-0053-a-re-score-announces-each-attempt-it-superseded-and-learning-corrects-beside-the-record.md); D72 is closed).
 > Every scored mock gets a diagnostic report whose findings are ranked by the marks each concept cost, skipped questions included (DEC-M7-21), with the practice run that would address each;
 > a re-score gives a new report beside the old. Submission to top finding was measured at about a second through the real relay and scheduler. **Open, and not met:** "mock result to remediation
 > in one tap" is proved at the handler level only, because the screens that tap are Track H2; the error notebook is not corrected by a re-score (D81); a large re-score queues ahead of
 > live submissions (D82); and the studio specs' intermittent timeouts are registered with no cause (D83).
 >
-> **Status, added 2026-11-01 (M7 Track G):** the response projection says what the interval cap discarded (DEC-M7-22), so a five-minute think no longer reads as two minutes with nothing to show it, and
+> **Status, added 2026-10-28 (M7 Track G):** the response projection says what the interval cap discarded (DEC-M7-22), so a five-minute think no longer reads as two minutes with nothing to show it, and
 > time analytics read each slot as a pair of bounds: slow-and-correct, slow-and-wrong, fast, and *not known* where the loss could carry the time over the line
 > ([ADR-0054](adr/ADR-0054-a-metric-that-lost-information-reports-that-it-did-and-does-not-guess.md), DEC-M7-23). "Slow" is a time per authored band in the rule set, published as version 2 of the
 > platform default, as are the review values (DEC-M7-24). A review schedule is kept per concept, never per item, shortens on failure and is derived from evidence, so a re-score corrects it
@@ -296,20 +296,28 @@ verification (F41) · authorization negative-path 100%
 > three coverage thresholds are back at 100, and the intermittent attempts spec is fixed and un-skipped: its 404 was never the application's (D73). Practice sessions are Track D.
 
 >
-> **Status, added 2026-11-02 (M7 Track H1):** Learning has an API layer. Eight routes, each the caller's own — report, pace, review plan, what to practise next, the error notebook with its cause, and bookmarks —
+> **Status, added 2026-10-28 (M7 Track H1):** Learning has an API layer. Eight routes, each the caller's own — report, pace, review plan, what to practise next, the error notebook with its cause, and bookmarks —
 > and a learner asking for another's attempt gets the `404` an absent one gets. The anatomy gate now asks for source in each of the five directories (it was red on `learning/api/` before the layer existed), every
 > one of the six contexts has one, and `learning-contract.spec.ts` makes an unrouted Learning handler a stated decision (DEC-M7-26). Practice has its three routes and the key-free surface covers them (D78 closed);
 > an escalation is resolved by the fold that made it (D85 closed, DEC-M7-27). **Open:** the screens and "one tap" demonstrated end to end are H2 (D67, D68); a learner with more bookmarks than content answers for in one call
 > gets no list (D86); D79 is untouched — a route does not change whose rules practice feedback is judged under.
 >
-> **Status, added 2026-11-03 (M7 Track H2):** the learner has three screens. The home screen names one next action, an escalated concept first, from the server's answers and no threshold of its own (DEC-M7-33); the report screen
+> **Status, added 2026-10-28 (M7 Track H2):** the learner has three screens. The home screen names one next action, an escalated concept first, from the server's answers and no threshold of its own (DEC-M7-33); the report screen
 > ranks findings by the marks they cost, each with the one tap to practise it, and shows the pace with the questions whose time is *not known* kept apart from fast and slow, and says when a paper was re-scored (DEC-M7-32); the
 > practice screen shows the run the tap made. **The one tap is demonstrated end to end** against the real routes, from the top finding of a scored mock to a started run of items for that concept and no other (DEC-M7-31),
 > and the run is as far as it goes: no route serves a run's questions, so the app starts a run it cannot show (D87), and the screens take the exam profile and taxonomy from the address and name concepts by identifier (D88).
 > The resume path was wrong before the screens were built on it: `boot` read the device's record after two network calls, and a device with no log numbered from one. It reads the device first and resumes offline against a stored
 > offset to the server's clock ([ADR-0055](adr/ADR-0055-a-reopened-app-reads-the-device-first-and-stands-its-clock-in-for-the-servers.md), DEC-M7-30; D67 closed, the second part by DEC-M7-35: a first visit puts the package in the worker's cache itself), and the attempt route returns the log so a second device continues the
-> numbering (DEC-M7-29; D68 closed). Content states its batch bound once and its two callers page at it (DEC-M7-28; D86 closed). **Open:** D66 wants real-device evidence; D84 is not closed by showing its label. The learner bundle
+> numbering (DEC-M7-29; D68 closed). The runner-only adversarial seed (D80) is closed, and its cause was not the runner's: the scenarios of a run shared a browser profile, so a seed could begin on a device record that its own server had never issued and `boot` threw the 404 at the page. A record the server denies now starts a clean attempt (DEC-M7-34), each scenario clears its origin before its first page, and `tools/adversarial/src/isolation.spec.ts` holds the seeds to being independent. Content states its batch bound once and its two callers page at it (DEC-M7-28; D86 closed). **Open:** D66 wants real-device evidence; D84 is not closed by showing its label. The learner bundle
 > grew by 13.6 kB raw and 3.9 kB gzipped and its budget was raised with the reason written in `bundle-budget.json`.
+
+> **Status, added 2026-10-29 (M7 Track I, and close):** the event taxonomy is read by the code. The catalog has an owner for each event, the ingestion edge admits only a complete valid envelope of a
+> catalog name with no personal data and quarantines the rest with its reason (DEC-M7-36), and the PII gate is built as the key-free argument is ([PII-FREE.md](PII-FREE.md)). Four events are emitted:
+> `mastery.gain_verified` from the server, and `mock.diagnostic_viewed`, `mock.remediation_clicked` and `practice.session_started` from the learner app, which buffers them on the device and sends them in a channel of its own
+> (DEC-M7-37). Measured over a run of the suites, 14 of 14 events conformed, and four of the fourteen events M7 owns are wired ([EVENT-CONFORMANCE.md](EVENT-CONFORMANCE.md), DEC-M7-38). **M7 closes with
+> five criteria: two pass, three are partial, none is blocked** ([M7-ACCEPTANCE.md](M7-ACCEPTANCE.md)). The report is made in about a second and has not been put under load; the tap is one and leads to a run the app cannot show (D87);
+> the events conform and are few (D89 to D92). The taxonomy itself said capture began at M0; it begins here, and the events of the milestones in between are not recoverable. The status notes above were dated for a
+> one-track-a-day cadence that did not happen and now carry the dates of the commits they describe.
 
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation
 

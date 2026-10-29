@@ -21,11 +21,13 @@ One line per document: the question it answers, not what it contains.
 - [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) — what is the threat model, and what stops it?
 - [TECH-STACK.md](TECH-STACK.md) — what technology was chosen, and why that one?
 - [UX-ARCHITECTURE.md](UX-ARCHITECTURE.md) — what are the core user flows, screen by screen?
-- [EVENT-TAXONOMY.md](EVENT-TAXONOMY.md) — what analytics events exist, and what do they mean?
+- [EVENT-TAXONOMY.md](EVENT-TAXONOMY.md) — what analytics events exist, what do they mean, and which milestone owns each?
+- [EVENT-CONFORMANCE.md](EVENT-CONFORMANCE.md) — how many of the events M7 owns are emitted, and what fraction of what was emitted conforms?
 
 ## Engineering practice
 
 - [ENGINEERING-HANDBOOK.md](ENGINEERING-HANDBOOK.md) — how is code here supposed to look and behave?
+- [PII-FREE.md](PII-FREE.md) — what keeps a name, an email or a phone number out of an analytics event, surface by surface?
 - [KEY-FREE.md](KEY-FREE.md) — what keeps an answer key from reaching a learner before they submit, surface by surface?
 
 ## Decisions
@@ -37,4 +39,5 @@ One line per document: the question it answers, not what it contains.
 
 ## Acceptance
 
+- [M7-ACCEPTANCE.md](M7-ACCEPTANCE.md) — which of M7's criteria were met, and what is partial?
 - [M6-ACCEPTANCE.md](M6-ACCEPTANCE.md) — which of M6's criteria were met, and what is still blocked on a device or a deployment?

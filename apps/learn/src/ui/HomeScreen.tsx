@@ -19,7 +19,7 @@ function Action({ action, assessment, context, onOpen }: { readonly action: Next
       <>
         <h2>{conceptLabel(action.conceptIdentityId)}</h2>
         <p>{WHY[action.why]}</p>
-        <PractiseButton conceptIdentityId={action.conceptIdentityId} label="Practise this" assessment={assessment} context={context} onOpen={onOpen} />
+        <PractiseButton conceptIdentityId={action.conceptIdentityId} label="Practise this" source="recommendation" assessment={assessment} context={context} onOpen={onOpen} />
       </>
     );
   }

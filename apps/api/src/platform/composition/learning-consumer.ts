@@ -3,6 +3,7 @@ import type { ReportSlotSource } from '../../contexts/learning/public/compositio
 import type { LearningForRelay } from '../../contexts/learning/public/composition.js';
 import type { MasteryEvidenceSource } from '../../contexts/learning/public/composition.js';
 import { ROLES } from '../auth/roles.js';
+import type { ServerEmitter } from '../analytics/server-emitter.js';
 import { PermanentDeliveryFailure, type OutboxConsumer, type OutboxEnvelope } from '../outbox/relay.js';
 
 /**
@@ -29,7 +30,11 @@ const SYSTEM: PrincipalRef = { kind: 'system', id: '00000000-0000-4000-8000-0000
 export interface LearningConsumerDeps {
   readonly evidence: MasteryEvidenceSource;
   readonly learning: LearningForRelay;
+  /** Where the analytics events of what the delivery recorded go (M7-62). Absent where nothing listens. */
+  readonly analytics?: ServerEmitter;
 }
+
+const DAY_MS = 86_400_000;
 
 export class LearningAttemptScoredConsumer implements OutboxConsumer {
   readonly name = 'learning.attempt-scored';
@@ -53,7 +58,24 @@ export class LearningAttemptScoredConsumer implements OutboxConsumer {
       { learnerRef: assembled.value.learnerRef, evidence: assembled.value.evidence, gaveUp: assembled.value.gaveUp, attemptRef: attemptId },
       { principal: SYSTEM, correlationId: envelope.correlationId },
     );
-    if (recorded.ok) return;
+    if (recorded.ok) {
+      // `mastery.gain_verified`, the north-star event: one per gain this delivery verified. Its id is derived from the transition, so a redelivery cannot count it twice.
+      for (const gain of recorded.value.gains) {
+        await this.deps.analytics?.emit({
+          name: 'mastery.gain_verified',
+          factKey: gain.transitionId,
+          occurredAt: gain.verifiedAt,
+          actor: assembled.value.learnerRef,
+          context: { concept_identity_id: gain.conceptIdentityId },
+          payload: {
+            concept_identity_id: gain.conceptIdentityId,
+            days_to_verify: Math.round(((Date.parse(gain.verifiedAt) - Date.parse(gain.promotedAt)) / DAY_MS) * 100) / 100,
+            evidence_count: gain.evidenceCount,
+          },
+        });
+      }
+      return;
+    }
     if (recorded.error.kind === 'Unavailable') throw new Error(`${recorded.error.code}: ${recorded.error.message}`);
     throw new PermanentDeliveryFailure(`${recorded.error.code}: ${recorded.error.message}`);
   }

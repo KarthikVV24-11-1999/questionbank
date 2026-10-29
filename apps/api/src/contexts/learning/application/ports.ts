@@ -222,6 +222,8 @@ export interface ConceptTracking {
   /** The last transition if it is a promotion not yet verified. */
   readonly open: {
     readonly transitionId: string;
+    /** What the concept was before this promotion (the weakest state since it was last strong): `weak` is what makes a verified promotion the north-star event. */
+    readonly from: import('../domain/concept-state.js').MasteryState;
     readonly occurredAt: string;
     readonly qualifyingEvidence: readonly string[];
     readonly ruleSetId: string;

@@ -9,7 +9,8 @@
     "./content-schemas": "./src/content-schemas.ts",
     "./client": "./src/client.ts",
     "./review-taxonomy": "./src/review-taxonomy.ts",
-    "./practice-request": "./src/practice-request.ts"
+    "./practice-request": "./src/practice-request.ts",
+    "./analytics": "./src/analytics.ts"
   },
   "scripts": {
     "generate": "openapi-typescript openapi/curriculum.yaml --output src/curriculum.ts",

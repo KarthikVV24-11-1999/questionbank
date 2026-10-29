@@ -2,10 +2,13 @@ import { StrictMode, type JSX } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@questionbank/contracts/client';
 import { DEFAULT_SYNC_POLICY, type SessionPorts } from './session/ports.js';
+import { createAnalytics } from './analytics/emitter.js';
+import { createAnalyticsApi } from './api/analytics-api.js';
 import { createAssessmentApi } from './api/assessment-api.js';
+import pkg from '../package.json';
 import { createLearningApi } from './api/learning-api.js';
 import { boot } from './bootstrap.js';
-import { activeAttemptId } from './session/persistence.js';
+import { activeAttemptId, loadRecord } from './session/persistence.js';
 import { registerServiceWorker } from './sw/register.js';
 import { warmPackageCache } from './sw/warm-package.js';
 import { HomeScreen } from './ui/HomeScreen.js';
@@ -30,11 +33,54 @@ const learning = createLearningApi(client);
  * Where the page was opened (D88): the exam profile and taxonomy come in the address, as the form and the session do, until a route offers them; the last sitting
  * is the one this device wrote down; and one key stands for every try of a tap on this page.
  */
+/** The platform tenant (P7); one until there are others. */
+const PLATFORM_TENANT = '00000000-0000-0000-0000-000000000000';
+const connection = (navigator as Navigator & { connection?: { effectiveType?: string; type?: string }; deviceMemory?: number }).connection;
+const analytics = createAnalytics({
+  storage: window.localStorage,
+  nowMs: () => Date.now(),
+  // the offset to the server's clock the last contact took, so `occurred_at` is the server's reading of when it happened (§1)
+  offsetMs: () => {
+    const id = activeAttemptId(window.localStorage);
+    return (id === null ? null : loadRecord(window.localStorage, id))?.serverOffsetMs ?? 0;
+  },
+  random: () => crypto.getRandomValues(new Uint8Array(10)),
+  send: createAnalyticsApi(client),
+  identity: {
+    // a random identifier this device keeps: pseudonymous, and the mapping to a person is Identity's, not stored here (M8)
+    pseudonymousId: (() => {
+      const kept = window.localStorage.getItem('qb.analytics.actor');
+      if (kept !== null) return kept;
+      const made = `dev-${crypto.randomUUID()}`;
+      window.localStorage.setItem('qb.analytics.actor', made);
+      return made;
+    })(),
+    sessionId: `ses-${crypto.randomUUID()}`,
+    appVersion: pkg.version,
+    tenantId: PLATFORM_TENANT,
+    surface: 'web',
+    deviceClass: () => {
+      const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? navigator.hardwareConcurrency;
+      return memory <= 2 ? 'low' : memory <= 4 ? 'mid' : 'high';
+    },
+    networkClass: () => {
+      if (!navigator.onLine) return 'offline';
+      const effective = connection?.effectiveType;
+      if (effective === 'slow-2g' || effective === '2g') return '2g';
+      if (effective === '3g') return '3g';
+      return connection?.type === 'wifi' ? 'wifi' : '4g';
+    },
+  },
+});
+window.addEventListener('online', () => analytics.flush());
+analytics.flush();
+
 const screenContext: ScreenContext = {
   examProfileVersionId: params.get('profile'),
   taxonomyVersionId: params.get('taxonomy'),
   lastAttemptId: activeAttemptId(window.localStorage),
   pageKey: crypto.randomUUID(),
+  analytics,
 };
 const open = (href: string): void => window.location.assign(href);
 const ports: SessionPorts = {

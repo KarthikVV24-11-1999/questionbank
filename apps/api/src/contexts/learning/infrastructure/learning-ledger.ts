@@ -287,6 +287,7 @@ class PostgresLedgerTransaction implements LedgerTransaction {
     const last = await this.client.query<{
       transition_id: string;
       concept_identity_id: string;
+      from_state: MasteryState;
       to_state: MasteryState;
       is_regression: boolean;
       occurred_at: Date;
@@ -294,7 +295,7 @@ class PostgresLedgerTransaction implements LedgerTransaction {
       rule_set_id: string;
       rule_set_hash: string;
     }>(
-      `SELECT DISTINCT ON (concept_identity_id) transition_id, concept_identity_id, to_state, is_regression, occurred_at, verified_at, rule_set_id, rule_set_hash
+      `SELECT DISTINCT ON (concept_identity_id) transition_id, concept_identity_id, from_state, to_state, is_regression, occurred_at, verified_at, rule_set_id, rule_set_hash
          FROM learning.mastery_transition t
         WHERE learner_ref = $1 AND taxonomy_version_id = $2 AND concept_identity_id = ANY($3::uuid[])
           AND NOT EXISTS (SELECT 1 FROM learning.transition_revocation r WHERE r.transition_id = t.transition_id)
@@ -321,6 +322,7 @@ class PostgresLedgerTransaction implements LedgerTransaction {
             held && row.verified_at === null
               ? Object.freeze({
                   transitionId: row.transition_id,
+                  from: row.from_state,
                   occurredAt: iso(row.occurred_at),
                   qualifyingEvidence: Object.freeze(links.rows.filter((l) => l.transition_id === row.transition_id).map((l) => l.evidence_id)),
                   ruleSetId: row.rule_set_id,

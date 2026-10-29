@@ -609,3 +609,27 @@ When the server answers 404 for the attempt a device's record names, `boot` does
 ### DEC-M7-35 — On a first visit the page puts the package in the service worker's cache itself
 The worker caches the package and its key only for a page it controls, and it does not take over the page that installed it: it has no `skipWaiting` and no `clients.claim`, so that a new shell is never swapped under an attempt that is open. A first visit therefore loaded its package straight from the network and kept nothing, and a tab reopened during an outage had no paper to verify (D67). Three ways to close that were weighed. The worker claiming the page is the smallest change and breaks the invariant above; it is rejected. The worker fetching the package when it installs puts the work where the knowledge is not — it does not know which form's package to fetch, nor carry the learner's credentials — and caches a signed paper the learner may never sit; it is rejected. The page knows its form and holds the credentials, so after it registers the worker it asks for the package and the key once more and writes the answers into the worker's cache under the keys the worker reads. The page does not wait for a controller: without a claim a page that installed the worker is never controlled, so its own request would not pass through the worker whenever it was made, and the write is the page's. It does nothing when a worker already controlled the page at load, does not block rendering, does not touch what the learner sees, and swallows any failure. Verification is unchanged: the app verifies the package every time it opens one, from the cache as from the network; nothing here trusts a cached package.
 → `apps/learn/src/sw/warm-package.ts` · `apps/learn/src/main.tsx` · `apps/learn/public/sw.js`
+
+### DEC-M7-36 — The ingestion edge admits or quarantines, and the sink is a port the real Parquet writer will implement later
+`AnalyticsEdge` is the one place an event is admitted: a complete valid envelope (the shared contract, every field of EVENT-TAXONOMY §1 but `received_at`, which the edge stamps), a name in §3, and no personal data
+in any field. A refusal is quarantined with its reason and counted, and told to an alert hook as it happens; what is kept is the path and the kind of what was found, never the value. A repeated `event_id` is a
+duplicate and is not written again. The destination is a port because §1 rule 2 asks for date-partitioned Parquet in object storage and there is none at M7: the implementation writes newline-delimited JSON into a
+directory per day, and the Parquet writer is a second implementation behind the same port (D90). Conformance is measured at the edge, before the sink, so it does not move when the sink does. The catalog the edge
+admits is the contract's list of names, held equal to the document's §3 by a test that parses the document.
+→ `apps/api/src/platform/analytics/edge.ts` · `packages/contracts/src/analytics.ts` · `apps/api/src/fitness/event-catalog.spec.ts`
+
+### DEC-M7-37 — The learner app's events buffer and upload in a channel of their own, not through the response log
+EVENT-TAXONOMY §1 rule 5 has offline events upload with the response log. The response log is the attempt engine's, with a closed vocabulary of response events (select, change, clear, visit, leave, flag, unflag,
+skip), validated by schema on both ends, and the screens that emit M7's events (the report, the home screen) are outside an attempt. Putting analytics in that channel would widen the engine's vocabulary with
+events that are not responses, in the one place an error costs a learner an answer. So the emitter keeps the same pattern in a channel of its own: written to the device before it is sent, removed only when the edge has
+answered for it, retried when the network is back, bounded, and unable to throw into a screen. It reads and writes one storage key and nothing the attempt keeps. `occurred_at` is the device clock moved by the offset
+to the server's clock the last contact took, which is §1's "offset-corrected".
+→ `apps/learn/src/analytics/emitter.ts` · `apps/learn/src/api/analytics-api.ts`
+
+### DEC-M7-38 — Conformance is measured over what M7 owns, in two numbers, and a server event is derived from the fact where the fact is made
+Reporting against the 79 events of the catalog would measure the milestones that have not happened. The Owner column of the taxonomy names, for each event, the milestone whose surface can know the fact, and M7 is
+held to the fourteen that are its own. Two numbers are reported together: envelope conformance (of the events a run of the suites emitted, the fraction the edge admits, replayed from a log of the run so the
+denominator is not a count of emitters) and catalog coverage (of the fourteen, how many have an emitter wired and proved at its call site). A server event is derived in the relay's consumer from what the recorder
+reports it did (`mastery.gain_verified` from the gain it verified), with an id drawn from the transition so a redelivery is not counted twice, rather than from a second mechanism beside the outbox; the cost is that it
+is emitted after the commit and so is at-most-once (D92). Server events carry nominal `device_class` and `network_class`, which the envelope requires and a server does not have.
+→ `docs/EVENT-CONFORMANCE.md` · `apps/api/src/fitness/event-conformance.ts` · `apps/api/src/platform/analytics/server-emitter.ts`

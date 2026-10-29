@@ -302,6 +302,7 @@ describe('a weak concept becomes strong, and the gain is verified', () => {
     const done = expectValue(await handlerOn().handle({ learnerRef: learner, evidence: history.qualifying(concept) }, system));
 
     expect(done.transitions).toHaveLength(1);
+    expect(done.gains).toEqual([]); // qualified, not yet a gain
     expect(await transitions(learner)).toMatchObject([{ from_state: 'weak', to_state: 'strong', is_regression: false, verified_at: null, rule_set_id: '00000000-0000-4000-8000-0000000000d3' }]);
     const links = (await database.pool.query(`SELECT role, count(*)::int AS n FROM learning.mastery_transition_evidence GROUP BY role`)).rows;
     expect(links).toEqual([{ role: 'qualifying', n: 8 }]);
@@ -340,6 +341,8 @@ describe('a weak concept becomes strong, and the gain is verified', () => {
     expectValue(await handlerOn().handle({ learnerRef: learner, evidence: [...history.weak(concept), ...history.qualifying(concept)] }, system));
     const done = expectValue(await handlerOn(database.pool, at(30)).handle({ learnerRef: learner, evidence: history.later(concept, 2, 2 * 24 + 60) }, system));
     expect(done.verified).toHaveLength(1);
+    // the gain, as the analytics event will state it: the concept, the promotion and its confirmation two days apart, the 8 + 2 responses behind it
+    expect(done.gains).toEqual([{ transitionId: done.verified[0]!.transitionId, taxonomyVersionId: TAXONOMY, conceptIdentityId: concept, promotedAt: expect.any(String), verifiedAt: at(0, (2 * 24 + 60) * 60 + 5), evidenceCount: 10 }]);
 
     const [row] = await transitions(learner);
     expect(row).toMatchObject({ from_state: 'weak', to_state: 'strong', is_regression: false });
@@ -349,6 +352,24 @@ describe('a weak concept becomes strong, and the gain is verified', () => {
     expect(await northStar(learner)).toBe(1);
   });
 
+  it('announces the gain in the delivery that qualified and verified it at once, from the responses that did both', async () => {
+    const learner = randomUUID();
+    const concept = randomUUID();
+    const done = expectValue(await handlerOn(database.pool, at(30)).handle({ learnerRef: learner, evidence: [...history.weak(concept), ...history.qualifying(concept), ...history.later(concept, 2, 2 * 24 + 60)] }, system));
+    expect(await northStar(learner)).toBe(1);
+    expect(done.gains).toEqual([{ transitionId: expect.any(String), taxonomyVersionId: TAXONOMY, conceptIdentityId: concept, promotedAt: expect.any(String), verifiedAt: at(0, (2 * 24 + 60) * 60 + 5), evidenceCount: 10 }]);
+  });
+
+  it('announces no gain for a promotion that did not begin from weak, however it was verified: the north-star event is a weakness turned into a strength', async () => {
+    const learner = randomUUID();
+    const concept = randomUUID();
+    expectValue(await handlerOn().handle({ learnerRef: learner, evidence: strongRun(concept) }, system));
+    const done = expectValue(await handlerOn(database.pool, at(30)).handle({ learnerRef: learner, evidence: history.later(concept, 2, 2 * 24 + 60) }, system));
+    expect(done.verified).toHaveLength(1);
+    expect(done.gains).toEqual([]);
+    expect(await northStar(learner)).toBe(0);
+  });
+
   it('verifies it once: the same verifying responses delivered again change nothing', async () => {
     const learner = randomUUID();
     const concept = randomUUID();
@@ -356,7 +377,7 @@ describe('a weak concept becomes strong, and the gain is verified', () => {
     const verifying = history.later(concept, 2, 2 * 24 + 60);
     expectValue(await handlerOn(database.pool, at(30)).handle({ learnerRef: learner, evidence: verifying }, system));
     const again = expectValue(await handlerOn(database.pool, at(31)).handle({ learnerRef: learner, evidence: verifying }, system));
-    expect(again).toMatchObject({ recorded: 0, transitions: [], verified: [] });
+    expect(again).toMatchObject({ recorded: 0, transitions: [], verified: [], gains: [] });
     expect(await northStar(learner)).toBe(1);
     expect(await count('SELECT count(*)::int AS n FROM learning.mastery_transition WHERE learner_ref = $1', [learner])).toBe(1);
   });

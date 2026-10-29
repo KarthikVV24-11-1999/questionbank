@@ -1,7 +1,9 @@
 import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../config/config.js';
-import { readdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import type { Pool } from 'pg';
@@ -17,6 +19,8 @@ import { GENERATION_POLICIES } from '../../contexts/generation/application/polic
 import { checkBoundaries } from '../../fitness/boundary-rules.js';
 import { createApplication, type CreateApplicationOverrides } from './app-factory.js';
 import type { AppConfig } from '../config/config.js';
+import { anEnvelope } from '../../testing/analytics-fixtures.js';
+import { serveOnLoopback } from '../../testing/loopback.js';
 
 const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -69,6 +73,22 @@ describe('createApplication — unit speed', () => {
     // every default resolves without a caller supplying anything.
     app = await createApplication(CONFIG);
     expect(app).toBeDefined();
+  });
+
+  it('writes the analytics events it admits to a directory beside the media store when it is not under test, and to memory when it is', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'qb-analytics-'));
+    try {
+      const principals = { resolve: () => ({ kind: 'human', id: 'learner-1', roleContext: ['learner'] }) } as never;
+      app = await createApplication({ ...CONFIG, nodeEnv: 'development', mediaStorageRoot: join(root, 'media') }, { pool: fakePool(), principals });
+      await serveOnLoopback(app);
+      const event = anEnvelope();
+      const response = await request(app.getHttpServer()).post('/v1/analytics/events').send({ events: [event] });
+      expect(response.status).toBe(202);
+      const [day] = readdirSync(join(root, 'analytics'));
+      expect(JSON.parse(readFileSync(join(root, 'analytics', day!, 'events.ndjson'), 'utf8').trim()).event_id).toBe(event.event_id);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('closes the pool it built itself when app.close() is called — the production path only', async () => {
