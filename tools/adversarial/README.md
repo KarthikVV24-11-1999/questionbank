@@ -10,7 +10,7 @@ missing afterwards.
 | Dimension | Runs in | Notes |
 |---|---|---|
 | Tab crash, tab close, browser quit | **Real Chrome**, real `localStorage` on a real profile | `Page.crash`, `page.close`, `Browser.close` |
-| Browser killed (`SIGKILL`) | **Real Chrome** | only once the write is on disk; a kill that does not wait loses it (D66), see `known-gaps.spec.ts` |
+| Browser killed (`SIGKILL`) | **Real Chrome** | only once the last event is durable, read back by a second browser started on a copy of the profile (`durable.ts`, D93); a kill that does not wait loses it (D66), see `known-gaps.spec.ts` |
 | Backend down (`503`) and connection dropped | **Real Chrome** against `src/stub-server.ts` | not the API: it speaks the contract's shapes and keeps events in memory |
 | Wall clock shifted forward and back | **Real Chrome** (`Date` is replaced in the page) | nothing in the app reads it, which is what is being shown |
 | Monotonic clock jumping or drifting | jsdom, in `apps/learn/src/session/adversarial.spec.ts` | a browser's monotonic clock cannot be moved on demand |

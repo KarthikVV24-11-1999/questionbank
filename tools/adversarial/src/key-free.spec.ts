@@ -6,8 +6,8 @@ import { StubServer } from './stub-server.js';
 /**
  * The learner's own screens and what the device keeps (M6-59, F6/F35), in a real browser. The server is made to leak: the signed
  * package carries an answer key and a solution on every item, which the real server never does. The shell must draw none of it and
- * keep none of it on the device — and the same scan must find the leak where it was deliberately left (the cached package), so that an
- * empty result elsewhere is an empty result and not a scan that cannot see.
+ * keep none of it in the page's storage — and the same scan must find the leak in the bytes the server sent, so that an empty result elsewhere is an empty result and not a scan that
+ * cannot see. (The service worker's cache keeps the package as it came, leak and all, and is not scanned here; KEY-FREE.md says so, under what the layers do not claim.)
  */
 const environment: RunEnvironment = { distDir: resolve(import.meta.dirname, '../../../apps/learn/dist'), chrome: { current: null, profileDir: newProfileDir() } };
 const LEAK = { correctOptionId: 'b', answerKey: { kind: 'SINGLE_CORRECT', optionId: 'b' }, solution: 'WORKED-SOLUTION-TEXT-7731' };

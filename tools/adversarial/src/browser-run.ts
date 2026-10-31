@@ -1,8 +1,7 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { projectResponses, type ResponseEvent } from '@questionbank/attempt-engine';
 import type { BrowserContext, Page } from 'playwright-core';
 import { launchChrome, type RunningChrome } from './chrome.js';
+import { DURABLE_WAIT_MS, readFromDisk, storageListing, waitUntilDurable } from './durable.js';
 import { defaultEvidenceDir, recordPage, writeEvidence, type Recorder } from './evidence.js';
 import type { Interruption, Option, Scenario, SlotIndex, Step } from './scenario.js';
 import { StubServer } from './stub-server.js';
@@ -30,6 +29,11 @@ export interface KillReport {
   readonly questionOpen: boolean;
   readonly projectionEqual: boolean;
   readonly logIsPrefixOfReopened: boolean;
+  /** The events the device held at the kill and the restored record does not: what a loss is, as a fact. */
+  readonly missingAfterRestore: readonly string[];
+  readonly eventsBefore: number;
+  readonly eventsAfter: number;
+  readonly lastBefore: string | null;
   /** What the page said was left on reopening, and what the server's clock says is left. The first must not exceed the second. */
   readonly remainingOnReopenMs: number;
   readonly serverRemainingMs: number;
@@ -55,6 +59,7 @@ interface Oracle {
 }
 
 interface DeviceRecord {
+  readonly attemptId: string;
   readonly events: ResponseEvent[];
   readonly acknowledgedIds: string[];
   readonly rejectedIds: string[];
@@ -119,15 +124,6 @@ async function readRecord(page: Page): Promise<DeviceRecord | null> {
   });
 }
 
-export function leveldbHolds(profileDir: string, needle: string): boolean {
-  const dir = join(profileDir, 'Default', 'Local Storage', 'leveldb');
-  try {
-    return readdirSync(dir).some((file) => readFileSync(join(dir, file)).includes(needle));
-  } catch {
-    return false;
-  }
-}
-
 function lastKindFor(record: DeviceRecord | null, slot: string, kinds: readonly string[]): ResponseEvent | undefined {
   return [...(record?.events ?? [])].reverse().find((event) => event.slot === slot && kinds.includes(event.kind));
 }
@@ -161,7 +157,7 @@ function parseRemaining(text: string): number {
  * A defect planted so that the harness can be shown to fail. Each is a thing the harness claims to catch; `negative-controls.spec.ts`
  * runs a scenario with each and expects the run to throw. A harness that cannot be made to fail proves nothing by passing.
  */
-export type Sabotage = 'device-forgets-responses' | 'server-drops-events' | 'server-restarts-deadline-on-read' | 'attempt-requests-are-cached';
+export type Sabotage = 'device-forgets-responses' | 'server-drops-events' | 'server-restarts-deadline-on-read' | 'attempt-requests-are-cached' | 'kill-without-durability';
 
 export interface RunOptions {
   readonly sabotage?: Sabotage;
@@ -175,7 +171,12 @@ export interface RunOptions {
 
 /** A condition that never came true: this module's own wait, a step's watchdog, or one of the browser library's. */
 const timedOut = (error: unknown): boolean =>
-  error instanceof Error && (error.name === 'TimeoutError' || /^timed out waiting for: /u.test(error.message) || /did not finish within \d+ ms$/u.test(error.message));
+  error instanceof Error && (error.name === 'TimeoutError' || /^timed out waiting for[: ]/u.test(error.message) || /did not finish within \d+ ms$/u.test(error.message));
+
+/** How long a step may take before it is reported as stuck: twice a wait, and, for a kill that waits for the last event to be durable, the browser's own commit as well (`durable.ts`). */
+export function stepBudgetMs(step: Step, waitMs: number): number {
+  return waitMs * 2 + (step.t === 'kill' && step.how === 'sigkill-durable' ? DURABLE_WAIT_MS : 0);
+}
 
 export async function runScenario(scenario: Scenario, environment: RunEnvironment, options: RunOptions = {}): Promise<RunReport> {
   const waitMs = options.waitMs ?? WAIT_MS;
@@ -332,9 +333,13 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       await chrome.close();
       chrome = await freshChrome(environment);
     } else {
-      // The browser is killed outright, but only once the bytes are on disk: what is being exercised is restoring from a killed
-      // browser's profile. A kill that does not wait is `process-kill.spec.ts`, which says what it loses.
-      if (last !== undefined) await until('the last event is in the profile on disk', () => leveldbHolds(environment.chrome.profileDir, last.eventId), Math.max(20_000, waitMs));
+      // The browser is killed outright, but only once the last event is durable: what is being exercised is restoring from a killed browser's profile. Durable is established
+      // by reading the record back from what is on disk, with a second browser started on a copy of it, and not by looking for the event's bytes in a file (`durable.ts` says why
+      // that proxy failed). A kill that does not wait is `known-gaps.spec.ts`, which says what it loses (D66).
+      if (last !== undefined && options.sabotage !== 'kill-without-durability') {
+        const key = `qb.attempt.${before.attemptId}`;
+        await waitUntilDurable({ read: () => readFromDisk(environment.chrome.profileDir, server.origin, key), listing: () => storageListing(environment.chrome.profileDir), eventId: last.eventId });
+      }
       await chrome.kill();
       chrome = await freshChrome(environment);
     }
@@ -355,6 +360,10 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       questionOpen,
       projectionEqual: restoredProjection(before, after),
       logIsPrefixOfReopened: before.events.every((event, i) => JSON.stringify(after.events[i]) === JSON.stringify(event)),
+      missingAfterRestore: before.events.filter((event) => !after.events.some((held) => held.eventId === event.eventId)).map((event) => event.eventId),
+      eventsBefore: before.events.length,
+      eventsAfter: after.events.length,
+      lastBefore: last === undefined ? null : `${last.eventId} (${last.kind})`,
       remainingOnReopenMs,
       serverRemainingMs,
     });
@@ -367,8 +376,9 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       if (process.env['QB_ADVERSARIAL_TRACE'] !== undefined) console.log(`[${scenario.seed}] step ${index}`, JSON.stringify(step));
       // A step that never finishes is reported as that step, not as a test that ran out of time somewhere.
       let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const budget = stepBudgetMs(step, waitMs);
       const stuck = new Promise<never>((_, reject) => {
-        watchdog = setTimeout(() => reject(new Error(`seed ${scenario.seed}: step ${index} ${JSON.stringify(step)} did not finish within ${waitMs * 2} ms`)), waitMs * 2);
+        watchdog = setTimeout(() => reject(new Error(`seed ${scenario.seed}: step ${index} ${JSON.stringify(step)} did not finish within ${budget} ms`)), budget);
       });
       try {
         await Promise.race([applyStep(step, index), stuck]);
@@ -388,6 +398,16 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     const serverProjection = server.projection();
     const deviceProjection = projectionOf(finalRecord);
     const answerOf = (projection: typeof serverProjection, slot: string) => projection.slots.find((entry) => entry.slot === slot);
+    // first, what each kill cost, as events: a loss at a kill is reported as the events it lost, before the slots that consequently read wrong
+    for (const kill of kills) {
+      if (!kill.projectionEqual || !kill.logIsPrefixOfReopened) {
+        throw new Error(
+          `seed ${scenario.seed}: after a ${kill.how} the reopened attempt is not the one that was killed: the device held ${kill.eventsBefore} events before it (the last ${kill.lastBefore}), the restored record holds ${kill.eventsAfter}` +
+            (kill.missingAfterRestore.length === 0 ? ' with none missing (the projection or the order differs)' : ` and is missing ${kill.missingAfterRestore.length}: ${kill.missingAfterRestore.slice(0, 3).join(', ')}${kill.missingAfterRestore.length > 3 ? ', …' : ''}`),
+        );
+      }
+      if (kill.remainingOnReopenMs > kill.serverRemainingMs + 2_000) throw new Error(`seed ${scenario.seed}: after a ${kill.how} the page showed ${kill.remainingOnReopenMs} ms left; the server's deadline leaves ${kill.serverRemainingMs}`);
+    }
     for (const [index, slotId] of SLOT_IDS.entries()) {
       for (const [where, projection] of [['device', deviceProjection], ['server', serverProjection]] as const) {
         const got = answerOf(projection, slotId);
@@ -400,10 +420,6 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     const serverIds = new Set(server.events.keys());
     const missing = finalRecord.events.filter((event) => !serverIds.has(event.eventId));
     if (missing.length > 0) throw new Error(`seed ${scenario.seed}: ${missing.length} events on the device never reached the server`);
-    for (const kill of kills) {
-      if (!kill.projectionEqual || !kill.logIsPrefixOfReopened) throw new Error(`seed ${scenario.seed}: after a ${kill.how} the reopened attempt is not the one that was killed`);
-      if (kill.remainingOnReopenMs > kill.serverRemainingMs + 2_000) throw new Error(`seed ${scenario.seed}: after a ${kill.how} the page showed ${kill.remainingOnReopenMs} ms left; the server's deadline leaves ${kill.serverRemainingMs}`);
-    }
     const deadlineUnmoved = server.attempt!.deadline === deadline0;
     if (!deadlineUnmoved) throw new Error(`seed ${scenario.seed}: the server's deadline moved`);
     const cachedAttemptRequests = cacheInfo.urls.filter((path: string) => path.startsWith('/v1/assessment/attempts')).length;

@@ -1,7 +1,8 @@
 import { resolve } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, describe, expect, it } from 'vitest';
-import { clearCarriedOver, freshChrome, leveldbHolds, newProfileDir, waitFor, type RunEnvironment } from './browser-run.js';
+import { clearCarriedOver, freshChrome, newProfileDir, waitFor, type RunEnvironment } from './browser-run.js';
+import { readFromDisk, storageListing, waitUntilDurable } from './durable.js';
 import type { RunningChrome } from './chrome.js';
 import { StubServer } from './stub-server.js';
 
@@ -55,11 +56,11 @@ describe('a browser killed outright (D66)', () => {
   it('keeps an answer once the write is on disk — the kill is not the loss, the window is', async () => {
     const { server, chrome } = await sitting();
     const page = await answerOffline(chrome, server, 'c');
-    const record = await page.evaluate(() => window.localStorage.getItem(`qb.attempt.${window.localStorage.getItem('qb.attempt.active')}`));
+    const key = await page.evaluate(() => `qb.attempt.${window.localStorage.getItem('qb.attempt.active')}`);
+    const record = await page.evaluate((name) => window.localStorage.getItem(name), key);
     const last = (JSON.parse(record!) as { events: Array<{ eventId: string }> }).events.at(-1)!;
-    const { readdirSync, readFileSync } = await import('node:fs');
-    const dir = `${environment.chrome.profileDir}/Default/Local Storage/leveldb`;
-    await waitFor('the answer is in the profile on disk', () => readdirSync(dir).some((file) => readFileSync(`${dir}/${file}`).includes(last.eventId)), 20_000);
+    // durable is read back from what is on disk, not looked for in a file (`durable.ts`)
+    await waitUntilDurable({ read: () => readFromDisk(environment.chrome.profileDir, server.origin, key), listing: () => storageListing(environment.chrome.profileDir), eventId: last.eventId });
     await chrome.kill();
     environment.chrome.current = null;
     const reopened = await freshChrome(environment);
@@ -69,24 +70,19 @@ describe('a browser killed outright (D66)', () => {
   });
 
   it('loses an answer the browser had not yet written to disk when it was killed, with the server unreachable', async () => {
-    // Whether a given kill lands inside the window is up to Chrome, so the test looks at the disk after the kill and only counts a kill
-    // that left the answer off it. Such a kill happens nearly every time; the loop is for the rare one that does not.
+    // Whether a given kill lands inside the window is up to Chrome, so the test reads what the restored browser holds and only counts a kill that left the answer out of it.
+    // Such a kill happens nearly every time; the loop is for the rare one that does not.
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const { server, chrome } = await sitting();
       const page = await answerOffline(chrome, server, 'd');
-      const record = await page.evaluate(() => window.localStorage.getItem(`qb.attempt.${window.localStorage.getItem('qb.attempt.active')}`));
-      const last = (JSON.parse(record!) as { events: Array<{ eventId: string }> }).events.at(-1)!;
       await chrome.kill();
       environment.chrome.current = null;
-      const onDisk = leveldbHolds(environment.chrome.profileDir, last.eventId);
       const reopened = await freshChrome(environment);
       server.outage = 'off';
       const answer = await answerOf(reopened, server);
       await server.stop();
-      if (onDisk) {
-        expect(answer, 'what is on disk is what comes back').toBe('d');
-        continue;
-      }
+      // a kill that landed after the browser's commit restores the answer: not the window, so look again
+      if (answer === 'd') continue;
       // D66: the answer was never on disk, the server never had it, and nothing else holds it. When this goes red, the loss has closed.
       expect(answer).toBeNull();
       return;

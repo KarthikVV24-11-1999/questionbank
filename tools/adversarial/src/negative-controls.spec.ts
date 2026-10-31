@@ -35,8 +35,28 @@ describe('the adversarial harness is red when something is wrong', () => {
     await expect(runScenario(generateScenario(SEED), environment, { sabotage, waitMs: 4_000, evidence: false })).rejects.toThrow(message);
   });
 
+  it('fails when a durable kill does not wait for durability, and says which events the restored record is missing', async () => {
+    // a browser killed in the browser's own write delay loses what it had not yet committed (D66); the gate before a durable kill is what keeps that out of the runs
+    const scenario = { seed: 1, steps: [{ t: 'answer', slot: 0, option: 'a' }, { t: 'outage', mode: '503' }, { t: 'answer', slot: 1, option: 'b' }, { t: 'answer', slot: 2, option: 'c' }, { t: 'kill', how: 'sigkill-durable' }] } as const;
+    const error = await runScenario(scenario, environment, { sabotage: 'kill-without-durability', waitMs: 4_000, evidence: false }).then(() => null, (thrown: unknown) => thrown as Error);
+    const said = /after a sigkill-durable the reopened attempt is not the one that was killed: the device held (\d+) events before it \(the last [0-9a-f-]{36} \(select\)\), the restored record holds (\d+) and is missing (\d+): [0-9a-f-]{36}/u.exec(error?.message ?? '');
+    expect(said, error?.message).not.toBeNull();
+    const [before, after, missing] = said!.slice(1).map(Number) as [number, number, number];
+    // the reopen adds events of its own, so the restored record can hold more than it lost; what matters is that some of what the device held is not in it
+    expect(missing).toBeGreaterThan(0);
+    expect(missing).toBeLessThanOrEqual(before);
+    expect(after).toBeGreaterThanOrEqual(before - missing);
+    expect(after).toBeGreaterThan(0); // never an empty record: the reopen writes its own visit
+  });
+
+  it('passes the same scenario with the gate in place: the event is durable before the kill, and comes back', async () => {
+    const scenario = { seed: 1, steps: [{ t: 'answer', slot: 0, option: 'a' }, { t: 'outage', mode: '503' }, { t: 'answer', slot: 1, option: 'b' }, { t: 'answer', slot: 2, option: 'c' }, { t: 'kill', how: 'sigkill-durable' }] } as const;
+    await expect(runScenario(scenario, environment, { waitMs: 4_000, evidence: false })).resolves.toMatchObject({ seed: 1 });
+  });
+
   it('names every planted defect it can plant: none is left without a case', () => {
     const planted: Sabotage[] = ['device-forgets-responses', 'server-drops-events', 'server-restarts-deadline-on-read', 'attempt-requests-are-cached'];
     expect(failures.map(([sabotage]) => sabotage).sort()).toEqual([...planted].sort());
+    expect('kill-without-durability' satisfies Sabotage).toBeDefined(); // its case is the test above: it needs a scenario of its own
   });
 });

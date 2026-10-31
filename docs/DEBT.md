@@ -489,8 +489,10 @@ The learner app writes every response to the device's `localStorage` before it t
 browser that quits, keep all of it — a hundred seeded runs in a real Chrome show that. A browser killed with no warning (the way a phone
 short of memory kills one) is different: Chrome commits `localStorage` to disk some seconds after the write, and what was written in that window
 is gone on reopening. If the server has the response the learner gets it back from there; **if the backend was unreachable, nothing has it.**
-Measured in `known-gaps.spec.ts`: a kill that lands before the write is on disk loses the answer, and one that waits for the write
-(about five seconds on this Chrome) loses nothing.
+Measured in `known-gaps.spec.ts`: a kill that lands before the write is on disk loses the answer, and one that waits for the write loses nothing.
+**The window is not five seconds.** Chrome commits an origin's `localStorage` about five seconds after a write only for the first few commits; after that it commits about once a minute
+however often the page writes (measured: a commit, then nothing for fifty-odd seconds while the page wrote every three; another origin in the same browser was not held back), so a learner who
+has been answering for a while has up to a minute of answers that are not on disk (D93).
 
 **Trigger** Real-device evidence that a learner is killed mid-attempt while offline, or any change to how the log is kept: the log moved to
 IndexedDB with strict durability (a transaction that completes only once it is on disk) closes the window, and the test that describes it goes red.
@@ -694,6 +696,24 @@ stored makes at-least-once delivery of nothing.
 **Cited** `apps/api/src/fitness/event-conformance.ts`
 
 ## Closed
+
+### D93 — The gate before a durable kill looked for the event's bytes, and failed on a runner while the app lost nothing *(closed in the repair after M7 Track I)*
+
+`sigkill-durable` waits until the last event is durable so that what it tests is restoring what a browser wrote, not losing what it had not (that is D66). The wait searched the profile's
+LevelDB files for the event's id as text. On a runner it timed out after sixty seconds in a scenario that held thirty-four unsent events through an outage: the page showed them all, the retries
+backed off correctly, and nothing about the app's durability had changed. A gate on bytes had gone red for a reason that was not the fact.
+
+**Cause.** Not the one first suspected (compaction into compressed table files made the id ungreppable): a profile written to in the same way keeps the id as plain text in the write-ahead log for
+as long as the log is the newest file. The event was not on disk. Chrome commits an origin's `localStorage` about five seconds after a write for its first few commits and about once a minute
+after that, so a scenario that had been writing for a while had its newest events off disk for up to a minute, and the gate, which gave up at sixty seconds on a runner, was racing a limit it did not
+know of. The gate was right that the value was not durable and wrong about how long that could last; a runner is slower, so a scenario reaches its limit earlier.
+
+**What closed it.** The gate now reads the fact. A second Chrome is started on a copy of the profile's storage and asked for the record, so "durable" means that a browser started from nothing but the
+disk reads the event; the files are looked at only to know when to ask again, never for the answer. It waits up to two minutes, which is the browser's own commit and not a timeout to be raised
+when a runner is slow. A durable kill that does not wait is shown to lose events, and the failure names them: the event expected, how many the device held, how many the restored record holds, and
+which are missing. The D66 tests read the restored value too (`durable.ts`, `durable.spec.ts`).
+
+**Cited** `tools/adversarial/src/durable.ts`
 
 ### D67 — A tab reopened during an outage cannot resume the attempt *(closed in two parts: M7-56, then the repair after M7 Track H2)*
 
