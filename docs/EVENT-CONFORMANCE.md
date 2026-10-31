@@ -14,14 +14,14 @@ the whole catalog at M7 would report a figure that no amount of M7 work could mo
 
 ## The measurement
 
-`pnpm --filter @questionbank/api run event-conformance` runs the learner suite and the API's call-site specs with a log marker made in the temp directory, so that every event they emit is
-appended to a file, then replays that file through a fresh edge. Last run, 2026-10-29:
+`pnpm --filter @questionbank/api run event-conformance` runs the learner suite, the API's call-site specs and the built app in a real Chrome with a log marker made in the temp directory, so that every event they emit is
+appended to a file, then replays that file through a fresh edge. Last run, 2026-10-31:
 
 | | |
 |---|---|
-| Events emitted by the run | 14 (10 from the learner app's screens, 4 from the server) |
-| Admitted by the edge | 14 of 14 |
-| **Envelope conformance** | **14 / 14 = 100%** |
+| Events emitted by the run | 17 (10 from the learner app's screens, 4 from the server, 3 from the built app in a real Chrome) |
+| Admitted by the edge | 17 of 17 |
+| **Envelope conformance** | **17 / 17 = 100%** |
 | **Catalog coverage** | **4 of 14** M7-owned events wired |
 
 Events planted on purpose, to show the check refusing them, are not logged and are not in the denominator: they are test inputs made to fail, not something the app
@@ -58,13 +58,18 @@ the shipped source about which events are emitted.
 
 - **Conformance is measured at the edge, before the sink.** The sink at M7 is a local directory and Parquet in object storage is M8's (D90). An event that conforms is not
   an event that has reached analytics.
-- **The wiring in `main.tsx` is covered by no test.** The screens, the emitter and the call to the edge are each tested; the entry point that joins them to the real device, clock and network is
-  excluded from coverage like the rest of that file, and is exercised only by the adversarial suite's runs of the built app, which do not open a screen that emits.
-- **The client path was never run against a deployment.** The learner app's events are validated and admitted in tests that replay them through the real edge; no
-  browser has sent one over a network to a running API in this repository's suites.
+- **The shipped app's wiring is proved for one event, and it is shared by all three.** `tools/adversarial/src/analytics.spec.ts` loads the built bundle in a real Chrome, opens the
+  report screen, and requires `mock.diagnostic_viewed` to leave the page as a conforming envelope with the actor id the device keeps; that the same event is kept when the edge is down and sent
+  when the network returns; and that what an earlier page left unsent is sent as the next one starts. All three client events go through the one object `main.tsx` builds, so a defect there would
+  show in that test; the tap that emits `mock.remediation_clicked` and `practice.session_started` is not driven in the browser (the stand-in server has no route for a practice run), and those two are
+  proved by the component tests alone.
+- **The client path was never run against the API.** The events leave a real Chrome for a stand-in server that records them; they are validated against the contract in the test and admitted by the
+  real edge in the measurement, and no browser has sent one to a running API.
 - **A server event is emitted after the work that produced it has committed, by the relay's consumer.** If the process dies between the two, the relay redelivers, the
   recorder finds the evidence stored, and the gain is not announced again: `mastery.gain_verified` is at-most-once on that path, and the id derived from the transition
   only stops a second count. An outbox row written in the same transaction as the gain would close it (D92).
-- **Server events carry nominal `device_class` and `network_class`** (`high`, `wifi`), because the envelope requires them and a server has neither. Analysis filters on
-  `surface`.
+- **Server and worker events carry no `device_class` and no `network_class`.** The first version of the server emitter wrote `high` and `wifi` on every event, because §1 required both
+  fields and a server has neither: values that were false, in a store that cannot be corrected afterwards. The envelope is now two shapes (the taxonomy's §1 says so in its table), a device's
+  with both classes required and a server's or worker's with neither allowed, and the edge refuses a server event that carries one and a device event that lacks one. No such event was ever written
+  outside a test run; the sink at M7 is a local directory (D90).
 - **Events before this milestone are not recoverable**, and the four that exist begin at M7's close.

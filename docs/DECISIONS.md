@@ -187,7 +187,7 @@ Items 1 and 4 are the two that most change the plan. Everything else can proceed
 | [DOMAIN-MODEL.md](DOMAIN-MODEL.md) | 1 | Complete — 51 aggregates |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 2 | Complete |
 | [DATA-ARCHITECTURE.md](DATA-ARCHITECTURE.md) | 3 | Complete |
-| [EVENT-TAXONOMY.md](EVENT-TAXONOMY.md) | — | Complete — 68 events |
+| [EVENT-TAXONOMY.md](EVENT-TAXONOMY.md) | — | Complete — 79 event names |
 | [DECISIONS.md](DECISIONS.md) | — | This document |
 
 **Next:** Phase 4 — AI Architecture (generation pipeline, quality gating, embeddings, evaluation harness, cost governance).

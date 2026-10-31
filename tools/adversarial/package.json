@@ -7,7 +7,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@questionbank/attempt-engine": "workspace:*"
+    "@questionbank/attempt-engine": "workspace:*",
+    "@questionbank/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22",

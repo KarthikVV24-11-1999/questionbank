@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { anEnvelope, PLANTED_PII } from '../testing/analytics-fixtures.js';
+import { aServerEnvelope, anEnvelope, PLANTED_PII } from '../testing/analytics-fixtures.js';
 import { checkConformanceIndex, emittedNamesIn, measureConformance, parseConformanceTable, readEventLog } from './event-conformance.js';
 import { readCatalog } from './event-catalog.js';
 
@@ -26,7 +26,8 @@ const EMITTED_AS = {
 
 /** A good envelope for the event passes the check; the same envelope damaged in each way the edge refuses is counted as not conforming, with the reason. */
 async function expectCheckCatches(event: keyof typeof EMITTED_AS): Promise<void> {
-  const good = anEnvelope({ event_name: event, ...EMITTED_AS[event] });
+  const { surface, payload } = EMITTED_AS[event];
+  const good = surface === 'server' ? aServerEnvelope({ event_name: event, payload }) : anEnvelope({ event_name: event, payload });
   expect(await measureConformance([good])).toMatchObject({ total: 1, conforming: 1 });
 
   const missing = { ...good } as Record<string, unknown>;

@@ -314,7 +314,7 @@ verification (F41) · authorization negative-path 100%
 > **Status, added 2026-10-29 (M7 Track I, and close):** the event taxonomy is read by the code. The catalog has an owner for each event, the ingestion edge admits only a complete valid envelope of a
 > catalog name with no personal data and quarantines the rest with its reason (DEC-M7-36), and the PII gate is built as the key-free argument is ([PII-FREE.md](PII-FREE.md)). Four events are emitted:
 > `mastery.gain_verified` from the server, and `mock.diagnostic_viewed`, `mock.remediation_clicked` and `practice.session_started` from the learner app, which buffers them on the device and sends them in a channel of its own
-> (DEC-M7-37). Measured over a run of the suites, 14 of 14 events conformed, and four of the fourteen events M7 owns are wired ([EVENT-CONFORMANCE.md](EVENT-CONFORMANCE.md), DEC-M7-38). **M7 closes with
+> (DEC-M7-37). Measured over a run of the suites, 17 of 17 events conformed, and four of the fourteen events M7 owns are wired ([EVENT-CONFORMANCE.md](EVENT-CONFORMANCE.md), DEC-M7-38). **M7 closes with
 > five criteria: two pass, three are partial, none is blocked** ([M7-ACCEPTANCE.md](M7-ACCEPTANCE.md)). The report is made in about a second and has not been put under load; the tap is one and leads to a run the app cannot show (D87);
 > the events conform and are few (D89 to D92). The taxonomy itself said capture began at M0; it begins here, and the events of the milestones in between are not recoverable. The status notes above were dated for a
 > one-track-a-day cadence that did not happen and now carry the dates of the commits they describe.

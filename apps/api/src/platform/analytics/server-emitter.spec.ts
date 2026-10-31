@@ -19,12 +19,14 @@ const rig = (observe?: (envelope: ClientEnvelope) => void) => {
 };
 
 describe('the server\'s emitter', () => {
-  it('builds a valid envelope for the server surface, on the platform tenant, with nominal device and network classes', async () => {
+  it('builds a valid envelope for the server surface, on the platform tenant, with no device class and no network class', async () => {
     const { sink, emitter } = rig();
     await emitter.emit(gain);
     const { received_at: _stamp, ...built } = sink.events[0]!;
     expect(clientEnvelopeSchema.safeParse(built).success).toBe(true);
-    expect(built).toMatchObject({ surface: 'server', tenant_id: PLATFORM_TENANT, device_class: 'high', network_class: 'wifi', event_version: 1, app_version: 'api', actor: { kind: 'human', pseudonymous_id: gain.actor } });
+    expect(built).not.toHaveProperty('device_class');
+    expect(built).not.toHaveProperty('network_class');
+    expect(built).toMatchObject({ surface: 'server', tenant_id: PLATFORM_TENANT, event_version: 1, app_version: 'api', actor: { kind: 'human', pseudonymous_id: gain.actor } });
   });
 
   it('gives the same fact the same event id, and a different fact a different one, so a redelivery is counted once', async () => {

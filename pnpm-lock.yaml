@@ -320,6 +320,9 @@ importers:
       '@questionbank/attempt-engine':
         specifier: workspace:*
         version: link:../../packages/attempt-engine
+      '@questionbank/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
     devDependencies:
       '@types/node':
         specifier: ^22

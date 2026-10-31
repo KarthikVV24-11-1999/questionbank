@@ -20,7 +20,8 @@ Every event, without exception, carries this envelope. Payload fields are additi
 | `actor` | `{ kind: human \| ai_agent \| system, pseudonymous_id }` — **never a name, email, or phone** |
 | `session_id` | Pseudonymous, rotating |
 | `surface` | `web \| pwa \| android \| ios \| server \| worker` |
-| `app_version`, `device_class`, `network_class` | `low \| mid \| high`; `offline \| 2g \| 3g \| 4g \| wifi` |
+| `app_version` | The build that emitted the event |
+| `device_class`, `network_class` | `low \| mid \| high`; `offline \| 2g \| 3g \| 4g \| wifi`. **Required** when `surface` is `web \| pwa \| android \| ios`; **absent** when it is `server \| worker`, which have no device or network of their own, so a value would be false and would count every such event as a device on a network |
 | `tenant_id` | Platform tenant by default (P7) |
 | `context` | `{ exam_id?, attempt_id?, item_version_id?, concept_identity_id?, form_id? }` |
 
@@ -35,7 +36,7 @@ Every event, without exception, carries this envelope. Payload fields are additi
 
 ## 2. Naming Convention
 
-`<domain>.<object>_<past_tense_verb>` — e.g. `attempt.mock_submitted`. Past tense only: events are facts, not intentions.
+`<domain>.<object>_<past_tense_verb>` — e.g. `attempt.mock_submitted`. Past tense only: events are facts, not intentions. Held by `event-naming.spec.ts`: the verb a name ends in must be in the accepted set kept beside the gate, so a new verb is a decision in a diff; `ai.tutor_turn` and `client.error` are the two registered exceptions (D89).
 
 ---
 
@@ -128,7 +129,7 @@ Every event, without exception, carries this envelope. Payload fields are additi
 
 The Owner column names the milestone whose surface can know the fact, from the roadmap's deliverables; `none` marks an event no milestone's deliverables produce. Which owned events are emitted, and the measured conformance, are in [EVENT-CONFORMANCE.md](EVENT-CONFORMANCE.md).
 
-**Total: 79 event names, written on 68 rows.** Additions require a taxonomy version bump and a registry entry; the ingestion edge rejects unregistered names.
+**Total: 79 event names, written on 57 rows.** Additions require a taxonomy version bump and a registry entry; the ingestion edge rejects unregistered names.
 
 ---
 

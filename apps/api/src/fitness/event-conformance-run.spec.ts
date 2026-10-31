@@ -15,7 +15,7 @@ describe.runIf(LOG !== undefined)('envelope conformance over a run of the suites
     const measured = await measureConformance(lines.map((line) => line.event));
     const bySource = (source: string) => lines.filter((line) => line.source === source).length;
     const ratio = measured.conforming / measured.total;
-    console.log(`EVENT CONFORMANCE ${JSON.stringify({ total: measured.total, learn: bySource('learn'), api: bySource('api'), conforming: measured.conforming, ratio, byEvent: measured.byEvent, refused: measured.byReason })}`);
+    console.log(`EVENT CONFORMANCE ${JSON.stringify({ total: measured.total, learn: bySource('learn'), api: bySource('api'), browser: bySource('browser'), conforming: measured.conforming, ratio, byEvent: measured.byEvent, refused: measured.byReason })}`);
     expect(measured.total).toBeGreaterThan(0);
     expect(ratio).toBeGreaterThanOrEqual(0.99);
   });

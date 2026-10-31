@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anEnvelope, PLANTED_PII } from '../../testing/analytics-fixtures.js';
+import { aServerEnvelope, anEnvelope, PLANTED_PII } from '../../testing/analytics-fixtures.js';
 import { AnalyticsEdge, type Quarantined } from './edge.js';
 import { MemorySink } from './sink.js';
 
@@ -37,6 +37,32 @@ describe('the ingestion edge admits an event with a complete valid envelope and 
     down = false;
     expect((await edge.admit(event)).outcome).toBe('accepted');
     expect(edge.stats()).toMatchObject({ sinkFailures: 1, accepted: 1, duplicates: 0 });
+  });
+});
+
+describe('the ingestion edge holds the device and network classes to the surface (§1)', () => {
+  it('admits a server or worker envelope with neither class, and a device envelope with both', async () => {
+    const { sink, edge } = edgeOver();
+    for (const event of [aServerEnvelope(), aServerEnvelope({ surface: 'worker' }), anEnvelope(), anEnvelope({ surface: 'android' })]) expect((await edge.admit(event)).outcome).toBe('accepted');
+    expect(sink.events).toHaveLength(4);
+  });
+
+  it.each([
+    ['server', 'device_class', 'low'],
+    ['server', 'network_class', 'offline'],
+    ['worker', 'device_class', 'high'],
+  ] as const)('refuses a %s envelope that carries a %s, because a server has neither and a value would be false', async (surface, field, value) => {
+    const { sink, edge } = edgeOver();
+    expect(await edge.admit({ ...aServerEnvelope({ surface }), [field]: value })).toEqual({ outcome: 'quarantined', reason: 'INVALID_ENVELOPE' });
+    expect(sink.events).toEqual([]);
+  });
+
+  it.each(['device_class', 'network_class'] as const)('refuses a device envelope with no %s: the event cannot be placed in a segment', async (field) => {
+    const { sink, edge } = edgeOver();
+    const event = { ...anEnvelope() } as Record<string, unknown>;
+    delete event[field];
+    expect(await edge.admit(event)).toEqual({ outcome: 'quarantined', reason: 'INVALID_ENVELOPE' });
+    expect(sink.events).toEqual([]);
   });
 });
 

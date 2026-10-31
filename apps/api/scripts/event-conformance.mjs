@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Measures envelope conformance (M7-63): runs the suites that emit analytics events with a log marker made, then replays what they emitted through the real edge.
+// Measures envelope conformance (M7-63): runs the suites that emit analytics events (the learner's screens, the server's consumer and the built app in a real Chrome) with a log marker made, then replays what they emitted through the real edge.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,5 +20,7 @@ const run = (cwd, args, env = {}) => {
 };
 run('apps/learn', ['src/ui', 'src/analytics']);
 run('apps/api', ['--project', 'unit', 'src/platform/composition/learning-consumer.spec.ts']);
+// the shipped app in a real Chrome: what leaves the page, replayed through the edge with the rest
+run('tools/adversarial', ['src/analytics.spec.ts'], { CI: '1' });
 run('apps/api', ['--project', 'unit', 'src/fitness/event-conformance-run.spec.ts'], { QB_EVENT_LOG_REPLAY: log });
 rmSync(marker, { force: true });

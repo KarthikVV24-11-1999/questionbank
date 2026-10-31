@@ -16,7 +16,10 @@ describe('the event catalog, read from docs/EVENT-TAXONOMY.md §3', () => {
 
   it('names no event twice, and states the total it lists', () => {
     expect(new Set(catalog.map((event) => event.name)).size).toBe(catalog.length);
-    const rows = readFileLines().filter((line) => /^\| (`|\*\*`)/u.test(line)).length;
+    const lines = readFileLines();
+    // only §3's rows: §1's table has rows of its own, and the total is about the catalog
+    const catalogLines = lines.slice(lines.findIndex((line) => line.startsWith('## 3. Catalog')));
+    const rows = catalogLines.filter((line) => /^\| (`|\*\*`)/u.test(line)).length;
     expect(readFileLines().find((line) => line.startsWith('**Total:'))).toContain(`${catalog.length} event names, written on ${rows} rows`);
   });
 

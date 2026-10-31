@@ -1,4 +1,4 @@
-import { uuidV7, type ClientEnvelope, type EventName } from '@questionbank/contracts/analytics';
+import { uuidV7, type ClientEnvelope, type DeviceEnvelope, type DeviceSurface, type EventName } from '@questionbank/contracts/analytics';
 import type { KeyValueStore } from '../session/ports.js';
 
 /**
@@ -29,9 +29,9 @@ export interface AnalyticsPorts {
     readonly sessionId: string;
     readonly appVersion: string;
     readonly tenantId: string;
-    readonly surface: ClientEnvelope['surface'];
-    readonly deviceClass: () => ClientEnvelope['device_class'];
-    readonly networkClass: () => ClientEnvelope['network_class'];
+    readonly surface: DeviceSurface;
+    readonly deviceClass: () => DeviceEnvelope['device_class'];
+    readonly networkClass: () => DeviceEnvelope['network_class'];
   };
 }
 
@@ -87,7 +87,7 @@ export function createAnalytics(ports: AnalyticsPorts): ScreenAnalytics {
       try {
         const at = ports.nowMs();
         const { identity } = ports;
-        const event: ClientEnvelope = {
+        const event: DeviceEnvelope = {
           event_id: uuidV7(at, ports.random()),
           event_name: name,
           event_version: 1,

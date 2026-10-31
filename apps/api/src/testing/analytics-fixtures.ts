@@ -1,7 +1,7 @@
-import { uuidV7, type ClientEnvelope } from '@questionbank/contracts/analytics';
+import { uuidV7, type DeviceEnvelope, type ServerEnvelope } from '@questionbank/contracts/analytics';
 
-/** A complete, valid envelope, built the way an emitter builds one. */
-export function anEnvelope(over: Partial<ClientEnvelope> = {}): ClientEnvelope {
+/** A complete, valid envelope from a device, built the way an emitter builds one. */
+export function anEnvelope(over: Partial<DeviceEnvelope> = {}): DeviceEnvelope {
   const bytes = new Uint8Array(10).map(() => Math.floor(Math.random() * 256));
   return {
     event_id: uuidV7(Date.parse('2026-10-29T08:00:00.000Z'), bytes),
@@ -19,6 +19,12 @@ export function anEnvelope(over: Partial<ClientEnvelope> = {}): ClientEnvelope {
     payload: { findings_shown: 3, deepest_drill_level: 0 },
     ...over,
   };
+}
+
+/** A complete, valid envelope from the server: the same, with no device class and no network class, because it has neither. */
+export function aServerEnvelope(over: Partial<ServerEnvelope> = {}): ServerEnvelope {
+  const { device_class: _device, network_class: _network, ...rest } = anEnvelope();
+  return { ...rest, surface: 'server', ...over };
 }
 
 /** What a person's details look like when they get where they must not: a name, an email address and a phone number. */

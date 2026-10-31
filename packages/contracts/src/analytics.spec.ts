@@ -38,6 +38,23 @@ describe('the envelope', () => {
   });
 });
 
+describe('the device and network classes', () => {
+  const { device_class: _d, network_class: _n, ...withoutClasses } = valid();
+
+  it('are required of every device surface and absent from the server and the worker', () => {
+    for (const surface of ['web', 'pwa', 'android', 'ios']) {
+      expect(clientEnvelopeSchema.safeParse({ ...valid(), surface }).success, surface).toBe(true);
+      expect(clientEnvelopeSchema.safeParse({ ...withoutClasses, surface }).success, `${surface} without`).toBe(false);
+    }
+    for (const surface of ['server', 'worker']) {
+      expect(clientEnvelopeSchema.safeParse({ ...withoutClasses, surface }).success, surface).toBe(true);
+      expect(clientEnvelopeSchema.safeParse({ ...valid(), surface }).success, `${surface} with both`).toBe(false);
+      expect(clientEnvelopeSchema.safeParse({ ...withoutClasses, surface, device_class: 'high' }).success, `${surface} with a device class`).toBe(false);
+      expect(clientEnvelopeSchema.safeParse({ ...withoutClasses, surface, network_class: 'wifi' }).success, `${surface} with a network class`).toBe(false);
+    }
+  });
+});
+
 describe('a UUIDv7', () => {
   it('carries the instant, the version and the variant, and is the same for the same bytes', () => {
     const id = uuidV7(Date.parse('2026-10-29T08:00:00.000Z'), new Uint8Array(10).fill(255));

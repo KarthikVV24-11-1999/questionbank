@@ -50,6 +50,10 @@ export class StubServer {
    * way a network that goes away does. `'off'`: up.
    */
   outage: 'off' | '503' | 'reset' = 'off';
+  /** The analytics edge is down: every request to it is answered 503, whatever `outage` says. */
+  analyticsDown = false;
+  /** What reached the analytics route: the events in each request and the status it was answered with. */
+  readonly analytics: Array<{ readonly status: number; readonly events: unknown[] }> = [];
   readonly events = new Map<string, ResponseEvent>();
   readonly requests: Array<{ readonly method: string; readonly path: string }> = [];
   #attempt: StoredAttempt | null = null;
@@ -162,6 +166,27 @@ export class StubServer {
       });
       response.end(Buffer.from(this.#bytes));
       return;
+    }
+    if (method === 'POST' && path === '/v1/analytics/events') {
+      const { events } = (await this.#body(request)) as { events?: unknown[] };
+      const sent = Array.isArray(events) ? events : [];
+      const status = this.analyticsDown ? 503 : 202;
+      this.analytics.push({ status, events: sent });
+      if (status === 503) return this.#json(response, 503, { type: 'about:blank', title: 'Service Unavailable', status: 503 });
+      return this.#json(response, 202, { results: sent.map((_, index) => ({ index, outcome: 'accepted' })) });
+    }
+    // the report screen's one required read (M7-59): a scored mock with one finding
+    const reported = /^\/v1\/learning\/attempts\/([^/]+)\/report$/u.exec(path);
+    if (method === 'GET' && reported !== null) {
+      const concept = '00000000-0000-4000-8000-0000000000c1';
+      const taxonomy = '00000000-0000-4000-8000-0000000000d1';
+      return this.#json(response, 200, {
+        reportId: randomUUID(),
+        attemptId: reported[1],
+        scoreRecordId: randomUUID(),
+        generatedAt: new Date(this.#now()).toISOString(),
+        findings: [{ rank: 1, conceptIdentityId: concept, taxonomyVersionId: taxonomy, marksLost: '4', marksAvailable: '8', slots: 2, skipped: 0, remediation: { strategy: 'targeted', taxonomyVersionId: taxonomy, conceptIdentityId: concept, selected: true } }],
+      });
     }
     if (method === 'GET' && path === '/v1/assessment/package-signing-key') {
       return this.#json(response, 200, { algorithm: 'Ed25519', keyId: this.#signer.keyId, publicKey: this.#signer.publicKey });

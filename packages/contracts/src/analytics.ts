@@ -92,7 +92,11 @@ export const EVENT_NAMES = [
 export type EventName = (typeof EVENT_NAMES)[number];
 
 export const ACTOR_KINDS = ['human', 'ai_agent', 'system'] as const;
-export const SURFACES = ['web', 'pwa', 'android', 'ios', 'server', 'worker'] as const;
+export const DEVICE_SURFACES = ['web', 'pwa', 'android', 'ios'] as const;
+/** A server and a worker have no device and no network of their own, so their events carry no class of either (§1). */
+export const NON_DEVICE_SURFACES = ['server', 'worker'] as const;
+export const SURFACES = [...DEVICE_SURFACES, ...NON_DEVICE_SURFACES] as const;
+export type DeviceSurface = (typeof DEVICE_SURFACES)[number];
 export const DEVICE_CLASSES = ['low', 'mid', 'high'] as const;
 export const NETWORK_CLASSES = ['offline', '2g', '3g', '4g', 'wifi'] as const;
 
@@ -112,24 +116,28 @@ const contextSchema = z
   })
   .strict();
 
+const envelopeBase = {
+  event_id: z.string().regex(UUID_V7),
+  event_name: z.enum(EVENT_NAMES),
+  event_version: z.number().int().min(1),
+  occurred_at: z.iso.datetime({ offset: true }),
+  actor: z.object({ kind: z.enum(ACTOR_KINDS), pseudonymous_id: z.string().regex(OPAQUE) }).strict(),
+  session_id: z.string().regex(OPAQUE),
+  app_version: z.string().regex(OPAQUE),
+  tenant_id: z.string().regex(OPAQUE),
+  context: contextSchema,
+  payload: z.record(z.string(), jsonValue),
+};
+
+/** From a device: both classes are required, because a missing one is a segment nobody can place the event in. */
+const deviceEnvelope = z.object({ ...envelopeBase, surface: z.enum(DEVICE_SURFACES), device_class: z.enum(DEVICE_CLASSES), network_class: z.enum(NETWORK_CLASSES) }).strict();
+/** From a server or a worker: neither class exists, so neither may be carried. A nominal value would count every such event as a device on a network. */
+const serverEnvelope = z.object({ ...envelopeBase, surface: z.enum(NON_DEVICE_SURFACES) }).strict();
+
 /** What an emitter builds. `received_at` is the edge's to stamp: it is the moment of ingestion, and an emitter cannot know it. */
-export const clientEnvelopeSchema = z
-  .object({
-    event_id: z.string().regex(UUID_V7),
-    event_name: z.enum(EVENT_NAMES),
-    event_version: z.number().int().min(1),
-    occurred_at: z.iso.datetime({ offset: true }),
-    actor: z.object({ kind: z.enum(ACTOR_KINDS), pseudonymous_id: z.string().regex(OPAQUE) }).strict(),
-    session_id: z.string().regex(OPAQUE),
-    surface: z.enum(SURFACES),
-    app_version: z.string().regex(OPAQUE),
-    device_class: z.enum(DEVICE_CLASSES),
-    network_class: z.enum(NETWORK_CLASSES),
-    tenant_id: z.string().regex(OPAQUE),
-    context: contextSchema,
-    payload: z.record(z.string(), jsonValue),
-  })
-  .strict();
+export const clientEnvelopeSchema = z.discriminatedUnion('surface', [deviceEnvelope, serverEnvelope]);
+export type DeviceEnvelope = z.infer<typeof deviceEnvelope>;
+export type ServerEnvelope = z.infer<typeof serverEnvelope>;
 export type ClientEnvelope = z.infer<typeof clientEnvelopeSchema>;
 
 export type AnalyticsEnvelope = ClientEnvelope & { readonly received_at: string };

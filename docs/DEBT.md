@@ -647,10 +647,12 @@ the development wiring D69 describes, and neither can reach a student's phone as
 
 `item.defect_reported`, `item.defect_resolved`, `ai.tutor_turn`, `client.error`, `performance.render_measured` and `accessibility.assistive_tech_detected` have an `Owner` of `none` in
 [EVENT-TAXONOMY.md](EVENT-TAXONOMY.md). ADR-0022 moved the item defect intake to M5, M5's deliverables do not list it, and nothing of it exists. No milestone builds a tutor, a client
-error reporter, render timing or assistive-technology detection. `ai.tutor_turn` is also not a past-tense fact, which the naming rule asks of every event (§2).
+error reporter, render timing or assistive-technology detection. Two of them, `ai.tutor_turn` and `client.error`, are also not past-tense facts, which the naming rule asks of every event (§2): a
+turn and an error are nouns. The naming gate reads the catalog, requires each name to end in an accepted past-tense verb, and lists these two as its only exceptions, pointing here; a new name that breaks
+the rule is red until its verb is accepted deliberately or the event is renamed.
 
 **Trigger** A milestone's deliverables take the surface that can know the fact, and the Owner column says so; or the event is removed from the catalog by a taxonomy version bump.
-**Cited** `apps/api/src/fitness/event-conformance.ts`
+**Cited** `apps/api/src/fitness/event-conformance.ts` · `apps/api/src/fitness/event-naming.ts`
 
 ### D90 — Analytics events are written to a local directory, not to Parquet in object storage
 

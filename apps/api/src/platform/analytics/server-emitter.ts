@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { uuidV7, type ClientEnvelope, type EventName } from '@questionbank/contracts/analytics';
+import { uuidV7, type ClientEnvelope, type EventName, type ServerEnvelope } from '@questionbank/contracts/analytics';
 import type { AnalyticsEdge } from './edge.js';
 
 /**
@@ -8,7 +8,7 @@ import type { AnalyticsEdge } from './edge.js';
  * **The event id is derived from the fact.** A relay delivers at least once and a recorder may be asked twice, so an id drawn at random would count one fact as
  * two. The caller names a `factKey` (the transition, say), the id's random bytes are a hash of it, and the edge's duplicate check does the rest.
  *
- * The server is the surface for the events it derives from what it did (DEC-M7-38), and its envelopes carry nominal device and network classes. Emitting never throws: an event that cannot be sent is the edge's to count (`sinkFailures`, a quarantine), and the work that produced the fact has already happened.
+ * The server is the surface for the events it derives from what it did (DEC-M7-38). It has no device and no network, so its envelope carries no class of either. Emitting never throws: an event that cannot be sent is the edge's to count (`sinkFailures`, a quarantine), and the work that produced the fact has already happened.
  */
 export const PLATFORM_TENANT = '00000000-0000-0000-0000-000000000000';
 
@@ -35,7 +35,7 @@ export class ServerEmitter {
   async emit(event: ServerEvent): Promise<void> {
     try {
       const digest = createHash('sha256').update(`${event.name}:${event.factKey}`).digest();
-      const envelope: ClientEnvelope = {
+      const envelope: ServerEnvelope = {
         event_id: uuidV7(Date.parse(event.occurredAt), digest),
         event_name: event.name,
         event_version: 1,
@@ -44,8 +44,6 @@ export class ServerEmitter {
         session_id: `server-${digest.subarray(0, 6).toString('hex')}`,
         surface: 'server',
         app_version: this.deps.appVersion,
-        device_class: 'high',
-        network_class: 'wifi',
         tenant_id: PLATFORM_TENANT,
         context: event.context,
         payload: event.payload,
