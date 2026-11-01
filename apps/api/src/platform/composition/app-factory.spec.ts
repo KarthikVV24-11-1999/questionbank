@@ -41,6 +41,7 @@ const CONFIG: AppConfig = {
   reviewLeaseHours: 4,
   reviewSampleRate: 0.05,
   timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+  maxSessionsPerUser: 5,
   backgroundJobsEnabled: false,
   authIssuer: 'questionbank',
   authTokenTtlSeconds: 3600,

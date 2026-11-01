@@ -23,6 +23,14 @@ describe('the event catalog, read from docs/EVENT-TAXONOMY.md §3', () => {
     expect(readFileLines().find((line) => line.startsWith('**Total:'))).toContain(`${catalog.length} event names, written on ${rows} rows`);
   });
 
+  it('says what counts as a name, in the section the number is about: a row can hold several, and a payload field is none', () => {
+    const lines = readFileLines();
+    const section = lines.slice(lines.findIndex((line) => line.startsWith('## 3. Catalog'))).join('\n');
+    expect(section).toMatch(/\*\*What counts\.\*\* A \*name\* is one event identifier in the first column/u);
+    expect(section).toContain('A payload field is no name');
+    expect(section).toContain('`event-catalog.spec.ts` finds');
+  });
+
   it('gives every event an owner that is a milestone of the roadmap, or says none', () => {
     expect(catalog.filter((event) => !MILESTONES.includes(event.owner)).map((event) => event.name)).toEqual([]);
   });

@@ -503,7 +503,9 @@ IndexedDB with strict durability (a transaction that completes only once it is o
 There is no sign-in. As in Studio, a developer sets `localStorage['qb-dev-token']` to a bearer token, and the app sends it. It is a development
 convenience that must not survive to a student's phone.
 
-**Trigger** M8 (closed beta hardening): real sign-in, the token held where script cannot read it, and this line removed from `main.tsx`.
+There is now a sign-in on the API (ADR-0056), and the token this line sends is no longer accepted by it: the stub resolves no human request. What is still to do is the app's: a login screen on those routes, the session token held where script cannot read it, and this line removed from `main.tsx`.
+
+**Trigger** M8 (closed beta hardening): the login screen, the token held where script cannot read it, and this line removed from `main.tsx`.
 **Cited** `apps/learn/src/main.tsx`
 
 ### D70 — Evidence is attributed to an item's primary concept only
@@ -694,6 +696,31 @@ not announced again. An outbox row for the gain, written in the recorder's trans
 **Trigger** Each event when the surface that can know it exists (D87's route, a solution screen, a review action); the gain's outbox row with the sink of D90, since an event that cannot be
 stored makes at-least-once delivery of nothing.
 **Cited** `apps/api/src/fitness/event-conformance.ts`
+
+### D94 — Nothing limits how often the login and issuing routes can be asked
+
+Login, registration, password recovery and verification-code requests are open to anyone and are not throttled: an attacker can guess passwords, flood an address with mail, or spend the server's memory on hashes
+(each login costs about 64 MB for a few hundred milliseconds) as fast as the connection allows. There is no rate limiter in the application. Rate limiting with burst and sustained tiers is an M8 deliverable of its own, and
+half of one built into this context would be a second mechanism to retire.
+
+**Trigger** M8's rate limiter. These routes are the first it covers, with a lockout or backoff per address on login as well as per client.
+**Cited** `apps/api/src/contexts/identity/api/identity.controller.ts`
+
+### D95 — An unknown address can cost more than a known account that is still on older parameters
+
+A login for an unknown address verifies against a decoy made under today's parameters. A known account whose credential was made under cheaper parameters verifies faster until it is rehashed on its next login, so for
+as long as such accounts exist the two paths differ by the difference in cost. It is small, it shrinks with every login, and it is zero while there is only one parameter set (there is, now); it exists the day N is raised.
+
+**Trigger** The first change to `CURRENT_PASSWORD_PARAMETERS`: make the decoy for each verification the cost of the parameters the real credentials still hold, or rehash in the background until none do.
+**Cited** `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
+
+### D96 — Nothing assigns a role
+
+Everyone who registers is a `learner`. There is no route, command or screen that gives a user another role, so the first author, reviewer or administrator is made by a database update. Role assignment is Identity's
+(ADR-0014) and the support console and admin tooling are M8's later work.
+
+**Trigger** The first person who is not a learner and is not a developer: a command that assigns a role, audited, and available to `admin` alone.
+**Cited** `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
 
 ## Closed
 

@@ -129,6 +129,8 @@ Every event, without exception, carries this envelope. Payload fields are additi
 
 The Owner column names the milestone whose surface can know the fact, from the roadmap's deliverables; `none` marks an event no milestone's deliverables produce. Which owned events are emitted, and the measured conformance, are in [EVENT-CONFORMANCE.md](EVENT-CONFORMANCE.md).
 
+**What counts.** A *name* is one event identifier in the first column of this section. A row can hold several: `a.b_started` / `_completed` / `_failed` is three names, and `a.x` / `b.y` is two. A payload field is no name, and neither is a row's owner. The total below counts names, and it is whatever `event-catalog.spec.ts` finds when it reads this section: that test is the authority for the number, and fails when this line and the section disagree.
+
 **Total: 79 event names, written on 57 rows.** Additions require a taxonomy version bump and a registry entry; the ingestion edge rejects unregistered names.
 
 ---

@@ -20,6 +20,7 @@ import { TEST_SIGNING_SEED } from '../../testing/assessment-fakes.js';
 import { verifyPackage } from '../../contexts/assessment/infrastructure/package-signer.js';
 import { PACKAGE_MEDIA_TYPE } from '../../contexts/assessment/api/assessment.controller.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
+import { tokenPrincipals } from '../../testing/service-tokens.js';
 
 /**
  * The assessment HTTP surface through the composed application: real bearer
@@ -69,6 +70,7 @@ const COMPOSED_WITH_KEY = { ...COMPOSED_CONFIG, formPackageSigningKey: TEST_SIGN
 async function composed(config: typeof COMPOSED_CONFIG, at: string): Promise<INestApplication> {
   const instance = await createApplication(config, {
     pool: database.pool,
+    principals: tokenPrincipals(config),
     telemetry: createRecordingTelemetry(),
     clock: { now: () => new Date(at) },
     identifiers: uuidFactory,

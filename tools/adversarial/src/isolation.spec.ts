@@ -83,8 +83,9 @@ describe('a scenario begins as a first visit, whatever the one before it left in
     const port = await freePort();
     await runScenario(generateScenario(20_261_026), environment, { port, evidence: false });
     // the precondition: the first scenario did leave all three behind, so the second starting without them is the clearing's doing
-    expect(await heldFor(environment, port)).toEqual({ attemptRecords: 1, eventsHeld: expect.any(Number), controlled: true, packageCached: true });
-    expect((await heldFor(environment, port)).eventsHeld).toBeGreaterThan(0);
+    const left = await heldFor(environment, port);
+    expect(left).toEqual({ attemptRecords: 1, eventsHeld: expect.any(Number), controlled: true, packageCached: true });
+    expect(left.eventsHeld).toBeGreaterThan(0);
 
     const first = await watchFirstLoads(environment.chrome.current!.context);
     await runScenario(generateScenario(20_261_027), environment, { port, evidence: false });

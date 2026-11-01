@@ -14,6 +14,7 @@ import type { AppConfig } from '../platform/config/config.js';
 import { createRecordingTelemetry } from '../platform/observability/recording-telemetry.js';
 import type { TestDatabase } from './database.js';
 import { fixedClock, uuidFactory } from './generation-context.js';
+import { tokenPrincipals } from './service-tokens.js';
 
 /**
  * Generation as the application composes it: `createApplication`, over a test
@@ -41,6 +42,7 @@ export const COMPOSED_CONFIG: AppConfig = {
   reviewLeaseHours: 4,
   reviewSampleRate: 0.05,
   timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+  maxSessionsPerUser: 5,
   backgroundJobsEnabled: false,
 };
 
@@ -68,6 +70,7 @@ export async function composeGeneration(database: TestDatabase, options: Compose
     { ...COMPOSED_CONFIG, ...(options.precheckConfig === undefined ? {} : { generationPrecheckConfig: options.precheckConfig }) },
     {
       pool: database.pool,
+      principals: tokenPrincipals(COMPOSED_CONFIG),
       telemetry: createRecordingTelemetry(),
       clock: options.clock ?? fixedClock,
       identifiers: options.identifiers ?? uuidFactory,

@@ -6,6 +6,7 @@ import { withMigratedDatabase, type TestDatabase } from '../../testing/database.
 import { issue } from '../auth/token.js';
 import { createApplication } from './app-factory.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
+import { tokenPrincipals } from '../../testing/service-tokens.js';
 
 /**
  * The composed application, against real Postgres. Not the walking skeleton
@@ -43,12 +44,13 @@ beforeAll(async () => {
     reviewLeaseHours: 4,
     reviewSampleRate: 0.05,
     timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+    maxSessionsPerUser: 5,
     backgroundJobsEnabled: false,
     authIssuer: ISSUER,
     authTokenTtlSeconds: 3600,
     mediaStorageRoot: './var/media-test',
     logLevel: 'info',
-  }, { pool: database.pool });
+  }, { pool: database.pool, principals: tokenPrincipals({ authSigningKey: SIGNING_KEY, authIssuer: ISSUER }) });
   await serveOnLoopback(app);
 });
 

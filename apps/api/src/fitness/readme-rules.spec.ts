@@ -15,8 +15,8 @@ describe('the root README names the contexts there are (M7-10)', () => {
     expect(checkReadmeContexts(readme, directories)).toEqual([]);
   });
 
-  it('looked at the six contexts there are: the set, not whatever was found', () => {
-    expect(directories).toEqual(['assessment', 'content', 'curriculum', 'generation', 'learning', 'scoring']);
+  it('looked at the seven contexts there are: the set, not whatever was found (identity was added deliberately, M8-01)', () => {
+    expect(directories).toEqual(['assessment', 'content', 'curriculum', 'generation', 'identity', 'learning', 'scoring']);
   });
 });
 

@@ -5,6 +5,7 @@ import { createLiveItemBrowserApi } from '@questionbank/studio/src/features/item
 import { withMigratedDatabase, type TestDatabase } from '../../testing/database.js';
 import { issue } from '../../platform/auth/token.js';
 import { createApplication } from '../../platform/composition/app-factory.js';
+import { tokenPrincipals } from '../../testing/service-tokens.js';
 
 /**
  * M0-19's own criterion: "the browser's query executes against the composed
@@ -52,13 +53,14 @@ beforeAll(async () => {
       reviewLeaseHours: 4,
       reviewSampleRate: 0.05,
       timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+      maxSessionsPerUser: 5,
       backgroundJobsEnabled: false,
       authIssuer: ISSUER,
       authTokenTtlSeconds: 3600,
       mediaStorageRoot: './var/media-test',
       logLevel: 'info',
     },
-    { pool: database.pool },
+    { pool: database.pool, principals: tokenPrincipals({ authSigningKey: SIGNING_KEY, authIssuer: ISSUER }) },
   );
   await app.listen(PORT);
 });

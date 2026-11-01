@@ -17,12 +17,13 @@ import { UuidIdentifierFactory, type IdentifierFactory } from '../persistence/id
 import { PostgresAuditRecorder, type AuditRecorderLike } from '../persistence/audit-recorder.js';
 import { PostgresIdempotencyStore, type IdempotencyStore } from '../persistence/idempotency-store.js';
 import { createMediaStore, type MediaStore } from '../persistence/filesystem-media-store.js';
-import { createPrincipalResolver, type PrincipalResolver } from '../auth/principal-resolver.js';
+import type { PrincipalResolver } from '../auth/principal-resolver.js';
 import { AnalyticsModule } from '../analytics/analytics.module.js';
 import { AnalyticsEdge } from '../analytics/edge.js';
 import { ServerEmitter } from '../analytics/server-emitter.js';
 import { LocalDirectorySink, MemorySink, type AnalyticsSink } from '../analytics/sink.js';
 import { createLogger } from '../observability/logger.js';
+import { defaultMail, identityPrincipals, register as registerIdentity, type MailPort } from '../../contexts/identity/public/composition.js';
 import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.js';
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
@@ -71,6 +72,8 @@ export interface CreateApplicationOverrides {
   readonly telemetry?: Telemetry;
   /** Where admitted analytics events go. Absent: a directory beside the media store in a process that runs for real, memory under test (the Parquet sink is M8's, D90). */
   readonly analyticsSink?: AnalyticsSink;
+  /** Where identity's verification and recovery messages go. Absent: a directory in development, memory under test, and a refusal in production, where no provider is chosen yet. */
+  readonly mail?: MailPort;
   /** Substituted only to prove F11 across the composed set (app-factory.spec.ts) — never in production. */
   readonly contentRegister?: typeof registerContent;
   readonly curriculumRegister?: typeof registerCurriculum;
@@ -137,11 +140,12 @@ export async function createApplication(
   const idempotency = overrides.idempotency ?? new PostgresIdempotencyStore(pool);
   const mediaStore =
     overrides.mediaStore ?? createMediaStore({ mediaStorageRoot: config.mediaStorageRoot, nodeEnv: config.nodeEnv });
-  const principals =
-    overrides.principals ??
-    createPrincipalResolver({ config: { signingKey: config.authSigningKey, issuer: config.authIssuer } });
-  // The ingestion edge (M7-61): every analytics event is admitted or quarantined here, and a quarantine is logged as it happens (EVENT-TAXONOMY §1 rule 3).
   const analyticsLog = createLogger({ logLevel: config.logLevel, nodeEnv: config.nodeEnv });
+  // Who a request is: a session, looked up on every request (M8-03). The resolver every context takes is answered from the session table by a middleware installed below.
+  // The token stub is not here; a test that wants it passes it as `principals`, and then no middleware is installed and no session is read.
+  const identity = identityPrincipals({ pool, clock, logger: analyticsLog });
+  const principals = overrides.principals ?? identity.resolver;
+  // The ingestion edge (M7-61): every analytics event is admitted or quarantined here, and a quarantine is logged as it happens (EVENT-TAXONOMY §1 rule 3).
   const analyticsSink = overrides.analyticsSink ?? (config.nodeEnv === 'test' ? new MemorySink() : new LocalDirectorySink(join(config.mediaStorageRoot, '..', 'analytics')));
   const analyticsEdge = new AnalyticsEdge(analyticsSink, () => clock.now(), (entry) =>
     analyticsLog.log({ level: 'warn', message: 'analytics event quarantined', correlationId: 'n/a', context: 'platform.analytics', attributes: { errorCode: entry.reason } }),
@@ -232,7 +236,16 @@ export async function createApplication(
   ]);
   const background: Background = { relay, scheduler };
 
-  const rootImports = [AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
+  const identityModule = registerIdentity({
+    pool,
+    clock,
+    identifiers,
+    audit,
+    principals,
+    maxSessionsPerUser: config.maxSessionsPerUser,
+    mail: overrides.mail ?? defaultMail({ nodeEnv: config.nodeEnv, directory: join(config.mediaStorageRoot, '..', 'mail'), now: clock.now.bind(clock) }),
+  });
+  const rootImports = [identityModule, AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
   // `app.close()` never double-closes a connection the caller still owns
@@ -240,6 +253,7 @@ export async function createApplication(
   const rootProviders: Provider[] = [{ provide: BACKGROUND, useValue: background }, ...(poolOwnedByFactory ? [FactoryOwnedPoolCloser, { provide: Pool, useValue: pool }] : [])];
 
   const app = await NestFactory.create(RootModule.register(rootImports, rootProviders), { logger: false });
+  if (overrides.principals === undefined) app.use(identity.middleware);
   app.useGlobalInterceptors(new TelemetryInterceptor(telemetry));
 
   return app;

@@ -40,6 +40,7 @@ describe('loadConfig — every key loads', () => {
         reviewLeaseHours: 4,
         reviewSampleRate: 0.05,
         timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+        maxSessionsPerUser: 5,
         backgroundJobsEnabled: true,
       },
     });
@@ -68,6 +69,7 @@ describe('loadConfig — every key loads', () => {
         reviewLeaseHours: 4,
         reviewSampleRate: 0.05,
         timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+        maxSessionsPerUser: 5,
         backgroundJobsEnabled: true,
       },
     });
@@ -398,6 +400,25 @@ describe('loadConfig — the form package signing key (M6-26)', () => {
       error: { key: 'formPackageSigningKey', message: 'FORM_PACKAGE_SIGNING_KEY must not equal AUTH_SIGNING_KEY or AUDIT_ANCHOR_KEY' },
     });
     expect(loadConfig(validEnv({ AUDIT_ANCHOR_KEY: seedAsAuth, FORM_PACKAGE_SIGNING_KEY: seedAsAuth })).ok).toBe(false);
+  });
+});
+
+describe('loadConfig — the most live sessions a user may hold (M8-03)', () => {
+  it('defaults to five, and an unset or blank variable is the default', () => {
+    for (const env of [validEnv(), validEnv({ MAX_SESSIONS_PER_USER: '' })]) {
+      const result = loadConfig(env);
+      expect(result.ok && result.value.maxSessionsPerUser).toBe(5);
+    }
+  });
+
+  it('takes a whole number from 1 to 50', () => {
+    for (const good of ['1', '3', '50']) expect(loadConfig(validEnv({ MAX_SESSIONS_PER_USER: good })).ok && (loadConfig(validEnv({ MAX_SESSIONS_PER_USER: good })) as { value: { maxSessionsPerUser: number } }).value.maxSessionsPerUser).toBe(Number(good));
+  });
+
+  it('fails loudly on zero, a fraction, a negative, text, and a number past the cap', () => {
+    for (const bad of ['0', '1.5', '-1', 'many', '51']) {
+      expect(loadConfig(validEnv({ MAX_SESSIONS_PER_USER: bad })), bad).toEqual({ ok: false, error: { key: 'maxSessionsPerUser', message: 'MAX_SESSIONS_PER_USER must be a whole number from 1 to 50' } });
+    }
   });
 });
 

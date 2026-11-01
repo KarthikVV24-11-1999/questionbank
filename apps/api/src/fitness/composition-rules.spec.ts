@@ -11,8 +11,8 @@ describe('M5-37 — the composition root imports only each context’s public/co
     expect(checkCompositionImportsOnlySeams(API_ROOT)).toEqual([]);
   });
 
-  it('composes exactly the six contexts: the set, not the loop', () => {
-    expect(composedContexts(API_ROOT)).toEqual(['assessment', 'content', 'curriculum', 'generation', 'learning', 'scoring']);
+  it('composes exactly the seven contexts: the set, not the loop (identity was added deliberately, M8-01)', () => {
+    expect(composedContexts(API_ROOT)).toEqual(['assessment', 'content', 'curriculum', 'generation', 'identity', 'learning', 'scoring']);
   });
 
   describe('is red on the planted violations', () => {

@@ -44,6 +44,7 @@ export const CONFIG_KEYS = [
   'formPackageSigningKey',
   'timeOnItemIntervalCapMs',
   'backgroundJobsEnabled',
+  'maxSessionsPerUser',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -105,6 +106,8 @@ export interface AppConfig {
    * and a later change here cannot make them disagree about an attempt already begun.
    */
   readonly timeOnItemIntervalCapMs: number;
+  /** The most live sessions one user may hold (M8-03); a login beyond it ends the oldest. */
+  readonly maxSessionsPerUser: number;
   /**
    * Whether this process runs the background jobs — the outbox relay and the sweeps (M6-38, M6-42). On by default: every instance of
    * the application drains the outbox and sweeps, which is safe because the jobs claim or are idempotent. Off for a process that should
@@ -146,6 +149,7 @@ const DEFAULTS = {
   reviewSampleRate: '0.05',
   timeOnItemIntervalCapMs: String(DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS),
   backgroundJobsEnabled: 'true',
+  maxSessionsPerUser: '5',
 } as const;
 
 /** Environment variable name for each config key — the only mapping this module needs. */
@@ -168,6 +172,7 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   formPackageSigningKey: 'FORM_PACKAGE_SIGNING_KEY',
   timeOnItemIntervalCapMs: 'TIME_ON_ITEM_INTERVAL_CAP_MS',
   backgroundJobsEnabled: 'BACKGROUND_JOBS_ENABLED',
+  maxSessionsPerUser: 'MAX_SESSIONS_PER_USER',
 };
 
 function fail(key: ConfigKey, message: string): ConfigResult<never> {
@@ -369,6 +374,14 @@ function parseTimeOnItemIntervalCapMs(env: Readonly<Record<string, string | unde
   return { ok: true, value: Number(raw) };
 }
 
+function parseMaxSessionsPerUser(env: Readonly<Record<string, string | undefined>>): ConfigResult<number> {
+  const raw = withDefault(env, 'maxSessionsPerUser', DEFAULTS.maxSessionsPerUser);
+  if (!/^\d+$/u.test(raw) || Number(raw) < 1 || Number(raw) > 50) {
+    return fail('maxSessionsPerUser', 'MAX_SESSIONS_PER_USER must be a whole number from 1 to 50');
+  }
+  return { ok: true, value: Number(raw) };
+}
+
 function parseBackgroundJobsEnabled(env: Readonly<Record<string, string | undefined>>): ConfigResult<boolean> {
   const raw = withDefault(env, 'backgroundJobsEnabled', DEFAULTS.backgroundJobsEnabled);
   if (raw !== 'true' && raw !== 'false') return fail('backgroundJobsEnabled', 'BACKGROUND_JOBS_ENABLED must be true or false');
@@ -447,6 +460,8 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
 
   const timeOnItemIntervalCapMs = parseTimeOnItemIntervalCapMs(env);
   if (!timeOnItemIntervalCapMs.ok) return timeOnItemIntervalCapMs;
+  const maxSessionsPerUser = parseMaxSessionsPerUser(env);
+  if (!maxSessionsPerUser.ok) return maxSessionsPerUser;
 
   const backgroundJobsEnabled = parseBackgroundJobsEnabled(env);
   if (!backgroundJobsEnabled.ok) return backgroundJobsEnabled;
@@ -468,6 +483,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       reviewLeaseHours: reviewLeaseHours.value,
       reviewSampleRate: reviewSampleRate.value,
       timeOnItemIntervalCapMs: timeOnItemIntervalCapMs.value,
+      maxSessionsPerUser: maxSessionsPerUser.value,
       backgroundJobsEnabled: backgroundJobsEnabled.value,
       ...(generationPrecheckConfig.value === undefined ? {} : { generationPrecheckConfig: generationPrecheckConfig.value }),
       ...(formPackageSigningKey.value === undefined ? {} : { formPackageSigningKey: formPackageSigningKey.value }),

@@ -1,5 +1,5 @@
 # ADR-0014 — The auth stub issues and verifies a principal, never an identity
-Status: Accepted
+Status: Accepted; its replacement trigger fired at M8 and the second path was taken — see [ADR-0056](ADR-0056-identity-keeps-its-own-credentials-and-sessions.md). A human request is authenticated by a session and no longer by this token; `platform/auth/token.ts` remains as a test fixture and for service-to-service calls, and a gate fails the build if a shipped route could resolve through it.
 Date: 2026-08-13
 
 ## Context

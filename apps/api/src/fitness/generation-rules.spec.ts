@@ -38,7 +38,8 @@ describe('generation is downstream of content, and nothing points back (ADR-0025
     const contexts = new Set(
       upstreamContextFiles(API_ROOT).map((file) => /^src\/contexts\/([^/]+)\//u.exec(file)?.[1]),
     );
-    expect([...contexts].sort()).toEqual(['assessment', 'content', 'curriculum', 'learning', 'scoring']);
+    // identity is upstream of generation like the rest, and so is governed: it must not import generation (M8-01)
+    expect([...contexts].sort()).toEqual(['assessment', 'content', 'curriculum', 'identity', 'learning', 'scoring']);
     expect(contexts.has(GENERATION_CONTEXT)).toBe(false);
   });
 });

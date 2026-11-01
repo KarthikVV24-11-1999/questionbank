@@ -1,9 +1,10 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkSecrets, configEnvVarNames, envExampleKeys, KNOWN_SAFE_ALLOWLIST } from './secret-rules.js';
+import { checkNoPasswordInSinks, checkSecrets, configEnvVarNames, envExampleKeys, KNOWN_SAFE_ALLOWLIST } from './secret-rules.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const API_ROOT = resolve(REPO_ROOT, 'apps/api');
 const FIXTURES_DIR = 'apps/api/src/fitness-fixtures/as-committed-secret';
 
 describe('F39 — the real tree (Tier 1, ADR-0013: a real scan, run every time)', () => {
@@ -83,3 +84,29 @@ describe('the config-key/.env.example equality is red in both directions', () =>
     expect(documented.sort()).not.toEqual([...configEnvVarNames()].sort());
   });
 });
+
+describe('no password reaches a log, an error, a response or an audit row (M8-02)', () => {
+  const FIXTURES = 'src/fitness-fixtures/as-password-in-a-sink';
+
+  it('holds over identity\'s source, which it actually read', () => {
+    const { violations, scannedFiles } = checkNoPasswordInSinks(API_ROOT);
+    expect(violations).toEqual([]);
+    expect(scannedFiles).toBeGreaterThan(15);
+  });
+
+  it('is red on a password passed to a log call, an Error, a response and an audit record, naming each', () => {
+    const { violations } = checkNoPasswordInSinks(API_ROOT, { files: [`${FIXTURES}/logs-the-password.ts`] });
+    expect(violations.map((violation) => violation.detail)).toEqual(['password is passed to logger.log', 'newPassword is passed to Error', 'password is passed to response.json', 'newPassword is passed to audit.record']);
+    expect(violations.every((violation) => violation.rule === 'M8_02_PASSWORD_IN_A_SINK')).toBe(true);
+  });
+
+  it('is red on a password handed to a mail', () => {
+    const { violations } = checkNoPasswordInSinks(API_ROOT, { files: [`${FIXTURES}/mails-the-password.ts`] });
+    expect(violations.map((violation) => violation.detail)).toEqual(['password is passed to mail.send']);
+  });
+
+  it('is not red on a password handed to the hasher, nor on the word in the text of an error', () => {
+    expect(checkNoPasswordInSinks(API_ROOT, { files: [`${FIXTURES}/hashes-the-password.ts`] }).violations).toEqual([]);
+  });
+});
+

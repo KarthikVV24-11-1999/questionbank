@@ -19,6 +19,7 @@ import { expectValue } from '../../testing/expect-result.js';
 import { uuidFactory } from '../../testing/generation-context.js';
 import { seedPublishedProfile, type PublishedProfile } from '../../testing/published-profile.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
+import { tokenPrincipals } from '../../testing/service-tokens.js';
 
 /**
  * The student's attempt lifecycle through the composed application (M6-30 to M6-34): real bearer tokens, the real
@@ -165,6 +166,7 @@ function unreachable(real: Pool): Pool {
 async function compose(pool: Pool, config: typeof COMPOSED_CONFIG = COMPOSED_CONFIG): Promise<INestApplication> {
   const instance = await createApplication(config, {
     pool,
+    principals: tokenPrincipals(config),
     telemetry: createRecordingTelemetry(),
     clock: { now: () => new Date(now) },
     identifiers: uuidFactory,

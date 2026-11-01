@@ -21,7 +21,7 @@ describe('learning and the contexts its evidence comes from share no import (M7-
 
   it('scanned a real tree: the set of governed contexts, not a loop over whatever was found', () => {
     const files = contextFiles(API_ROOT);
-    expect([...new Set(files.map(contextOf))].sort()).toEqual(['assessment', 'content', 'curriculum', 'generation', 'learning', 'scoring']);
+    expect([...new Set(files.map(contextOf))].sort()).toEqual(['assessment', 'content', 'curriculum', 'generation', 'identity', 'learning', 'scoring']);
     expect(files.filter((file) => contextOf(file) === 'learning').length).toBeGreaterThan(3);
     expect(files.filter((file) => contextOf(file) === 'scoring').length).toBeGreaterThan(30);
     expect(files.filter((file) => contextOf(file) === 'content').length).toBeGreaterThan(50);

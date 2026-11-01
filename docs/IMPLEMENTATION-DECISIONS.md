@@ -633,3 +633,17 @@ denominator is not a count of emitters) and catalog coverage (of the fourteen, h
 reports it did (`mastery.gain_verified` from the gain it verified), with an id drawn from the transition so a redelivery is not counted twice, rather than from a second mechanism beside the outbox; the cost is that it
 is emitted after the commit and so is at-most-once (D92). A server has no device and no network, so its envelope carries no class of either: the envelope is two shapes, a device's (both classes required) and a server's or a worker's (neither allowed), and §1 of the taxonomy says so. *(Amended: the first version wrote nominal `high` and `wifi`, which were false.)*
 → `docs/EVENT-CONFORMANCE.md` · `apps/api/src/fitness/event-conformance.ts` · `apps/api/src/platform/analytics/server-emitter.ts`
+
+### DEC-M8-1 — A request is authenticated before its controller, and the resolver every context takes reads the answer
+`PrincipalResolver.resolve(headers)` is declared in each context's `api/` layer and is synchronous; a session lives in a table. Rather than change the port in six places, a middleware authenticates the request's bearer token
+against the session table before any controller and records the answer against the request's own `headers` object, in a `WeakMap`. The resolver is a lookup in that map. Headers no request passed through (a copy, a hand-made
+object, a call outside a request) have no entry and are refused with the same `null` and the same one log record, so the failure mode of a miswired call site is a 401, not an open door. A database that cannot be reached fails
+closed in the same way. A test that supplies its own `principals` replaces the resolver and installs no middleware.
+→ `apps/api/src/contexts/identity/infrastructure/session-principals.ts` · `apps/api/src/platform/composition/app-factory.ts`
+
+### DEC-M8-2 — Registration, recovery and login give a stranger nothing about who is registered, in the body or in the time
+Registration and recovery answer `accepted` whether or not the address is known (a known address gets a message saying so; an unknown one to recovery gets nothing). A failed login answers one status and one body whatever failed.
+Each path also does the same work: a login for an unknown address verifies against a decoy credential made once at start-up, a registration for a known address still hashes the password it was given, a recovery for an unknown address
+still draws and hashes a token. One limit is accepted and registered: a known account still on older parameters costs less than the decoy, which is made under today's (D95).
+→ `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
+

@@ -13,6 +13,7 @@ import { issue } from './auth/token.js';
 import { createRecordingTelemetry, type RecordingTelemetry } from './observability/recording-telemetry.js';
 import { createApplication } from './composition/app-factory.js';
 import { serveOnLoopback } from '../testing/loopback.js';
+import { tokenPrincipals } from '../testing/service-tokens.js';
 
 /**
  * The milestone's name, as one test (M0-14). A bearer token issued by the
@@ -105,13 +106,14 @@ beforeAll(async () => {
       reviewLeaseHours: 4,
       reviewSampleRate: 0.05,
       timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+      maxSessionsPerUser: 5,
       backgroundJobsEnabled: false,
       authIssuer: ISSUER,
       authTokenTtlSeconds: 3600,
       mediaStorageRoot: './var/media-test',
       logLevel: 'info',
     },
-    { pool: database.pool, telemetry },
+    { pool: database.pool, telemetry, principals: tokenPrincipals({ authSigningKey: SIGNING_KEY, authIssuer: ISSUER }) },
   );
   await serveOnLoopback(app);
 });
@@ -211,6 +213,7 @@ describe('the walking skeleton — one authenticated request, end to end', () =>
         reviewLeaseHours: 4,
         reviewSampleRate: 0.05,
         timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
+        maxSessionsPerUser: 5,
         backgroundJobsEnabled: false,
         authIssuer: ISSUER,
         authTokenTtlSeconds: 3600,

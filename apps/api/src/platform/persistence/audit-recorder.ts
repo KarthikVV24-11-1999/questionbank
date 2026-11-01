@@ -25,7 +25,7 @@ export interface AuditRecordLike {
     readonly roleContext: RoleSet;
   };
   readonly action: string;
-  readonly targetContext: 'content' | 'curriculum' | 'scoring' | 'generation' | 'assessment' | 'learning';
+  readonly targetContext: 'content' | 'curriculum' | 'scoring' | 'generation' | 'assessment' | 'learning' | 'identity';
   readonly targetType: string;
   readonly targetId: string;
   readonly targetVersion?: number;

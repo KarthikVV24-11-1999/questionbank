@@ -29,6 +29,7 @@ import { seedPublishedProfile, type PublishedProfile } from '../../testing/publi
 import { PostgresIdempotencyStore } from '../persistence/idempotency-store.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
 import { learningForLearner } from '../../contexts/learning/public/composition.js';
+import { tokenPrincipals } from '../../testing/service-tokens.js';
 
 /**
  * A submission becomes a score (M6-38 to M6-42): the real application, real Postgres, the real relay draining the real outbox to the
@@ -124,6 +125,7 @@ beforeAll(async () => {
   );
   app = await createApplication(COMPOSED_CONFIG, {
     pool: database.pool,
+    principals: tokenPrincipals(COMPOSED_CONFIG),
     telemetry: createRecordingTelemetry(),
     clock: { now: () => appClock() },
     identifiers: uuidFactory,

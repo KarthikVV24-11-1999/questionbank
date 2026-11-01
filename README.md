@@ -11,7 +11,7 @@ it. A learner can take a signed paper offline in `apps/learn`, and a real Chrome
 
 ## Architecture
 
-Six bounded contexts, each under `apps/api/src/contexts/`:
+Seven bounded contexts, each under `apps/api/src/contexts/`:
 
 ```
 apps/studio ──▶ packages/contracts ──▶ apps/api
@@ -25,8 +25,10 @@ apps/studio ──▶ packages/contracts ──▶ apps/api
                                          │                        content; content does not depend on it
                                          ├─ contexts/assessment/  forms, attempts, the response log — reads
                                          │                        content, curriculum and scoring through barrels
-                                         └─ contexts/learning/    what a learner knows — imports none of the
-                                                                  others; the composition root joins its evidence
+                                         ├─ contexts/learning/    what a learner knows — imports none of the
+                                         │                        others; the composition root joins its evidence
+                                         └─ contexts/identity/    users, credentials, sessions — imports none of
+                                                                  the others; hands every one a PrincipalResolver
 ```
 
 | Context | Owns | Depends on |
@@ -36,6 +38,7 @@ apps/studio ──▶ packages/contracts ──▶ apps/api
 | `content` | Items, versions, lifecycle, authoring, the review workspace | `scoring/public/`, for the answer-key projection only |
 | `generation` | AI generation runs, candidates, the pre-check battery | `content/public/` and `curriculum/public/`; nothing depends on it |
 | `assessment` | Forms and their assembly, signed packages, attempts, the append-only response log | `content/public/`, `curriculum/public/` and `scoring/public/` |
+| `identity` | Users, their password credentials, sessions, email verification and password recovery | nothing — the composition root gives every other context a `PrincipalResolver` answered from its sessions |
 | `learning` | Mastery evidence, learner sittings, concept state, verified gains and their regressions, and D-002's thresholds as versioned data | nothing — scoring, content and assessment are read through seams the composition root joins, and the rule holding that is `learning-rules.spec.ts` |
 
 Cross-context access goes through a context's `public/` barrel and nothing deeper. This is enforced by a

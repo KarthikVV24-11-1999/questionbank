@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import ts from 'typescript';
 import { ENV_VAR_NAMES } from '../platform/config/config.js';
 
 /**
@@ -145,3 +146,62 @@ export function envExampleKeys(path: string): readonly string[] {
 export function configEnvVarNames(): readonly string[] {
   return Object.values(ENV_VAR_NAMES);
 }
+
+/**
+ * **A password never reaches a log, an error, a response or an audit row** (M8-02).
+ *
+ * `checkSecrets` looks for a secret *written into* source. This is the other half: a secret *passed out of* it. Inside identity's source, an identifier or property named for a password
+ * (`password`, `newPassword`, `currentPassword`, anything containing the word) may not appear among the arguments of a call that writes somewhere a person or an operator can read: a log
+ * call, an `Error`, `applicationError`, a response (`json`, `send`), an audit `record`. Passing it to the hasher is the one thing it exists to be passed to, and is not a sink.
+ *
+ * It reads names, as a static rule can; a password renamed on its way (`const p = command.password; log(p)`) is not seen. What stands behind it is that no handler logs at all, which a
+ * reviewer can see, and that the platform logger's allowlist serializer drops any attribute it was not told to keep.
+ */
+export interface PasswordSinkViolation {
+  readonly rule: 'M8_02_PASSWORD_IN_A_SINK';
+  readonly file: string;
+  readonly line: number;
+  readonly detail: string;
+}
+
+const SINK_CALLEE = /(?:^|\.)(?:log|warn|error|info|debug|json|send|record|applicationError|toProblemDetails|validationProblem)$|^(?:new\s+)?(?:\w*Error)$/u;
+const PASSWORD_NAME = /password/iu;
+const IDENTITY_SOURCE = 'src/contexts/identity';
+
+function walkIdentity(directory: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(directory);
+  } catch {
+    return [];
+  }
+  return entries.flatMap((entry) => {
+    const path = join(directory, entry);
+    if (statSync(path).isDirectory()) return walkIdentity(path);
+    return path.endsWith('.ts') && !path.endsWith('.spec.ts') ? [path] : [];
+  });
+}
+
+export function checkNoPasswordInSinks(root: string, options: { readonly files?: readonly string[] } = {}): { readonly violations: readonly PasswordSinkViolation[]; readonly scannedFiles: number } {
+  const files = (options.files ?? walkIdentity(join(root, IDENTITY_SOURCE)).map((file) => relative(root, file))).map((file) => file.replaceAll('\\', '/'));
+  const violations: PasswordSinkViolation[] = [];
+  for (const file of files) {
+    const source = ts.createSourceFile(file, readFileSync(join(root, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node): void => {
+      if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && SINK_CALLEE.test(`${ts.isNewExpression(node) ? 'new ' : ''}${node.expression.getText(source)}`)) {
+        for (const argument of node.arguments ?? []) {
+          const named = (inner: ts.Node): string | undefined => {
+            if ((ts.isIdentifier(inner) || ts.isPrivateIdentifier(inner)) && PASSWORD_NAME.test(inner.text)) return inner.text;
+            return ts.forEachChild(inner, named);
+          };
+          const found = named(argument);
+          if (found !== undefined) violations.push({ rule: 'M8_02_PASSWORD_IN_A_SINK', file, line: source.getLineAndCharacterOfPosition(argument.getStart(source)).line + 1, detail: `${found} is passed to ${node.expression.getText(source)}` });
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return { violations, scannedFiles: files.length };
+}
+

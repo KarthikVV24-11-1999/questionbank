@@ -12,6 +12,7 @@ import { connectTestDatabase, type TestDatabase } from '../../testing/database.j
 import { uuidFactory } from '../../testing/generation-context.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
 import { MemorySink } from './sink.js';
+import { tokenPrincipals } from '../../testing/service-tokens.js';
 
 /** The ingestion edge through the composed application: the bearer token, the route, and what becomes of each event in a batch (M7-61). */
 let database: TestDatabase;
@@ -29,7 +30,7 @@ beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  app = await createApplication(COMPOSED_CONFIG, { pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => new Date('2026-10-29T09:30:00.000Z') }, identifiers: uuidFactory, analyticsSink: sink });
+  app = await createApplication(COMPOSED_CONFIG, { principals: tokenPrincipals(COMPOSED_CONFIG), pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => new Date('2026-10-29T09:30:00.000Z') }, identifiers: uuidFactory, analyticsSink: sink });
   await serveOnLoopback(app);
 });
 afterAll(async () => {
