@@ -51,7 +51,7 @@ describe.each(REGISTERS)('the %s register and the tree agree', (_label, spec, kn
 describe('each register check, run against a planted violation', () => {
   it('catches a debt citation the register does not carry', () => {
     expect(checkRegister(REPO_ROOT, DEBT_REGISTER, { files: [PLANTED] })).toEqual([
-      { rule: 'UNDEFINED_IDENTIFIER', detail: `${PLANTED} cites D99, absent from docs/DEBT.md` },
+      { rule: 'UNDEFINED_IDENTIFIER', detail: `${PLANTED} cites D999, absent from docs/DEBT.md` },
     ]);
   });
 

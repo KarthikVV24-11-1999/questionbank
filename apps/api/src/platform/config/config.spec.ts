@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS, loadConfig, loadConfigFromProcessEnv } from './config.js';
+import { DEFAULT_ABUSE_LIMITS, DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS, loadConfig, loadConfigFromProcessEnv, parseRouteLimitsOrThrow } from './config.js';
 
 const VALID_KEY = 'a'.repeat(32);
 /** Distinct from VALID_KEY on purpose: config refuses the two being equal (M4-24, ADR-0020). */
@@ -41,6 +41,7 @@ describe('loadConfig — every key loads', () => {
         reviewSampleRate: 0.05,
         timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
         maxSessionsPerUser: 5,
+        ...DEFAULT_ABUSE_LIMITS,
         backgroundJobsEnabled: true,
       },
     });
@@ -70,6 +71,7 @@ describe('loadConfig — every key loads', () => {
         reviewSampleRate: 0.05,
         timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
         maxSessionsPerUser: 5,
+        ...DEFAULT_ABUSE_LIMITS,
         backgroundJobsEnabled: true,
       },
     });
@@ -460,5 +462,64 @@ describe('loadConfig — whether this process runs the background jobs (M6-42)',
         error: { key: 'backgroundJobsEnabled', message: 'BACKGROUND_JOBS_ENABLED must be true or false' },
       });
     }
+  });
+});
+
+describe('loadConfig — what the authentication routes allow, and how much hashing runs at once (M8-06, M8-07, M8-08)', () => {
+  const ROUTES = [
+    ['RATE_LIMIT_LOGIN', 'rateLimitLogin', true],
+    ['RATE_LIMIT_REGISTER', 'rateLimitRegister', true],
+    ['RATE_LIMIT_RECOVERY', 'rateLimitRecovery', true],
+    ['RATE_LIMIT_RESET', 'rateLimitReset', false],
+    ['RATE_LIMIT_VERIFICATION', 'rateLimitVerification', true],
+    ['RATE_LIMIT_PASSWORD_CHANGE', 'rateLimitPasswordChange', true],
+  ] as const;
+
+  it('has a default for every one of them, the ones tests are built from', () => {
+    const result = loadConfig(validEnv());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    for (const [, key] of ROUTES) expect(result.value[key]).toEqual(DEFAULT_ABUSE_LIMITS[key]);
+    expect(result.value.rateLimitLogin.source.tiers).toEqual([{ max: 100, windowMs: 10_000 }, { max: 1000, windowMs: 3_600_000 }]);
+    expect(result.value.rateLimitLogin.subject?.tiers).toEqual([{ max: 5, windowMs: 60_000 }, { max: 30, windowMs: 900_000 }]);
+    expect(result.value.rateLimitReset.subject).toBeNull();
+    expect([result.value.passwordHashConcurrency, result.value.passwordHashQueue, result.value.passwordHashWaitMs, result.value.trustProxyHops]).toEqual([2, 256, 15_000, 0]);
+  });
+
+  it('takes a policy from the environment, and a blank variable is the default', () => {
+    for (const [variable, key] of ROUTES) {
+      const taken = loadConfig(validEnv({ [variable]: 'source=7/1m' }));
+      expect(taken.ok && taken.value[key].source.tiers).toEqual([{ max: 7, windowMs: 60_000 }]);
+      const blank = loadConfig(validEnv({ [variable]: '' }));
+      expect(blank.ok && blank.value[key]).toEqual(DEFAULT_ABUSE_LIMITS[key]);
+    }
+  });
+
+  it('fails loudly on a policy that does not parse, naming the variable and what is wrong', () => {
+    for (const [variable, key] of ROUTES) {
+      expect(loadConfig(validEnv({ [variable]: 'source=lots' })), variable).toEqual({ ok: false, error: { key, message: `${variable}: source: "lots" is not hits/window, such as 5/1m` } });
+    }
+  });
+
+  it('refuses a subject for the route that has nobody to name', () => {
+    expect(loadConfig(validEnv({ RATE_LIMIT_RESET: 'source=5/1m;subject=5/1m' }))).toEqual({ ok: false, error: { key: 'rateLimitReset', message: 'RATE_LIMIT_RESET: this route has no subject to limit' } });
+  });
+
+  it.each([
+    ['PASSWORD_HASH_CONCURRENCY', 'passwordHashConcurrency', ['1', '16'], ['0', '17', '1.5', 'many'], 'a whole number from 1 to 16'],
+    ['PASSWORD_HASH_QUEUE', 'passwordHashQueue', ['0', '10000'], ['-1', '10001', 'x'], 'a whole number from 0 to 10000'],
+    ['PASSWORD_HASH_WAIT_MS', 'passwordHashWaitMs', ['100', '120000'], ['99', '120001', '1s'], 'a whole number of milliseconds from 100 to 120000'],
+    ['TRUST_PROXY_HOPS', 'trustProxyHops', ['0', '10'], ['-1', '11', 'one'], 'a whole number from 0 to 10'],
+  ] as const)('takes %s in its range and fails loudly outside it', (variable, key, good, bad, what) => {
+    for (const value of good) {
+      const result = loadConfig(validEnv({ [variable]: value }));
+      expect(result.ok && result.value[key], value).toBe(Number(value));
+    }
+    for (const value of bad) expect(loadConfig(validEnv({ [variable]: value })), value).toEqual({ ok: false, error: { key, message: `${variable} must be ${what}` } });
+  });
+
+  it('has defaults that are themselves checked: a built-in policy that does not parse is a failure at load, naming it', () => {
+    expect(parseRouteLimitsOrThrow('source=5/1m', true).source.tiers).toEqual([{ max: 5, windowMs: 60_000 }]);
+    expect(() => parseRouteLimitsOrThrow('source=lots', true)).toThrow('built-in rate limit "source=lots" does not parse: source: "lots" is not hits/window, such as 5/1m');
   });
 });

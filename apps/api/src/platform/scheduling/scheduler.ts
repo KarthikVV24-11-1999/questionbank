@@ -30,6 +30,12 @@ export interface TimerPort {
   every(ms: number, fn: () => void): () => void;
 }
 
+/** A single wait, for the things that give up after a time (the bound on hashing, M8-08) as the scheduler's `every` is for the things that repeat. */
+export interface DelayPort {
+  /** Calls `fn` once after `ms` unless the returned function is called first. */
+  after(ms: number, fn: () => void): () => void;
+}
+
 export interface JobOutcome {
   readonly name: string;
   readonly outcome: 'ran' | 'failed' | 'skipped-running';

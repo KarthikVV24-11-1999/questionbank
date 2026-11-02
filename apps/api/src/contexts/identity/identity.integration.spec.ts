@@ -8,6 +8,7 @@ import { createApplication } from '../../platform/composition/app-factory.js';
 import { COMPOSED_CONFIG } from '../../testing/composed-generation.js';
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
 import { uuidFactory } from '../../testing/generation-context.js';
+import { identityAbuseDeps, unlimited } from '../../testing/rate-limits.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
 import { identityHandlers } from './public/composition.js';
 import { PostgresUserStore } from './infrastructure/postgres-stores.js';
@@ -32,7 +33,7 @@ beforeAll(async () => {
   database = await connectTestDatabase();
   await database.revertMigrations().catch(() => undefined);
   await database.applyMigrations();
-  app = await createApplication({ ...COMPOSED_CONFIG, maxSessionsPerUser: MAX_SESSIONS }, { pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => now }, identifiers: uuidFactory, mail });
+  app = await createApplication({ ...COMPOSED_CONFIG, maxSessionsPerUser: MAX_SESSIONS }, { pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => now }, identifiers: uuidFactory, mail, limiter: unlimited });
   await serveOnLoopback(app);
 });
 afterAll(async () => {
@@ -225,7 +226,7 @@ describe('revocation is effective at the next request', () => {
   it('will not end a session that is not the caller\'s: a token that is someone else\'s is not found, as one that is no one\'s is', async () => {
     const mine = await loggedIn(await registered());
     const theirs = await loggedIn(await registered());
-    const { logout } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5 });
+    const { logout } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, ...identityAbuseDeps });
     const asMe = { principal: { kind: 'human' as const, id: mine.userId, roleContext: ['learner'] }, correlationId: 'c' };
     expect(await logout.handle({ sessionToken: theirs.token }, asMe)).toMatchObject({ ok: false, error: { kind: 'NotFound', code: 'SESSION_NOT_FOUND' } });
     expect(await logout.handle({ sessionToken: 'a token that is no one\'s' }, asMe)).toMatchObject({ ok: false, error: { kind: 'NotFound', code: 'SESSION_NOT_FOUND' } });
@@ -246,7 +247,7 @@ describe('revocation is effective at the next request', () => {
   it('will not rotate a session that is not the caller\'s, nor one that has already ended', async () => {
     const mine = await loggedIn(await registered());
     const theirs = await loggedIn(await registered());
-    const { rotateSession } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5 });
+    const { rotateSession } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, ...identityAbuseDeps });
     const asMe = { principal: { kind: 'human' as const, id: mine.userId, roleContext: ['learner'] }, correlationId: 'c' };
     expect(await rotateSession.handle({ sessionToken: theirs.token }, asMe)).toMatchObject({ ok: false, error: { code: 'SESSION_NOT_FOUND' } });
     expect((await post('/logout', {}, mine.token)).status).toBe(200);
@@ -412,7 +413,7 @@ describe('an unknown address costs what a known one costs', () => {
   const handlers = (hash: () => void) => {
     const real = new ScryptPasswordHasher({ algorithm: 'scrypt', n: 16_384, r: 8, p: 1, keyLength: 32 });
     const counting = { parameters: real.parameters, hash: (password: string) => (hash(), real.hash(password)), verify: (password: string, stored: Parameters<typeof real.verify>[1]) => (hash(), real.verify(password, stored)) };
-    return identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, hasher: counting });
+    return identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, hasher: counting, ...identityAbuseDeps });
   };
   const guest = { principal: { kind: 'human' as const, id: '00000000-0000-4000-8000-000000000000', roleContext: ['guest'] }, correlationId: 'c' };
 

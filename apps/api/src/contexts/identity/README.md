@@ -4,7 +4,7 @@ Who a person is, how they prove it, and the sessions that prove it again on ever
 the port and imports nothing from here.
 
 ```
-api/             IdentityController: register, login, logout, logout-all, session/rotate, password/change|recovery|reset, email/verify|verification
+api/             IdentityController: register, login, logout, logout-all, session/rotate, password/change|recovery|reset, email/verify|verification; Admission, which limits them
 application/     the handlers, SessionAuthenticator, and the ports (stores, hasher, token factory, mail)
 domain/          pure: email, password policy, hash parameters and needsRehash, session and one-time-token rules
 infrastructure/  Postgres stores, the scrypt hasher, the session middleware and PostgresPrincipalResolver, the mail adapters
@@ -42,4 +42,4 @@ refuses to send. An adapter for a real provider must:
 
 ## Not here
 
-Rate limiting (D94), role assignment (D96), multi-factor and social sign-in, and a login screen in the apps (D69).
+Role assignment (D96), multi-factor and social sign-in, and a login screen in the apps (D69).

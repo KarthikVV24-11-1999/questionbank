@@ -632,9 +632,9 @@ describe('from a finding to a started practice run, in one action (M7-58)', () =
 
 describe('the scheduler in the composed application (M6-42, D36)', () => {
   it('is built, not started: creating the application scheduled nothing, and a tick with the moment supplied runs every job', async () => {
-    expect(background.scheduler.names).toEqual(['outbox.drain', 'assessment.sweep-windows', 'assessment.submit-expired', 'content.review-ageing']);
+    expect(background.scheduler.names).toEqual(['outbox.drain', 'rate-counters.reap', 'assessment.sweep-windows', 'assessment.submit-expired', 'content.review-ageing']);
     const report = await background.scheduler.tick(new Date('2027-01-01T00:00:00.000Z'));
-    expect(report.jobs.map((job) => job.outcome)).toEqual(['ran', 'ran', 'ran', 'ran']);
+    expect(report.jobs.map((job) => job.outcome)).toEqual(['ran', 'ran', 'ran', 'ran', 'ran']);
   });
 
   it('abandons a created attempt whose window closed, and closes the window, by the sweep', async () => {

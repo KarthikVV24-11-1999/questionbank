@@ -46,7 +46,7 @@ route could resolve through it. A test that is not about login supplies the toke
 
 **Makes easy:** login, logout and logout-everywhere; a password change that ends other sessions; recovery; a per-user device limit; moving the hashes elsewhere.
 
-**Makes hard:** nothing a vendor made easy that we had a use for, but we now own breach response for credentials, and the issuing routes are not yet rate-limited (D94). The learner and studio apps still carry
+**Makes hard:** nothing a vendor made easy that we had a use for, but we now own breach response for credentials, and the routes that cost are limited and their hashing bounded by ADR-0057. The learner and studio apps still carry
 their development-token paths (D69) and cannot sign in until a login screen is built on these routes.
 
-**Not built here:** multi-factor, social sign-in, role assignment through a route (D96), the rate limiter (D94), a real mail provider (the port is the seam; the context README says what an adapter must satisfy).
+**Not built here:** multi-factor, social sign-in, role assignment through a route (D96), a real mail provider (the port is the seam; the context README says what an adapter must satisfy).

@@ -1,13 +1,15 @@
 import type { DynamicModule } from '@nestjs/common';
 import type { Pool } from 'pg';
+import { Admission, type IdentityRouteLimits, type RefusalLog } from '../api/admission.js';
 import { IdentityModule } from '../api/identity.module.js';
 import type { PrincipalResolver } from '../api/identity.controller.js';
 import { ChangePasswordHandler, LoginHandler, RegisterHandler, RequestPasswordRecoveryHandler, ResetPasswordHandler } from '../application/handlers/credential-handlers.js';
 import { LogoutAllHandler, LogoutHandler, RotateSessionHandler } from '../application/handlers/session-handlers.js';
 import { RequestEmailVerificationHandler, VerifyEmailHandler } from '../application/handlers/verification-handlers.js';
-import type { AuditRecorder, Clock, IdentifierFactory, MailPort, PasswordHasher } from '../application/ports.js';
+import type { AuditRecorder, BoundedRunner, Clock, IdentifierFactory, MailPort, PasswordHasher, RateLimiter } from '../application/ports.js';
 import { SessionAuthenticator } from '../application/session-authenticator.js';
 import { DirectoryMail, MemoryMail, UnconfiguredMail } from '../infrastructure/mail-adapters.js';
+import { BoundedPasswordHasher } from '../infrastructure/bounded-password-hasher.js';
 import { ScryptPasswordHasher } from '../infrastructure/scrypt-password-hasher.js';
 import { PostgresCredentialStore, PostgresOneTimeTokenStore, PostgresSessionStore, PostgresUserStore } from '../infrastructure/postgres-stores.js';
 import { PostgresPrincipalResolver, SessionResolutions, sessionAuthentication, type AuthLogger } from '../infrastructure/session-principals.js';
@@ -19,7 +21,8 @@ import { CryptoTokenFactory } from '../infrastructure/token-factory.js';
  * `identityPrincipals` is deliberately a separate call from `register`: the root builds the resolver first, hands it to every context, and only then composes the routes.
  */
 export type { AuthLogger } from '../infrastructure/session-principals.js';
-export type { MailMessage, MailPort } from '../application/ports.js';
+export type { BoundedRunner, MailMessage, MailPort, PasswordHasher, RateLimiter, RouteLimits } from '../application/ports.js';
+export type { IdentityRouteLimits, RefusalLog } from '../api/admission.js';
 
 /**
  * The mail adapter for an environment (M8-04), when none is supplied. Development writes a file a message; a test keeps them; anything else gets an adapter that fails the
@@ -63,6 +66,12 @@ export interface IdentityCompositionDeps {
   readonly maxSessionsPerUser: number;
   /** Absent in production: scrypt under today's parameters. A test passes a cheaper one. */
   readonly hasher?: PasswordHasher;
+  /** Where the authentication routes' counters live (M8-06); the Postgres adapter in production, so the limit is the same across instances. */
+  readonly limiter: RateLimiter;
+  readonly limits: IdentityRouteLimits;
+  /** What takes turns at the derives (M8-08), applied to whatever hasher is in use, so no route escapes it. */
+  readonly hashBound: BoundedRunner;
+  readonly refusals?: RefusalLog;
 }
 
 export interface IdentityHandlers {
@@ -79,7 +88,7 @@ export interface IdentityHandlers {
 }
 
 export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandlers {
-  for (const key of ['pool', 'clock', 'identifiers', 'audit', 'mail', 'maxSessionsPerUser'] as const) {
+  for (const key of ['pool', 'clock', 'identifiers', 'audit', 'mail', 'maxSessionsPerUser', 'limiter', 'limits', 'hashBound'] as const) {
     if (deps[key] === undefined) throw new Error(`identity composition is missing required dependency: ${key}`);
   }
   if (!Number.isInteger(deps.maxSessionsPerUser) || deps.maxSessionsPerUser < 1) throw new Error('identity composition: maxSessionsPerUser must be a positive integer');
@@ -87,7 +96,7 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
   const sessions = new PostgresSessionStore(deps.pool);
   const oneTime = new PostgresOneTimeTokenStore(deps.pool);
   const credentials = new PostgresCredentialStore(deps.pool);
-  const common = { users, hasher: deps.hasher ?? new ScryptPasswordHasher(), tokens: new CryptoTokenFactory(), clock: deps.clock, identifiers: deps.identifiers };
+  const common = { users, hasher: new BoundedPasswordHasher(deps.hasher ?? new ScryptPasswordHasher(), deps.hashBound), tokens: new CryptoTokenFactory(), clock: deps.clock, identifiers: deps.identifiers };
   return {
     register: new RegisterHandler({ ...common, oneTime, mail: deps.mail, audit: deps.audit }),
     login: new LoginHandler({ ...common, sessions, maxSessionsPerUser: deps.maxSessionsPerUser }),
@@ -103,5 +112,5 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
 }
 
 export function register(deps: IdentityCompositionDeps): DynamicModule {
-  return IdentityModule.register({ handlers: identityHandlers(deps), principals: deps.principals });
+  return IdentityModule.register({ handlers: identityHandlers(deps), principals: deps.principals, admission: new Admission(deps.limiter, deps.limits, deps.refusals) });
 }

@@ -135,7 +135,11 @@ export class LoginHandler {
   }
 
   private decoy(): Promise<StoredCredential> {
-    this.#decoy ??= this.deps.hasher.hash('a password that nobody has, made so that an unknown address costs what a known one does');
+    // A decoy that could not be made (the queue was full) is not kept: remembered, it would fail every unknown address after it.
+    this.#decoy ??= this.deps.hasher.hash('a password that nobody has, made so that an unknown address costs what a known one does').catch((error: unknown) => {
+      this.#decoy = undefined;
+      throw error;
+    });
     return this.#decoy;
   }
 }

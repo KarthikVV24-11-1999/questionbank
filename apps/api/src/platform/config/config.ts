@@ -12,6 +12,8 @@
  * backwards for a module every context's boot depends on.
  */
 
+import { parseRouteLimits, type RouteLimits } from '../rate-limit/rate-limiter.js';
+
 export type ConfigResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: ConfigError };
 
 export interface ConfigError {
@@ -45,6 +47,16 @@ export const CONFIG_KEYS = [
   'timeOnItemIntervalCapMs',
   'backgroundJobsEnabled',
   'maxSessionsPerUser',
+  'rateLimitLogin',
+  'rateLimitRegister',
+  'rateLimitRecovery',
+  'rateLimitReset',
+  'rateLimitVerification',
+  'rateLimitPasswordChange',
+  'passwordHashConcurrency',
+  'passwordHashQueue',
+  'passwordHashWaitMs',
+  'trustProxyHops',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -109,6 +121,24 @@ export interface AppConfig {
   /** The most live sessions one user may hold (M8-03); a login beyond it ends the oldest. */
   readonly maxSessionsPerUser: number;
   /**
+   * What each authentication route class allows (M8-07, NFR SEC-09): by where a request came from, and by whom it is about. The numbers are in `DEFAULT_ABUSE_LIMITS` below, with
+   * the reasoning. Parsed from `source=100/10s,1000/1h;subject=5/1m,30/15m`; a policy that does not parse refuses boot.
+   */
+  readonly rateLimitLogin: RouteLimits;
+  readonly rateLimitRegister: RouteLimits;
+  readonly rateLimitRecovery: RouteLimits;
+  /** Resetting a password with a code: by source only, since the person is not yet known. */
+  readonly rateLimitReset: RouteLimits;
+  /** Submitting a verification code is limited by source; asking for a new one by source and by user. */
+  readonly rateLimitVerification: RouteLimits;
+  readonly rateLimitPasswordChange: RouteLimits;
+  /** How many password derives may run at once, how many may wait, and how long one waits for a slot (M8-08). */
+  readonly passwordHashConcurrency: number;
+  readonly passwordHashQueue: number;
+  readonly passwordHashWaitMs: number;
+  /** How many proxies sit in front of the application and may be believed about a client's address (M8-07). Zero: the connection's own address. */
+  readonly trustProxyHops: number;
+  /**
    * Whether this process runs the background jobs — the outbox relay and the sweeps (M6-38, M6-42). On by default: every instance of
    * the application drains the outbox and sweeps, which is safe because the jobs claim or are idempotent. Off for a process that should
    * serve requests and do nothing else, or while something else is known to be doing the work.
@@ -150,7 +180,59 @@ const DEFAULTS = {
   timeOnItemIntervalCapMs: String(DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS),
   backgroundJobsEnabled: 'true',
   maxSessionsPerUser: '5',
+  rateLimitLogin: 'source=100/10s,1000/1h;subject=5/1m,30/15m',
+  rateLimitRegister: 'source=30/10s,300/1h;subject=3/1m,10/1h',
+  rateLimitRecovery: 'source=20/1m,100/1h;subject=2/1m,5/1h',
+  rateLimitReset: 'source=30/1m,200/1h',
+  rateLimitVerification: 'source=60/1m,600/1h;subject=2/1m,5/1h',
+  rateLimitPasswordChange: 'source=20/1m,200/1h;subject=5/1m,20/15m',
+  passwordHashConcurrency: '2',
+  passwordHashQueue: '256',
+  passwordHashWaitMs: '15000',
+  trustProxyHops: '0',
 } as const;
+
+/**
+ * The abuse limits as a deployment gets them when it sets none, parsed once and exported so a test that builds an `AppConfig` by hand takes them from here and not from a copy.
+ *
+ * **Why these numbers.** The limits must hold an attacker and let a school through. A class of a hundred logging in at nine arrives from one network address inside a minute or
+ * two, so a login source allows 100 in ten seconds and 1000 in an hour; one source can then attempt at most 1000 passwords an hour in total. An address is the opposite case: one
+ * person, who mistypes a few times. It allows 5 a minute and 30 in fifteen minutes, so guessing at one account is held to a few dozen tries a quarter-hour from the whole world.
+ *
+ * **Lockout, and why there isn't one.** After repeated failure an address could be locked for longer and longer. That lets anyone who knows an address keep its owner out for
+ * as long as they like by failing on purpose, which hands the attacker a denial of service on every student. A fixed window has a ceiling built in: the longest an address
+ * can be held is the end of the longest window (fifteen minutes at login), and the owner is let in again when the attacker pauses. What is given up is that a patient attacker
+ * is slowed, not stopped: 30 guesses a quarter-hour is 2880 a day at one address, against a password policy that makes a guess expensive to win. A per-address account lockout
+ * with unlock by mail is the stronger answer and a product decision; it is not taken here.
+ *
+ * **Bounding the work.** One derive holds 64 MiB (128 x N x r bytes at N=65536, r=8) for about 150 ms. libuv's pool has four threads by default and also carries file, DNS and
+ * compression work, so two derives at once (128 MiB) leave half of it free; four would not. Two slots serve about 13 logins a second, so a hundred students logging in in the same
+ * instant are all through in about eight seconds and the last of them waits that long, inside the fifteen seconds a request may wait. The queue holds 256, more than a school's
+ * worth, and a request beyond it is refused at once, not queued to wait out its time. If a deployment raises `UV_THREADPOOL_SIZE`, raise the concurrency with it, never above it.
+ *
+ * Registration and recovery send mail, so their per-address limits are the small ones: three registrations a minute and ten an hour for one address, two recoveries a minute and
+ * five an hour, which is also what stops the routes being used to fill a stranger's inbox.
+ */
+/** For the built-in defaults, which are code and must parse; exported so the check that they do is itself tested. */
+export function parseRouteLimitsOrThrow(text: string, subject: boolean): RouteLimits {
+  const parsed = parseRouteLimits(text, { subject });
+  if (!parsed.ok) throw new Error(`built-in rate limit "${text}" does not parse: ${parsed.message}`);
+  return parsed.value;
+}
+
+export const DEFAULT_ABUSE_LIMITS = {
+  rateLimitLogin: parseRouteLimitsOrThrow(DEFAULTS.rateLimitLogin, true),
+  rateLimitRegister: parseRouteLimitsOrThrow(DEFAULTS.rateLimitRegister, true),
+  rateLimitRecovery: parseRouteLimitsOrThrow(DEFAULTS.rateLimitRecovery, true),
+  rateLimitReset: parseRouteLimitsOrThrow(DEFAULTS.rateLimitReset, false),
+  rateLimitVerification: parseRouteLimitsOrThrow(DEFAULTS.rateLimitVerification, true),
+  rateLimitPasswordChange: parseRouteLimitsOrThrow(DEFAULTS.rateLimitPasswordChange, true),
+  passwordHashConcurrency: Number(DEFAULTS.passwordHashConcurrency),
+  passwordHashQueue: Number(DEFAULTS.passwordHashQueue),
+  passwordHashWaitMs: Number(DEFAULTS.passwordHashWaitMs),
+  trustProxyHops: Number(DEFAULTS.trustProxyHops),
+} as const satisfies Pick<AppConfig, 'rateLimitLogin' | 'rateLimitRegister' | 'rateLimitRecovery' | 'rateLimitReset' | 'rateLimitVerification' | 'rateLimitPasswordChange' | 'passwordHashConcurrency' | 'passwordHashQueue' | 'passwordHashWaitMs' | 'trustProxyHops'>;
+
 
 /** Environment variable name for each config key — the only mapping this module needs. */
 /** Exported so F39 (secret-rules.ts, M0-23) can assert `.env.example` names exactly this set. */
@@ -173,6 +255,16 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   timeOnItemIntervalCapMs: 'TIME_ON_ITEM_INTERVAL_CAP_MS',
   backgroundJobsEnabled: 'BACKGROUND_JOBS_ENABLED',
   maxSessionsPerUser: 'MAX_SESSIONS_PER_USER',
+  rateLimitLogin: 'RATE_LIMIT_LOGIN',
+  rateLimitRegister: 'RATE_LIMIT_REGISTER',
+  rateLimitRecovery: 'RATE_LIMIT_RECOVERY',
+  rateLimitReset: 'RATE_LIMIT_RESET',
+  rateLimitVerification: 'RATE_LIMIT_VERIFICATION',
+  rateLimitPasswordChange: 'RATE_LIMIT_PASSWORD_CHANGE',
+  passwordHashConcurrency: 'PASSWORD_HASH_CONCURRENCY',
+  passwordHashQueue: 'PASSWORD_HASH_QUEUE',
+  passwordHashWaitMs: 'PASSWORD_HASH_WAIT_MS',
+  trustProxyHops: 'TRUST_PROXY_HOPS',
 };
 
 function fail(key: ConfigKey, message: string): ConfigResult<never> {
@@ -382,6 +474,19 @@ function parseMaxSessionsPerUser(env: Readonly<Record<string, string | undefined
   return { ok: true, value: Number(raw) };
 }
 
+function parseRouteLimitKey(env: Readonly<Record<string, string | undefined>>, key: ConfigKey, subject: boolean): ConfigResult<RouteLimits> {
+  const parsed = parseRouteLimits(withDefault(env, key, DEFAULTS[key as keyof typeof DEFAULTS] as string), { subject });
+  return parsed.ok ? { ok: true, value: parsed.value } : fail(key, `${ENV_VAR_NAMES[key]}: ${parsed.message}`);
+}
+
+function parseBoundedInteger(env: Readonly<Record<string, string | undefined>>, key: ConfigKey, low: number, high: number, what: string): ConfigResult<number> {
+  const raw = withDefault(env, key, DEFAULTS[key as keyof typeof DEFAULTS] as string);
+  if (!/^\d+$/u.test(raw) || Number(raw) < low || Number(raw) > high) {
+    return fail(key, `${ENV_VAR_NAMES[key]} must be ${what}`);
+  }
+  return { ok: true, value: Number(raw) };
+}
+
 function parseBackgroundJobsEnabled(env: Readonly<Record<string, string | undefined>>): ConfigResult<boolean> {
   const raw = withDefault(env, 'backgroundJobsEnabled', DEFAULTS.backgroundJobsEnabled);
   if (raw !== 'true' && raw !== 'false') return fail('backgroundJobsEnabled', 'BACKGROUND_JOBS_ENABLED must be true or false');
@@ -463,6 +568,27 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   const maxSessionsPerUser = parseMaxSessionsPerUser(env);
   if (!maxSessionsPerUser.ok) return maxSessionsPerUser;
 
+  const rateLimitLogin = parseRouteLimitKey(env, 'rateLimitLogin', true);
+  if (!rateLimitLogin.ok) return rateLimitLogin;
+  const rateLimitRegister = parseRouteLimitKey(env, 'rateLimitRegister', true);
+  if (!rateLimitRegister.ok) return rateLimitRegister;
+  const rateLimitRecovery = parseRouteLimitKey(env, 'rateLimitRecovery', true);
+  if (!rateLimitRecovery.ok) return rateLimitRecovery;
+  const rateLimitReset = parseRouteLimitKey(env, 'rateLimitReset', false);
+  if (!rateLimitReset.ok) return rateLimitReset;
+  const rateLimitVerification = parseRouteLimitKey(env, 'rateLimitVerification', true);
+  if (!rateLimitVerification.ok) return rateLimitVerification;
+  const rateLimitPasswordChange = parseRouteLimitKey(env, 'rateLimitPasswordChange', true);
+  if (!rateLimitPasswordChange.ok) return rateLimitPasswordChange;
+  const passwordHashConcurrency = parseBoundedInteger(env, 'passwordHashConcurrency', 1, 16, 'a whole number from 1 to 16');
+  if (!passwordHashConcurrency.ok) return passwordHashConcurrency;
+  const passwordHashQueue = parseBoundedInteger(env, 'passwordHashQueue', 0, 10_000, 'a whole number from 0 to 10000');
+  if (!passwordHashQueue.ok) return passwordHashQueue;
+  const passwordHashWaitMs = parseBoundedInteger(env, 'passwordHashWaitMs', 100, 120_000, 'a whole number of milliseconds from 100 to 120000');
+  if (!passwordHashWaitMs.ok) return passwordHashWaitMs;
+  const trustProxyHops = parseBoundedInteger(env, 'trustProxyHops', 0, 10, 'a whole number from 0 to 10');
+  if (!trustProxyHops.ok) return trustProxyHops;
+
   const backgroundJobsEnabled = parseBackgroundJobsEnabled(env);
   if (!backgroundJobsEnabled.ok) return backgroundJobsEnabled;
 
@@ -484,6 +610,16 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       reviewSampleRate: reviewSampleRate.value,
       timeOnItemIntervalCapMs: timeOnItemIntervalCapMs.value,
       maxSessionsPerUser: maxSessionsPerUser.value,
+      rateLimitLogin: rateLimitLogin.value,
+      rateLimitRegister: rateLimitRegister.value,
+      rateLimitRecovery: rateLimitRecovery.value,
+      rateLimitReset: rateLimitReset.value,
+      rateLimitVerification: rateLimitVerification.value,
+      rateLimitPasswordChange: rateLimitPasswordChange.value,
+      passwordHashConcurrency: passwordHashConcurrency.value,
+      passwordHashQueue: passwordHashQueue.value,
+      passwordHashWaitMs: passwordHashWaitMs.value,
+      trustProxyHops: trustProxyHops.value,
       backgroundJobsEnabled: backgroundJobsEnabled.value,
       ...(generationPrecheckConfig.value === undefined ? {} : { generationPrecheckConfig: generationPrecheckConfig.value }),
       ...(formPackageSigningKey.value === undefined ? {} : { formPackageSigningKey: formPackageSigningKey.value }),

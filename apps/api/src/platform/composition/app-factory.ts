@@ -15,6 +15,10 @@ import { createPool } from '../persistence/pool.js';
 import { SystemClock, type Clock } from '../persistence/clock.js';
 import { UuidIdentifierFactory, type IdentifierFactory } from '../persistence/identifiers.js';
 import { PostgresAuditRecorder, type AuditRecorderLike } from '../persistence/audit-recorder.js';
+import { BoundedWork } from '../concurrency/bounded-work.js';
+import { systemTimers } from '../scheduling/system-timers.js';
+import { PostgresRateLimiter } from '../persistence/postgres-rate-limiter.js';
+import type { RateLimiter } from '../rate-limit/rate-limiter.js';
 import { PostgresIdempotencyStore, type IdempotencyStore } from '../persistence/idempotency-store.js';
 import { createMediaStore, type MediaStore } from '../persistence/filesystem-media-store.js';
 import type { PrincipalResolver } from '../auth/principal-resolver.js';
@@ -23,7 +27,7 @@ import { AnalyticsEdge } from '../analytics/edge.js';
 import { ServerEmitter } from '../analytics/server-emitter.js';
 import { LocalDirectorySink, MemorySink, type AnalyticsSink } from '../analytics/sink.js';
 import { createLogger } from '../observability/logger.js';
-import { defaultMail, identityPrincipals, register as registerIdentity, type MailPort } from '../../contexts/identity/public/composition.js';
+import { defaultMail, identityPrincipals, register as registerIdentity, type MailPort, type PasswordHasher } from '../../contexts/identity/public/composition.js';
 import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.js';
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
@@ -74,6 +78,12 @@ export interface CreateApplicationOverrides {
   readonly analyticsSink?: AnalyticsSink;
   /** Where identity's verification and recovery messages go. Absent: a directory in development, memory under test, and a refusal in production, where no provider is chosen yet. */
   readonly mail?: MailPort;
+  /** Where the authentication routes count (M8-06). Absent: Postgres, so the limit holds across instances. */
+  readonly limiter?: RateLimiter;
+  /** Where log lines go. Absent: standard output, a line each. A test that reads what the application said passes one. */
+  readonly logWrite?: (line: string) => void;
+  /** What derives a password hash. Absent: scrypt under today's parameters; a test passes one that counts. It is bounded either way. */
+  readonly hasher?: PasswordHasher;
   /** Substituted only to prove F11 across the composed set (app-factory.spec.ts) — never in production. */
   readonly contentRegister?: typeof registerContent;
   readonly curriculumRegister?: typeof registerCurriculum;
@@ -140,7 +150,7 @@ export async function createApplication(
   const idempotency = overrides.idempotency ?? new PostgresIdempotencyStore(pool);
   const mediaStore =
     overrides.mediaStore ?? createMediaStore({ mediaStorageRoot: config.mediaStorageRoot, nodeEnv: config.nodeEnv });
-  const analyticsLog = createLogger({ logLevel: config.logLevel, nodeEnv: config.nodeEnv });
+  const analyticsLog = createLogger({ logLevel: config.logLevel, nodeEnv: config.nodeEnv, ...(overrides.logWrite === undefined ? {} : { write: overrides.logWrite }) });
   // Who a request is: a session, looked up on every request (M8-03). The resolver every context takes is answered from the session table by a middleware installed below.
   // The token stub is not here; a test that wants it passes it as `principals`, and then no middleware is installed and no session is read.
   const identity = identityPrincipals({ pool, clock, logger: analyticsLog });
@@ -229,8 +239,10 @@ export async function createApplication(
     ['AttemptScoreSuperseded', [learningConsumer, reportConsumer]],
   ]);
   const relay = new OutboxRelay(pool, consumers, overrides.relayPolicy ?? DEFAULT_RELAY_POLICY);
+  const rateCounters = new PostgresRateLimiter(pool, clock.now.bind(clock));
   const scheduler = new Scheduler([
     { name: 'outbox.drain', everyMs: 1_000, run: async (now) => void (await relay.drain(now)) },
+    { name: 'rate-counters.reap', everyMs: 600_000, run: async (now) => void (await rateCounters.reapExpired(now)) },
     ...assessmentJobs(assessmentDeps),
     ...contentJobs(contentDeps),
   ]);
@@ -243,6 +255,18 @@ export async function createApplication(
     audit,
     principals,
     maxSessionsPerUser: config.maxSessionsPerUser,
+    limiter: overrides.limiter ?? rateCounters,
+    limits: {
+      login: config.rateLimitLogin,
+      register: config.rateLimitRegister,
+      recovery: config.rateLimitRecovery,
+      reset: config.rateLimitReset,
+      verification: config.rateLimitVerification,
+      passwordChange: config.rateLimitPasswordChange,
+    },
+    hashBound: new BoundedWork({ concurrency: config.passwordHashConcurrency, queueLimit: config.passwordHashQueue, waitMs: config.passwordHashWaitMs, timers: systemTimers }),
+    refusals: analyticsLog,
+    ...(overrides.hasher === undefined ? {} : { hasher: overrides.hasher }),
     mail: overrides.mail ?? defaultMail({ nodeEnv: config.nodeEnv, directory: join(config.mediaStorageRoot, '..', 'mail'), now: clock.now.bind(clock) }),
   });
   const rootImports = [identityModule, AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
@@ -253,6 +277,8 @@ export async function createApplication(
   const rootProviders: Provider[] = [{ provide: BACKGROUND, useValue: background }, ...(poolOwnedByFactory ? [FactoryOwnedPoolCloser, { provide: Pool, useValue: pool }] : [])];
 
   const app = await NestFactory.create(RootModule.register(rootImports, rootProviders), { logger: false });
+  // Behind a proxy a client's address is the proxy's unless the application is told how many to believe; every client would then be one source (M8-07).
+  if (config.trustProxyHops > 0) app.getHttpAdapter().getInstance().set('trust proxy', config.trustProxyHops);
   if (overrides.principals === undefined) app.use(identity.middleware);
   app.useGlobalInterceptors(new TelemetryInterceptor(telemetry));
 

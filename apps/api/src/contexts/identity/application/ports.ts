@@ -131,3 +131,38 @@ export interface MailPort {
 export interface IdentitySettings {
   readonly maxSessionsPerUser: number;
 }
+
+/**
+ * The rate limiter and the bound on hashing, as identity asks for them (M8-06 to M8-08). A context reaches `platform/` for the role vocabulary and nothing else (ADR-0026), so the shapes
+ * are declared here and the composition root hands in the platform's implementations, which satisfy them structurally. `platform/rate-limit/identity-ports.spec.ts` assigns each of the
+ * platform's to each of these, so a change on either side that breaks the fit fails a build.
+ */
+export interface RateTier {
+  readonly max: number;
+  readonly windowMs: number;
+}
+
+export interface RatePolicy {
+  readonly tiers: readonly RateTier[];
+}
+
+export type RateTierName = 'burst' | 'sustained';
+
+export type RateDecision =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly retryAfterSeconds: number; readonly tier: RateTierName };
+
+export interface RateLimiter {
+  hit(key: string, policy: RatePolicy): Promise<RateDecision>;
+}
+
+/** What a route class is limited by: where the request came from, and whom it is about. */
+export interface RouteLimits {
+  readonly source: RatePolicy;
+  readonly subject: RatePolicy | null;
+}
+
+/** Runs expensive work so that only so much of it is in flight, and refuses with a saturation when there is no room. */
+export interface BoundedRunner {
+  run<T>(work: () => Promise<T>): Promise<T>;
+}

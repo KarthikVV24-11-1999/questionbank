@@ -697,15 +697,6 @@ not announced again. An outbox row for the gain, written in the recorder's trans
 stored makes at-least-once delivery of nothing.
 **Cited** `apps/api/src/fitness/event-conformance.ts`
 
-### D94 — Nothing limits how often the login and issuing routes can be asked
-
-Login, registration, password recovery and verification-code requests are open to anyone and are not throttled: an attacker can guess passwords, flood an address with mail, or spend the server's memory on hashes
-(each login costs about 64 MB for a few hundred milliseconds) as fast as the connection allows. There is no rate limiter in the application. Rate limiting with burst and sustained tiers is an M8 deliverable of its own, and
-half of one built into this context would be a second mechanism to retire.
-
-**Trigger** M8's rate limiter. These routes are the first it covers, with a lockout or backoff per address on login as well as per client.
-**Cited** `apps/api/src/contexts/identity/api/identity.controller.ts`
-
 ### D95 — An unknown address can cost more than a known account that is still on older parameters
 
 A login for an unknown address verifies against a decoy made under today's parameters. A known account whose credential was made under cheaper parameters verifies faster until it is rehashed on its next login, so for
@@ -721,6 +712,33 @@ Everyone who registers is a `learner`. There is no route, command or screen that
 
 **Trigger** The first person who is not a learner and is not a developer: a command that assigns a role, audited, and available to `admin` alone.
 **Cited** `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
+
+### D97 — The in-memory rate limiter counts per process
+
+`MemoryRateLimiter` keeps its counters in the memory of the process that serves the request. With more than one instance the limit a client meets is the configured one times the number of instances, and a restart
+forgets every count. It exists for routes asked too often for a database round trip each; no route uses it yet (D98), and the authentication routes use the Postgres adapter, whose limit is the same from every instance.
+
+**Trigger** The second instance of the application, or the first route given this adapter — whichever comes first. Then either move that route to a shared counter (Redis, or the Postgres adapter if its cost is acceptable
+for the route) or state in the route's header that a limit that multiplies by the instance count is acceptable for it.
+**Cited** `apps/api/src/platform/rate-limit/memory-rate-limiter.ts`
+
+### D98 — Search, export, reporting and AI endpoints are not rate limited
+
+NFR SEC-09 asks for per-identity and per-source limits on authentication, search, export, reporting and AI endpoints. The authentication routes are limited (D94, closed below). The others are not: the limiter
+and both adapters exist and are tested, and nothing applies them to those routes. Each is a different cost and a different caller, and a limit chosen without looking at the route would be a number nobody can defend.
+
+**Trigger** The first of those routes to be exposed to a caller who is not a developer: choose its limit from what the route costs and who asks, apply it through the same port, and add it to the abuse simulation.
+**Cited** `apps/api/src/platform/rate-limit/rate-limiter.ts`
+
+### D99 — The bound on hashing is sized by hand against a thread pool it does not own
+
+Scrypt runs on libuv's thread pool, four threads by default, and the pool is shared with file, DNS and compression work. The bound keeps at most `PASSWORD_HASH_CONCURRENCY` derives in flight (two by default, 128 MiB) so that
+the pool is not held by hashing and memory does not follow someone else's setting of `UV_THREADPOOL_SIZE`. Nothing checks that the concurrency stays below the pool's size: raised past it, the bound stops protecting the pool and
+its memory arithmetic is for a different machine. The memory of an unbounded burst on the default pool is about 4 x 64 MiB, not the gigabytes a count of requests suggests; with the pool at 16 it is about a gibibyte.
+
+**Trigger** Anything that sets `UV_THREADPOOL_SIZE`, or a deployment with a container memory limit: have the process read the pool size at start and refuse a concurrency at or above it, and measure the burst in the deployed
+environment.
+**Cited** `apps/api/src/contexts/identity/abuse-simulation.integration.spec.ts`
 
 ## Closed
 
@@ -1001,3 +1019,15 @@ statement of content's bound; the repository already stated that bound twice (`T
 adapter and the three taxonomy reads of the evidence adapter, whose private constant is gone. The handlers still refuse one identifier more than the seam says, and a test holds the two together.
 
 **Cited** `apps/api/src/platform/composition/learning-standing.ts`
+
+### D94 — Nothing limited how often the login and issuing routes could be asked *(closed by M8 Track B, [ADR-0057](adr/ADR-0057-limit-the-rate-and-bound-the-work.md))*
+
+Login, registration, password recovery, reset and verification-code requests were open to anyone and not throttled: an attacker could guess passwords, flood an address with mail, or spend the server on hashes as fast
+as the connection allowed.
+
+**What closed it.** Each of those routes, and password change, is limited before it does anything that costs, by where the request came from and by whom it is about (an address, or the signed-in user), in a burst
+tier and a sustained one, with the counters in Postgres so the limit holds across instances. A limited request answers 429 with `Retry-After`, the same for a known address and an unknown one, and has done no lookup and no derive.
+Behind the limit, every password derive takes a turn at a bound of two in flight with a queue of 256 and a wait of fifteen seconds, so requests the limiter admitted cannot hold the thread pool. The abuse simulation shows a burst of 400 from one
+source served 100 and refused 300 with no derive spent on the refused, and a school of 100 logging in at once all served. Registered with it: D97, D98 and D99.
+**Cited** `apps/api/src/contexts/identity/api/admission.ts`
+

@@ -65,6 +65,7 @@ export const ALLOWED_ATTRIBUTE_KEYS = [
   'statusCode',
   'handlerName',
   'errorCode',
+  'reason',
   'durationMs',
   'principalKind',
   'principalId',

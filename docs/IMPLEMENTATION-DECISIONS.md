@@ -647,3 +647,9 @@ Each path also does the same work: a login for an unknown address verifies again
 still draws and hashes a token. One limit is accepted and registered: a known account still on older parameters costs less than the decoy, which is made under today's (D95).
 → `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
 
+### DEC-M8-3 — A request is counted against its source and its subject before anything costly happens, and a held address is held for at most the longest window of its policy
+The authentication routes count every request twice, against where it came from and against whom it is about (an address, or the signed-in user), both counters taken whatever the first said, before the handler runs: a limited request has made no
+lookup of an address and no derive, so it cannot tell a known address from an unknown one (DEC-M8-2). The subject is the text the caller sent, trimmed, lower-cased and hashed. Repeated failure is not met with a lockout that grows: a held
+address is held until the end of the longest window of its policy (fifteen minutes at login) and no longer, because a lockout that escalates lets anyone who knows an address keep its owner out for as long as they like. What is given up is
+that a patient attacker is slowed to 30 guesses a quarter-hour at one address, not stopped. A per-address lockout with unlock by mail is the stronger answer and a product decision.
+→ `apps/api/src/contexts/identity/api/admission.ts`

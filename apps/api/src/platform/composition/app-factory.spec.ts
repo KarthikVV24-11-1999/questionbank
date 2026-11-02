@@ -1,4 +1,4 @@
-import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../config/config.js';
+import { DEFAULT_ABUSE_LIMITS, DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../config/config.js';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -42,6 +42,7 @@ const CONFIG: AppConfig = {
   reviewSampleRate: 0.05,
   timeOnItemIntervalCapMs: DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS,
   maxSessionsPerUser: 5,
+  ...DEFAULT_ABUSE_LIMITS,
   backgroundJobsEnabled: false,
   authIssuer: 'questionbank',
   authTokenTtlSeconds: 3600,
