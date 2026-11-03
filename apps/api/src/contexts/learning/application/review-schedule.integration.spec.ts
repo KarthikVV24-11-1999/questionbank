@@ -1,8 +1,10 @@
+import { PostgresLearnerProfileStore } from '../infrastructure/learner-profile.repository.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { connectTestDatabase, type TestDatabase } from '../../../testing/database.js';
 import { expectValue } from '../../../testing/expect-result.js';
 import { D002_THRESHOLDS, PLATFORM_THRESHOLDS_V2 } from '../../../testing/learning-thresholds.js';
+import { chooseExam, declareScope, newProfile } from '../domain/learner-profile.js';
 import { createMasteryRuleSet } from '../domain/mastery-rule-set.js';
 import type { MasteryEvidence } from '../domain/mastery-evidence.js';
 import { PostgresLearningLedger } from '../infrastructure/learning-ledger.js';
@@ -35,6 +37,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await database.pool.query('DELETE FROM learning.learner_profile');
   await database.pool.query('TRUNCATE learning.review_escalation_resolution, learning.review_escalation, learning.review_schedule, learning.transition_revocation, learning.evidence_correction, learning.error_entry, learning.mastery_transition_evidence, learning.mastery_transition, learning.concept_state, learning.study_session, learning.mastery_evidence');
 });
 
@@ -119,7 +122,7 @@ describe('the schedule a delivery leaves', () => {
 });
 
 describe('the plan of what is due', () => {
-  const plan = (now: string) => new GetReviewPlanHandler({ reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(now) } });
+  const plan = (now: string) => new GetReviewPlanHandler({ profiles: new PostgresLearnerProfileStore(database.pool), reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(now) } });
   const asLearner = (id: string) => ({ principal: { kind: 'human' as const, id, roleContext: ['learner'] }, correlationId: 'c' });
 
   it('lists the concepts whose time has come, most overdue first, and not the ones whose time has not', async () => {
@@ -155,7 +158,7 @@ describe('the plan of what is due', () => {
 
 describe('escalation to remediation (M7-48)', () => {
   const LIMIT = PLATFORM_THRESHOLDS_V2.review!.escalateAtLapses;
-  const plan = (now = at(60)) => new GetReviewPlanHandler({ reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(now) } });
+  const plan = (now = at(60)) => new GetReviewPlanHandler({ profiles: new PostgresLearnerProfileStore(database.pool), reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(now) } });
   const asLearner = (id: string) => ({ principal: { kind: 'human' as const, id, roleContext: ['learner'] }, correlationId: 'c' });
   const escalationRows = async (learner: string) => (await database.pool.query(`SELECT concept_identity_id, lapse_count FROM learning.review_escalation WHERE learner_ref = $1`, [learner])).rows;
   /** The learner lapses on the concept `count` times, one delivery and one sitting each, a day apart starting on `from`; returns what each delivery escalated. */
@@ -264,7 +267,7 @@ describe('an escalation is resolved by the fold that made it (D85)', () => {
   const LIMIT = PLATFORM_THRESHOLDS_V2.review!.escalateAtLapses;
   // the day after the last response a spec delivers, so that the state read is the earned one and not one decay has already lowered
   const NOW = at(48);
-  const plan = () => new GetReviewPlanHandler({ reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(NOW) } });
+  const plan = () => new GetReviewPlanHandler({ profiles: new PostgresLearnerProfileStore(database.pool), reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(NOW) } });
   const asLearner = (id: string) => ({ principal: { kind: 'human' as const, id, roleContext: ['learner'] }, correlationId: 'c' });
   const rows = async (learner: string) =>
     (await database.pool.query(
@@ -346,3 +349,44 @@ describe('an escalation is resolved by the fold that made it (D85)', () => {
   });
 });
 
+
+describe('the plan is narrowed by what the learner has studied (M8-21, ADR-0060)', () => {
+  const plan = () => new GetReviewPlanHandler({ profiles: new PostgresLearnerProfileStore(database.pool), reviews: new PostgresReviewStore(database.pool), concepts: new PostgresConceptReader(database.pool), clock: { now: () => new Date(at(60)) } });
+  const asLearner = (id: string) => ({ principal: { kind: 'human' as const, id, roleContext: ['learner'] }, correlationId: 'c' });
+  const T = '2026-11-04T09:00:00.000Z';
+  async function declare(learner: string, concepts: string[], taxonomy = TAXONOMY): Promise<void> {
+    const must = <V>(r: { ok: true; value: V } | { ok: false; error: unknown }): V => {
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+      return r.value;
+    };
+    const chosen = must(chooseExam(newProfile(learner, T), { examCode: 'JEE_MAIN', targetYear: '2027', examProfileVersionId: randomUUID(), taxonomyVersionId: taxonomy }, T));
+    const scoped = must(declareScope(chosen, { taxonomyVersionId: taxonomy, nodeIds: [randomUUID()], conceptIdentityIds: concepts, conceptTotal: 10 }, T));
+    must(await new PostgresLearnerProfileStore(database.pool).save(scoped, null));
+  }
+
+  it('lists only due concepts in scope, and only escalated concepts in scope', async () => {
+    const learner = randomUUID();
+    const [inside, outside, escalatedInside, escalatedOutside] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    const LIMIT = PLATFORM_THRESHOLDS_V2.review!.escalateAtLapses;
+    expectValue(await record().handle({ learnerRef: learner, evidence: [...sitting(randomUUID(), inside, 0, 'correct'), ...sitting(randomUUID(), outside, 0, 'correct')] }, system));
+    for (const concept of [escalatedInside, escalatedOutside]) {
+      for (let i = 0; i < LIMIT; i += 1) expectValue(await record().handle({ learnerRef: learner, evidence: sitting(randomUUID(), concept, i * 2, 'incorrect') }, system));
+    }
+    const before = expectValue(await plan().handle({}, asLearner(learner)));
+    expect(before.due.map((d) => d.conceptIdentityId)).toContain(outside);
+    expect(before.escalated.map((e) => e.conceptIdentityId).sort()).toEqual([escalatedInside, escalatedOutside].sort());
+
+    await declare(learner, [inside, escalatedInside]);
+    const after = expectValue(await plan().handle({}, asLearner(learner)));
+    expect(after.due.map((d) => d.conceptIdentityId)).toEqual([inside]);
+    expect(after.escalated.map((e) => e.conceptIdentityId)).toEqual([escalatedInside]);
+  });
+
+  it('is not narrowed by a scope declared against another taxonomy version', async () => {
+    const learner = randomUUID();
+    const [a, b] = [randomUUID(), randomUUID()];
+    expectValue(await record().handle({ learnerRef: learner, evidence: [...sitting(randomUUID(), a, 0, 'correct'), ...sitting(randomUUID(), b, 0, 'correct')] }, system));
+    await declare(learner, [a], randomUUID());
+    expect(expectValue(await plan().handle({}, asLearner(learner))).due.map((d) => d.conceptIdentityId).sort()).toEqual([a, b].sort());
+  });
+});

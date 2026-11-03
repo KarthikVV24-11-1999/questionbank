@@ -1,3 +1,5 @@
+import type { ProfileChange } from '../api/learning-schemas.js';
+import type { DraftStore } from '../onboarding/draft.js';
 import type { RecordChange, RecordStore, StoredAttempt } from './persistence.js';
 
 /**
@@ -9,11 +11,11 @@ import type { RecordChange, RecordStore, StoredAttempt } from './persistence.js'
  *
  * **All or none.** The facts, the event rows and the active marker are in the one transaction, so a kill leaves the log as it was or as it will be, never a row whose facts are missing.
  *
- * Stores: `attempts` (the facts, keyed by attempt), `events` (a row per event, keyed by attempt and event id, with an index on the attempt to read them back), and `device` (one
- * key, `active`).
+ * Stores (version 1): `attempts` (the facts, keyed by attempt), `events` (a row per event, keyed by attempt and event id, with an index on the attempt to read them back), and `device` (one
+ *  key, `active`). Version 2 adds `drafts`: what a learner has said in onboarding and the server has not yet been told (M8-22), one key. The two are opened separately and share the database.
  */
 const DATABASE = 'qb-device';
-const VERSION = 1;
+const VERSION = 2;
 const ACTIVE = 'active';
 
 function promised<T>(request: IDBRequest<T>): Promise<T> {
@@ -34,15 +36,49 @@ function finished(transaction: IDBTransaction): Promise<void> {
 export function openRecordStore(factory: IDBFactory): Promise<RecordStore> {
   return new Promise((resolve, reject) => {
     const opening = factory.open(DATABASE, VERSION);
-    opening.onupgradeneeded = () => {
-      const db = opening.result;
-      db.createObjectStore('attempts', { keyPath: 'attemptId' });
-      db.createObjectStore('events', { keyPath: ['attemptId', 'eventId'] }).createIndex('byAttempt', 'attemptId');
-      db.createObjectStore('device');
-    };
+    opening.onupgradeneeded = (event) => upgrade(opening.result, (event as IDBVersionChangeEvent | undefined)?.oldVersion ?? 0);
     opening.onerror = () => reject(opening.error ?? new Error('the device store could not be opened'));
     opening.onblocked = () => reject(new Error('the device store is blocked by another tab'));
     opening.onsuccess = () => resolve(new IdbRecordStore(opening.result));
+  });
+}
+
+/** Each version adds to the last and removes nothing: an attempt written by an earlier build is read by this one. */
+function upgrade(db: IDBDatabase, from: number): void {
+  if (from < 1) {
+    db.createObjectStore('attempts', { keyPath: 'attemptId' });
+    db.createObjectStore('events', { keyPath: ['attemptId', 'eventId'] }).createIndex('byAttempt', 'attemptId');
+    db.createObjectStore('device');
+  }
+  if (from < 2) db.createObjectStore('drafts');
+}
+
+const PROFILE_DRAFT = 'profile';
+
+/** The onboarding draft on the same disk, with the same strict durability: a learner on a bad connection is the one who needs it to survive. */
+export function openDraftStore(factory: IDBFactory): Promise<DraftStore> {
+  return new Promise((resolve, reject) => {
+    const opening = factory.open(DATABASE, VERSION);
+    opening.onupgradeneeded = (event) => upgrade(opening.result, (event as IDBVersionChangeEvent | undefined)?.oldVersion ?? 0);
+    opening.onerror = () => reject(opening.error ?? new Error('the device store could not be opened'));
+    opening.onblocked = () => reject(new Error('the device store is blocked by another tab'));
+    opening.onsuccess = () => {
+      const db = opening.result;
+      const change = async (work: (store: IDBObjectStore) => void): Promise<void> => {
+        const transaction = db.transaction('drafts', 'readwrite', { durability: 'strict' });
+        const done = finished(transaction);
+        work(transaction.objectStore('drafts'));
+        await done;
+      };
+      resolve({
+        read: async () => {
+          const found = await promised<unknown>(db.transaction('drafts', 'readonly').objectStore('drafts').get(PROFILE_DRAFT));
+          return typeof found === 'object' && found !== null ? (found as ProfileChange) : null;
+        },
+        write: (draft) => change((store) => void store.put(draft, PROFILE_DRAFT)),
+        clear: () => change((store) => void store.delete(PROFILE_DRAFT)),
+      });
+    };
   });
 }
 

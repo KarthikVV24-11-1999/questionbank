@@ -8,6 +8,7 @@ import { HomeScreen } from './HomeScreen.js';
 import { NO_ANALYTICS } from '../analytics/emitter.js';
 import { analyticsRig, expectConforming } from '../testing/analytics-rig.js';
 import type { ScreenContext } from './screen-context.js';
+import { emptyProfile, FakeProfileApi } from '../testing/profile-fakes.js';
 
 afterEach(cleanup);
 
@@ -174,6 +175,49 @@ describe('the home screen (M7-57)', () => {
     missing.reports.set('att-1', notFound());
     open(missing, { lastAttemptId: 'att-1' });
     expect(await screen.findByText(/nothing to do right now/u)).toBeInTheDocument();
+  });
+
+  it('invites the learner to say who they are, as a link, and only while onboarding has something to ask and has not been skipped', async () => {
+    const profiles = new FakeProfileApi();
+    const learning = new FakeLearningApi();
+    render(<HomeScreen learning={learning} assessment={server()} profiles={profiles} context={context()} onOpen={() => undefined} />);
+    const link = await screen.findByRole('link', { name: 'Tell us about your exam' });
+    expect(link).toHaveAttribute('href', `?onboarding=1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    cleanup();
+
+    profiles.profile = { ...emptyProfile(), onboarding: { steps: [], next: 'class', skipped: true } };
+    render(<HomeScreen learning={learning} assessment={server()} profiles={profiles} context={context()} onOpen={() => undefined} />);
+    await screen.findByText(/nothing to do right now/u);
+    expect(screen.queryByRole('link', { name: 'Tell us about your exam' })).toBeNull();
+    cleanup();
+
+    profiles.profile = { ...emptyProfile(), onboarding: { steps: [], next: null, skipped: false } };
+    render(<HomeScreen learning={learning} assessment={server()} profiles={profiles} context={context()} onOpen={() => undefined} />);
+    await screen.findByText(/nothing to do right now/u);
+    expect(screen.queryByRole('link', { name: 'Tell us about your exam' })).toBeNull();
+  });
+
+  it('is exactly as it was when nothing is given to read a profile from, and stays so once that has been settled', async () => {
+    const learning = new FakeLearningApi();
+    learning.plan = plan({ due: [scheduled(1)] });
+    render(<HomeScreen learning={learning} assessment={server()} context={context()} onOpen={() => undefined} />);
+    expect(await screen.findByRole('button', { name: 'Practise this' })).toBeInTheDocument();
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.getByRole('button', { name: 'Practise this' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Tell us about your exam' })).toBeNull();
+  });
+
+  it('is exactly as it was when the profile cannot be read: the invitation is never why a learner cannot get on', async () => {
+    const profiles = new FakeProfileApi();
+    profiles.offline = true;
+    const learning = new FakeLearningApi();
+    learning.plan = plan({ due: [scheduled(1)] });
+    render(<HomeScreen learning={learning} assessment={server()} profiles={profiles} context={context()} onOpen={() => undefined} />);
+    expect(await screen.findByRole('button', { name: 'Practise this' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Tell us about your exam' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('has no accessibility violation in any state it shows', async () => {

@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import type { AssessmentApi } from '../api/assessment-api.js';
-import type { LearningApi } from '../api/learning-api.js';
+import type { LearningApi, ProfileApi } from '../api/learning-api.js';
 import { chooseNextAction, type NextAction } from '../home/next-action.js';
 import { TOKENS } from '../tokens.js';
 import { PractiseButton } from './PractiseButton.js';
@@ -39,14 +39,18 @@ function Action({ action, assessment, context, onOpen }: { readonly action: Next
 export function HomeScreen({
   learning,
   assessment,
+  profiles,
   context,
   onOpen,
 }: {
   readonly learning: LearningApi;
   readonly assessment: Pick<AssessmentApi, 'createPracticeAttempt' | 'startAttempt'>;
+  /** Where the invitation to say who you are comes from. Absent, or unreachable, and the screen is as it was: the invitation is never why a learner cannot get on. */
+  readonly profiles?: Pick<ProfileApi, 'getProfile'>;
   readonly context: ScreenContext;
   readonly onOpen: (href: string) => void;
 }): JSX.Element {
+  const profile = useRemote(() => (profiles === undefined ? Promise.resolve(null) : profiles.getProfile()));
   const next = useRemote(() => chooseNextAction({ learning, taxonomyVersionId: context.taxonomyVersionId, lastAttemptId: context.lastAttemptId }));
   return (
     <main aria-label="Home" style={{ padding: TOKENS.spaceMedium }}>
@@ -54,6 +58,11 @@ export function HomeScreen({
       {next.status === 'loading' ? <p role="status">Looking at where you are…</p> : null}
       {next.status === 'failed' ? <p role="alert">{next.message}</p> : null}
       {next.status === 'loaded' ? <Action action={next.value} assessment={assessment} context={context} onOpen={onOpen} /> : null}
+      {profile.status === 'loaded' && profile.value !== null && profile.value.onboarding.next !== null && !profile.value.onboarding.skipped ? (
+        <p>
+          <a href={screenHref({ onboarding: true }, context)}>Tell us about your exam</a> (optional) so we can start you in the right place.
+        </p>
+      ) : null}
     </main>
   );
 }

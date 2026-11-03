@@ -16,10 +16,11 @@ export interface ScreenContext {
 }
 
 /** The address of a screen, carrying the context on so the next screen is opened where this one was. */
-export function screenHref(screen: { readonly practice: string } | { readonly report: string } | Record<string, never>, context: ScreenContext): string {
+export function screenHref(screen: { readonly practice: string } | { readonly report: string } | { readonly onboarding: true | 'coverage' } | Record<string, never>, context: ScreenContext): string {
   const params = new URLSearchParams();
   if ('practice' in screen) params.set('practice', screen.practice);
   if ('report' in screen) params.set('report', screen.report);
+  if ('onboarding' in screen) params.set('onboarding', screen.onboarding === true ? '1' : screen.onboarding);
   if (context.examProfileVersionId !== null) params.set('profile', context.examProfileVersionId);
   if (context.taxonomyVersionId !== null) params.set('taxonomy', context.taxonomyVersionId);
   const query = params.toString();

@@ -40,7 +40,7 @@ paths:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
-          description: The learner's diagnostic report for a scored attempt, findings ranked by marks lost.
+          description: "The learner's diagnostic report for a scored attempt, findings ranked by marks lost."
           headers:
             X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
@@ -63,7 +63,7 @@ paths:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
-          description: The learner's time against outcome for a scored attempt, with what the interval cap discarded reported as not known.
+          description: "The learner's time against outcome for a scored attempt, with what the interval cap discarded reported as not known."
           headers:
             X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
@@ -85,7 +85,7 @@ paths:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
-          description: What the learner has due for review, and the concepts escalated to remediation.
+          description: "What the learner has due for review, and the concepts escalated to remediation."
           headers:
             X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
@@ -115,7 +115,7 @@ paths:
           schema: { type: integer, minimum: 1 }
       responses:
         '200':
-          description: The concepts the learner would practise next, weakest first.
+          description: "The concepts the learner would practise next, weakest first."
           headers:
             X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
@@ -142,7 +142,7 @@ paths:
           schema: { type: string, enum: ['true', 'false'] }
       responses:
         '200':
-          description: The learner's entries, one for each response that cost marks or was given up on.
+          description: "The learner's entries, one for each response that cost marks or was given up on."
           headers:
             X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
@@ -197,7 +197,7 @@ paths:
         - $ref: '#/components/parameters/CorrelationId'
       responses:
         '200':
-          description: Every bookmark; none is dropped for what happened to its item.
+          description: "Every bookmark; none is dropped for what happened to its item."
           headers:
             X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
           content:
@@ -236,6 +236,120 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 
+  /v1/learning/profile:
+    get:
+      operationId: getLearnerProfile
+      x-handler: GetLearnerProfile
+      summary: The learner's profile and where onboarding stands
+      description: "Empty for a learner who has not begun; reading creates nothing. Where the learner was is derived from what the profile holds."
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: "The profile, with the steps of onboarding and the first one still to do."
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LearnerProfile' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+    patch:
+      operationId: updateLearnerProfile
+      x-handler: UpdateLearnerProfile
+      summary: Take a step of onboarding, or change the profile
+      description: "Whatever fields arrive are the step taken; a change with none saves nothing. The exam and year are resolved through Curriculum, and the chapters picked to the concepts they stand for. Any save ends a skip."
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateLearnerProfileRequest' }
+      responses:
+        '200':
+          description: The profile as saved.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LearnerProfile' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/profile/skip:
+    post:
+      operationId: skipOnboarding
+      x-handler: SkipOnboarding
+      summary: Skip onboarding
+      description: "Recorded, and nothing else changes: skipping degrades recommendations and never blocks access. The next thing the learner saves ends it."
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: "The profile as it stands, marked skipped."
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LearnerProfile' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/profile/exam-choices:
+    get:
+      operationId: listExamChoices
+      x-handler: ListExamChoices
+      summary: The exams a learner may choose, with the years each has a profile for
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The exams and their years.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExamChoices' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/profile/scope-options:
+    get:
+      operationId: getScopeOptions
+      x-handler: GetScopeOptions
+      summary: The chapters of the syllabus now in force for the learner's exam
+      description: "Resolved fresh, so a learner editing after a taxonomy version bump picks from the new version's list. Needs the exam to have been chosen."
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: "The chapters, how many concepts the syllabus has, and the ones already picked when the scope declared is for this version."
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScopeOptions' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
 components:
   parameters:
     AttemptId:
@@ -251,7 +365,7 @@ components:
 
   headers:
     CorrelationId:
-      description: Echoed on every response, error or not (§8).
+      description: "Echoed on every response, error or not (§8)."
       schema: { type: string }
 
   responses:
@@ -264,6 +378,135 @@ components:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
 
   schemas:
+    ExamChoice:
+      type: object
+      required: [examCode, targetYear, examProfileVersionId, taxonomyVersionId]
+      properties:
+        examCode: { type: string }
+        targetYear: { type: string }
+        examProfileVersionId:
+          type: string
+          format: uuid
+          description: "The exam profile version the choice resolved to when it was made (INV-04)."
+        taxonomyVersionId: { type: string, format: uuid }
+
+    ProfileScope:
+      type: object
+      required: [status, taxonomyVersionId, nodeIds, conceptCount, conceptTotal, coverageFraction]
+      properties:
+        status:
+          type: string
+          enum: [in_force, needs_review, unchecked]
+          description: "needs_review means the taxonomy version has moved on since the scope was declared; it filters nothing until it is declared again."
+        taxonomyVersionId: { type: string, format: uuid }
+        nodeIds:
+          type: array
+          items: { type: string, format: uuid }
+        conceptCount: { type: integer, minimum: 1 }
+        conceptTotal: { type: integer, minimum: 1 }
+        coverageFraction: { type: number, minimum: 0, maximum: 1 }
+
+    OnboardingState:
+      type: object
+      required: [steps, next, skipped]
+      properties:
+        steps:
+          type: array
+          items:
+            type: object
+            required: [step, state]
+            properties:
+              step: { type: string, enum: [exam, class, coverage, prior_score] }
+              state: { type: string, enum: [done, pending, optional] }
+        next:
+          type: [string, 'null']
+          enum: [exam, class, coverage, prior_score, null]
+          description: "The first step still to do; null when all that is asked has been given. The prior score is optional and never the next step."
+        skipped: { type: boolean }
+
+    LearnerProfile:
+      type: object
+      required: [exam, currentClass, priorScore, scope, onboarding, version]
+      properties:
+        exam:
+          oneOf:
+            - { $ref: '#/components/schemas/ExamChoice' }
+            - { type: 'null' }
+        currentClass: { type: [string, 'null'], enum: [class_11, class_12, repeater, null] }
+        priorScore:
+          oneOf:
+            - type: object
+              required: [value, outOf]
+              properties:
+                value: { type: number }
+                outOf: { type: number }
+            - { type: 'null' }
+        scope:
+          oneOf:
+            - { $ref: '#/components/schemas/ProfileScope' }
+            - { type: 'null' }
+        onboarding: { $ref: '#/components/schemas/OnboardingState' }
+        version: { type: integer, minimum: 1 }
+
+    UpdateLearnerProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        examCode: { type: string }
+        targetYear: { type: string, pattern: '^[0-9]{4}(-[0-9]{2})?$' }
+        currentClass: { type: string, enum: [class_11, class_12, repeater] }
+        priorScore:
+          oneOf:
+            - type: object
+              required: [value, outOf]
+              additionalProperties: false
+              properties:
+                value: { type: number }
+                outOf: { type: number }
+            - { type: 'null' }
+        scopeNodeIds:
+          oneOf:
+            - type: array
+              maxItems: 2000
+              items: { type: string, format: uuid }
+            - { type: 'null' }
+
+    ExamChoices:
+      type: object
+      required: [exams]
+      properties:
+        exams:
+          type: array
+          items:
+            type: object
+            required: [examCode, displayName, years]
+            properties:
+              examCode: { type: string }
+              displayName: { type: string }
+              years:
+                type: array
+                items: { type: string }
+
+    ScopeOptions:
+      type: object
+      required: [taxonomyVersionId, nodes, conceptTotal, selected]
+      properties:
+        taxonomyVersionId: { type: string, format: uuid }
+        conceptTotal: { type: integer, minimum: 1 }
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [nodeId, parentNodeId, displayName, depth]
+            properties:
+              nodeId: { type: string, format: uuid }
+              parentNodeId: { type: [string, 'null'], format: uuid }
+              displayName: { type: string }
+              depth: { type: integer, minimum: 0 }
+        selected:
+          type: array
+          items: { type: string, format: uuid }
+
     Remediation:
       type: object
       required: [strategy, taxonomyVersionId, conceptIdentityId, selected]

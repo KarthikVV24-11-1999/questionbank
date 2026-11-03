@@ -74,3 +74,20 @@ describe('the practice policy a run pinned is the one it is grown under', () => 
     expect(practicePolicyOf(deriveDeliveryPolicy({ kind: 'profile', profile }).document)).toBeNull();
   });
 });
+
+describe('the learner\'s declared scope', () => {
+  const items = [cand(1), cand(2), cand(3, { conceptIdentityIds: [id(0xc0, 8), id(0xc0, 3)] })];
+
+  it('leaves out an item with no concept in scope, and keeps one with any', () => {
+    expect(choose(items, { scopeConceptIds: [id(0xc0, 2), id(0xc0, 3)] })).toEqual([v(2), v(3)]);
+  });
+
+  it('is no filter when absent, and no item at all when it is empty', () => {
+    expect(choose(items)).toEqual([v(1), v(2), v(3)]);
+    expect(choose(items, { scopeConceptIds: [] })).toEqual([]);
+  });
+
+  it('combines with the concepts a targeted run names, both having to hold', () => {
+    expect(choose(items, { targetConceptIds: [id(0xc0, 1), id(0xc0, 2)], scopeConceptIds: [id(0xc0, 2), id(0xc0, 3)] })).toEqual([v(2)]);
+  });
+});

@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Headers, Inject, Param, Post, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Inject, Ip, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import type { ZodType } from 'zod';
 import type { ApplicationError } from '../application/authorization.js';
 import type { ApplicationContext } from '../application/ports.js';
 import type { LearningForLearner } from '../public/composition.js';
-import { attemptIdSchema, createBookmarkSchema, errorEntriesSchema, remediationConceptsSchema, setErrorCauseSchema } from './dto/learning-schemas.js';
+import type { ProfileAdmission } from './admission.js';
+import { attemptIdSchema, createBookmarkSchema, errorEntriesSchema, remediationConceptsSchema, setErrorCauseSchema, updateProfileSchema } from './dto/learning-schemas.js';
 import { statusForKind, toProblemDetails, validationProblem } from './problem-details.js';
 
 export const LEARNING_HANDLERS = Symbol('LEARNING_HANDLERS');
 export const LEARNING_PRINCIPAL_RESOLVER = Symbol('LEARNING_PRINCIPAL_RESOLVER');
+export const LEARNING_ADMISSION = Symbol('LEARNING_ADMISSION');
 
 export interface PrincipalResolver {
   resolve(headers: Record<string, string | string[] | undefined>): ApplicationContext['principal'] | null;
@@ -42,6 +44,7 @@ export class LearningController {
   constructor(
     @Inject(LEARNING_HANDLERS) offered: LearningForLearner,
     @Inject(LEARNING_PRINCIPAL_RESOLVER) private readonly principals: PrincipalResolver,
+    @Inject(LEARNING_ADMISSION) private readonly admission: ProfileAdmission,
   ) {
     this.handlers = new Map((Object.values(offered) as unknown as Routed[]).map((handler) => [handler.name, handler]));
   }
@@ -86,6 +89,35 @@ export class LearningController {
     await this.run(response, headers, 'CreateBookmark', () => this.parse(createBookmarkSchema, this.object(body)), 201);
   }
 
+  /**
+   * The learner's profile and onboarding (M8-20). Every one of these is limited (`ProfileAdmission`), skippable and resumable by what the profile holds, and none asks for payment (DEC-M8-11 in docs/IMPLEMENTATION-DECISIONS.md).
+   * A route that wants the caller's network address takes it from the request, which the application has told how many proxies to believe.
+   */
+  @Get('/v1/learning/profile')
+  async getProfile(@Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetLearnerProfile', () => ({ success: true, data: {} }), 200, ip);
+  }
+
+  @Patch('/v1/learning/profile')
+  async updateProfile(@Body() body: unknown, @Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'UpdateLearnerProfile', () => this.parse(updateProfileSchema, this.object(body)), 200, ip);
+  }
+
+  @Post('/v1/learning/profile/skip')
+  async skipOnboarding(@Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'SkipOnboarding', () => ({ success: true, data: {} }), 200, ip);
+  }
+
+  @Get('/v1/learning/profile/exam-choices')
+  async listExamChoices(@Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'ListExamChoices', () => ({ success: true, data: {} }), 200, ip);
+  }
+
+  @Get('/v1/learning/profile/scope-options')
+  async getScopeOptions(@Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetScopeOptions', () => ({ success: true, data: {} }), 200, ip);
+  }
+
   private object(body: unknown): Record<string, unknown> {
     return typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
   }
@@ -95,7 +127,7 @@ export class LearningController {
     return parsed.success ? { success: true, data: parsed.data } : { success: false, error: { issues: parsed.error.issues } };
   }
 
-  private async run(response: Response, headers: Record<string, string>, handlerName: string, build: () => ParseOutcome, successStatus = 200): Promise<void> {
+  private async run(response: Response, headers: Record<string, string>, handlerName: string, build: () => ParseOutcome, successStatus = 200, limitedFrom?: string): Promise<void> {
     // Echoed on every response, error or not (§8).
     const correlationId = headers['x-correlation-id'] ?? randomUUID();
     response.setHeader('X-Correlation-Id', correlationId);
@@ -106,6 +138,20 @@ export class LearningController {
     if (principal === null) {
       this.fail(response, { kind: 'Authentication', code: 'Authentication', message: 'Authentication is required.' }, correlationId);
       return;
+    }
+
+    if (limitedFrom !== undefined) {
+      // before the handler: a limited request has made no read of the learner's profile and no call to Curriculum
+      const admitted = await this.admission.check({ ip: limitedFrom, subject: principal.id }, handlerName, correlationId);
+      if (!admitted.allowed) {
+        if (admitted.kind === 'limited') {
+          response.setHeader('Retry-After', String(admitted.retryAfterSeconds));
+          this.fail(response, { kind: 'RateLimited', code: 'RATE_LIMITED', message: 'Too many requests. Try again later.' }, correlationId);
+        } else {
+          this.fail(response, { kind: 'Unavailable', code: 'UNAVAILABLE', message: 'The service is unavailable. Try again shortly.' }, correlationId);
+        }
+        return;
+      }
     }
 
     const parsed = build();

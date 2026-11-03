@@ -690,3 +690,21 @@ would number its next event after the last it remembered, two events under one s
 are given, because holding them back for a disk that is not answering would lose them. A submission waits for answers to reach the disk for up to five seconds of the monotonic clock and then goes without waiting.
 → `apps/learn/src/session/record-writer.ts`
 
+### DEC-M8-9 — The learner profile is Learning's, keyed on the identity user id, and partial from the start
+The profile exists to constrain and steer practice and recommendations, which are Learning's. Identity owns credentials, sessions and roles and does not grow a product profile; an eighth context for one aggregate is overbuilding. One profile per user, no foreign key into identity's tables. It references
+Curriculum's exam profile version and taxonomy version and records the versions it was built against; it copies neither. Every field may be absent, and where a learner was is derived from the fields rather than stored as a step marker, so it cannot disagree with them.
+→ `apps/api/src/contexts/learning/domain/learner-profile.ts`
+
+### DEC-M8-10 — A scope belongs to the taxonomy version it was declared against, and a scope that cannot be used filters nothing
+After a taxonomy version is published a stored scope is reported as needing review and treated as no filter: it is not carried across by guesswork and not deleted. Editing the scope re-resolves the exam, refreshes the versions on the profile and declares against the current one. If the scope cannot be read,
+practice proceeds unfiltered. Scope narrows practice and recommendation reads only; a fitness rule fails any Assessment file outside the five that carry it to practice, and a spec shows a mock delivered whole beside a scope source that would exclude most of it.
+→ `apps/api/src/fitness/scope-rules.ts`
+
+### DEC-M8-11 — Onboarding never blocks, and asks for no payment
+Every step can be skipped and the skip is reversible; no route a learner uses afterwards asks for an exam, a class or a scope. No step of onboarding asks for payment, and a plan is offered from the product after it. Every step is limited through the admission Learning holds, with limits in configuration.
+→ `apps/api/src/contexts/learning/api/learning.controller.ts`
+
+### DEC-M8-12 — What a learner has said in onboarding and the server has not heard is kept on the device, in the response log's database
+A step is written to the device first and sent second; it is removed when the server has acknowledged exactly that, and not before. The store is a second object store (`drafts`) in the database the response log uses, added by an upgrade that leaves the log as it was, with the same strict durability, not `localStorage` (D107 is why: it is committed some seconds after a write, and a learner on a bad connection is the one who needs the draft to survive). The draft is a `ProfileChange`, the body of the request, and no step marker; which step is next is worked out from the server's profile with the draft laid over it. A refusal from the server that is not "slow down" drops the draft and tells the learner, because it would otherwise be sent for ever.
+→ `apps/learn/src/onboarding/draft.ts`
+

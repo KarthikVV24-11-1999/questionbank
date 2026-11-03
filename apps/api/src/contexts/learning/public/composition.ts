@@ -7,11 +7,14 @@
  */
 import type { DynamicModule } from '@nestjs/common';
 import type { Pool } from 'pg';
+import { ProfileAdmission, type RefusalLog } from '../api/admission.js';
 import { LearningModule } from '../api/learning.module.js';
 import type { PrincipalResolver } from '../api/learning.controller.js';
 import { SuggestRemediationConceptsHandler } from '../application/handlers/remediation-handler.js';
 import { RecordMasteryEvidenceHandler } from '../application/handlers/record-evidence-handler.js';
-import type { Clock, IdentifierFactory } from '../application/ports.js';
+import { GetLearnerProfileHandler, GetLearnerScopeHandler, GetScopeOptionsHandler, ListExamChoicesHandler, SkipOnboardingHandler, UpdateLearnerProfileHandler } from '../application/handlers/profile-handlers.js';
+import type { Clock, CurriculumSource, IdentifierFactory, RateLimiter, RouteLimits } from '../application/ports.js';
+import { PostgresLearnerProfileStore } from '../infrastructure/learner-profile.repository.js';
 import { CreateBookmarkHandler, ListBookmarksHandler, ListErrorEntriesHandler, SetErrorCauseHandler } from '../application/handlers/notebook-handlers.js';
 import type { ItemStandingSource, PaceSlotSource } from '../application/ports.js';
 import { GetReviewPlanHandler } from '../application/handlers/review-plan-handler.js';
@@ -33,6 +36,9 @@ export type { PaceSlot } from '../domain/pace-analytics.js';
 export type { PaceAnalyticsView } from '../application/handlers/pace-handler.js';
 export type { ReportSlot, Finding } from '../domain/diagnostic-report.js';
 export type { DiagnosticReportView, ReportedFinding, Remediation } from '../application/handlers/report-handlers.js';
+export type { CurriculumSource, ExamOption, RateLimiter, ResolvedScope, RouteLimits, ScopeNode, ScopeOptions } from '../application/ports.js';
+export type { RefusalLog } from '../api/admission.js';
+export type { DeclaredScope, ExamChoice } from '../domain/learner-profile.js';
 export type {
   AssembledEvidence,
   EvidenceSourceFailure,
@@ -76,13 +82,18 @@ export function learningForRelay(deps: { readonly pool: Pool; readonly clock: Cl
  */
 export interface LearningForAssessment {
   readonly remediationConcepts: SuggestRemediationConceptsHandler;
+  /** The concepts the learner declared they have studied, for practice to be drawn from (M8-21). Mock exams never ask it (ADR-0060). */
+  readonly learnerScope: GetLearnerScopeHandler;
 }
 
 export function learningForAssessment(deps: { readonly pool: Pool }): LearningForAssessment {
   if (deps.pool === undefined) {
     throw new Error('learning composition is missing required dependency: pool');
   }
-  return { remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool) }) };
+  return {
+    remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool), profiles: new PostgresLearnerProfileStore(deps.pool) }),
+    learnerScope: new GetLearnerScopeHandler({ profiles: new PostgresLearnerProfileStore(deps.pool) }),
+  };
 }
 
 /**
@@ -103,16 +114,25 @@ export interface LearningForLearner {
   readonly reviewPlan: GetReviewPlanHandler;
   /** The concepts the learner would practise next, weakest first (M7-28). */
   readonly remediationConcepts: SuggestRemediationConceptsHandler;
+  /** The learner's profile, and the steps of onboarding that fill it (M8-18, M8-20). */
+  readonly getProfile: GetLearnerProfileHandler;
+  readonly updateProfile: UpdateLearnerProfileHandler;
+  readonly skipOnboarding: SkipOnboardingHandler;
+  readonly examChoices: ListExamChoicesHandler;
+  readonly scopeOptions: GetScopeOptionsHandler;
+  /** The scope, as practice asks for it: offered here for assessment's seam and not routed (`learning-contract.spec.ts` says so). */
+  readonly learnerScope: GetLearnerScopeHandler;
 }
 
-export function learningForLearner(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly standings: ItemStandingSource; readonly paceSlots: PaceSlotSource }): LearningForLearner {
-  for (const key of ['pool', 'clock', 'identifiers', 'standings', 'paceSlots'] as const) {
+export function learningForLearner(deps: { readonly pool: Pool; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly standings: ItemStandingSource; readonly paceSlots: PaceSlotSource; readonly curriculum: CurriculumSource }): LearningForLearner {
+  for (const key of ['pool', 'clock', 'identifiers', 'standings', 'paceSlots', 'curriculum'] as const) {
     if (deps[key] === undefined) {
       throw new Error(`learning composition is missing required dependency: ${key}`);
     }
   }
   const entries = new PostgresErrorEntryStore(deps.pool);
   const bookmarks = new PostgresBookmarkStore(deps.pool);
+  const profiles = new PostgresLearnerProfileStore(deps.pool);
   return {
     setErrorCause: new SetErrorCauseHandler({ entries }),
     listErrorEntries: new ListErrorEntriesHandler({ entries }),
@@ -120,8 +140,14 @@ export function learningForLearner(deps: { readonly pool: Pool; readonly clock: 
     listBookmarks: new ListBookmarksHandler({ bookmarks, standings: deps.standings }),
     getReport: new GetDiagnosticReportHandler({ reports: new PostgresDiagnosticReportStore(deps.pool), concepts: new PostgresConceptReader(deps.pool) }),
     paceAnalytics: new GetPaceAnalyticsHandler({ slots: deps.paceSlots, ruleSets: new PostgresMasteryRuleSetRepository(deps.pool) }),
-    reviewPlan: new GetReviewPlanHandler({ reviews: new PostgresReviewStore(deps.pool), concepts: new PostgresConceptReader(deps.pool), clock: deps.clock }),
-    remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool) }),
+    reviewPlan: new GetReviewPlanHandler({ reviews: new PostgresReviewStore(deps.pool), concepts: new PostgresConceptReader(deps.pool), clock: deps.clock, profiles }),
+    remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool), profiles }),
+    getProfile: new GetLearnerProfileHandler({ profiles, curriculum: deps.curriculum, clock: deps.clock }),
+    updateProfile: new UpdateLearnerProfileHandler({ profiles, curriculum: deps.curriculum, clock: deps.clock }),
+    skipOnboarding: new SkipOnboardingHandler({ profiles, curriculum: deps.curriculum, clock: deps.clock }),
+    examChoices: new ListExamChoicesHandler({ curriculum: deps.curriculum }),
+    scopeOptions: new GetScopeOptionsHandler({ profiles, curriculum: deps.curriculum, clock: deps.clock }),
+    learnerScope: new GetLearnerScopeHandler({ profiles }),
   };
 }
 
@@ -132,6 +158,12 @@ export interface LearningCompositionDeps {
   readonly standings: ItemStandingSource;
   readonly paceSlots: PaceSlotSource;
   readonly principals: PrincipalResolver;
+  /** What the profile needs of Curriculum, filled by the root from Curriculum's seam (M8-19). */
+  readonly curriculum: CurriculumSource;
+  /** Where the profile routes count (M8-20): the platform's limiter, so the limit is the same from every instance. */
+  readonly limiter: RateLimiter;
+  readonly limits: RouteLimits;
+  readonly refusals?: RefusalLog;
 }
 
 /** The learner's routes, over the handlers `learningForLearner` offers: the same assembly, so a route reads what the seam offers and nothing more. */
@@ -139,5 +171,8 @@ export function register(deps: LearningCompositionDeps): DynamicModule {
   if (deps.principals === undefined) {
     throw new Error('learning composition is missing required dependency: principals');
   }
-  return LearningModule.register({ handlers: learningForLearner(deps), principals: deps.principals });
+  for (const key of ['limiter', 'limits'] as const) {
+    if (deps[key] === undefined) throw new Error(`learning composition is missing required dependency: ${key}`);
+  }
+  return LearningModule.register({ handlers: learningForLearner(deps), principals: deps.principals, admission: new ProfileAdmission(deps.limiter, deps.limits, deps.refusals) });
 }

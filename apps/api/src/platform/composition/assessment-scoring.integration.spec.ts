@@ -1,3 +1,4 @@
+import { noCurriculum } from '../../testing/learning-curriculum.js';
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { practiceRunBody } from '@questionbank/contracts/practice-request';
@@ -313,7 +314,7 @@ const scoringDeps = curriculumDeps;
 describe('a diagnostic report is readable within sixty seconds of the submission (M7-42)', () => {
   it('goes from the submission to the top finding through the real relay and the scheduler on real timers, and prints the time it took', async () => {
     const { who, attemptId } = await sat();
-    const learning = learningForLearner({ pool: database.pool, clock: { now: () => new Date() }, identifiers: uuidFactory, standings: { standings: async () => ({ ok: true as const, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true as const, value: [] }) } });
+    const learning = learningForLearner({ curriculum: noCurriculum, pool: database.pool, clock: { now: () => new Date() }, identifiers: uuidFactory, standings: { standings: async () => ({ ok: true as const, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true as const, value: [] }) } });
     const context = { principal: { kind: 'human' as const, id: who.id, roleContext: ['learner'] }, correlationId: 'timing' };
 
     // the clock is the real one from here: the scheduler ticks as the process would, every second, and nothing in this test waits a fixed time

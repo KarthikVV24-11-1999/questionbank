@@ -43,3 +43,22 @@ export function useAction<T>(run: () => Promise<T>, done: (value: T) => void): {
   };
   return { busy, failure, go };
 }
+
+/** The same, for an action that takes what a person has just entered. The person's entry is the argument; nothing about it is kept here. */
+export function useSubmit<A, T>(run: (entry: A) => Promise<T>, done: (value: T) => void): { readonly busy: boolean; readonly failure: string | null; readonly go: (entry: A) => void } {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const going = useRef(false);
+  const go = (entry: A): void => {
+    if (going.current) return;
+    going.current = true;
+    setBusy(true);
+    setFailure(null);
+    run(entry).then(done, (error: unknown) => {
+      going.current = false;
+      setBusy(false);
+      setFailure(messageOf(error));
+    });
+  };
+  return { busy, failure, go };
+}

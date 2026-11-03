@@ -6,14 +6,17 @@ import { createAnalytics } from './analytics/emitter.js';
 import { createAnalyticsApi } from './api/analytics-api.js';
 import { createAssessmentApi } from './api/assessment-api.js';
 import pkg from '../package.json';
-import { createLearningApi } from './api/learning-api.js';
+import { createLearningApi, createProfileApi } from './api/learning-api.js';
+import { NO_DRAFTS, sendDraft } from './onboarding/draft.js';
+import { sentDraft } from './onboarding/onboarding-events.js';
 import { boot } from './bootstrap.js';
-import { openRecordStore, unavailableRecordStore } from './session/idb-record-store.js';
+import { openDraftStore, openRecordStore, unavailableRecordStore } from './session/idb-record-store.js';
 import { createClockFacts } from './session/clock-facts.js';
 import { loadRecord, migrateLegacy } from './session/persistence.js';
 import { registerServiceWorker } from './sw/register.js';
 import { warmPackageCache } from './sw/warm-package.js';
 import { HomeScreen } from './ui/HomeScreen.js';
+import { OnboardingScreen } from './ui/OnboardingScreen.js';
 import { PracticeScreen } from './ui/PracticeScreen.js';
 import { ReportScreen } from './ui/ReportScreen.js';
 import { Root } from './ui/Root.js';
@@ -41,6 +44,9 @@ const sessionRef = params.get('session');
 const client = createClient({ baseUrl: window.location.origin, getToken: () => window.localStorage.getItem('qb-dev-token') });
 const api = createAssessmentApi(client);
 const learning = createLearningApi(client);
+const profiles = createProfileApi(client);
+/** What the learner has said in onboarding and the server has not heard, on the same disk as the response log. A browser that will not give one keeps nothing, and the screen says so by failing to save. */
+const drafts = await openDraftStore(window.indexedDB).catch(() => NO_DRAFTS);
 /**
  * Where the page was opened (D88): the exam profile and taxonomy come in the address, as the form and the session do, until a route offers them; the last sitting
  * is the one this device wrote down; and one key stands for every try of a tap on this page.
@@ -81,7 +87,11 @@ const analytics = createAnalytics({
     },
   },
 });
-window.addEventListener('online', () => analytics.flush());
+window.addEventListener('online', () => {
+  analytics.flush();
+  // an onboarding answer given offline is sent when the connection returns
+  void sendDraft({ drafts, profiles }, sentDraft(analytics)).then(() => analytics.flush());
+});
 analytics.flush();
 
 const screenContext: ScreenContext = {
@@ -115,6 +125,7 @@ void registerServiceWorker(navigator.serviceWorker, '/sw.js').then((r) => {
 function App(): JSX.Element {
   const reportOf = params.get('report');
   const practiceOf = params.get('practice');
+  const onboarding = params.get('onboarding');
   if (formId !== null && sessionRef !== null) {
     return (
       <Root
@@ -134,7 +145,8 @@ function App(): JSX.Element {
   if (formId !== null || sessionRef !== null) return <p role="alert">Open this page from your exam link.</p>;
   if (reportOf !== null) return <ReportScreen learning={learning} assessment={api} attemptId={reportOf} context={screenContext} onOpen={open} />;
   if (practiceOf !== null) return <PracticeScreen assessment={api} attemptId={practiceOf} context={screenContext} />;
-  return <HomeScreen learning={learning} assessment={api} context={screenContext} onOpen={open} />;
+  if (onboarding !== null) return <OnboardingScreen profiles={profiles} drafts={drafts} edit={onboarding === 'coverage' ? 'coverage' : null} context={screenContext} onOpen={open} />;
+  return <HomeScreen learning={learning} assessment={api} profiles={profiles} context={screenContext} onOpen={open} />;
 }
 
 const rootElement = document.getElementById('root');

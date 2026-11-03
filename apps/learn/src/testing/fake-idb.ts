@@ -47,8 +47,9 @@ export class FakeIdb {
       const db = this.#database();
       request.result = db;
       if (this.version < version) {
+        const oldVersion = this.version;
         this.version = version;
-        request.onupgradeneeded?.();
+        request.onupgradeneeded?.({ oldVersion });
       }
       request.onsuccess?.();
     }, 0);
@@ -109,6 +110,10 @@ export class FakeIdb {
         return answer(() => at);
       },
       get: (key: unknown) => answer(() => spec.rows.get(keyString(key))),
+      delete: (key: unknown) => {
+        writes.push(() => void spec.rows.delete(keyString(key)));
+        return answer(() => undefined);
+      },
       index: (index: string) => ({ getAll: (value: unknown) => answer(() => [...spec.rows.values()].filter((row) => (row as Record<string, unknown>)[spec.indexes.get(index)!] === value)) }),
     };
   }

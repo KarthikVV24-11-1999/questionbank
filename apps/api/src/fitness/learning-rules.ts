@@ -3,7 +3,7 @@ import { contextOf, resolveImport } from './boundary-rules.js';
 import { importsOf, readCode, tsFilesUnder } from './source-scan.js';
 
 /**
- * **Learning and the two contexts its evidence is derived from share no import, in either direction** (M7-06, DEC-M7-1).
+ * **Learning and the contexts its evidence and its profile are derived from share no import, in either direction** (M7-06, DEC-M7-1; curriculum joined in M8-19, ADR-0060).
  *
  * Learning's evidence is assembled from what scoring says happened to each slot and what content says each item version is
  * about. It reads both through seams the composition root joins (`platform/composition/learning-evidence.ts`) and holds a
@@ -12,10 +12,11 @@ import { importsOf, readCode, tsFilesUnder } from './source-scan.js';
  * is still the coupling this rule exists to prevent. The temptation is structural rather than occasional — the data is
  * *derived* from those two contexts, so the shortest path to it is always a direct read.
  *
- * Four clauses, one per directed pair:
+ * Six clauses, one per directed pair:
  *
- *   - learning → scoring, and learning → content: Learning reaches for the data instead of taking the seam.
- *   - scoring → learning, and content → learning: the owning context learns who consumes it, which is the dependency
+ *   - learning → scoring, learning → content and learning → curriculum: Learning reaches for the data instead of taking the seam. Curriculum is the newest; the profile resolves an exam and
+ *     a syllabus through `platform/composition/learning-curriculum.ts` and holds a port of its own.
+ *   - scoring → learning, content → learning and curriculum → learning: the owning context learns who consumes it, which is the dependency
  *     DEC-M7-1 turned around (scoring's own header says Learning reads the owning context rather than a copy in an event).
  *
  * Imports are read by `importsOf`, which sees `import type` and `export … from` as well as a value import and a dynamic
@@ -32,8 +33,8 @@ export interface LearningBoundaryViolation {
 }
 
 export const LEARNING_CONTEXT = 'learning';
-/** The two contexts Learning's evidence is derived from. */
-export const EVIDENCE_SOURCE_CONTEXTS = ['scoring', 'content'] as const;
+/** The contexts Learning's evidence and its profile are derived from: scoring and content for the evidence (M7-06), curriculum for the exam and the syllabus a learner is built on (M8-19). */
+export const EVIDENCE_SOURCE_CONTEXTS = ['scoring', 'content', 'curriculum'] as const;
 
 const CONTEXTS_ROOT = 'src/contexts';
 

@@ -128,6 +128,15 @@ export interface RemediationSource {
 }
 
 /**
+ * The part of the syllabus the learner says they have studied (M8-21, FR-STU-02), as concept identities, for **practice** to be drawn from. `null` means no scope is in force for the
+ * taxonomy version (none declared, skipped, or declared against another version) and nothing is filtered. **A mock exam never asks this**: it is the real paper, and a scope that
+ * narrowed it would be a silently wrong exam. Only the practice handlers hold this port (`fitness/scope-rules.ts` holds the tree to that), and the answer is identifiers and nothing else.
+ */
+export interface LearnerScopeSource {
+  conceptsInScope(taxonomyVersionId: string, context: ApplicationContext): Promise<Result<readonly string[] | null, ApplicationError>>;
+}
+
+/**
  * What marking says of one recorded answer (M7-29): the correctness the pinned rules attribute to it, as a word, and nothing else. The adapter behind it
  * asks content for the key and scoring for the rule, both under the system's identity; the application layer holds neither and names neither.
  */

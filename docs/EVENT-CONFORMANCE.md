@@ -15,14 +15,16 @@ the whole catalog at M7 would report a figure that no amount of M7 work could mo
 ## The measurement
 
 `pnpm --filter @questionbank/api run event-conformance` runs the learner suite, the API's call-site specs and the built app in a real Chrome with a log marker made in the temp directory, so that every event they emit is
-appended to a file, then replays that file through a fresh edge. Last run, 2026-10-31:
+appended to a file, then replays that file through a fresh edge. Last run, 2026-11-03:
 
 | | |
 |---|---|
-| Events emitted by the run | 17 (10 from the learner app's screens, 4 from the server, 3 from the built app in a real Chrome) |
-| Admitted by the edge | 17 of 17 |
-| **Envelope conformance** | **17 / 17 = 100%** |
+| Events emitted by the run | 31 (24 from the learner app's screens, 4 from the server, 3 from the built app in a real Chrome) |
+| Admitted by the edge | 31 of 31 |
+| **Envelope conformance** | **31 / 31 = 100%** |
 | **Catalog coverage** | **4 of 14** M7-owned events wired |
+
+Fourteen of the 31 are M8's onboarding events (`onboarding.step_completed` and `onboarding.scope_declared`, from the learner's onboarding screen, M8-22). They are measured here, in the envelope figure, because the run emits them; they have no row in the table below, which is M7's, and they are not in the coverage figure, which is a fraction of M7's events. `onboarding.abandoned` is in the catalog and nothing emits it (D108).
 
 Events planted on purpose, to show the check refusing them, are not logged and are not in the denominator: they are test inputs made to fail, not something the app
 emitted. The tests that plant them are the second column of the table below.

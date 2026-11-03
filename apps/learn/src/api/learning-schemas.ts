@@ -87,3 +87,53 @@ export const reviewPlanSchema = z.object({
 export type ReviewPlanDto = z.infer<typeof reviewPlanSchema>;
 
 export const remediationConceptsSchema = z.object({ conceptIdentityIds: z.array(z.string()) });
+
+export const examChoiceSchema = z.object({ examCode: z.string(), targetYear: z.string(), examProfileVersionId: z.string(), taxonomyVersionId: z.string() });
+
+export const profileScopeSchema = z.object({
+  status: z.enum(['in_force', 'needs_review', 'unchecked']),
+  taxonomyVersionId: z.string(),
+  nodeIds: z.array(z.string()),
+  conceptCount: z.number().int().min(1),
+  conceptTotal: z.number().int().min(1),
+  coverageFraction: z.number().min(0).max(1),
+});
+
+export const onboardingStepNames = ['exam', 'class', 'coverage', 'prior_score'] as const;
+export type OnboardingStep = (typeof onboardingStepNames)[number];
+
+export const onboardingStateSchema = z.object({
+  steps: z.array(z.object({ step: z.enum(onboardingStepNames), state: z.enum(['done', 'pending', 'optional']) })),
+  next: z.enum(onboardingStepNames).nullable(),
+  skipped: z.boolean(),
+});
+
+export const learnerProfileSchema = z.object({
+  exam: examChoiceSchema.nullable(),
+  currentClass: z.enum(['class_11', 'class_12', 'repeater']).nullable(),
+  priorScore: z.object({ value: z.number(), outOf: z.number() }).nullable(),
+  scope: profileScopeSchema.nullable(),
+  onboarding: onboardingStateSchema,
+  version: z.number().int().min(1),
+});
+export type LearnerProfileDto = z.infer<typeof learnerProfileSchema>;
+
+export const examChoicesSchema = z.object({ exams: z.array(z.object({ examCode: z.string(), displayName: z.string(), years: z.array(z.string()) })) });
+export type ExamChoicesDto = z.infer<typeof examChoicesSchema>;
+
+export const scopeOptionsSchema = z.object({
+  taxonomyVersionId: z.string(),
+  nodes: z.array(z.object({ nodeId: z.string(), parentNodeId: z.string().nullable(), displayName: z.string(), depth: z.number().int().min(0) })),
+  conceptTotal: z.number().int().min(1),
+  selected: z.array(z.string()),
+});
+export type ScopeOptionsDto = z.infer<typeof scopeOptionsSchema>;
+
+/** What the learner has said and the server has not yet been told: the body of `PATCH /v1/learning/profile`, every field optional. */
+export interface ProfileChange {
+  readonly examCode?: string;
+  readonly targetYear?: string;
+  readonly currentClass?: 'class_11' | 'class_12' | 'repeater';
+  readonly priorScore?: { readonly value: number; readonly outOf: number } | null;
+  readonly scopeNodeIds?: readonly string[] | null;
+}

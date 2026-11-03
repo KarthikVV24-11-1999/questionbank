@@ -782,6 +782,21 @@ are in the response log, which is in IndexedDB. Analytics is at-most-once by its
 that the buffer is best-effort.
 **Cited** `apps/learn/src/analytics/emitter.ts`
 
+### D108 — `onboarding.abandoned` is in the catalog and nothing emits it
+
+The catalog names `onboarding.abandoned` (`last_step`, `seconds_elapsed`). Nothing can know a learner has left: a page that is closed sends nothing, and the server sees only the last step it was told about. M8 emits `onboarding.step_completed` and `onboarding.scope_declared` from the app. The abandoned event would
+have to be inferred, either by the server from a profile that stops advancing or by the app on a page-hide that the browser does not promise to deliver, and both would report a guess as a fact.
+
+**Trigger** The first analysis that needs drop-off by step: derive it on the server from the profile's last update and the learner's next session, and name the event after what it knows.
+**Cited** `apps/learn/src/onboarding/onboarding-events.ts`
+
+### D109 — The exams and the chapters are not kept on the device, so two of onboarding's questions need a connection
+
+A learner who is offline can answer the class and give a past score, and the answers are kept and sent later (DEC-M8-12). The first question (which exam) and the third (what they have studied) are chosen from lists the server gives, and the app does not keep a copy: with no connection it says the list cannot be loaded and offers the way out. Keeping the lists would put a second copy of Curriculum's syllabus on the device, to go stale on the next version.
+
+**Trigger** The first learner who starts onboarding on a connection that drops before the third question and is lost there: keep the last list read, with the taxonomy version it was read for, and say when it is older than the version in force.
+**Cited** `apps/learn/src/ui/OnboardingScreen.tsx`
+
 ## Closed
 
 ### D93 — The gate before a durable kill looked for the event's bytes, and failed on a runner while the app lost nothing *(closed in the repair after M7 Track I)*

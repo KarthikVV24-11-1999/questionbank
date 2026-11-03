@@ -9,7 +9,7 @@ import { applicationError, fromAssessment, type ApplicationError } from '../auth
 import type { CreatePracticeAttempt, GrowPracticeAttempt } from '../commands/attempt-commands.js';
 import type { Handler } from '../handler-registry.js';
 import { CREATE_PRACTICE_ATTEMPT_POLICY, GROW_PRACTICE_ATTEMPT_POLICY } from '../policies.js';
-import type { ApplicationContext, AuditRecorder, Clock, FormCorpus, IdentifierFactory, PracticePinSource, RemediationSource } from '../ports.js';
+import type { ApplicationContext, AuditRecorder, Clock, FormCorpus, IdentifierFactory, LearnerScopeSource, PracticePinSource, RemediationSource } from '../ports.js';
 import { toAttemptView } from '../views.js';
 import { gate, ownAttempt, record, type CreatedAttempt } from './attempt-handlers.js';
 
@@ -28,6 +28,11 @@ export interface PracticeDependencies {
   readonly practicePins: PracticePinSource;
   /** Absent where Learning is not composed in: the targeted strategy then says so rather than guessing. */
   readonly remediation?: RemediationSource;
+  /**
+   * The learner's declared scope, which narrows what practice is drawn from (M8-21, FR-STU-02 rule 1). Absent where Learning is not composed in, and then nothing is narrowed.
+   * **Practice only**: no mock path takes this port.
+   */
+  readonly learnerScope?: LearnerScopeSource;
   readonly intervalCapMs: number;
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
@@ -67,6 +72,12 @@ async function choose(
     }
     targets = concepts.value;
   }
+  // What the learner has studied. A scope that cannot be read is no scope: practice carries on unfiltered, because a profile that cannot be read must never be the reason a learner cannot practise.
+  let scope: readonly string[] | null = null;
+  if (deps.learnerScope !== undefined) {
+    const declared = await deps.learnerScope.conceptsInScope(taxonomyVersionId, context);
+    if (declared.ok) scope = declared.value;
+  }
   const itemTypes = policy.scopeFilter.itemTypes as readonly BlueprintItemType[];
   const loaded = await deps.corpus.load(
     { ...(policy.scopeFilter.subject === null ? {} : { subject: policy.scopeFilter.subject }), ...(itemTypes.length === 0 ? {} : { itemTypes }) },
@@ -79,6 +90,7 @@ async function choose(
     candidates: loaded.value.candidates,
     policy,
     ...(targets === undefined ? {} : { targetConceptIds: targets }),
+    ...(scope === null ? {} : { scopeConceptIds: scope }),
     seenItemIds: seen.value,
     inRunItemIds: inRun,
     exposure: loaded.value.exposure,

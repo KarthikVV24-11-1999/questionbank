@@ -41,7 +41,9 @@ async function expectCheckCatches(event: keyof typeof EMITTED_AS): Promise<void>
 describe('the conformance table (M7-63)', () => {
   it('has a row for every event M7 owns, wired exactly where shipped source emits the name, with tests that exist and run', () => {
     expect(parseConformanceTable(DOCUMENT).map((row) => row.event).sort()).toEqual([...OWNED].sort());
-    expect(EMITTED).toEqual(['mastery.gain_verified', 'mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.session_started']);
+    expect(EMITTED.filter((event) => OWNED.includes(event))).toEqual(['mastery.gain_verified', 'mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.session_started']);
+    // Events another milestone owns, once shipped source emits them, are in the catalog (the scan reads it) and in the measured run, and have no row here: this table is M7's. M8's onboarding is the first.
+    expect(EMITTED.filter((event) => !OWNED.includes(event))).toEqual(['onboarding.scope_declared', 'onboarding.step_completed']);
     expect(checkConformanceIndex(ROOT, DOCUMENT, OWNED, EMITTED)).toEqual([]);
   });
 

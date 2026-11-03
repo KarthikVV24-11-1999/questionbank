@@ -21,6 +21,11 @@ export interface PracticeSelectionInput {
   readonly policy: PracticePolicy;
   /** For the targeted strategy: the concepts Learning named. Overrides the policy's own concept scope. */
   readonly targetConceptIds?: readonly string[];
+  /**
+   * The concepts the learner declared they have studied (M8-21). When present, an item is eligible only if it is about one of them, on top of whatever else the policy asks.
+   * Absent means no scope is in force. This function is only ever called for a practice run; the assembly of a mock does not pass through it.
+   */
+  readonly scopeConceptIds?: readonly string[];
   /** Item ids the learner has been given in an earlier run. Honoured only when the policy excludes recently seen items. */
   readonly seenItemIds: ReadonlySet<string>;
   /** Item ids already in this run. */
@@ -33,6 +38,7 @@ export interface PracticeSelectionInput {
 export function selectPracticeItems(input: PracticeSelectionInput): readonly AssemblyCandidate[] {
   const concepts = new Set(input.targetConceptIds ?? input.policy.scopeFilter.conceptIdentityIds);
   const types = new Set(input.policy.scopeFilter.itemTypes);
+  const studied = input.scopeConceptIds === undefined ? null : new Set(input.scopeConceptIds);
   const eligible = input.candidates.filter(
     (candidate) =>
       candidate.isPublished &&
@@ -40,6 +46,7 @@ export function selectPracticeItems(input: PracticeSelectionInput): readonly Ass
       !input.inRunItemIds.has(candidate.itemId) &&
       (!input.policy.excludeRecentlySeen || !input.seenItemIds.has(candidate.itemId)) &&
       (concepts.size === 0 || candidate.conceptIdentityIds.some((concept) => concepts.has(concept))) &&
+      (studied === null || candidate.conceptIdentityIds.some((concept) => studied.has(concept))) &&
       (types.size === 0 || types.has(candidate.itemType)) &&
       (input.policy.difficultyBand === null || candidate.difficultyBand === input.policy.difficultyBand),
   );

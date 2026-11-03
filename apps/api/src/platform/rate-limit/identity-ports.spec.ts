@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
 import type { BoundedRunner, TransactionalAudit, RateLimiter as IdentityRateLimiter, RouteLimits as IdentityRouteLimits } from '../../contexts/identity/application/ports.js';
+import type { RateLimiter as LearningRateLimiter, RouteLimits as LearningRouteLimits } from '../../contexts/learning/application/ports.js';
 import { isSaturation } from '../../contexts/identity/application/saturation.js';
 import { BoundedWork, WorkSaturated } from '../concurrency/bounded-work.js';
 import { PostgresAuditRecorder } from '../persistence/audit-recorder.js';
@@ -48,5 +49,15 @@ describe('the platform\'s audit recorder fits the transactional audit identity d
     const pool = { query: (_text: string, values: unknown[]) => (written.push(values), Promise.resolve({})) } as unknown as Pool;
     await new PostgresAuditRecorder(pool).record(entry);
     expect(written).toHaveLength(1);
+  });
+});
+
+describe('the platform\'s limiter fits the one Learning declares for the onboarding routes (M8-20)', () => {
+  it('a limiter and a set of route limits are each assignable to Learning\'s own', async () => {
+    const limiter: LearningRateLimiter = new MemoryRateLimiter(() => new Date());
+    const limits: RouteLimits = { source: { tiers: [{ max: 1, windowMs: 1000 }] }, subject: { tiers: [{ max: 1, windowMs: 1000 }] } };
+    const asLearning: LearningRouteLimits = limits;
+    expect(await limiter.hit('k', asLearning.source)).toEqual({ allowed: true });
+    expect(await limiter.hit('k', asLearning.source)).toMatchObject({ allowed: false });
   });
 });

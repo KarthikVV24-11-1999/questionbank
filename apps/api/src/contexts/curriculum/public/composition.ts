@@ -32,6 +32,7 @@ import {
   RunDryRunHandler,
   type MigrationExecutor,
 } from '../application/handlers/migration-handlers.js';
+import { ListExamOptionsQuery, ListScopeNodesQuery, ResolveExamChoiceQuery, ResolveScopeNodesQuery } from '../application/queries/learner-queries.js';
 import type { TaxonomyMapping } from '../domain/taxonomy-mapping.js';
 import {
   GetConceptPrerequisitesQuery,
@@ -186,4 +187,21 @@ export interface CurriculumForAssessment {
 export function curriculumForAssessment(deps: CurriculumCompositionDeps): CurriculumForAssessment {
   const bag = assemble(deps);
   return { examProfilePins: new GetExamProfilePinsQuery(bag), scoringSpec: new GetExamProfileScoringSpecQuery(bag) };
+}
+
+/**
+ * What Learning consumes from curriculum to build a learner's profile (M8-19, ADR-0060): the exams to choose from, what a choice resolves to, the chapters to pick from, and the
+ * concepts a pick stands for. Read-only and the system's alone, built from the same assembly `register` uses and handed over by the composition root; Learning imports nothing
+ * from curriculum.
+ */
+export interface CurriculumForLearning {
+  readonly examOptions: ListExamOptionsQuery;
+  readonly resolveExam: ResolveExamChoiceQuery;
+  readonly scopeNodes: ListScopeNodesQuery;
+  readonly resolveScope: ResolveScopeNodesQuery;
+}
+
+export function curriculumForLearning(deps: CurriculumCompositionDeps): CurriculumForLearning {
+  const bag = assemble(deps);
+  return { examOptions: new ListExamOptionsQuery(bag), resolveExam: new ResolveExamChoiceQuery(bag), scopeNodes: new ListScopeNodesQuery(bag), resolveScope: new ResolveScopeNodesQuery(bag) };
 }

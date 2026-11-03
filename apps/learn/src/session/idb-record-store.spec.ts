@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FakeIdb } from '../testing/fake-idb.js';
-import { openRecordStore, unavailableRecordStore } from './idb-record-store.js';
+import { openDraftStore, openRecordStore, unavailableRecordStore } from './idb-record-store.js';
 import { loadRecord, saveRecord, splitRecord, type SessionRecord } from './persistence.js';
 
 const record: SessionRecord = {
@@ -80,11 +80,11 @@ describe('opening it', () => {
   it('creates the stores on first use, once, and leaves them as they are on the next', async () => {
     const idb = new FakeIdb();
     await open(idb);
-    expect([...idb.stores.keys()].sort()).toEqual(['attempts', 'device', 'events']);
+    expect([...idb.stores.keys()].sort()).toEqual(['attempts', 'device', 'drafts', 'events']);
     const { store } = await open(idb);
     await saveRecord(store, record);
     await open(idb);
-    expect(idb.version).toBe(1);
+    expect(idb.version).toBe(2);
     expect(idb.stores.get('events')!.rows.size).toBe(2);
   });
 
@@ -108,5 +108,50 @@ describe('a browser that has none to give', () => {
 
   it('has words for a reason that is not an error', async () => {
     await expect(saveRecord(unavailableRecordStore('nope'), record)).rejects.toThrow('this device could not open its store');
+  });
+});
+
+describe('the onboarding draft is on the same disk (M8-22)', () => {
+  const openDrafts = (idb: FakeIdb) => openDraftStore(idb as unknown as IDBFactory);
+
+  it('keeps what was written, replaces it on the next write, and forgets it when cleared', async () => {
+    const idb = new FakeIdb();
+    const drafts = await openDrafts(idb);
+    expect(await drafts.read()).toBeNull();
+    await drafts.write({ examCode: 'JEE_MAIN', targetYear: '2027' });
+    expect(await drafts.read()).toEqual({ examCode: 'JEE_MAIN', targetYear: '2027' });
+    await drafts.write({ currentClass: 'class_12' });
+    expect(await drafts.read()).toEqual({ currentClass: 'class_12' });
+    await drafts.clear();
+    expect(await drafts.read()).toBeNull();
+  });
+
+  it('is there when the page is opened again, because it was written to the disk', async () => {
+    const idb = new FakeIdb();
+    await (await openDrafts(idb)).write({ currentClass: 'repeater' });
+    expect(await (await openDrafts(idb)).read()).toEqual({ currentClass: 'repeater' });
+  });
+
+  it('writes with strict durability, as the response log does, and reports a failed write rather than pretending', async () => {
+    const idb = new FakeIdb();
+    const drafts = await openDrafts(idb);
+    await drafts.write({ currentClass: 'class_11' });
+    expect(idb.transactions.at(-1)).toMatchObject({ stores: ['drafts'], mode: 'readwrite', options: { durability: 'strict' } });
+    idb.failNext = 'QuotaExceededError';
+    await expect(drafts.write({ currentClass: 'class_12' })).rejects.toThrow('QuotaExceededError');
+    expect(await drafts.read()).toEqual({ currentClass: 'class_11' });
+  });
+
+  it('is added to a device that already has the response log, and leaves the log as it was', async () => {
+    const idb = new FakeIdb();
+    await open(idb).then(({ store }) => saveRecord(store, record));
+    // the device as an earlier build left it: version 1, without the drafts store
+    idb.version = 1;
+    idb.stores.delete('drafts');
+    const drafts = await openDrafts(idb);
+    await drafts.write({ currentClass: 'class_12' });
+    expect(idb.version).toBe(2);
+    expect(idb.stores.get('events')!.rows.size).toBe(2);
+    expect(await drafts.read()).toEqual({ currentClass: 'class_12' });
   });
 });

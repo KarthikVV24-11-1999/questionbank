@@ -12,6 +12,8 @@ const PLANTED = {
   learningToContent: `${FIXTURES}/as-learning-imports-content/planted-type-only-import.ts`,
   scoringToLearning: `${FIXTURES}/as-scoring-imports-learning/planted-type-only-import.ts`,
   contentToLearning: `${FIXTURES}/as-content-imports-learning/planted-direct-import.ts`,
+  learningToCurriculum: `${FIXTURES}/as-learning-imports-curriculum/planted-type-only-import.ts`,
+  curriculumToLearning: `${FIXTURES}/as-curriculum-imports-learning/planted-direct-import.ts`,
 } as const;
 
 describe('learning and the contexts its evidence comes from share no import (M7-06, DEC-M7-1)', () => {
@@ -52,11 +54,24 @@ describe('the rule, run against a planted violation per clause', () => {
     expect(found.map((v) => [v.rule, v.importPath])).toEqual([['SOURCE_REACHES_LEARNING', '../../contexts/learning/public/composition.js']]);
   });
 
+  it('learning → curriculum (M8-19): the seam type, imported for a type only', () => {
+    const found = checkLearningBoundary(API_ROOT, { files: [PLANTED.learningToCurriculum], as: 'learning' });
+    expect(found.map((v) => [v.rule, v.importPath])).toEqual([['LEARNING_REACHES_ITS_SOURCES', '../../contexts/curriculum/public/composition.js']]);
+    expect(found[0]?.message).toContain('curriculum');
+  });
+
+  it('curriculum → learning (M8-19): the owning context learning who consumes it', () => {
+    const found = checkLearningBoundary(API_ROOT, { files: [PLANTED.curriculumToLearning], as: 'curriculum' });
+    expect(found.map((v) => [v.rule, v.importPath])).toEqual([['SOURCE_REACHES_LEARNING', '../../contexts/learning/public/composition.js']]);
+  });
+
   it('is not tripped by what it permits: the same imports from a file that is not of the pair', () => {
     // content reaching scoring, learning reaching itself, and assessment reaching learning are other rules' business
     expect(checkLearningBoundary(API_ROOT, { files: [PLANTED.learningToScoring], as: 'assessment' })).toEqual([]);
     expect(checkLearningBoundary(API_ROOT, { files: [PLANTED.scoringToLearning], as: 'learning' })).toEqual([]);
     expect(checkLearningBoundary(API_ROOT, { files: [PLANTED.learningToContent], as: 'scoring' })).toEqual([]);
+    expect(checkLearningBoundary(API_ROOT, { files: [PLANTED.learningToCurriculum], as: 'assessment' })).toEqual([]);
+    expect(checkLearningBoundary(API_ROOT, { files: [PLANTED.curriculumToLearning], as: 'learning' })).toEqual([]);
   });
 
   it('the import scanner it rests on reads a type-only import, a re-export and a dynamic import', () => {

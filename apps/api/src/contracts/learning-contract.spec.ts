@@ -20,7 +20,22 @@ const CONTROLLER = readFileSync(fileURLToPath(new URL('../contexts/learning/api/
 const routed = Object.values(SPEC.paths).flatMap((item) => Object.values(item).map((operation) => operation['x-handler'] as string));
 
 /** What the learner reads and writes about themself: each is scoped to the caller's own learner. */
-const LEARNER_HANDLERS = ['CreateBookmark', 'GetDiagnosticReport', 'GetPaceAnalytics', 'GetReviewPlan', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause', 'SuggestRemediationConcepts'];
+const LEARNER_HANDLERS = [
+  'CreateBookmark',
+  'GetDiagnosticReport',
+  'GetLearnerProfile',
+  'GetLearnerScope',
+  'GetPaceAnalytics',
+  'GetReviewPlan',
+  'GetScopeOptions',
+  'ListBookmarks',
+  'ListErrorEntries',
+  'ListExamChoices',
+  'SetErrorCause',
+  'SkipOnboarding',
+  'SuggestRemediationConcepts',
+  'UpdateLearnerProfile',
+];
 /** What the system does on a learner's behalf, from the outbox or a seam, never from a request. */
 const SYSTEM_HANDLERS = ['GenerateDiagnosticReport', 'RecordMasteryEvidence'];
 const OPERATOR_HANDLERS = ['PublishMasteryRuleSet'];
@@ -34,10 +49,11 @@ const UNROUTED: Record<string, string> = {
   GenerateDiagnosticReport: 'run by the relay when a score lands, as the system; a learner never asks for a report to be built',
   RecordMasteryEvidence: 'run by the relay when a score lands, as the system; evidence is never posted by a client',
   PublishMasteryRuleSet: 'an admin action under step-up with no console to call it from; the rule set is published by operations',
+  GetLearnerScope: "read by assessment through the seam it is offered on, with the learner's own context, to draw a practice run from what they have studied; a client has the profile route, and a second door to the same fact is one more place for it to differ",
 };
 
 describe('every Learning handler is routed or says why not', () => {
-  it('has exactly these eleven handlers, every policy readable', () => {
+  it('has exactly these seventeen handlers, every policy readable', () => {
     expect(scan.unreadableDeclarations).toBe(0);
     expect([...POLICY_BY_NAME.keys()].sort()).toEqual([...LEARNER_HANDLERS, ...SYSTEM_HANDLERS, ...OPERATOR_HANDLERS].sort());
     expect(scan.declared).toHaveLength(POLICY_BY_NAME.size);
@@ -62,7 +78,7 @@ describe('the document and the controller agree', () => {
   });
 
   it('serves exactly the document\u2019s paths and methods', () => {
-    const served = [...CONTROLLER.matchAll(/@(Get|Post|Put)\('([^']+)'\)/gu)].map((match) => `${(match[1] as string).toLowerCase()} ${(match[2] as string).replaceAll(/:(\w+)/gu, '{$1}')}`);
+    const served = [...CONTROLLER.matchAll(/@(Get|Post|Put|Patch)\('([^']+)'\)/gu)].map((match) => `${(match[1] as string).toLowerCase()} ${(match[2] as string).replaceAll(/:(\w+)/gu, '{$1}')}`);
     const documented = Object.entries(SPEC.paths).flatMap(([path, item]) => Object.keys(item).map((method) => `${method} ${path}`));
     expect(served.sort()).toEqual(documented.sort());
   });
@@ -82,7 +98,7 @@ describe('INV-01 — who may reach what, for Learning', () => {
     }
   });
 
-  it('admits a learner, and only a learner, to exactly the eight learner handlers', () => {
+  it('admits a learner, and only a learner, to exactly the fourteen learner handlers', () => {
     for (const name of LEARNER_HANDLERS) expect(rolesOf(name), name).toEqual([ROLES.learner]);
     expect([...POLICY_BY_NAME.keys()].filter((name) => rolesOf(name).includes(ROLES.learner)).sort()).toEqual(LEARNER_HANDLERS);
   });

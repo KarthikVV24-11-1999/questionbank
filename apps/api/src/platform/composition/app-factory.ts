@@ -33,7 +33,7 @@ import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
 import { HealthModule } from '../http/health.module.js';
 import { contentForAssessment, contentForGeneration, contentForLearning, contentJobs, register as registerContent } from '../../contexts/content/public/composition.js';
-import { curriculumForAssessment, curriculumForGeneration, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
+import { curriculumForAssessment, curriculumForGeneration, curriculumForLearning, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
 import { assessmentConsumers, assessmentForLearning, assessmentJobs, register as registerAssessment } from '../../contexts/assessment/public/composition.js';
 import { register as registerGeneration, type GenerationCompositionDeps } from '../../contexts/generation/public/composition.js';
 import { register as registerScoring, scoringForAssessment, scoringForLearning } from '../../contexts/scoring/public/composition.js';
@@ -41,6 +41,7 @@ import { learningForAssessment, learningForRelay, register as registerLearning }
 import { OutboxRelay, DEFAULT_RELAY_POLICY, type OutboxConsumer, type RelayPolicy } from '../outbox/relay.js';
 import { LearningAttemptScoredConsumer, LearningDiagnosticReportConsumer } from './learning-consumer.js';
 import { ScoredAttemptEvidenceSource } from './learning-evidence.js';
+import { CurriculumLearnerSource } from './learning-curriculum.js';
 import { ContentItemStandings } from './learning-standing.js';
 import { Scheduler } from '../scheduling/scheduler.js';
 import { BACKGROUND, type Background } from './background.js';
@@ -232,7 +233,20 @@ export async function createApplication(
     assessment: assessmentForLearning({ pool }),
   });
   // The learner's routes read what the same evidence source reads, for the pace of an attempt, and ask content for the standing of a bookmarked item.
-  const learningModule = registerLearning({ pool, clock, identifiers, principals, paceSlots: learningEvidence, standings: new ContentItemStandings(contentForLearning(contentDeps)) });
+  // the authentication routes and the profile routes count in the same table, so a limit means the same from every instance
+  const rateCounters = new PostgresRateLimiter(pool, clock.now.bind(clock));
+  const learningModule = registerLearning({
+    pool,
+    clock,
+    identifiers,
+    principals,
+    paceSlots: learningEvidence,
+    standings: new ContentItemStandings(contentForLearning(contentDeps)),
+    curriculum: new CurriculumLearnerSource(curriculumForLearning(curriculumDeps)),
+    limiter: overrides.limiter ?? rateCounters,
+    limits: config.rateLimitProfile,
+    refusals: analyticsLog,
+  });
   const learningForConsumers = learningForRelay({ pool, clock, identifiers });
   const learningConsumer = new LearningAttemptScoredConsumer({ evidence: learningEvidence, learning: learningForConsumers, analytics });
   // the report is made after the evidence is recorded, by the same delivery (M7-42)
@@ -243,7 +257,6 @@ export async function createApplication(
     ['AttemptScoreSuperseded', [learningConsumer, reportConsumer]],
   ]);
   const relay = new OutboxRelay(pool, consumers, overrides.relayPolicy ?? DEFAULT_RELAY_POLICY);
-  const rateCounters = new PostgresRateLimiter(pool, clock.now.bind(clock));
   const scheduler = new Scheduler([
     { name: 'outbox.drain', everyMs: 1_000, run: async (now) => void (await relay.drain(now)) },
     { name: 'rate-counters.reap', everyMs: 600_000, run: async (now) => void (await rateCounters.reapExpired(now)) },

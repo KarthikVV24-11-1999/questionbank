@@ -4,6 +4,7 @@ import type { ErrorCause, ErrorEntry } from '../domain/error-entry.js';
 import type { EvidenceOutcome, MasteryEvidence } from '../domain/mastery-evidence.js';
 import type { MasteryRuleSet, MasteryThresholds } from '../domain/mastery-rule-set.js';
 import type { Result } from '../domain/result.js';
+import type { ExamChoice, LearnerProfile } from '../domain/learner-profile.js';
 import type { ReviewSchedule } from '../domain/review-schedule.js';
 import type { ApplicationError, AuthorizationContext } from './authorization.js';
 
@@ -265,7 +266,8 @@ export interface EscalatedConcept {
 
 /** The learner's concept states, read for remediation (M7-28): the concepts to work on, weakest first, as identifiers and nothing else. */
 export interface ConceptReader {
-  weakest(learnerRef: string, taxonomyVersionId: string, limit: number): Promise<Result<readonly string[], ApplicationError>>;
+  /** `within`, where given, limits the answer to those concepts: the learner's declared scope (M8-21), applied before the limit so the answer is the weakest *in scope*. */
+  weakest(learnerRef: string, taxonomyVersionId: string, limit: number, within?: ReadonlySet<string>): Promise<Result<readonly string[], ApplicationError>>;
 }
 
 /** One scored attempt's slots as a report reads them: every slot, attributed to its concept, with marks as decimal text. */
@@ -300,4 +302,79 @@ export interface DiagnosticReportStore {
   insert(report: StoredReport): Promise<Result<boolean, ApplicationError>>;
   /** The newest report for the learner's attempt, which after a re-score is the one for the score that stands. */
   latest(learnerRef: string, attemptRef: string): Promise<Result<StoredReport | null, ApplicationError>>;
+}
+
+/**
+ * Where the learner profile is kept (M8-18). One row per learner. A save is made over the version it read: the first save is of a profile that was not there, and a later one of the
+ * version the learner saw, so two tabs saving at once cannot silently overwrite each other (the second is a `Conflict`, and reads again). A save may carry several changes, so the
+ * version stored is the profile's own and the one checked is the one read.
+ */
+export interface LearnerProfileStore {
+  find(learnerRef: string): Promise<Result<LearnerProfile | null, ApplicationError>>;
+  /** `expectedVersion` is the version the profile was read at, or `null` for a first save: the write happens only if that is still the version in the store. */
+  save(profile: LearnerProfile, expectedVersion: number | null): Promise<Result<LearnerProfile, ApplicationError>>;
+}
+
+/** An exam a learner may choose, with the years Curriculum has a profile version active for. */
+export interface ExamOption {
+  readonly examCode: string;
+  readonly displayName: string;
+  readonly years: readonly string[];
+}
+
+/** One chapter or topic of a taxonomy version, as a learner picks it. */
+export interface ScopeNode {
+  readonly nodeId: string;
+  readonly parentNodeId: string | null;
+  readonly displayName: string;
+  readonly depth: number;
+}
+
+export interface ScopeOptions {
+  readonly taxonomyVersionId: string;
+  readonly nodes: readonly ScopeNode[];
+  readonly conceptTotal: number;
+}
+
+export interface ResolvedScope {
+  readonly conceptIdentityIds: readonly string[];
+  readonly conceptTotal: number;
+}
+
+/**
+ * What the profile needs of Curriculum (M8-19), as a port Learning defines and the composition root implements from Curriculum's seam (ADR-0043's pattern). Learning imports nothing of
+ * Curriculum, so these are the shapes it speaks in. Every answer is whole or it is a failure that names what could not be resolved; a half-resolved scope is never returned.
+ */
+export interface CurriculumSource {
+  examOptions(context: { readonly correlationId: string }): Promise<Result<readonly ExamOption[], ApplicationError>>;
+  /** The exam and year to the profile version active for them, and the taxonomy version that profile is built on (INV-04). */
+  resolveExam(examCode: string, targetYear: string, context: { readonly correlationId: string }): Promise<Result<ExamChoice, ApplicationError>>;
+  scopeOptions(taxonomyVersionId: string, context: { readonly correlationId: string }): Promise<Result<ScopeOptions, ApplicationError>>;
+  /** The chapters picked, to the concepts they stand for (each with everything under it). A chapter the version does not have is named, and nothing is returned. */
+  resolveScope(taxonomyVersionId: string, nodeIds: readonly string[], context: { readonly correlationId: string }): Promise<Result<ResolvedScope, ApplicationError>>;
+}
+
+/**
+ * The rate limiter, as Learning asks for it (M8-20): the shapes of the platform's, declared here because a context reaches `platform/` for the role vocabulary and nothing else (ADR-0026).
+ * The composition root hands in the platform's limiter, which satisfies them structurally; `platform/rate-limit/identity-ports.spec.ts` assigns it to these as it does to identity's.
+ */
+export interface RateTier {
+  readonly max: number;
+  readonly windowMs: number;
+}
+
+export interface RatePolicy {
+  readonly tiers: readonly RateTier[];
+}
+
+export type RateDecision = { readonly allowed: true } | { readonly allowed: false; readonly retryAfterSeconds: number; readonly tier: 'burst' | 'sustained' };
+
+export interface RateLimiter {
+  hit(key: string, policy: RatePolicy): Promise<RateDecision>;
+}
+
+/** What the profile routes are limited by: where a request came from, and who it is for. */
+export interface RouteLimits {
+  readonly source: RatePolicy;
+  readonly subject: RatePolicy | null;
 }

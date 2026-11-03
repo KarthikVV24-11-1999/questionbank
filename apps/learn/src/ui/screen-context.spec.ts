@@ -10,6 +10,7 @@ describe('the address of a screen', () => {
     expect(screenHref({ practice: 'run-1' }, context())).toBe(`?practice=run-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
     expect(screenHref({ report: 'att-1' }, context())).toBe(`?report=att-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
     expect(screenHref({}, context())).toBe(`?profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    expect(screenHref({ onboarding: true }, context())).toBe(`?onboarding=1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
   });
 
   it('carries on only what the page was given, and is the bare home address where it was given nothing', () => {

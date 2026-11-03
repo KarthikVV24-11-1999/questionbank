@@ -1,10 +1,12 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import type { LearningForLearner } from '../public/composition.js';
-import { LEARNING_HANDLERS, LEARNING_PRINCIPAL_RESOLVER, LearningController, type PrincipalResolver } from './learning.controller.js';
+import type { ProfileAdmission } from './admission.js';
+import { LEARNING_ADMISSION, LEARNING_HANDLERS, LEARNING_PRINCIPAL_RESOLVER, LearningController, type PrincipalResolver } from './learning.controller.js';
 
 export interface LearningModuleOptions {
   readonly handlers: LearningForLearner;
   readonly principals: PrincipalResolver;
+  readonly admission: ProfileAdmission;
 }
 
 /** Wires the learner's surface into the application. The handlers arrive already built, from the same composition the root reads. */
@@ -17,6 +19,7 @@ export class LearningModule {
       providers: [
         { provide: LEARNING_HANDLERS, useValue: options.handlers },
         { provide: LEARNING_PRINCIPAL_RESOLVER, useValue: options.principals },
+        { provide: LEARNING_ADMISSION, useValue: options.admission },
       ],
     };
   }

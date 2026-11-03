@@ -1,3 +1,4 @@
+import { noCurriculum } from '../../testing/learning-curriculum.js';
 import { describe, expect, it } from 'vitest';
 import type { Pool } from 'pg';
 import * as contentComposition from '../../contexts/content/public/composition.js';
@@ -106,8 +107,8 @@ describe('what curriculum offers generation', () => {
     expect(offered.taxonomyVersion.policy.allowedRoles).toContain('generation_pipeline');
   });
 
-  it('a composition module exports its register, its two seams, its in-memory executor, and nothing else at runtime', () => {
-    expect(Object.keys(curriculumComposition).sort()).toEqual(['InMemoryMigrationExecutor', 'curriculumForAssessment', 'curriculumForGeneration', 'register']);
+  it('a composition module exports its register, its three seams, its in-memory executor, and nothing else at runtime', () => {
+    expect(Object.keys(curriculumComposition).sort()).toEqual(['InMemoryMigrationExecutor', 'curriculumForAssessment', 'curriculumForGeneration', 'curriculumForLearning', 'register']);
   });
 });
 
@@ -121,6 +122,16 @@ describe('what curriculum offers assessment', () => {
     expect(offered.examProfilePins.policy.allowedRoles).not.toContain('generation_pipeline');
     // the marking rules are for scoring's consumer: the system's alone
     expect(offered.scoringSpec.policy.allowedRoles).toEqual(['system']);
+  });
+});
+
+describe('what curriculum offers learning (M8-19)', () => {
+  const offered = curriculumComposition.curriculumForLearning({ pool, clock, identifiers, audit, principals });
+
+  it('is exactly four reads, each the system\'s alone, and no command', () => {
+    expect(Object.keys(offered).sort()).toEqual(['examOptions', 'resolveExam', 'resolveScope', 'scopeNodes']);
+    expect([offered.examOptions.name, offered.resolveExam.name, offered.scopeNodes.name, offered.resolveScope.name]).toEqual(['ListExamOptions', 'ResolveExamChoice', 'ListScopeNodes', 'ResolveScopeNodes']);
+    for (const read of Object.values(offered)) expect(read.policy.allowedRoles, read.name).toEqual(['system']);
   });
 });
 
@@ -208,19 +219,20 @@ describe('learning’s own composition (M7-04, M7-16)', () => {
     expect(Object.keys(learningComposition).sort()).toEqual(['EVIDENCE_OUTCOMES', 'createMasteryEvidence', 'learningForAssessment', 'learningForLearner', 'learningForRelay', 'register']);
   });
 
-  it('offers exactly one handler to assessment, a learner\'s own, answering in concept identifiers', () => {
+  it('offers exactly two handlers to assessment, a learner\'s own, each answering in concept identifiers (M8-21)', () => {
     const offered = learningComposition.learningForAssessment({ pool });
-    expect(Object.keys(offered)).toEqual(['remediationConcepts']);
-    expect(offered.remediationConcepts.name).toBe('SuggestRemediationConcepts');
+    expect(Object.keys(offered).sort()).toEqual(['learnerScope', 'remediationConcepts']);
+    expect([offered.remediationConcepts.name, offered.learnerScope.name]).toEqual(['SuggestRemediationConcepts', 'GetLearnerScope']);
     expect(offered.remediationConcepts.policy.allowedRoles).toEqual(['learner']);
+    expect(offered.learnerScope.policy.allowedRoles).toEqual(['learner']);
   });
 
-  it('offers exactly eight handlers to the learner, each theirs alone, and the routes are made of nothing else (M7-38, M7-42, M7-46, M7-47, M7-52)', () => {
-    const offered = learningComposition.learningForLearner({ pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true, value: [] }) } });
-    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'getReport', 'listBookmarks', 'listErrorEntries', 'paceAnalytics', 'remediationConcepts', 'reviewPlan', 'setErrorCause']);
-    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'GetPaceAnalytics', 'GetReviewPlan', 'ListBookmarks', 'ListErrorEntries', 'SetErrorCause', 'SuggestRemediationConcepts']);
+  it('offers exactly fourteen handlers to the learner, each theirs alone, and the routes are made of nothing else (M7-38, M7-42, M7-46, M7-47, M7-52, M8-20)', () => {
+    const offered = learningComposition.learningForLearner({ curriculum: noCurriculum, pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true, value: [] }) } });
+    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'examChoices', 'getProfile', 'getReport', 'learnerScope', 'listBookmarks', 'listErrorEntries', 'paceAnalytics', 'remediationConcepts', 'reviewPlan', 'scopeOptions', 'setErrorCause', 'skipOnboarding', 'updateProfile']);
+    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'GetLearnerProfile', 'GetLearnerScope', 'GetPaceAnalytics', 'GetReviewPlan', 'GetScopeOptions', 'ListBookmarks', 'ListErrorEntries', 'ListExamChoices', 'SetErrorCause', 'SkipOnboarding', 'SuggestRemediationConcepts', 'UpdateLearnerProfile']);
     for (const handler of Object.values(offered)) expect(handler.policy.allowedRoles, handler.name).toEqual(['learner']);
-    expect(() => learningComposition.learningForLearner({ pool } as never)).toThrow(/missing required dependency/u);
+    expect(() => learningComposition.learningForLearner({ curriculum: noCurriculum, pool } as never)).toThrow(/missing required dependency/u);
     expect(() => learningComposition.register({ pool, clock, identifiers, standings: offered.listBookmarks as never, paceSlots: {} as never } as never)).toThrow(/missing required dependency: principals/u);
   });
 

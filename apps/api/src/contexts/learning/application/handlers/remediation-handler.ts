@@ -1,7 +1,8 @@
 import { ROLES } from '../../../../platform/auth/roles.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
-import type { ApplicationContext, ConceptReader } from '../ports.js';
+import { conceptsInScope } from '../../domain/learner-profile.js';
+import type { ApplicationContext, ConceptReader, LearnerProfileStore } from '../ports.js';
 
 /**
  * `SuggestRemediationConcepts` — what a remediation run should be about, as concepts and nothing else (M7-28, DEC-M7-1).
@@ -10,6 +11,8 @@ import type { ApplicationContext, ConceptReader } from '../ports.js';
  * to put in front of the learner* is Assessment's, because it is a question about the published catalogue and what the learner has already seen. This
  * handler is the whole of Learning's half, and its answer is a list of concept identities: no item, no item version, no count of responses, no state
  * name. Learning does not learn what an item is, and Assessment does not learn what mastery means.
+ *
+ * **Scope narrows it** (M8-21, ADR-0060): the concepts the learner declared they have studied are the only candidates, for the taxonomy version the scope was declared against.
  *
  * **The learner is the caller.** There is no learner parameter, so there is no way to ask about someone else; the principal's id is the learner.
  *
@@ -38,7 +41,7 @@ export class SuggestRemediationConceptsHandler {
   readonly name = 'SuggestRemediationConcepts';
   readonly policy = SUGGEST_REMEDIATION_CONCEPTS_POLICY;
 
-  constructor(private readonly deps: { readonly concepts: ConceptReader }) {}
+  constructor(private readonly deps: { readonly concepts: ConceptReader; readonly profiles: LearnerProfileStore }) {}
 
   async handle(query: SuggestRemediationConcepts, context: ApplicationContext): Promise<Result<RemediationConcepts, ApplicationError>> {
     const permitted = authorize(this.policy, context);
@@ -47,7 +50,11 @@ export class SuggestRemediationConceptsHandler {
     if (!UUID.test(query.taxonomyVersionId) || !Number.isInteger(limit) || limit < 1 || limit > MAX_REMEDIATION_LIMIT) {
       return err(applicationError('Validation', 'REMEDIATION_QUERY_INVALID', `a taxonomy version, and a limit between 1 and ${MAX_REMEDIATION_LIMIT}`));
     }
-    const found = await this.deps.concepts.weakest(context.principal.id, query.taxonomyVersionId, limit);
+    // The learner's declared scope narrows what is suggested (FR-STU-02 rule 1). No profile, no scope, or a scope for another taxonomy version is no filter at all.
+    const profile = await this.deps.profiles.find(context.principal.id);
+    if (!profile.ok) return err(profile.error);
+    const scope = profile.value === null ? null : conceptsInScope(profile.value, query.taxonomyVersionId);
+    const found = await this.deps.concepts.weakest(context.principal.id, query.taxonomyVersionId, limit, scope ?? undefined);
     if (!found.ok) return err(found.error);
     return ok(Object.freeze({ conceptIdentityIds: Object.freeze([...found.value]) }));
   }
