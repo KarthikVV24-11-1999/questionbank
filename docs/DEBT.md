@@ -705,14 +705,6 @@ as long as such accounts exist the two paths differ by the difference in cost. I
 **Trigger** The first change to `CURRENT_PASSWORD_PARAMETERS`: make the decoy for each verification the cost of the parameters the real credentials still hold, or rehash in the background until none do.
 **Cited** `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
 
-### D96 — Nothing assigns a role
-
-Everyone who registers is a `learner`. There is no route, command or screen that gives a user another role, so the first author, reviewer or administrator is made by a database update. Role assignment is Identity's
-(ADR-0014) and the support console and admin tooling are M8's later work.
-
-**Trigger** The first person who is not a learner and is not a developer: a command that assigns a role, audited, and available to `admin` alone.
-**Cited** `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
-
 ### D97 — The in-memory rate limiter counts per process
 
 `MemoryRateLimiter` keeps its counters in the memory of the process that serves the request. With more than one instance the limit a client meets is the configured one times the number of instances, and a restart
@@ -739,6 +731,61 @@ its memory arithmetic is for a different machine. The memory of an unbounded bur
 **Trigger** Anything that sets `UV_THREADPOOL_SIZE`, or a deployment with a container memory limit: have the process read the pool size at start and refuse a concurrency at or above it, and measure the burst in the deployed
 environment.
 **Cited** `apps/api/src/contexts/identity/abuse-simulation.integration.spec.ts`
+
+### D100 — The list of known-bad passwords is short, and nothing checks a password against the person's own details
+
+`BundledPasswordList` holds a few hundred passwords of twelve characters or more and two shapes (a short unit repeated, a run of one character after another). It stops the guesses a credential-stuffing run tries first and
+none of what has leaked beyond them. The stronger source, the Pwned Passwords range service, is not wired: the port (`BreachedPasswords`) is shaped for it, with a third answer for "could not say", and the policy for that
+answer is decided (accept, and leave one record), but no adapter makes the call. A password is also not compared with the address it is being set for, or with the name of the product, which NIST 800-63B asks for.
+
+**Trigger** Registration opened to anyone who is not in the closed beta, or the first `BREACH_CHECK_UNAVAILABLE` record in a deployed environment: write the range-service adapter (a timeout of its own that answers
+`unavailable`, only the first five hex digits of the SHA-1 leaving the process), and add the context-specific words.
+**Cited** `apps/api/src/contexts/identity/infrastructure/bundled-password-list.ts`
+
+### D101 — Nothing asks for a second factor, or a step-up, from the people who can now be made administrators
+
+NFR SEC-05 says multi-factor is mandatory for Content Ops, Support and Platform Admin and that destructive actions need step-up; SECURITY-ARCHITECTURE §4 marks role administration as requiring it, and §1.2 leans on step-up for the
+insider. None of it exists: the policies carry a `requiresStepUp` flag nothing can satisfy, and a login is a password and a session. M8-12 makes the gap real, because there is now a way to make an administrator. What stands in
+the meantime is that only an administrator can assign a role, nobody changes their own, every change is audited, and the first administrator is made by a command that needs the database. The same applies to the alert the document asks
+for on a new-device login to a privileged account (no device is recorded), and to the audit row for a role change being written after the change and not in its transaction, so a crash between them leaves a grant unaudited.
+
+**Trigger** The first person who is not a developer and holds a role other than `learner`: a second factor at login for those roles, a step-up the role routes can require and a person can satisfy, and the audit row written with the change.
+**Cited** `apps/api/src/contexts/identity/application/handlers/role-handlers.ts`
+
+### D102 — A session is an opaque thirty-day token with rotation, not a short-lived token with a refresh that detects reuse
+
+SECURITY-ARCHITECTURE §2 and NFR SEC-06 describe short-lived access tokens with an opaque refresh, rotation, and reuse detection. What exists (ADR-0056) is one opaque token that lives thirty days and seven idle, can be rotated by
+asking, and is refused at once when revoked. Nothing forces a rotation, and presenting a token that was already rotated away is refused as a revoked session and does not end the sessions that came from it, which is what reuse
+detection would do. Revocation is immediate, which meets the half of SEC-06 that is about time.
+
+**Trigger** The independent penetration test before launch (SEC-13), or the first report of a stolen session: decide whether a rotated token's reuse ends its whole chain, and whether the lifetime comes down.
+**Cited** `apps/api/src/contexts/identity/application/handlers/session-handlers.ts`
+
+### D103 — Nothing deletes an account, a session, or a spent one-time token
+
+NFR §9.1 keeps session records ninety days after expiry and an account thirty days after a deletion request, and SECURITY-ARCHITECTURE §12 promises erasure within thirty days. The application role holds no DELETE on identity's
+tables by design, and no job or route does the work: a deletion request has nowhere to go, and expired sessions and spent codes stay. The counters of the rate limiter are swept (D97); these are not.
+
+**Trigger** The first deletion request, or registration opened beyond the closed beta: a retention job run under a role that may delete, and an erasure path that leaves the pseudonymous id the audit trail names.
+**Cited** `infra/migrations/20261102100000_identity_user_credential_session.sql`
+
+### D104 — SECURITY-ARCHITECTURE §7 describes a token bucket with limit headers and other numbers than the ones built
+
+§7 says token bucket, limits exposed in response headers, login 5 per 15 minutes per identifier and 20 per hour per source, registration 10 per hour per source, verification 3 per hour. Built (ADR-0057, DEC-M8-3): two fixed-window
+tiers, a refusal that carries `Retry-After` and nothing else about the limiter's state, and the numbers in `DEFAULT_ABUSE_LIMITS`. The code's choices are argued where they are made; the document is the one that is out of date, and the
+numbers are nobody's measured result.
+
+**Trigger** The first tuning of a limit against real traffic: rewrite §7 for authentication from `DEFAULT_ABUSE_LIMITS`, and decide whether the headers it asks for are wanted.
+**Cited** `apps/api/src/platform/config/config.ts`
+
+### D105 — An authorization denial leaves no record, and there is no support role
+
+SECURITY-ARCHITECTURE §13 says every authorization denial is logged with principal, resource and reason, and alerts on an authentication-failure spike and on a failed-authorization spike for one principal. A refused
+login or token is logged with its code; a request refused for want of a role answers 403 and writes nothing, in identity as in the other contexts. §4 also names a Support role with its own limits (INV-09) that `ROLES` does not
+have, so none of its rules has anything to bind to.
+
+**Trigger** The support console, or the first alert definition: one record per denial, with the principal and the policy and not the body, and the role added to the vocabulary with its policies.
+**Cited** `apps/api/src/contexts/identity/application/authorization.ts`
 
 ## Closed
 
@@ -1030,4 +1077,13 @@ tier and a sustained one, with the counters in Postgres so the limit holds acros
 Behind the limit, every password derive takes a turn at a bound of two in flight with a queue of 256 and a wait of fifteen seconds, so requests the limiter admitted cannot hold the thread pool. The abuse simulation shows a burst of 400 from one
 source served 100 and refused 300 with no derive spent on the refused, and a school of 100 logging in at once all served. Registered with it: D97, D98 and D99.
 **Cited** `apps/api/src/contexts/identity/api/admission.ts`
+
+### D96 — Nothing assigned a role *(closed by M8 Track C, [ADR-0058](adr/ADR-0058-refuse-bad-passwords-and-make-the-first-non-learner.md))*
+
+Everyone who registered was a `learner`, and the first author, reviewer or administrator was made by a database update.
+
+**What closed it.** An administrator, and only one, can give a person a role and take it away (`POST /v1/identity/roles/assign` and `/remove`), audited, from the roles a person can hold. The role is in force at the person's next
+request on the session they already have. Nobody changes their own roles, nobody is left without one, and the last enabled administrator cannot be removed. The first administrator is made by `bootstrap-admin`, a command that needs the
+database, works only while no enabled administrator exists, and is audited as the system. What is left is D101 (no second factor or step-up for the roles that should have one) and D105 (no support role).
+**Cited** `apps/api/src/contexts/identity/application/handlers/role-handlers.ts`
 

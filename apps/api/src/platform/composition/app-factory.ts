@@ -27,7 +27,7 @@ import { AnalyticsEdge } from '../analytics/edge.js';
 import { ServerEmitter } from '../analytics/server-emitter.js';
 import { LocalDirectorySink, MemorySink, type AnalyticsSink } from '../analytics/sink.js';
 import { createLogger } from '../observability/logger.js';
-import { defaultMail, identityPrincipals, register as registerIdentity, type MailPort, type PasswordHasher } from '../../contexts/identity/public/composition.js';
+import { defaultMail, identityPrincipals, register as registerIdentity, type BreachedPasswords, type MailPort, type PasswordHasher } from '../../contexts/identity/public/composition.js';
 import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.js';
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
@@ -84,6 +84,8 @@ export interface CreateApplicationOverrides {
   readonly logWrite?: (line: string) => void;
   /** What derives a password hash. Absent: scrypt under today's parameters; a test passes one that counts. It is bounded either way. */
   readonly hasher?: PasswordHasher;
+  /** Where a password is looked up before it is accepted (M8-11). Absent: the list that ships with the code. A test passes one that cannot answer. */
+  readonly breached?: BreachedPasswords;
   /** Substituted only to prove F11 across the composed set (app-factory.spec.ts) — never in production. */
   readonly contentRegister?: typeof registerContent;
   readonly curriculumRegister?: typeof registerCurriculum;
@@ -267,6 +269,7 @@ export async function createApplication(
     hashBound: new BoundedWork({ concurrency: config.passwordHashConcurrency, queueLimit: config.passwordHashQueue, waitMs: config.passwordHashWaitMs, timers: systemTimers }),
     refusals: analyticsLog,
     ...(overrides.hasher === undefined ? {} : { hasher: overrides.hasher }),
+    ...(overrides.breached === undefined ? {} : { breached: overrides.breached }),
     mail: overrides.mail ?? defaultMail({ nodeEnv: config.nodeEnv, directory: join(config.mediaStorageRoot, '..', 'mail'), now: clock.now.bind(clock) }),
   });
   const rootImports = [identityModule, AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];

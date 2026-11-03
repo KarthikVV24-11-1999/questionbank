@@ -26,7 +26,8 @@ export interface EnvReadViolation {
  * (M0-27) checks `process.env['VITEST']` — not application configuration,
  * the marker every vitest runner sets and nothing else this file's callers
  * use — to decide whether importing this module should also boot it; a
- * config-shaped value never reaches that check. A file added to this list is
+ * config-shaped value never reaches that check; `bootstrap-admin.ts` (M8-12) makes the same check for the same reason, and takes its database address from
+ * the typed configuration. A file added to this list is
  * a reviewed diff; a file reading `process.env` without being added here
  * fails the check instead.
  */
@@ -34,6 +35,7 @@ export const ENV_READ_ALLOWLIST = [
   'src/platform/config/config.ts',
   'src/testing/database.ts',
   'src/main.ts',
+  'src/bootstrap-admin.ts',
 ] as const;
 
 const ENV_READ_PATTERN = /\bprocess\s*\.\s*env\b/u;

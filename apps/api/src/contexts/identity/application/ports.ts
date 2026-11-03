@@ -40,6 +40,24 @@ export interface PasswordHasher {
   verify(password: string, stored: StoredCredential): Promise<boolean>;
 }
 
+/**
+ * Where a password is looked up to see whether it is known to be bad (M8-11). The answer is one of three, and the third is a value and not an exception so that a source that
+ * can fail (a network service) and one that cannot (a list in memory) have the same shape: `PasswordScreen` decides what an `unavailable` means, not the source.
+ *
+ * `normalised` is the password in the one form the hasher derives from (`normalisePassword`). A source that calls out must bound its own time and answer `unavailable` when it is
+ * out of it; it is never handed anything but the password, and a source that sends it anywhere sends no more than a prefix of its hash.
+ */
+export type BreachVerdict = 'breached' | 'not_found' | 'unavailable';
+
+export interface BreachedPasswords {
+  lookup(normalised: string): Promise<BreachVerdict>;
+}
+
+/** The record a lapse of the check leaves: the check could not be made, and the password was accepted without it. */
+export interface BreachCheckLog {
+  unavailable(entry: { readonly action: string; readonly correlationId: string; readonly reason: 'source_unavailable' | 'source_error' }): void;
+}
+
 /** Opaque random tokens, and the one-way function they are stored under. */
 export interface TokenFactory {
   /** 32 random bytes, base64url: shown once, to the person it was issued to. */
@@ -111,6 +129,25 @@ export interface CredentialStore {
   resetWithToken(change: { readonly tokenHash: Uint8Array; readonly credential: StoredCredential; readonly at: Date }): Promise<{ readonly userId: string; readonly revoked: number } | null>;
   /** Every session of the user, revoked. */
   revokeAll(userId: string, at: Date, reason: SessionRevocation): Promise<number>;
+}
+
+/**
+ * Roles, changed under the rules that keep somebody able to administer (M8-12). The store makes each change atomically and decides the two it must decide inside the transaction:
+ * that nobody is left with no role, and that the last enabled `admin` is not removed, which two concurrent removals would otherwise both pass. Nobody changes their own roles.
+ */
+export type RoleOperation = 'assign' | 'remove';
+
+export type RoleChangeOutcome =
+  | { readonly status: 'changed' | 'unchanged'; readonly userId: string; readonly roles: readonly string[] }
+  | { readonly status: 'not_found' | 'last_role' | 'last_admin' | 'self' };
+
+export type FirstAdminOutcome = { readonly status: 'granted'; readonly userId: string } | { readonly status: 'not_found' | 'not_verified' | 'admin_exists' };
+
+export interface RoleStore {
+  /** `actorId` is who is asking: a person's own roles are not theirs to change, so a change aimed at the asker is `self`. */
+  change(change: { readonly actorId: string; readonly email: string; readonly role: string; readonly operation: RoleOperation }): Promise<RoleChangeOutcome>;
+  /** Makes the user with this verified address an `admin` if, and only if, no enabled admin exists; the check and the grant are one transaction, serialised against a second caller. */
+  grantFirstAdmin(email: string): Promise<FirstAdminOutcome>;
 }
 
 export type MailPurpose = 'email_verification' | 'password_recovery' | 'already_registered';

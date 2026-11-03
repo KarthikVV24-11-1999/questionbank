@@ -12,7 +12,7 @@ import { COMPOSED_CONFIG } from '../../testing/composed-generation.js';
 import { connectTestDatabase, type TestDatabase } from '../../testing/database.js';
 import { uuidFactory } from '../../testing/generation-context.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
-import type { PasswordHasher } from './application/ports.js';
+import type { BreachedPasswords, BreachVerdict, PasswordHasher } from './application/ports.js';
 import { CURRENT_PASSWORD_PARAMETERS, type PasswordParameters, type StoredCredential } from './domain/password-hash.js';
 import { MemoryMail } from './infrastructure/mail-adapters.js';
 import { PostgresUserStore } from './infrastructure/postgres-stores.js';
@@ -117,7 +117,7 @@ function countingPool(pool: Pool): { pool: Pool; reads: () => number } {
   return { pool: proxy, reads: () => reads };
 }
 
-async function compose(options: { config?: Partial<AppConfig>; hasher?: PasswordHasher; limiter?: RateLimiter } = {}) {
+async function compose(options: { config?: Partial<AppConfig>; hasher?: PasswordHasher; limiter?: RateLimiter; breached?: BreachedPasswords } = {}) {
   const lines: string[] = [];
   const mail = new MemoryMail();
   const counted = countingPool(database.pool);
@@ -126,7 +126,7 @@ async function compose(options: { config?: Partial<AppConfig>; hasher?: Password
   const limiter: RateLimiter = options.limiter ?? { hit: (key, rules) => (hits.push(key), real.hit(key, rules)) };
   const app = await createApplication(
     { ...COMPOSED_CONFIG, trustProxyHops: 1, ...options.config },
-    { pool: counted.pool, telemetry: createRecordingTelemetry(), clock: { now: () => now }, identifiers: uuidFactory, mail, limiter, logWrite: (line) => void lines.push(line), ...(options.hasher === undefined ? {} : { hasher: options.hasher }) },
+    { pool: counted.pool, telemetry: createRecordingTelemetry(), clock: { now: () => now }, identifiers: uuidFactory, mail, limiter, logWrite: (line) => void lines.push(line), ...(options.hasher === undefined ? {} : { hasher: options.hasher }), ...(options.breached === undefined ? {} : { breached: options.breached }) },
   );
   await serveOnLoopback(app);
   open.push(app);
@@ -522,4 +522,170 @@ describe('a burst, with real parameters (M8-10)', () => {
     expect(elapsedMs).toBeLessThan(DEFAULT_ABUSE_LIMITS.passwordHashWaitMs + 5_000);
     expect(hasher.peak).toBeLessThanOrEqual(DEFAULT_ABUSE_LIMITS.passwordHashConcurrency);
   }, 120_000);
+});
+
+describe('a password that is known to be bad (M8-11)', () => {
+  const BREACHED = 'password1234';
+
+  it('is refused for a known address and an unknown one alike, and costs neither a derive nor a lookup of the address', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, config: { rateLimitRegister: policy(WIDE) } });
+    const known = await person(hasher);
+    const attempt = (email: string) => system.post('/register', { email, password: BREACHED });
+    const derivesBefore = hasher.derives;
+    const readsBefore = system.reads();
+    const hitsBefore = system.hits.length;
+    const asKnown = await attempt(known.email);
+    const asUnknown = await attempt(unknownAddress());
+    expect([asKnown.status, asUnknown.status]).toEqual([400, 400]);
+    expect(stripped(asKnown.body as Record<string, unknown>)).toEqual(stripped(asUnknown.body as Record<string, unknown>));
+    expect(asKnown.body).toMatchObject({ reason: 'PASSWORD_BREACHED' });
+    // the counting test, as for the limiter: the same two counters for each, and nothing else done
+    expect(system.hits.length - hitsBefore).toBe(4);
+    expect(hasher.derives - derivesBefore).toBe(0);
+    expect(system.reads() - readsBefore).toBe(0);
+    expect(system.mail.sent).toEqual([]);
+  });
+
+  it('is refused at a reset, before the code is looked up and before a derive, and the same whether or not the code is good', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, config: { rateLimitReset: policy('source=1000000/10s') } });
+    const derivesBefore = hasher.derives;
+    const readsBefore = system.reads();
+    const answers = await Promise.all(['a code', 'another code', ''].map((token) => system.post('/password/reset', { token, newPassword: BREACHED })));
+    expect(answers.map((answer) => answer.status)).toEqual([400, 400, 400]);
+    expect(new Set(answers.map((answer) => JSON.stringify(stripped(answer.body as Record<string, unknown>)))).size).toBe(1);
+    expect(hasher.derives - derivesBefore).toBe(0);
+    expect(system.reads() - readsBefore).toBe(0);
+  });
+
+  it('is refused at a change of password before the current one is checked, with no derive', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, config: { rateLimitPasswordChange: policy('source=1000000/1m;subject=1000000/1m') } });
+    const who = await person(hasher);
+    const login = await system.post('/login', { email: who.email, password: PASSWORD });
+    expect(login.status).toBe(200);
+    const derivesBefore = hasher.derives;
+    const refused = await system.post('/password/change', { currentPassword: 'not the current one', newPassword: BREACHED }, '198.51.100.1', login.body.sessionToken);
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({ reason: 'PASSWORD_BREACHED' });
+    expect(hasher.derives - derivesBefore).toBe(0);
+  });
+
+  it('is a burst that costs nothing: four hundred registrations from one source with a bad password are refused or limited, none derives, none is mailed', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher });
+    const answers = await Promise.all(Array.from({ length: 400 }, () => system.post('/register', { email: unknownAddress(), password: BREACHED }, '203.0.113.230')));
+    const counts = new Map<number, number>();
+    for (const answer of answers) counts.set(answer.status, (counts.get(answer.status) ?? 0) + 1);
+    expect([...counts.keys()].sort()).toEqual([400, 429]);
+    expect(counts.get(400)).toBe(DEFAULT_ABUSE_LIMITS.rateLimitRegister.source.tiers[0]!.max);
+    expect(hasher.derives).toBe(0);
+    expect(system.mail.sent).toEqual([]);
+  });
+
+  it('does not refuse what it should not: students registering with passwords of their own are all accepted beside the same burst', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, config: { rateLimitRegister: policy(WIDE) } });
+    const answers = await Promise.all([
+      ...Array.from({ length: 20 }, () => system.post('/register', { email: unknownAddress(), password: BREACHED }, '203.0.113.231')),
+      ...Array.from({ length: 20 }, (_, index) => system.post('/register', { email: unknownAddress(), password: `student ${index} picks a long passphrase`, }, `203.0.113.${240 + (index % 10)}`)),
+    ]);
+    expect(answers.slice(0, 20).map((answer) => answer.status)).toEqual(Array(20).fill(400));
+    expect(answers.slice(20).map((answer) => answer.status)).toEqual(Array(20).fill(202));
+  });
+
+  const source = (answer: BreachVerdict | 'throw'): BreachedPasswords => ({ lookup: () => (answer === 'throw' ? Promise.reject(new Error('connect ETIMEDOUT 203.0.113.9:443')) : Promise.resolve(answer)) });
+
+  it.each([
+    ['says it cannot answer', 'unavailable', 'source_unavailable'],
+    ['fails', 'throw', 'source_error'],
+  ] as const)('accepts the password and says so in one record when the source %s: the defence lapses loudly, and registration keeps working', async (_name, answer, reason) => {
+    const hasher = new Instrumented(CHEAP);
+    const address = unknownAddress();
+    const system = await compose({ hasher, config: { rateLimitRegister: policy(WIDE) } , breached: source(answer) });
+    const accepted = await system.post('/register', { email: address, password: BREACHED });
+    expect(accepted.status).toBe(202);
+    const lapses = system.records().filter((record) => record['errorCode'] === 'BREACH_CHECK_UNAVAILABLE');
+    expect(lapses).toHaveLength(1);
+    expect(lapses[0]).toMatchObject({ level: 'warn', message: 'password not checked against known passwords', context: 'identity.password', reason, route: 'register', correlationId: accepted.headers['x-correlation-id'] });
+    expect(system.lines.join('\n')).not.toMatch(new RegExp(`${address}|${BREACHED}|203\\.0\\.113\\.9|ETIMEDOUT`, 'u'));
+    expect((await database.pool.query('SELECT count(*)::int AS n FROM identity.app_user WHERE email_normalized = $1', [address])).rows[0].n).toBe(1);
+  });
+});
+
+async function clearPeople(): Promise<void> {
+  for (const table of ['session', 'one_time_token', 'credential', 'app_user']) await database.pool.query(`DELETE FROM identity.${table}`);
+}
+
+describe('a password that cannot be checked, at change and at reset (M8-11)', () => {
+  const lapsed: BreachedPasswords = { lookup: () => Promise.resolve('unavailable') };
+
+  it('is accepted at a change of password, and the record names the route', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, breached: lapsed, config: { rateLimitPasswordChange: policy('source=1000000/1m;subject=1000000/1m'), rateLimitLogin: policy(WIDE) } });
+    const who = await person(hasher);
+    const login = await system.post('/login', { email: who.email, password: PASSWORD });
+    const changed = await system.post('/password/change', { currentPassword: PASSWORD, newPassword: 'password1234' }, '198.51.100.1', login.body.sessionToken);
+    expect(changed.status).toBe(200);
+    expect(system.records().filter((record) => record['errorCode'] === 'BREACH_CHECK_UNAVAILABLE')).toMatchObject([{ route: 'password-change', reason: 'source_unavailable' }]);
+  });
+
+  it('is accepted at a reset, and the record names the route', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, breached: lapsed, config: { rateLimitRecovery: policy(WIDE), rateLimitReset: policy('source=1000000/10s') } });
+    const who = await person(hasher);
+    await system.post('/password/recovery', { email: who.email });
+    const code = /code is (\S+)\./u.exec(system.mail.sent.at(-1)!.body)![1]!;
+    const reset = await system.post('/password/reset', { token: code, newPassword: 'password1234' });
+    expect(reset.status).toBe(200);
+    expect(system.records().filter((record) => record['errorCode'] === 'BREACH_CHECK_UNAVAILABLE')).toMatchObject([{ route: 'reset', reason: 'source_unavailable' }]);
+  });
+});
+
+describe('roles under abuse (M8-12)', () => {
+  async function signedIn(system: Awaited<ReturnType<typeof compose>>, hasher: PasswordHasher, roles: string[]) {
+    const who = await person(hasher);
+    await database.pool.query('UPDATE identity.app_user SET roles = $2 WHERE user_id = $1', [who.userId, roles]);
+    const login = await system.post('/login', { email: who.email, password: PASSWORD });
+    expect(login.status).toBe(200);
+    return { ...who, token: login.body.sessionToken as string };
+  }
+  const rolesOf = async (userId: string): Promise<string[]> => (await database.pool.query('SELECT roles FROM identity.app_user WHERE user_id = $1', [userId])).rows[0].roles;
+  const admins = async (): Promise<number> => (await database.pool.query(`SELECT count(*)::int AS n FROM identity.app_user WHERE 'admin' = ANY(roles)`)).rows[0].n;
+
+  beforeEach(clearPeople);
+
+  it('refuses a learner who asks again and again to be made an administrator, every time, and changes nothing', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, config: { rateLimitLogin: policy(WIDE) } });
+    const learner = await signedIn(system, hasher, ['learner']);
+    const answers = await Promise.all(Array.from({ length: 60 }, () => system.post('/roles/assign', { email: learner.email, role: 'admin' }, '203.0.113.60', learner.token)));
+    expect(new Set(answers.map((answer) => answer.status))).toEqual(new Set([403]));
+    expect(await rolesOf(learner.userId)).toEqual(['learner']);
+    expect((await database.pool.query(`SELECT count(*)::int AS n FROM platform.audit_record WHERE action = 'RoleAssigned' AND target_id = $1`, [`${learner.userId}:admin`])).rows[0].n).toBe(0);
+  });
+
+  it('leaves one administrator when two remove each other at once, and tells the second why', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, config: { rateLimitLogin: policy(WIDE) } });
+    for (let round = 0; round < 6; round += 1) {
+      await clearPeople();
+      const [a, b] = [await signedIn(system, hasher, ['learner', 'admin']), await signedIn(system, hasher, ['learner', 'admin'])];
+      const answers = await Promise.all([system.post('/roles/remove', { email: b.email, role: 'admin' }, '203.0.113.61', a.token), system.post('/roles/remove', { email: a.email, role: 'admin' }, '203.0.113.62', b.token)]);
+      expect(answers.map((answer) => answer.status).sort(), `round ${round}`).toEqual([200, 422]);
+      expect(await admins(), `round ${round}`).toBe(1);
+    }
+  });
+
+  it('stops an administrator the moment the role is taken away: every request after it, on the session they already held, is refused', async () => {
+    const hasher = new Instrumented(CHEAP);
+    const system = await compose({ hasher, config: { rateLimitLogin: policy(WIDE) } });
+    const [keeper, revoked] = [await signedIn(system, hasher, ['learner', 'admin']), await signedIn(system, hasher, ['learner', 'admin'])];
+    expect((await system.post('/roles/assign', { email: keeper.email, role: 'ops' }, '203.0.113.63', revoked.token)).status).toBe(200);
+    expect((await system.post('/roles/remove', { email: revoked.email, role: 'admin' }, '203.0.113.64', keeper.token)).status).toBe(200);
+    const after = await Promise.all(Array.from({ length: 20 }, () => system.post('/roles/remove', { email: keeper.email, role: 'ops' }, '203.0.113.63', revoked.token)));
+    expect(new Set(after.map((answer) => answer.status))).toEqual(new Set([403]));
+    expect(await rolesOf(keeper.userId)).toEqual(['learner', 'admin', 'ops']);
+  });
 });

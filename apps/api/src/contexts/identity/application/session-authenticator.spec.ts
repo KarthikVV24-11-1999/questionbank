@@ -21,6 +21,26 @@ function rig(options: { session?: Partial<SessionRecord> | null; roles?: string[
   return { touched, authenticator: new SessionAuthenticator({ sessions, users, tokens, clock: { now: () => options.now ?? NOW } }) };
 }
 
+describe('roles after the session was made (M8-12)', () => {
+  it('are the ones the user holds now, read at every request: a role given or taken away is in force at the next one, on the same session', async () => {
+    let roles = ['learner'];
+    const session: SessionRecord = { sessionId: 's1', userId: USER_ID, tokenHash: new Uint8Array(), createdAt: NOW, lastSeenAt: NOW, expiresAt: new Date(NOW.getTime() + SESSION_LIFETIME_MS), revokedAt: null, rotatedFrom: null };
+    const sessions = { findByTokenHash: async () => session, touch: async () => undefined } as unknown as SessionStore;
+    const users = { findById: async () => ({ user: { userId: USER_ID, email: 'a@b.co', emailNormalized: 'a@b.co', emailVerifiedAt: null, roles, disabledAt: null, createdAt: NOW }, credential: null }) } as unknown as UserStore;
+    const authenticator = new SessionAuthenticator({ sessions, users, tokens, clock: { now: () => NOW } });
+    const rolesNow = async () => {
+      const answer = await authenticator.authenticate('Bearer abc');
+      if (!answer.ok) throw new Error(answer.code);
+      return answer.principal.roleContext;
+    };
+    expect(await rolesNow()).toEqual(['learner']);
+    roles = ['learner', 'admin'];
+    expect(await rolesNow()).toEqual(['learner', 'admin']);
+    roles = ['learner'];
+    expect(await rolesNow()).toEqual(['learner']);
+  });
+});
+
 describe('authenticating a bearer token against the session table', () => {
   it('names why a header is refused before it looks anything up', async () => {
     const { authenticator } = rig();

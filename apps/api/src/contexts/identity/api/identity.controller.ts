@@ -105,6 +105,17 @@ export class IdentityController {
     await this.run(response, headers, this.handlers.requestEmailVerification, {}, 202, 'session', { route: 'verification', action: 'verify-issue', subject: 'principal' }, ip);
   }
 
+  /** Admin only, and it derives nothing, so no limit of its own (M8-12): the cost of a call is two row locks and an update. */
+  @Post('/v1/identity/roles/assign')
+  async assignRole(@Body() body: unknown, @Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, this.handlers.assignRole, { email: field(body, 'email'), role: field(body, 'role') }, 200, 'session', null, ip);
+  }
+
+  @Post('/v1/identity/roles/remove')
+  async removeRole(@Body() body: unknown, @Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, this.handlers.removeRole, { email: field(body, 'email'), role: field(body, 'role') }, 200, 'session', null, ip);
+  }
+
   private async run<I>(response: Response, headers: Record<string, string>, handler: Routed, input: I, success: number, as: 'anonymous' | 'session', limit: Limit | null, ip: string): Promise<void> {
     const correlationId = headers['x-correlation-id'] ?? randomUUID();
     response.setHeader('X-Correlation-Id', correlationId);

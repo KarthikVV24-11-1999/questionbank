@@ -74,8 +74,8 @@ content             never instructions        (append-only grants revoked)
 
 | Decision | Justification |
 |---|---|
-| Argon2id, tuned so a single verification costs ≥ 100 ms on production hardware | Cheap verification is cheap offline cracking. |
-| Credential-stuffing defence is **rate limiting + breach-list rejection at registration**, not CAPTCHA | CAPTCHAs harm accessibility and are defeated cheaply; we also never solve them (policy). |
+| scrypt (N = 2^16, r = 8, p = 1, from the standard library; ADR-0056), tuned so a single verification costs ≥ 100 ms on production hardware; a credential carries its parameters, so Argon2id is a rehash on login if it is wanted | Cheap verification is cheap offline cracking. |
+| Credential-stuffing defence is **rate limiting + rejection of known-bad passwords wherever a password is set**, not CAPTCHA. Built: the limits on every authentication route (M8-06 to M8-10) and the check at registration, change and reset against a bundled list (M8-11). Not built: the Pwned Passwords service and context-specific words (D100 in DEBT.md) | CAPTCHAs harm accessibility and are defeated cheaply; we also never solve them (policy). The limit holds an address to about 2,880 guesses a day (DEC-M8-3), which only a password that is not on anybody's list survives. |
 | Failure responses are identical for unknown identifier, wrong credential, and locked account | Distinct responses are a user-enumeration oracle. |
 | Verification codes are single-use, short-lived, and rate-limited per identifier **and** per source | Per-identifier alone permits distributed enumeration. |
 | Federated identity links only after verified contact match | Auto-linking on an unverified email is account takeover by design. |

@@ -19,13 +19,13 @@ describe('F16 — no configuration read outside the typed config module', () => 
     expect(checkNoUntypedConfigReads(API_ROOT)).toEqual([]);
   });
 
-  it('the scan is not vacuous — with the allowlist cleared, it finds the three real readers', () => {
-    // config.ts, testing/database.ts and main.ts genuinely read process.env.
+  it('the scan is not vacuous — with the allowlist cleared, it finds the four real readers', () => {
+    // config.ts, testing/database.ts, main.ts and bootstrap-admin.ts genuinely read process.env.
     // If the scan walked nothing, this would report [] too, same as a
     // correct pass — so finding the real files is what rules out a scan
     // walking zero.
     const violations = checkNoUntypedConfigReads(API_ROOT, { allowlist: [] }).map((v) => v.file).sort();
-    expect(violations).toEqual(['src/main.ts', 'src/platform/config/config.ts', 'src/testing/database.ts']);
+    expect(violations).toEqual(['src/bootstrap-admin.ts', 'src/main.ts', 'src/platform/config/config.ts', 'src/testing/database.ts']);
   });
 
   it('fires on the planted violation, naming the file', () => {
@@ -51,11 +51,12 @@ describe('F16 — no configuration read outside the typed config module', () => 
     expect(violations).toEqual([]);
   });
 
-  it('the enumerated allowlist is exactly the three reviewed readers', () => {
+  it('the enumerated allowlist is exactly the four reviewed readers', () => {
     expect([...ENV_READ_ALLOWLIST]).toEqual([
       'src/platform/config/config.ts',
       'src/testing/database.ts',
       'src/main.ts',
+      'src/bootstrap-admin.ts',
     ]);
   });
 });

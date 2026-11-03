@@ -13,6 +13,7 @@ import {
 
 const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const PLANTED = 'src/fitness-fixtures/as-role-policy/planted-roles.ts';
+const PLANTED_ASSIGNMENTS = 'src/fitness-fixtures/as-role-policy/planted-role-assignments.ts';
 const PLANTED_PLATFORM = 'src/fitness-fixtures/as-context-application/planted-platform-import.ts';
 
 describe('M5-36 — a policy names a role from the vocabulary, or the build fails', () => {
@@ -84,6 +85,38 @@ describe('M5-36 — a policy names a role from the vocabulary, or the build fail
     it('seven findings in all, and none is a duplicate', () => {
       expect(violations.map((violation) => `${violation.line}:${violation.message}`)).toHaveLength(new Set(violations.map((violation) => `${violation.line}:${violation.message}`)).size);
       expect(violations).toHaveLength(7);
+    });
+  });
+
+  describe('is red on a role given to a person as a string (M8-12)', () => {
+    const violations = checkRoleVocabulary(API_ROOT, { files: [PLANTED_ASSIGNMENTS] });
+    const source = readFileSync(join(API_ROOT, PLANTED_ASSIGNMENTS), 'utf8').split('\n');
+    const lineOf = (needle: string) => source.findIndex((text) => text.includes(needle)) + 1;
+    const flagged = (needle: string) => violations.filter((violation) => violation.line === lineOf(needle));
+
+    it.each([
+      ["{ roles: ['author'] }", 'M5_36_BARE_ROLE_STRING'],
+      ["{ role: 'author' }", 'M5_36_BARE_ROLE_STRING'],
+      ["{ assignableRoles: ['autor'] }", 'M5_36_UNKNOWN_ROLE'],
+      ["BARE_CALL = assignRole('a@example.com', 'author')", 'M5_36_BARE_ROLE_STRING'],
+      ["roles.removeRole('a@example.com', 'learner')", 'M5_36_BARE_ROLE_STRING'],
+      ['authro', 'M5_36_UNKNOWN_ROLE'],
+      ["held.roles.push('author')", 'M5_36_BARE_ROLE_STRING'],
+      ["{ allowedRoles: ['author'] }", 'M5_36_BARE_ROLE_STRING'],
+      ["{ defaultRoles: ['learner'] }", 'M5_36_BARE_ROLE_STRING'],
+      ["grantRole('a@example.com', 'author')", 'M5_36_BARE_ROLE_STRING'],
+      ["revokeRole('a@example.com', 'author')", 'M5_36_BARE_ROLE_STRING'],
+      ["addRoles('a@example.com', 'author')", 'M5_36_BARE_ROLE_STRING'],
+    ])('%s', (needle, rule) => {
+      expect(flagged(needle).map((violation) => violation.rule)).toEqual([rule]);
+    });
+
+    it('and on nothing that is fine: the vocabulary, a value passed through, a call about something else', () => {
+      for (const needle of ['FINE_PROPERTY', 'FINE_PASSED_THROUGH', 'FINE_CALL', 'FINE_ROLE_ITEM']) expect(flagged(needle), needle).toEqual([]);
+    });
+
+    it('twelve findings in all', () => {
+      expect(violations).toHaveLength(12);
     });
   });
 

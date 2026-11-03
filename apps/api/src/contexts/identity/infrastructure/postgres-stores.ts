@@ -2,7 +2,8 @@ import type { Pool, PoolClient } from 'pg';
 import type { StoredCredential } from '../domain/password-hash.js';
 import type { OneTimeTokenPurpose } from '../domain/session-policy.js';
 import type { User } from '../domain/user.js';
-import type { CredentialStore, NewSession, OneTimeTokenStore, SessionRecord, SessionRevocation, SessionStore, UserStore, UserWithCredential } from '../application/ports.js';
+import { ROLES } from '../../../platform/auth/roles.js';
+import type { CredentialStore, FirstAdminOutcome, RoleChangeOutcome, RoleOperation, RoleStore, NewSession, OneTimeTokenStore, SessionRecord, SessionRevocation, SessionStore, UserStore, UserWithCredential } from '../application/ports.js';
 
 /**
  * Identity's tables (M8-01). Every write that has to move together does so in one transaction: a credential that changes takes the user's sessions with it, a rotated
@@ -221,5 +222,51 @@ export class PostgresCredentialStore implements CredentialStore {
 
   async revokeAll(userId: string, at: Date, reason: SessionRevocation): Promise<number> {
     return inTransaction(this.pool, (client) => revokeSessions(client, userId, at, reason, null));
+  }
+}
+
+/** Held across the check for an administrator and the grant, so two operators running the bootstrap at once cannot both find none. */
+const FIRST_ADMIN_LOCK = 8_100_001;
+
+export class PostgresRoleStore implements RoleStore {
+  constructor(private readonly pool: Pool) {}
+
+  async change(change: { readonly actorId: string; readonly email: string; readonly role: string; readonly operation: RoleOperation }): Promise<RoleChangeOutcome> {
+    return inTransaction(this.pool, async (client) => {
+      // Removing an admin: every admin row is locked first, in one order, so two removals of two admins run one after the other and the second sees what the first did.
+      if (change.operation === 'remove' && change.role === ROLES.admin) await client.query('SELECT user_id FROM identity.app_user WHERE $1 = ANY(roles) ORDER BY user_id FOR UPDATE', [ROLES.admin]);
+      const { rows } = await client.query<{ user_id: string; roles: string[]; disabled_at: Date | null }>('SELECT user_id, roles, disabled_at FROM identity.app_user WHERE email_normalized = $1 FOR UPDATE', [change.email]);
+      const target = rows[0];
+      if (target === undefined) return { status: 'not_found' };
+      if (target.user_id === change.actorId) return { status: 'self' };
+      const held = target.roles.includes(change.role);
+      if (change.operation === 'assign') {
+        if (held) return { status: 'unchanged', userId: target.user_id, roles: target.roles };
+        const updated = await client.query<{ roles: string[] }>('UPDATE identity.app_user SET roles = array_append(roles, $2) WHERE user_id = $1 RETURNING roles', [target.user_id, change.role]);
+        return { status: 'changed', userId: target.user_id, roles: updated.rows[0]!.roles };
+      }
+      if (!held) return { status: 'unchanged', userId: target.user_id, roles: target.roles };
+      if (target.roles.length === 1) return { status: 'last_role' };
+      if (change.role === ROLES.admin && target.disabled_at === null) {
+        const others = await client.query('SELECT 1 FROM identity.app_user WHERE $1 = ANY(roles) AND disabled_at IS NULL AND user_id <> $2 LIMIT 1', [ROLES.admin, target.user_id]);
+        if (others.rowCount === 0) return { status: 'last_admin' };
+      }
+      const updated = await client.query<{ roles: string[] }>('UPDATE identity.app_user SET roles = array_remove(roles, $2) WHERE user_id = $1 RETURNING roles', [target.user_id, change.role]);
+      return { status: 'changed', userId: target.user_id, roles: updated.rows[0]!.roles };
+    });
+  }
+
+  async grantFirstAdmin(email: string): Promise<FirstAdminOutcome> {
+    return inTransaction(this.pool, async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock($1)', [FIRST_ADMIN_LOCK]);
+      const existing = await client.query('SELECT 1 FROM identity.app_user WHERE $1 = ANY(roles) AND disabled_at IS NULL LIMIT 1', [ROLES.admin]);
+      if (existing.rowCount !== 0) return { status: 'admin_exists' };
+      const { rows } = await client.query<{ user_id: string; email_verified_at: Date | null; roles: string[] }>('SELECT user_id, email_verified_at, roles FROM identity.app_user WHERE email_normalized = $1 FOR UPDATE', [email]);
+      const target = rows[0];
+      if (target === undefined) return { status: 'not_found' };
+      if (target.email_verified_at === null) return { status: 'not_verified' };
+      await client.query('UPDATE identity.app_user SET roles = array_append(roles, $2) WHERE user_id = $1', [target.user_id, ROLES.admin]);
+      return { status: 'granted', userId: target.user_id };
+    });
   }
 }

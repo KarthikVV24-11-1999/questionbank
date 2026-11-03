@@ -1,17 +1,21 @@
 import type { DynamicModule } from '@nestjs/common';
+import { ROLES } from '../../../platform/auth/roles.js';
 import type { Pool } from 'pg';
 import { Admission, type IdentityRouteLimits, type RefusalLog } from '../api/admission.js';
 import { IdentityModule } from '../api/identity.module.js';
 import type { PrincipalResolver } from '../api/identity.controller.js';
 import { ChangePasswordHandler, LoginHandler, RegisterHandler, RequestPasswordRecoveryHandler, ResetPasswordHandler } from '../application/handlers/credential-handlers.js';
+import { AssignRoleHandler, BootstrapFirstAdminHandler, RemoveRoleHandler } from '../application/handlers/role-handlers.js';
 import { LogoutAllHandler, LogoutHandler, RotateSessionHandler } from '../application/handlers/session-handlers.js';
 import { RequestEmailVerificationHandler, VerifyEmailHandler } from '../application/handlers/verification-handlers.js';
-import type { AuditRecorder, BoundedRunner, Clock, IdentifierFactory, MailPort, PasswordHasher, RateLimiter } from '../application/ports.js';
+import type { AuditRecorder, BoundedRunner, BreachedPasswords, Clock, IdentifierFactory, MailPort, PasswordHasher, RateLimiter } from '../application/ports.js';
+import { PasswordScreen } from '../application/password-screen.js';
 import { SessionAuthenticator } from '../application/session-authenticator.js';
 import { DirectoryMail, MemoryMail, UnconfiguredMail } from '../infrastructure/mail-adapters.js';
+import { BundledPasswordList } from '../infrastructure/bundled-password-list.js';
 import { BoundedPasswordHasher } from '../infrastructure/bounded-password-hasher.js';
 import { ScryptPasswordHasher } from '../infrastructure/scrypt-password-hasher.js';
-import { PostgresCredentialStore, PostgresOneTimeTokenStore, PostgresSessionStore, PostgresUserStore } from '../infrastructure/postgres-stores.js';
+import { PostgresCredentialStore, PostgresOneTimeTokenStore, PostgresRoleStore, PostgresSessionStore, PostgresUserStore } from '../infrastructure/postgres-stores.js';
 import { PostgresPrincipalResolver, SessionResolutions, sessionAuthentication, type AuthLogger } from '../infrastructure/session-principals.js';
 import { CryptoTokenFactory } from '../infrastructure/token-factory.js';
 
@@ -21,7 +25,7 @@ import { CryptoTokenFactory } from '../infrastructure/token-factory.js';
  * `identityPrincipals` is deliberately a separate call from `register`: the root builds the resolver first, hands it to every context, and only then composes the routes.
  */
 export type { AuthLogger } from '../infrastructure/session-principals.js';
-export type { BoundedRunner, MailMessage, MailPort, PasswordHasher, RateLimiter, RouteLimits } from '../application/ports.js';
+export type { BoundedRunner, BreachedPasswords, BreachVerdict, MailMessage, MailPort, PasswordHasher, RateLimiter, RouteLimits } from '../application/ports.js';
 export type { IdentityRouteLimits, RefusalLog } from '../api/admission.js';
 
 /**
@@ -72,6 +76,8 @@ export interface IdentityCompositionDeps {
   /** What takes turns at the derives (M8-08), applied to whatever hasher is in use, so no route escapes it. */
   readonly hashBound: BoundedRunner;
   readonly refusals?: RefusalLog;
+  /** Where a password is looked up before it is accepted (M8-11). Absent: the list that ships with the code. A test passes one that fails. */
+  readonly breached?: BreachedPasswords;
 }
 
 export interface IdentityHandlers {
@@ -85,6 +91,8 @@ export interface IdentityHandlers {
   readonly logout: LogoutHandler;
   readonly logoutAll: LogoutAllHandler;
   readonly rotateSession: RotateSessionHandler;
+  readonly assignRole: AssignRoleHandler;
+  readonly removeRole: RemoveRoleHandler;
 }
 
 export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandlers {
@@ -96,7 +104,14 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
   const sessions = new PostgresSessionStore(deps.pool);
   const oneTime = new PostgresOneTimeTokenStore(deps.pool);
   const credentials = new PostgresCredentialStore(deps.pool);
-  const common = { users, hasher: new BoundedPasswordHasher(deps.hasher ?? new ScryptPasswordHasher(), deps.hashBound), tokens: new CryptoTokenFactory(), clock: deps.clock, identifiers: deps.identifiers };
+  const screen = new PasswordScreen({
+    source: deps.breached ?? new BundledPasswordList(),
+    log: {
+      unavailable: ({ action, correlationId, reason }) =>
+        deps.refusals?.log({ level: 'warn', message: 'password not checked against known passwords', correlationId, context: 'identity.password', attributes: { errorCode: 'BREACH_CHECK_UNAVAILABLE', reason, route: action } }),
+    },
+  });
+  const common = { users, hasher: new BoundedPasswordHasher(deps.hasher ?? new ScryptPasswordHasher(), deps.hashBound), tokens: new CryptoTokenFactory(), clock: deps.clock, identifiers: deps.identifiers, screen };
   return {
     register: new RegisterHandler({ ...common, oneTime, mail: deps.mail, audit: deps.audit }),
     login: new LoginHandler({ ...common, sessions, maxSessionsPerUser: deps.maxSessionsPerUser }),
@@ -108,9 +123,22 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
     logout: new LogoutHandler({ sessions, tokens: common.tokens, clock: deps.clock }),
     logoutAll: new LogoutAllHandler({ credentials, clock: deps.clock, audit: deps.audit }),
     rotateSession: new RotateSessionHandler({ sessions, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers }),
+    assignRole: new AssignRoleHandler({ roles: new PostgresRoleStore(deps.pool), clock: deps.clock, audit: deps.audit }),
+    removeRole: new RemoveRoleHandler({ roles: new PostgresRoleStore(deps.pool), clock: deps.clock, audit: deps.audit }),
   };
 }
 
 export function register(deps: IdentityCompositionDeps): DynamicModule {
   return IdentityModule.register({ handlers: identityHandlers(deps), principals: deps.principals, admission: new Admission(deps.limiter, deps.limits, deps.refusals) });
+}
+
+/** Who the first-administrator command acts as: the system, with an id that is nobody's. */
+const BOOTSTRAP_PRINCIPAL = Object.freeze({ kind: 'system' as const, id: '00000000-0000-4000-8000-0000000000b1', roleContext: Object.freeze([ROLES.system]) });
+
+/**
+ * Makes the first administrator (M8-12), for an operator with access to the database; `bootstrap-admin.ts` is the command line around it. Nothing in the application's routes calls it.
+ * The result says what happened in the words of the handler's refusals, so the command can print them.
+ */
+export async function bootstrapFirstAdmin(deps: Pick<IdentityCompositionDeps, 'pool' | 'clock' | 'audit'>, email: string, correlationId: string) {
+  return new BootstrapFirstAdminHandler({ roles: new PostgresRoleStore(deps.pool), clock: deps.clock, audit: deps.audit }).handle({ email }, { principal: BOOTSTRAP_PRINCIPAL, correlationId });
 }

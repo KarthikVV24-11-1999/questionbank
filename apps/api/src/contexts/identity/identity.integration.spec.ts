@@ -102,6 +102,17 @@ describe('registration and verification', () => {
     expect(JSON.stringify(short.body)).not.toContain('short"');
   });
 
+  it('refuses a password that is known to be breached, in any case, and creates nobody and mails nobody', async () => {
+    for (const bad of ['password1234', 'Password1234', 'ｐａｓｓｗｏｒｄ１２３４']) {
+      const address = email();
+      const refused = await post('/register', { email: address, password: bad });
+      expect(refused.status, bad).toBe(400);
+      expect(refused.body, bad).toMatchObject({ reason: 'PASSWORD_BREACHED', detail: 'That password is too common or has appeared in a data breach. Choose a different one.' });
+      expect((await database.pool.query('SELECT count(*)::int AS n FROM identity.app_user WHERE email_normalized = $1', [address])).rows[0].n, bad).toBe(0);
+    }
+    expect(mail.sent).toEqual([]);
+  });
+
   it('replaces an earlier verification code with a later one', async () => {
     const address = await registered();
     const first = codeIn('email_verification');
@@ -319,6 +330,18 @@ describe('changing a password', () => {
   });
 });
 
+describe('changing a password to one that is known to be bad', () => {
+  it('refuses it, keeps the old password, and leaves every session standing', async () => {
+    const address = await registered();
+    const [mine, other] = [await loggedIn(address), await loggedIn(address)];
+    const refused = await post('/password/change', { currentPassword: PASSWORD, newPassword: 'iloveyou1234' }, mine.token);
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({ reason: 'PASSWORD_BREACHED', detail: 'That password is too common or has appeared in a data breach. Choose a different one.' });
+    expect([await learnerStatus(mine.token), await learnerStatus(other.token)]).toEqual([200, 200]);
+    await loggedIn(address, PASSWORD);
+  });
+});
+
 describe('recovering a password', () => {
   it('answers a known address and an unknown one the same, and mails only the known one', async () => {
     const address = await registered();
@@ -382,6 +405,29 @@ describe('recovering a password', () => {
     const code = codeIn('password_recovery');
     expect((await post('/password/reset', { token: code, newPassword: 'short' })).body).toMatchObject({ reason: 'PASSWORD_TOO_SHORT' });
     expect((await post('/password/reset', { token: code, newPassword: OTHER_PASSWORD })).status).toBe(200);
+  });
+});
+
+describe('resetting a password to one that is known to be bad', () => {
+  it('refuses it, leaves the code unspent and the old password in force, and accepts a better one with the same code', async () => {
+    const address = await registered();
+    await post('/password/recovery', { email: address });
+    const code = codeIn('password_recovery');
+    const refused = await post('/password/reset', { token: code, newPassword: 'letmein123456' });
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({ reason: 'PASSWORD_BREACHED', detail: 'That password is too common or has appeared in a data breach. Choose a different one.' });
+    await loggedIn(address, PASSWORD);
+    expect((await post('/password/reset', { token: code, newPassword: OTHER_PASSWORD })).status).toBe(200);
+    await loggedIn(address, OTHER_PASSWORD);
+  });
+
+  it('says the same about a breached password whether or not the code is good: the password is judged first, and the code is not spent by it', async () => {
+    const withMadeUpCode = await post('/password/reset', { token: 'made-up-code', newPassword: 'letmein123456' });
+    const address = await registered();
+    await post('/password/recovery', { email: address });
+    const withGoodCode = await post('/password/reset', { token: codeIn('password_recovery'), newPassword: 'letmein123456' });
+    expect([withMadeUpCode.status, withGoodCode.status]).toEqual([400, 400]);
+    expect(withoutCorrelation(withMadeUpCode.body)).toEqual(withoutCorrelation(withGoodCode.body));
   });
 });
 
@@ -483,5 +529,84 @@ describe('the audit trail', () => {
     await post('/logout-all', {}, token);
     const rows = (await database.pool.query(`SELECT action, target_id FROM platform.audit_record WHERE target_context = 'identity' AND target_id = $1 ORDER BY audit_record_id`, [userId])).rows.map((row) => row.action);
     expect(rows).toEqual(['UserRegistered', 'PasswordChanged', 'AllSessionsRevoked']);
+  });
+});
+
+describe('assigning and removing a role (M8-12)', () => {
+  /** What the first-administrator command does, in the test's own words: the routes cannot make the first admin, and neither can a test without writing the row. */
+  async function admin(): Promise<{ email: string; token: string; userId: string }> {
+    const address = await registered();
+    const { userId } = await loggedIn(address);
+    // one administrator at a time, so that a test about the last one is about the last one
+    await database.pool.query(`UPDATE identity.app_user SET roles = array_remove(roles, 'admin') WHERE 'admin' = ANY(roles)`);
+    await database.pool.query(`UPDATE identity.app_user SET roles = ARRAY['learner', 'admin'] WHERE user_id = $1`, [userId]);
+    return { email: address, ...(await loggedIn(address)) };
+  }
+  const rolesOf = async (userId: string): Promise<string[]> => (await database.pool.query('SELECT roles FROM identity.app_user WHERE user_id = $1', [userId])).rows[0].roles;
+
+  it('lets an admin give a role and take it away, answers with what the person holds now, and audits both', async () => {
+    const boss = await admin();
+    const address = await registered();
+    const { userId } = await loggedIn(address);
+    const given = await post('/roles/assign', { email: address.toUpperCase(), role: 'author' }, boss.token);
+    expect([given.status, given.body]).toEqual([200, { userId, roles: ['learner', 'author'], changed: true }]);
+    expect(await rolesOf(userId)).toEqual(['learner', 'author']);
+    const taken = await post('/roles/remove', { email: address, role: 'author' }, boss.token);
+    expect([taken.status, taken.body]).toEqual([200, { userId, roles: ['learner'], changed: true }]);
+    const audit = (await database.pool.query(`SELECT action, principal_id, target_type, target_id FROM platform.audit_record WHERE target_context = 'identity' AND target_id = $1 ORDER BY audit_record_id`, [`${userId}:author`])).rows;
+    expect(audit).toEqual([
+      { action: 'RoleAssigned', principal_id: boss.userId, target_type: 'UserRole', target_id: `${userId}:author` },
+      { action: 'RoleRemoved', principal_id: boss.userId, target_type: 'UserRole', target_id: `${userId}:author` },
+    ]);
+  });
+
+  it('refuses everyone who is not an admin, with the same 403, and nobody gains a role', async () => {
+    const address = await registered();
+    const me = await loggedIn(address);
+    const attempt = await post('/roles/assign', { email: address, role: 'admin' }, me.token);
+    expect(attempt.status).toBe(403);
+    expect(attempt.body).toMatchObject({ reason: 'NOT_PERMITTED' });
+    expect((await post('/roles/remove', { email: address, role: 'learner' }, me.token)).status).toBe(403);
+    expect((await post('/roles/assign', { email: address, role: 'admin' })).status).toBe(401);
+    expect(await rolesOf(me.userId)).toEqual(['learner']);
+  });
+
+  it('is in force at the person\'s next request, on the session they already had: a role given is there, and a role taken is gone', async () => {
+    const boss = await admin();
+    const address = await registered();
+    const person = await loggedIn(address);
+    const other = await registered();
+    const askAsPerson = () => post('/roles/assign', { email: other, role: 'author' }, person.token);
+
+    expect((await askAsPerson()).status).toBe(403);
+    expect((await post('/roles/assign', { email: address, role: 'admin' }, boss.token)).status).toBe(200);
+    expect((await askAsPerson()).status).toBe(200);
+
+    expect((await post('/roles/remove', { email: address, role: 'admin' }, boss.token)).status).toBe(200);
+    expect((await askAsPerson()).status).toBe(403);
+    // taking a role away ends nothing else: the session is the same one and still works
+    expect(await learnerStatus(person.token)).toBe(200);
+  });
+
+  it('will not let anyone change their own roles, in either direction, and says so', async () => {
+    const boss = await admin();
+    const removed = await post('/roles/remove', { email: boss.email, role: 'admin' }, boss.token);
+    expect([removed.status, removed.body.reason]).toEqual([422, 'OWN_ROLES']);
+    const given = await post('/roles/assign', { email: boss.email, role: 'author' }, boss.token);
+    expect([given.status, given.body.reason]).toEqual([422, 'OWN_ROLES']);
+    expect(await rolesOf(boss.userId)).toEqual(['learner', 'admin']);
+  });
+
+  it('refuses a role a person cannot hold, an address nobody has, and a role already held, each in its own way', async () => {
+    const boss = await admin();
+    const address = await registered();
+    for (const role of ['guest', 'system', 'generation_pipeline', 'banana']) {
+      const refused = await post('/roles/assign', { email: address, role }, boss.token);
+      expect([refused.status, (refused.body as { reason: string }).reason], role).toEqual([400, 'ROLE_NOT_ASSIGNABLE']);
+    }
+    const unknown = await post('/roles/assign', { email: email(), role: 'author' }, boss.token);
+    expect([unknown.status, unknown.body.reason]).toEqual([404, 'USER_NOT_FOUND']);
+    const already = await post('/roles/assign', { email: address, role: 'learner' }, boss.token);
+    expect([already.status, already.body.changed]).toEqual([200, false]);
   });
 });

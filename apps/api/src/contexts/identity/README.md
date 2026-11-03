@@ -4,7 +4,7 @@ Who a person is, how they prove it, and the sessions that prove it again on ever
 the port and imports nothing from here.
 
 ```
-api/             IdentityController: register, login, logout, logout-all, session/rotate, password/change|recovery|reset, email/verify|verification; Admission, which limits them
+api/             IdentityController: register, login, logout, logout-all, session/rotate, password/change|recovery|reset, email/verify|verification, roles/assign|remove; Admission, which limits them
 application/     the handlers, SessionAuthenticator, and the ports (stores, hasher, token factory, mail)
 domain/          pure: email, password policy, hash parameters and needsRehash, session and one-time-token rules
 infrastructure/  Postgres stores, the scrypt hasher, the session middleware and PostgresPrincipalResolver, the mail adapters
@@ -20,9 +20,14 @@ refuses headers no request went through (DEC-M8-1). A revoked, expired, idle or 
 
 | | Stored as |
 |---|---|
-| Password | scrypt, with its salt and the parameters it was made under as columns; rehashed on the next login when they are not today's |
+| Password | scrypt, with its salt and the parameters it was made under as columns; rehashed on the next login when they are not today's. Refused when known to be bad, on every path that sets one (`PasswordScreen`, ADR-0058) |
 | Session token | SHA-256 of 32 random bytes; the token itself is shown once |
 | Verification and recovery codes | SHA-256 of 32 random bytes; single use, time-boxed, replaced by a second issue |
+
+## Roles
+
+Everyone registers as a `learner`. An `admin` gives and takes roles through `roles/assign` and `roles/remove`; the change is in force at the person's next request, on the session they already have (DEC-M8-5), nobody changes their own, and
+the last enabled admin cannot be removed. The first admin is made once by `pnpm --filter @questionbank/api bootstrap-admin <email>` for a registered person with a verified address, and only while none exists (DEC-M8-6).
 
 A password never reaches a log, an error, an audit row or a response (`identity-rules.ts` holds the source to it).
 

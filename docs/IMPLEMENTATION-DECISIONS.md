@@ -653,3 +653,26 @@ lookup of an address and no derive, so it cannot tell a known address from an un
 address is held until the end of the longest window of its policy (fifteen minutes at login) and no longer, because a lockout that escalates lets anyone who knows an address keep its owner out for as long as they like. What is given up is
 that a patient attacker is slowed to 30 guesses a quarter-hour at one address, not stopped. A per-address lockout with unlock by mail is the stronger answer and a product decision.
 → `apps/api/src/contexts/identity/api/admission.ts`
+
+### DEC-M8-4 — A password is checked against a bundled list, before anything else is read, and when the check cannot be made the password is accepted and the lapse is recorded
+Every path that sets a password (registering, changing, resetting) asks one object, `PasswordScreen`, which applies the length rules and then looks the password up in the hasher's own normal form (NFKC, `normalisePassword`, one function
+used by both). The source is a short list that ships with the code (D100): it costs nothing per request, needs no network on paths that must not block, and has no outage. The Pwned Passwords range service is the stronger source and sits behind
+the same port. When a source cannot answer, the password is accepted and one record (`BREACH_CHECK_UNAVAILABLE`, with whether the source said so or threw) is written, because refusing would let a third party's outage stop sign-ups and, worse,
+password recovery; the cost is protection lapsing for as long as the outage lasts, and the record is how an operator sees it. The check reads only the password, before any address or code is looked up, so a refusal is the same for a known and an
+unknown address and costs no derive (DEC-M8-2).
+→ `apps/api/src/contexts/identity/application/password-screen.ts`
+
+### DEC-M8-5 — A role given or taken away is in force at the person's next request, on the session they already have
+A session does not carry roles. `SessionAuthenticator` reads the user row on every request and builds the principal from the roles it holds then, so there is nothing to expire and nothing to invalidate: a revoked `admin` acts as one for no longer
+than the request in flight when the role was removed, and a role given is there on the next call without a new login. The alternatives were roles frozen into the session until it expires (a revoked administrator keeps their reach for up to thirty
+days) and revoking the person's sessions on every role change (a student made an author is logged out for it). Neither is needed, because the lookup that authenticates the session is already per request and already reads the row; the cost is none
+beyond Track A's. A cache between request and row would change this, and the spec that changes roles under a standing session is what would fail.
+→ `apps/api/src/contexts/identity/application/session-authenticator.ts`
+
+### DEC-M8-6 — The first administrator is made by a command that needs the database, and nobody changes their own roles
+By definition no administrator exists to make the first. Three ways were defensible and one was chosen. A seeded migration carries a name into every environment, including ones nobody meant to have an administrator. A hand-written UPDATE is
+unaudited and leaves no record of who did it. The chosen one is `bootstrap-admin <email>`, run by someone who can reach the database: it makes a registered person with a verified address an `admin` if, and only if, no enabled administrator exists, in one
+transaction serialised against a second caller, and writes an audit row naming the system as the actor. It refuses on a second run. After that, roles are assigned by administrators through the routes, and an administrator cannot change their own roles
+(docs/SECURITY-ARCHITECTURE.md §4), so one stolen session cannot widen itself and a second administrator is what an administrator's own change needs. It is open again only when every administrator is disabled, because then nobody can administer.
+→ `apps/api/src/bootstrap-admin.ts`
+

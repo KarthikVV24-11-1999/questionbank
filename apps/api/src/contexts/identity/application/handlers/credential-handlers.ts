@@ -1,11 +1,11 @@
 import { ROLES } from '../../../../platform/auth/roles.js';
 import { normalizeEmail } from '../../domain/email.js';
 import { needsRehash, type StoredCredential } from '../../domain/password-hash.js';
-import { checkPassword } from '../../domain/password-policy.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import { ONE_TIME_TOKEN_TTL_MS, SESSION_LIFETIME_MS } from '../../domain/session-policy.js';
 import type { User } from '../../domain/user.js';
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
+import { describeRefusal, type PasswordScreen } from '../password-screen.js';
 import type {
   ApplicationContext,
   AuditRecorder,
@@ -49,6 +49,8 @@ interface Common {
   readonly tokens: TokenFactory;
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
+  /** Whether a password may be set: asked by every path that sets one, before it hashes or reads anything (M8-11). */
+  readonly screen: PasswordScreen;
 }
 
 export class RegisterHandler {
@@ -63,8 +65,8 @@ export class RegisterHandler {
     if (!permitted.ok) return err(permitted.error);
     const email = normalizeEmail(command.email);
     if (!email.ok) return err(applicationError('Validation', email.error, 'That is not an email address.'));
-    const strength = checkPassword(command.password);
-    if (!strength.ok) return err(applicationError('Validation', strength.error, 'That password is not acceptable: use at least 12 characters.'));
+    const strength = await this.deps.screen.check(command.password, { action: 'register', correlationId: context.correlationId });
+    if (!strength.ok) return err(applicationError('Validation', strength.error, describeRefusal(strength.error)));
 
     // paid for on both paths
     const credential = await this.deps.hasher.hash(strength.value);
@@ -157,8 +159,8 @@ export class ChangePasswordHandler {
   ): Promise<Result<{ readonly revokedOtherSessions: number }, ApplicationError>> {
     const permitted = authorize(this.policy, context);
     if (!permitted.ok) return err(permitted.error);
-    const next = checkPassword(command.newPassword);
-    if (!next.ok) return err(applicationError('Validation', next.error, 'That password is not acceptable: use at least 12 characters.'));
+    const next = await this.deps.screen.check(command.newPassword, { action: 'password-change', correlationId: context.correlationId });
+    if (!next.ok) return err(applicationError('Validation', next.error, describeRefusal(next.error)));
     const userId = context.principal.id;
     const found = await this.deps.users.findById(userId);
     if (found === null || found.credential === null || typeof command.currentPassword !== 'string') return err(applicationError('Authentication', 'CURRENT_PASSWORD_WRONG', 'The current password is not right.'));
@@ -211,8 +213,8 @@ export class ResetPasswordHandler {
   async handle(command: { readonly token: unknown; readonly newPassword: unknown }, context: ApplicationContext): Promise<Result<{ readonly done: true }, ApplicationError>> {
     const permitted = authorize(this.policy, context);
     if (!permitted.ok) return err(permitted.error);
-    const next = checkPassword(command.newPassword);
-    if (!next.ok) return err(applicationError('Validation', next.error, 'That password is not acceptable: use at least 12 characters.'));
+    const next = await this.deps.screen.check(command.newPassword, { action: 'reset', correlationId: context.correlationId });
+    if (!next.ok) return err(applicationError('Validation', next.error, describeRefusal(next.error)));
     if (typeof command.token !== 'string' || command.token.length === 0 || command.token.length > 256) return err(TOKEN_INVALID);
     const now = this.deps.clock.now();
     const reset = await this.deps.credentials.resetWithToken({ tokenHash: this.deps.tokens.hashToken(command.token), credential: await this.deps.hasher.hash(next.value), at: now });

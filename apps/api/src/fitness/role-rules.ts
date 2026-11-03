@@ -20,7 +20,17 @@ import { importsOf, readCode } from './source-scan.js';
  *     and through spreads, `Object.freeze(…)` and `as const`;
  *   - the value of a `roleContext:` property;
  *   - a role value compared with `===`/`!==` against a role-named operand, or
- *     passed to `includes`/`indexOf` on a role-named receiver.
+ *     passed to `includes`/`indexOf`/`push`/`add`/`has` on a role-named receiver;
+ *   - **a role given to a person** (M8-12): the value of a property called
+ *     `role`, `roles`, `allowedRoles`, `assignableRoles` or `defaultRoles`, and an
+ *     last argument to a function or method called `assignRole`, `removeRole`,
+ *     `grantRole`, `revokeRole` or `addRole` (or the plural). Only a literal
+ *     written there is judged: `roles: found.user.roles` passes a value through
+ *     and is not a role anybody wrote. What this cannot see is a role reaching
+ *     an assignment through a call it does not know by name; the assignment
+ *     handlers take the role as input and refuse any that is not in
+ *     `ASSIGNABLE_ROLES`, built from the vocabulary, so a role that gets there
+ *     is checked again at run time.
  *
  * In any of them the only acceptable leaf is `ROLES.<key>` with a key the
  * vocabulary has. A string literal is a violation, and when it is also not a
@@ -152,6 +162,12 @@ function problemsIn(expr: ts.Expression, file: ts.SourceFile, seen: Set<string>)
 }
 
 const ROLE_NAMED = /role/iu;
+const ROLE_PROPERTY = /^(roles?|allowedRoles|assignableRoles|defaultRoles)$/u;
+const ROLE_ASSIGNING_CALL = /^(assign|remove|grant|revoke|add)Roles?$/iu;
+const ROLE_RECEIVER_METHODS = ['includes', 'indexOf', 'push', 'add', 'has'];
+
+/** What is written in a position that hands a role to a person: literals and unknown names only, since a value passed through is nobody's literal. */
+const writtenIn = (expr: ts.Expression, file: ts.SourceFile): Finding[] => problemsIn(expr, file, new Set()).filter((finding) => finding.kind !== 'not-vocabulary');
 const textOf = (node: ts.Node): string => node.getText();
 
 /**
@@ -183,6 +199,14 @@ function rawFindingsIn(source: ts.SourceFile): Finding[] {
     if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === 'roleContext') {
       found.push(...problemsIn(node.initializer, source, new Set()));
     }
+    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && ROLE_PROPERTY.test(node.name.text)) {
+      found.push(...writtenIn(node.initializer, source));
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : '';
+      const role = node.arguments.at(-1);
+      if (ROLE_ASSIGNING_CALL.test(callee) && role !== undefined) found.push(...writtenIn(role, source));
+    }
     if (
       ts.isBinaryExpression(node) &&
       (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken || node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken)
@@ -196,7 +220,7 @@ function rawFindingsIn(source: ts.SourceFile): Finding[] {
     if (
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
-      ['includes', 'indexOf'].includes(node.expression.name.text) &&
+      ROLE_RECEIVER_METHODS.includes(node.expression.name.text) &&
       ROLE_NAMED.test(textOf(node.expression.expression))
     ) {
       for (const argument of node.arguments) if (ts.isStringLiteral(argument)) found.push({ node: argument, file: source, kind: 'bare', value: argument.text });
