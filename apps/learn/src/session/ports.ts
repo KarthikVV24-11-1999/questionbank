@@ -1,5 +1,6 @@
 import type { SyncPolicy } from '@questionbank/attempt-engine';
 import type { AttemptDto, AttemptWithLogDto, ResultDto } from '../api/schemas.js';
+import type { RecordStore, SessionRecord } from './persistence.js';
 
 /**
  * What the attempt session is given, and the only things it reaches outside itself for. A session reads no clock, opens no
@@ -28,6 +29,7 @@ export interface AttemptTransport {
   getResult(attemptId: string): Promise<ResultDto>;
 }
 
+/** `localStorage`, as the analytics buffer and the device's own small facts use it. Not the response log: that is `RecordStore`. */
 export interface KeyValueStore {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -38,10 +40,18 @@ export interface SessionPorts {
   readonly clock: MonotonicClock;
   readonly wall: WallClock;
   readonly transport: AttemptTransport;
-  readonly storage: KeyValueStore;
+  /** The disk the response log is kept on (M8-15): a commit resolves only once it is on disk. */
+  readonly records: RecordStore;
+  /** Told, in memory and at once, of each record the session means to keep, so a reader that wants the latest facts (the offset to the server's clock) need not read the disk. */
+  readonly observe?: (record: SessionRecord) => void;
+  /** How long a submission waits on answers that are not yet on disk before it goes without them, in milliseconds of the monotonic clock. A disk that never answers cannot hold a paper in. */
+  readonly durabilityGraceMs?: number;
   readonly newId: () => string;
   readonly syncPolicy: SyncPolicy;
 }
 
 /** How a send that did not get through is told apart from one the server refused: the second is not retried. */
+/** How long a submission waits for answers to reach the disk before it sends without them. */
+export const DEFAULT_DURABILITY_GRACE_MS = 5_000;
+
 export const DEFAULT_SYNC_POLICY: SyncPolicy = Object.freeze({ batchSize: 50, baseDelayMs: 1_000, maxDelayMs: 30_000, maxConsecutiveFailures: 12 });

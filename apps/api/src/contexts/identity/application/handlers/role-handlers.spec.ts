@@ -1,20 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { ROLES, ROLE_VALUES } from '../../../../platform/auth/roles.js';
-import type { ApplicationContext, AuditRecord, RoleChangeOutcome, RoleStore, FirstAdminOutcome } from '../ports.js';
+import type { ApplicationContext, AuditFor, AuditRecord, RoleChangeOutcome, RoleStore, FirstAdminOutcome } from '../ports.js';
 import { ASSIGNABLE_ROLES, ASSIGN_ROLE_POLICY, AssignRoleHandler, BOOTSTRAP_ADMIN_POLICY, BootstrapFirstAdminHandler, REMOVE_ROLE_POLICY, RemoveRoleHandler } from './role-handlers.js';
 
 const NOW = new Date('2026-11-03T09:00:00.000Z');
 const principal = (...roles: string[]) => ({ kind: 'human' as const, id: 'caller-1', roleContext: roles });
 const context = (...roles: string[]): ApplicationContext => ({ principal: principal(...roles), correlationId: 'corr-1' });
 
+/**
+ * The store is told what to audit, and writes it itself in the transaction of the change (M8-14). The fake does what the real one does on the two outcomes that audit: it calls the
+ * function it was given with the person's id and keeps the row, and on every other outcome it writes nothing. The atomicity itself is the store's, and is tested there.
+ */
 function rig(outcome: RoleChangeOutcome | FirstAdminOutcome = { status: 'changed', userId: 'user-9', roles: ['learner', 'author'] }) {
   const calls: unknown[] = [];
   const audits: AuditRecord[] = [];
-  const roles: RoleStore = {
-    change: async (change) => (calls.push(change), outcome as RoleChangeOutcome),
-    grantFirstAdmin: async (email) => (calls.push(email), outcome as FirstAdminOutcome),
+  const writes = (audit: AuditFor) => {
+    if (outcome.status === 'changed' || outcome.status === 'granted') audits.push(audit((outcome as { userId: string }).userId));
   };
-  const deps = { roles, clock: { now: () => NOW }, audit: { record: async (entry: AuditRecord) => void audits.push(entry) } };
+  const roles: RoleStore = {
+    change: async (change) => (calls.push({ ...change, audit: undefined }), writes(change.audit), outcome as RoleChangeOutcome),
+    grantFirstAdmin: async (email, audit) => (calls.push(email), writes(audit), outcome as FirstAdminOutcome),
+  };
+  const deps = { roles, clock: { now: () => NOW } };
   return { calls, audits, assign: new AssignRoleHandler(deps), remove: new RemoveRoleHandler(deps), bootstrap: new BootstrapFirstAdminHandler(deps) };
 }
 
@@ -77,8 +84,8 @@ describe('what a change does', () => {
     await assign.handle({ email: '  Asha@Example.COM ', role: ROLES.reviewer }, context(ROLES.admin));
     await remove.handle({ email: 'asha@example.com', role: ROLES.reviewer }, context(ROLES.admin));
     expect(calls).toEqual([
-      { actorId: 'caller-1', email: 'asha@example.com', role: ROLES.reviewer, operation: 'assign' },
-      { actorId: 'caller-1', email: 'asha@example.com', role: ROLES.reviewer, operation: 'remove' },
+      { actorId: 'caller-1', email: 'asha@example.com', role: ROLES.reviewer, operation: 'assign', audit: undefined },
+      { actorId: 'caller-1', email: 'asha@example.com', role: ROLES.reviewer, operation: 'remove', audit: undefined },
     ]);
   });
 

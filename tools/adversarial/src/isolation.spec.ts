@@ -8,7 +8,7 @@ import { StubServer } from './stub-server.js';
 
 /**
  * A seed is a function of its seed alone (D80). That was written in a comment for a long time and was not so: scenarios in one browser share a profile, a
- * profile keeps `localStorage`, Cache Storage and service workers per origin, and a scenario whose server came up on a port an earlier one had used began
+ * profile keeps `localStorage`, IndexedDB, Cache Storage and service workers per origin, and a scenario whose server came up on a port an earlier one had used began
  * on that scenario's device record and warm worker. This runs one scenario, then another on the same browser and the same origin, and looks at what the
  * second one's first page is born with.
  */
@@ -32,7 +32,8 @@ const freePort = (): Promise<number> =>
   });
 
 interface FirstLoad {
-  readonly attemptKeys: string[];
+  /** The databases the origin already holds when the document starts: the device's record of an earlier attempt would be one. */
+  readonly databases: string[];
   readonly controlled: boolean;
   readonly cachedPaths: string[];
 }
@@ -44,12 +45,12 @@ async function watchFirstLoads(context: BrowserContext): Promise<FirstLoad[]> {
   await context.addInitScript(() => {
     if (window.top !== window || window.location.protocol !== 'http:' || sessionStorage.getItem('__qbSeen') !== null) return;
     sessionStorage.setItem('__qbSeen', '1');
-    const attemptKeys = Object.keys(localStorage).filter((key) => key.startsWith('qb.attempt.'));
     const controlled = navigator.serviceWorker?.controller != null;
     void (async () => {
+      const databases = ((await indexedDB.databases?.()) ?? []).map((database) => database.name ?? '');
       const cachedPaths: string[] = [];
       for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) cachedPaths.push(new URL(request.url).pathname);
-      await (window as unknown as { __qbFirstLoad: (load: unknown) => Promise<void> }).__qbFirstLoad({ attemptKeys, controlled, cachedPaths });
+      await (window as unknown as { __qbFirstLoad: (load: unknown) => Promise<void> }).__qbFirstLoad({ databases, controlled, cachedPaths });
     })();
   });
   return seen;
@@ -68,9 +69,22 @@ async function heldFor(environment: RunEnvironment, port: number) {
     return await page.evaluate(async () => {
       const cachedPaths: string[] = [];
       for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) cachedPaths.push(new URL(request.url).pathname);
-      const keys = Object.keys(localStorage).filter((key) => key.startsWith('qb.attempt.') && key !== 'qb.attempt.active');
-      const events = keys.map((key) => (JSON.parse(localStorage.getItem(key) ?? '{}') as { events?: unknown[] }).events?.length ?? 0);
-      return { attemptRecords: keys.length, eventsHeld: events.reduce((sum, n) => sum + n, 0), controlled: navigator.serviceWorker.controller != null, packageCached: cachedPaths.some((path) => /\/package$/u.test(path)) };
+      const counted = await new Promise<{ attempts: number; events: number }>((resolve) => {
+        const request = indexedDB.open('qb-device');
+        request.onupgradeneeded = () => request.transaction!.abort();
+        request.onerror = () => resolve({ attempts: 0, events: 0 });
+        request.onsuccess = () => {
+          const db = request.result;
+          const transaction = db.transaction(['attempts', 'events'], 'readonly');
+          const attempts = transaction.objectStore('attempts').count();
+          const events = transaction.objectStore('events').count();
+          transaction.oncomplete = () => {
+            db.close();
+            resolve({ attempts: attempts.result, events: events.result });
+          };
+        };
+      });
+      return { attemptRecords: counted.attempts, eventsHeld: counted.events, controlled: navigator.serviceWorker.controller != null, packageCached: cachedPaths.some((path) => /\/package$/u.test(path)) };
     });
   } finally {
     await page.close();
@@ -92,6 +106,6 @@ describe('a scenario begins as a first visit, whatever the one before it left in
 
     // later entries are the scenario's own reopens after its kills, which are not first visits; the first is
     expect(first.length).toBeGreaterThan(0);
-    expect(first[0]).toEqual({ attemptKeys: [], controlled: false, cachedPaths: [] });
+    expect(first[0]).toEqual({ databases: [], controlled: false, cachedPaths: [] });
   });
 });

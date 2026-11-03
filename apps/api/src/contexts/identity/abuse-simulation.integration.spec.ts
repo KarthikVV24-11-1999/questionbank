@@ -1,3 +1,4 @@
+import { seedPerson } from '../../testing/identity-people.js';
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { Pool } from 'pg';
@@ -140,7 +141,7 @@ async function compose(options: { config?: Partial<AppConfig>; hasher?: Password
 
 async function person(hasher: PasswordHasher, address = `person-${randomUUID().slice(0, 8)}@example.com`, credential?: StoredCredential): Promise<{ email: string; userId: string }> {
   const userId = randomUUID();
-  await new PostgresUserStore(database.pool).create({ userId, email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, credential ?? (await hasher.hash(PASSWORD)));
+  await seedPerson(database.pool, { userId, email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, credential ?? (await hasher.hash(PASSWORD)));
   return { email: address, userId };
 }
 

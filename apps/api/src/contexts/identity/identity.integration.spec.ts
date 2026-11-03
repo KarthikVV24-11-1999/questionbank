@@ -1,3 +1,4 @@
+import { seedPerson } from '../../testing/identity-people.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
@@ -237,7 +238,7 @@ describe('revocation is effective at the next request', () => {
   it('will not end a session that is not the caller\'s: a token that is someone else\'s is not found, as one that is no one\'s is', async () => {
     const mine = await loggedIn(await registered());
     const theirs = await loggedIn(await registered());
-    const { logout } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, ...identityAbuseDeps });
+    const { logout } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { recordWithin: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, ...identityAbuseDeps });
     const asMe = { principal: { kind: 'human' as const, id: mine.userId, roleContext: ['learner'] }, correlationId: 'c' };
     expect(await logout.handle({ sessionToken: theirs.token }, asMe)).toMatchObject({ ok: false, error: { kind: 'NotFound', code: 'SESSION_NOT_FOUND' } });
     expect(await logout.handle({ sessionToken: 'a token that is no one\'s' }, asMe)).toMatchObject({ ok: false, error: { kind: 'NotFound', code: 'SESSION_NOT_FOUND' } });
@@ -258,7 +259,7 @@ describe('revocation is effective at the next request', () => {
   it('will not rotate a session that is not the caller\'s, nor one that has already ended', async () => {
     const mine = await loggedIn(await registered());
     const theirs = await loggedIn(await registered());
-    const { rotateSession } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, ...identityAbuseDeps });
+    const { rotateSession } = identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { recordWithin: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, ...identityAbuseDeps });
     const asMe = { principal: { kind: 'human' as const, id: mine.userId, roleContext: ['learner'] }, correlationId: 'c' };
     expect(await rotateSession.handle({ sessionToken: theirs.token }, asMe)).toMatchObject({ ok: false, error: { code: 'SESSION_NOT_FOUND' } });
     expect((await post('/logout', {}, mine.token)).status).toBe(200);
@@ -434,10 +435,9 @@ describe('resetting a password to one that is known to be bad', () => {
 describe('a credential under older parameters is strengthened on the next login, never reset', () => {
   it('rehashes under today\'s parameters on a successful login, and the password still works', async () => {
     const weak = new ScryptPasswordHasher({ algorithm: 'scrypt', n: 16_384, r: 8, p: 1, keyLength: 32 });
-    const users = new PostgresUserStore(database.pool);
-    const address = email();
+        const address = email();
     const userId = randomUUID();
-    await users.create({ userId, email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await weak.hash(PASSWORD));
+    await seedPerson(database.pool, { userId, email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await weak.hash(PASSWORD));
     expect((await database.pool.query('SELECT n FROM identity.credential WHERE user_id = $1', [userId])).rows[0].n).toBe(16_384);
 
     await loggedIn(address);
@@ -449,7 +449,7 @@ describe('a credential under older parameters is strengthened on the next login,
     const weak = new ScryptPasswordHasher({ algorithm: 'scrypt', n: 16_384, r: 8, p: 1, keyLength: 32 });
     const address = email();
     const userId = randomUUID();
-    await new PostgresUserStore(database.pool).create({ userId, email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await weak.hash(PASSWORD));
+    await seedPerson(database.pool, { userId, email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await weak.hash(PASSWORD));
     expect((await post('/login', { email: address, password: 'not the password at all' })).status).toBe(401);
     expect((await database.pool.query('SELECT n FROM identity.credential WHERE user_id = $1', [userId])).rows[0].n).toBe(16_384);
   });
@@ -459,17 +459,16 @@ describe('an unknown address costs what a known one costs', () => {
   const handlers = (hash: () => void) => {
     const real = new ScryptPasswordHasher({ algorithm: 'scrypt', n: 16_384, r: 8, p: 1, keyLength: 32 });
     const counting = { parameters: real.parameters, hash: (password: string) => (hash(), real.hash(password)), verify: (password: string, stored: Parameters<typeof real.verify>[1]) => (hash(), real.verify(password, stored)) };
-    return identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { record: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, hasher: counting, ...identityAbuseDeps });
+    return identityHandlers({ pool: database.pool, clock: { now: () => now }, identifiers: uuidFactory, audit: { recordWithin: async () => undefined }, mail, principals: { resolve: () => null }, maxSessionsPerUser: 5, hasher: counting, ...identityAbuseDeps });
   };
   const guest = { principal: { kind: 'human' as const, id: '00000000-0000-4000-8000-000000000000', roleContext: ['guest'] }, correlationId: 'c' };
 
   it('does one password hash on the unknown path and on the wrong-password path, and the same on the right one', async () => {
     let work = 0;
     const { login } = handlers(() => (work += 1));
-    const users = new PostgresUserStore(database.pool);
-    const address = email();
+        const address = email();
     const real = new ScryptPasswordHasher({ algorithm: 'scrypt', n: 16_384, r: 8, p: 1, keyLength: 32 });
-    await users.create({ userId: randomUUID(), email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await real.hash(PASSWORD));
+    await seedPerson(database.pool, { userId: randomUUID(), email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await real.hash(PASSWORD));
     await login.handle({ email: email(), password: PASSWORD }, guest); // the decoy is made once, here
     work = 0;
     const counts: number[] = [];
@@ -487,7 +486,7 @@ describe('an unknown address costs what a known one costs', () => {
     const address = email();
     // the same cost as the hasher the handlers use: a known account on older parameters would time differently from the decoy, which is a limit the README names
     const real = new ScryptPasswordHasher({ algorithm: 'scrypt', n: 16_384, r: 8, p: 1, keyLength: 32 });
-    await new PostgresUserStore(database.pool).create({ userId: randomUUID(), email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await real.hash(PASSWORD));
+    await seedPerson(database.pool, { userId: randomUUID(), email: address, emailNormalized: address, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: now }, await real.hash(PASSWORD));
     const time = async (attempt: { email: string; password: string }) => {
       const begun = performance.now();
       await login.handle(attempt, guest);
@@ -529,6 +528,52 @@ describe('the audit trail', () => {
     await post('/logout-all', {}, token);
     const rows = (await database.pool.query(`SELECT action, target_id FROM platform.audit_record WHERE target_context = 'identity' AND target_id = $1 ORDER BY audit_record_id`, [userId])).rows.map((row) => row.action);
     expect(rows).toEqual(['UserRegistered', 'PasswordChanged', 'AllSessionsRevoked']);
+  });
+
+  it('is written to the database in the transaction even when the application is given another recorder for the other contexts', async () => {
+    const elsewhere: Array<{ action: string }> = [];
+    const other = await createApplication(
+      { ...COMPOSED_CONFIG, maxSessionsPerUser: MAX_SESSIONS },
+      { pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => now }, identifiers: uuidFactory, mail: new MemoryMail(), limiter: unlimited, audit: { record: async (entry) => void elsewhere.push(entry) } },
+    );
+    await serveOnLoopback(other);
+    try {
+      const address = email();
+      expect((await request(other.getHttpServer()).post('/v1/identity/register').send({ email: address, password: PASSWORD })).status).toBe(202);
+      const userId = (await database.pool.query('SELECT user_id FROM identity.app_user WHERE email_normalized = $1', [address])).rows[0].user_id;
+      expect((await database.pool.query(`SELECT action FROM platform.audit_record WHERE target_id = $1`, [userId])).rows).toEqual([{ action: 'UserRegistered' }]);
+      expect(elsewhere).toEqual([]);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('records the rest as well, each with the person it was about and who did it: verifying an address, resetting a password, and giving and taking a role (M8-14)', async () => {
+    const address = await registered();
+    await post('/email/verify', { token: codeIn('email_verification') });
+    await post('/password/recovery', { email: address });
+    await post('/password/reset', { token: codeIn('password_recovery'), newPassword: OTHER_PASSWORD });
+    const { userId } = await loggedIn(address, OTHER_PASSWORD);
+
+    await database.pool.query(`UPDATE identity.app_user SET roles = array_remove(roles, 'admin') WHERE 'admin' = ANY(roles)`);
+    const bossAddress = await registered();
+    const { userId: bossId } = await loggedIn(bossAddress);
+    await database.pool.query(`UPDATE identity.app_user SET roles = ARRAY['learner', 'admin'] WHERE user_id = $1`, [bossId]);
+    const boss = await loggedIn(bossAddress);
+    await post('/roles/assign', { email: address, role: 'author' }, boss.token);
+    await post('/roles/remove', { email: address, role: 'author' }, boss.token);
+
+    const rows = (await database.pool.query(`SELECT action, principal_id, target_type, target_id FROM platform.audit_record WHERE target_context = 'identity' AND target_id LIKE $1 ORDER BY audit_record_id`, [`${userId}%`])).rows;
+    expect(rows.map((row) => `${row.action} ${row.target_type} ${row.target_id === userId ? 'user' : row.target_id.slice(userId.length)}`)).toEqual([
+      'UserRegistered User user',
+      'EmailVerified User user',
+      'PasswordReset User user',
+      'RoleAssigned UserRole :author',
+      'RoleRemoved UserRole :author',
+    ]);
+    // who did it: nobody yet signed in for the three public routes (the row names the person it was about), the administrator for the roles
+    const anonymous = '00000000-0000-4000-8000-000000000000';
+    expect(rows.map((row) => (row.principal_id === anonymous ? 'anonymous' : row.principal_id === bossId ? 'the administrator' : 'someone else'))).toEqual(['anonymous', 'anonymous', 'anonymous', 'the administrator', 'the administrator']);
   });
 });
 

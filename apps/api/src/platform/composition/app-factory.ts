@@ -155,7 +155,9 @@ export async function createApplication(
   const analyticsLog = createLogger({ logLevel: config.logLevel, nodeEnv: config.nodeEnv, ...(overrides.logWrite === undefined ? {} : { write: overrides.logWrite }) });
   // Who a request is: a session, looked up on every request (M8-03). The resolver every context takes is answered from the session table by a middleware installed below.
   // The token stub is not here; a test that wants it passes it as `principals`, and then no middleware is installed and no session is read.
-  const identity = identityPrincipals({ pool, clock, logger: analyticsLog });
+  // identity writes its audit rows in the transaction of the change they record, so it always has the database's recorder: one a test substituted for the other contexts would not be in that transaction
+  const identityAudit = new PostgresAuditRecorder(pool);
+  const identity = identityPrincipals({ pool, clock, audit: identityAudit, logger: analyticsLog });
   const principals = overrides.principals ?? identity.resolver;
   // The ingestion edge (M7-61): every analytics event is admitted or quarantined here, and a quarantine is logged as it happens (EVENT-TAXONOMY §1 rule 3).
   const analyticsSink = overrides.analyticsSink ?? (config.nodeEnv === 'test' ? new MemorySink() : new LocalDirectorySink(join(config.mediaStorageRoot, '..', 'analytics')));
@@ -254,7 +256,7 @@ export async function createApplication(
     pool,
     clock,
     identifiers,
-    audit,
+    audit: identityAudit,
     principals,
     maxSessionsPerUser: config.maxSessionsPerUser,
     limiter: overrides.limiter ?? rateCounters,

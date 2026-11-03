@@ -26,8 +26,9 @@ import {
   type SyncStatus,
 } from '@questionbank/attempt-engine';
 import type { AttemptWithLogDto, ResultDto } from '../api/schemas.js';
-import { saveRecord, type SessionRecord } from './persistence.js';
-import type { SessionPorts } from './ports.js';
+import type { SessionRecord } from './persistence.js';
+import { DEFAULT_DURABILITY_GRACE_MS, type SessionPorts } from './ports.js';
+import { RecordWriter } from './record-writer.js';
 
 /**
  * The learner's attempt on this device (M6-47): **the one place its state lives, and all of it is the engine's.**
@@ -46,6 +47,18 @@ import type { SessionPorts } from './ports.js';
  */
 export type Phase = 'in_progress' | 'submitting' | 'submitted';
 
+/**
+ * **When an answer is on disk, and what is done until it is (M8-15).** An answer is in the engine's state and on the screen the moment it is given; the screen never waits for the disk.
+ * Writing it down is handed to a writer (`record-writer.ts`) that keeps one commit in flight and puts everything that changed meanwhile in the next. An event goes on to be *sent* only once
+ * the commit that holds it has resolved, which is when it is on disk (IndexedDB, strict durability): sent first, a kill before the commit would leave the server with an event the
+ * device had forgotten, and the device would number its next event after the last it remembered. Until then it is `unsaved`, which the screen says in words and the snapshot counts.
+ *
+ * **If a write fails after the screen took the answer** (the disk is full, or the browser will not give a store) the answer is not lost and not held back: it stays in the engine's state,
+ * the snapshot says `storageError`, the screen tells the learner this device is not keeping their answers and to keep the page open, and the events are sent as they are made. The server
+ * is then the only other holder; sending is the safer of the two ways to be wrong. A write that later succeeds clears the note. **A submission does not wait for ever on a disk that
+ * does not answer:** after `durabilityGraceMs` of the monotonic clock it goes with the answers it has sent, and the rest are sent as unsaved events.
+ */
+
 export interface SessionSnapshot {
   readonly attemptId: string;
   readonly phase: Phase;
@@ -60,6 +73,10 @@ export interface SessionSnapshot {
   readonly pending: number;
   /** Events the server refused for good; they stay in the log and are not sent again. */
   readonly rejected: number;
+  /** Answers given and shown but not yet on the disk: not yet sent, either (M8-15). */
+  readonly unsaved: number;
+  /** Set while the device is failing to keep the log: its words, for the learner to be told. `null` while it is keeping it. */
+  readonly storageError: string | null;
   readonly submission: { readonly reason: SubmissionReason } | null;
   readonly intervalCapMs: number;
   readonly result: ResultDto | null;
@@ -118,6 +135,11 @@ export class AttemptSession {
   #listeners = new Set<() => void>();
   #cached: SessionSnapshot | null = null;
   #serverOffsetMs: number | null;
+  /** Events captured and not yet on disk, in the order they were captured. */
+  #unsaved = new Map<string, ResponseEvent>();
+  #storageError: string | null = null;
+  #waitedFor: number | null = null;
+  readonly #writer: RecordWriter;
 
   private constructor(
     private readonly init: { readonly attemptId: string; readonly formId: string | null; readonly deviceRef: string; readonly intervalCapMs: number; readonly deadline: string },
@@ -132,6 +154,14 @@ export class AttemptSession {
     this.#timer = timer;
     this.#phase = phase;
     this.#queue = createSyncQueue(init.attemptId, ports.syncPolicy);
+    this.#writer = new RecordWriter(ports.records, {
+      onDurable: (ids) => this.#savedToDisk(ids),
+      onFailure: (error) => this.#failedToSave(error),
+      onRecovered: () => {
+        this.#storageError = null;
+        this.#changed(false);
+      },
+    });
   }
 
   /** A new attempt that has just been started on the server. */
@@ -192,6 +222,8 @@ export class AttemptSession {
     );
     session.#acknowledged = new Set([...(record?.acknowledgedIds ?? []), ...(server?.events ?? []).map((event) => event.eventId)]);
     session.#rejected = new Set(record?.rejectedIds ?? []);
+    // what was read from the disk is on it: the writer writes only what differs from that, and these events may be sent at once
+    if (record !== null) session.#writer.adopt(record);
     for (const event of current.log.events) {
       if (!session.#acknowledged.has(event.eventId) && !session.#rejected.has(event.eventId)) session.#enqueue(event);
     }
@@ -239,6 +271,8 @@ export class AttemptSession {
       sync: syncStatus(this.#queue, now),
       pending: this.#queue.pending.length,
       rejected: this.#rejected.size,
+      unsaved: this.#unsaved.size,
+      storageError: this.#storageError,
       submission: this.#attempt.submission === null ? null : Object.freeze({ reason: this.#attempt.submission.reason }),
       intervalCapMs: this.init.intervalCapMs,
       result: this.#result,
@@ -308,8 +342,37 @@ export class AttemptSession {
     const captured = captureResponse(this.#attempt, event);
     if (!captured.ok) return; // not in progress: the engine takes no response, and says so by taking none
     this.#attempt = captured.attempt;
-    this.#enqueue(event);
+    // on the screen now; sent once it is on disk (`#savedToDisk`), or at once if the disk is failing (`#storageError`)
+    if (this.#storageError === null) this.#unsaved.set(event.eventId, event);
+    else this.#enqueue(event);
     this.#changed();
+  }
+
+  #savedToDisk(ids: readonly string[]): void {
+    for (const id of ids) {
+      const event = this.#unsaved.get(id);
+      if (event === undefined) continue;
+      this.#unsaved.delete(id);
+      this.#enqueue(event);
+    }
+    this.#changed(false);
+  }
+
+  #failedToSave(error: unknown): void {
+    this.#storageError = error instanceof Error && error.message !== '' ? error.message : 'this device could not keep the answers';
+    this.#sendUnsaved();
+    this.#changed(false);
+  }
+
+  /** The disk is not keeping the log, so the answers it has not kept are sent as they are: the server is then their only other holder, and holding them back would lose them. */
+  #sendUnsaved(): void {
+    for (const event of this.#unsaved.values()) this.#enqueue(event);
+    this.#unsaved.clear();
+  }
+
+  /** Resolves once everything the session has taken is on disk, or the disk has said it cannot. For a caller that is about to leave, and for tests. */
+  async saved(): Promise<void> {
+    await this.#writer.idle();
   }
 
   #enqueue(event: ResponseEvent): void {
@@ -324,6 +387,7 @@ export class AttemptSession {
    * asleep, backgrounded or reloaded: none of that extends the deadline, which is the server's and is re-read on resume.
    */
   async pump(): Promise<void> {
+    this.#writer.kick(); // a commit that failed is tried again at every pump
     const now = this.ports.clock.now();
     this.#timer = advance(this.#timer, now);
     this.#changed(false);
@@ -334,14 +398,23 @@ export class AttemptSession {
       if (left !== null && left > 0) {
         this.#timer = startTimer(left, this.ports.clock.now());
         this.#changed(false);
-        await this.#send();
+        await this.#sendWhatIsSaved();
         return;
       }
       await this.submit('expiry');
       return;
     }
     if (this.#phase === 'submitting') await this.#finishSubmission();
-    else await this.#send();
+    else await this.#sendWhatIsSaved();
+  }
+
+  /**
+   * Sends what is due, after the commit in flight lands, so that what that commit holds is due too. Waiting on the disk here holds up only this send: the timer was advanced before it,
+   * and the next pump runs whether or not this one has returned.
+   */
+  async #sendWhatIsSaved(): Promise<void> {
+    await this.#writer.idle();
+    await this.#send();
   }
 
   /**
@@ -366,7 +439,7 @@ export class AttemptSession {
     this.#queue = resumeSync(this.#queue);
     this.#changed(false);
     if (this.#phase === 'submitting') await this.#finishSubmission();
-    else await this.#send();
+    else await this.#sendWhatIsSaved();
   }
 
   async #send(): Promise<void> {
@@ -410,10 +483,18 @@ export class AttemptSession {
       this.#phase = 'submitting';
       this.#changed();
     }
+    await this.#writer.idle();
     await this.#finishSubmission();
   }
 
   async #finishSubmission(): Promise<void> {
+    if (this.#unsaved.size > 0) {
+      // Answers not yet on disk are not yet sent, and a paper is not handed in with answers behind it. A disk that never answers cannot hold it in for ever.
+      const now = this.ports.clock.now();
+      this.#waitedFor ??= now;
+      if (now - this.#waitedFor < (this.ports.durabilityGraceMs ?? DEFAULT_DURABILITY_GRACE_MS)) return;
+      this.#sendUnsaved();
+    }
     await this.#send();
     if (this.#queue.pending.length > 0) return; // still offline or backing off: tried again at the next pump
     // Only reached with a submission in hand: `submit` takes it first, and a resumed attempt is rebuilt with it.
@@ -459,7 +540,9 @@ export class AttemptSession {
   }
 
   #persist(): void {
-    saveRecord(this.ports.storage, this.#record_());
+    const record = this.#record_();
+    this.ports.observe?.(record);
+    this.#writer.write(record);
   }
 
   #changed(persist = true): void {

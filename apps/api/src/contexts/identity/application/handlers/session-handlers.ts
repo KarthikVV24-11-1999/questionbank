@@ -2,7 +2,7 @@ import { ROLES } from '../../../../platform/auth/roles.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import { SESSION_LIFETIME_MS } from '../../domain/session-policy.js';
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
-import type { ApplicationContext, AuditRecorder, Clock, CredentialStore, IdentifierFactory, SessionStore, TokenFactory } from '../ports.js';
+import type { ApplicationContext, Clock, CredentialStore, IdentifierFactory, SessionStore, TokenFactory } from '../ports.js';
 
 /**
  * Ending and renewing sessions (M8-03). Revocation is effective: a revoked session is refused by the next request, because every request looks the session up
@@ -40,14 +40,21 @@ export class LogoutAllHandler {
   readonly name = 'LogoutAll';
   readonly policy = LOGOUT_ALL_POLICY;
 
-  constructor(private readonly deps: { readonly credentials: CredentialStore; readonly clock: Clock; readonly audit: AuditRecorder }) {}
+  constructor(private readonly deps: { readonly credentials: CredentialStore; readonly clock: Clock }) {}
 
   async handle(_command: Record<string, never>, context: ApplicationContext): Promise<Result<{ readonly revoked: number }, ApplicationError>> {
     const permitted = authorize(this.policy, context);
     if (!permitted.ok) return err(permitted.error);
     const now = this.deps.clock.now();
-    const revoked = await this.deps.credentials.revokeAll(context.principal.id, now, 'logout_all');
-    await this.deps.audit.record({ principal: context.principal, action: 'AllSessionsRevoked', targetContext: 'identity', targetType: 'User', targetId: context.principal.id, correlationId: context.correlationId, occurredAt: now });
+    const revoked = await this.deps.credentials.revokeAll(context.principal.id, now, 'logout_all', {
+      principal: context.principal,
+      action: 'AllSessionsRevoked',
+      targetContext: 'identity',
+      targetType: 'User',
+      targetId: context.principal.id,
+      correlationId: context.correlationId,
+      occurredAt: now,
+    });
     return ok({ revoked });
   }
 }

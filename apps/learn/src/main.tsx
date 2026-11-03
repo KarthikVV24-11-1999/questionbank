@@ -8,7 +8,9 @@ import { createAssessmentApi } from './api/assessment-api.js';
 import pkg from '../package.json';
 import { createLearningApi } from './api/learning-api.js';
 import { boot } from './bootstrap.js';
-import { activeAttemptId, loadRecord } from './session/persistence.js';
+import { openRecordStore, unavailableRecordStore } from './session/idb-record-store.js';
+import { createClockFacts } from './session/clock-facts.js';
+import { loadRecord, migrateLegacy } from './session/persistence.js';
 import { registerServiceWorker } from './sw/register.js';
 import { warmPackageCache } from './sw/warm-package.js';
 import { HomeScreen } from './ui/HomeScreen.js';
@@ -20,8 +22,18 @@ import type { ScreenContext } from './ui/screen-context.js';
 /**
  * The entry point (M6-46). A sitting is opened with `?form=<id>&session=<ref>`; there is no login UI yet — as in Studio, a developer sets
  * `localStorage['qb-dev-token']` to a bearer token, and real sign-in is M8's (debt D69). What it wires is the real clock (`performance.now`, which is
- * monotonic), the wall clock (`Date.now`, read only to take the offset to the server's clock), the real disk (`localStorage`), and the real network (through the typed client).
+ * monotonic), the wall clock (`Date.now`, read only to take the offset to the server's clock), the real disk (IndexedDB for the response log, M8-15; `localStorage` for the
+ * small things), and the real network (through the typed client).
+ *
+ * The response log is opened, and anything an earlier build left in `localStorage` is moved into it, before the page renders: a learner partway through an attempt when the new build
+ * loads has their answers in one place or the other, and this is the step that makes it the new one without losing them. A browser that will not give a store gets one that says so.
  */
+const records = await openRecordStore(window.indexedDB).catch((reason: unknown) => unavailableRecordStore(reason));
+await migrateLegacy({ getItem: (key) => window.localStorage.getItem(key), setItem: (key, value) => window.localStorage.setItem(key, value), removeItem: (key) => window.localStorage.removeItem(key), keys: () => Object.keys(window.localStorage) }, records).catch(() => 0);
+const activeId = await records.active().catch(() => null);
+const lastRecord = activeId === null ? null : await loadRecord(records, activeId).catch(() => null);
+/** The offset to the server's clock the last contact took: read once from the disk, then kept current by the session as it takes a fresher one. */
+const clockFacts = createClockFacts(lastRecord);
 const params = new URLSearchParams(window.location.search);
 const formId = params.get('form');
 const sessionRef = params.get('session');
@@ -40,10 +52,7 @@ const analytics = createAnalytics({
   storage: window.localStorage,
   nowMs: () => Date.now(),
   // the offset to the server's clock the last contact took, so `occurred_at` is the server's reading of when it happened (§1)
-  offsetMs: () => {
-    const id = activeAttemptId(window.localStorage);
-    return (id === null ? null : loadRecord(window.localStorage, id))?.serverOffsetMs ?? 0;
-  },
+  offsetMs: clockFacts.offsetMs,
   random: () => crypto.getRandomValues(new Uint8Array(10)),
   send: createAnalyticsApi(client),
   identity: {
@@ -78,7 +87,7 @@ analytics.flush();
 const screenContext: ScreenContext = {
   examProfileVersionId: params.get('profile'),
   taxonomyVersionId: params.get('taxonomy'),
-  lastAttemptId: activeAttemptId(window.localStorage),
+  lastAttemptId: activeId,
   pageKey: crypto.randomUUID(),
   analytics,
 };
@@ -87,7 +96,8 @@ const ports: SessionPorts = {
   clock: { now: () => performance.now() },
   wall: { now: () => Date.now() },
   transport: api,
-  storage: window.localStorage,
+  records,
+  observe: clockFacts.observe,
   newId: () => crypto.randomUUID(),
   syncPolicy: DEFAULT_SYNC_POLICY,
 };

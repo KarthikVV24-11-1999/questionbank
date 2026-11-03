@@ -19,9 +19,16 @@ export interface AuditRecord {
   readonly occurredAt: Date;
 }
 
-export interface AuditRecorder {
-  record(entry: AuditRecord): Promise<void>;
+/**
+ * How an audit row is written (M8-14): with the change it records, in the same transaction, by the store that makes the change. A store method that audits takes the record (or, where
+ * the person is only known inside the transaction, a function from their id to it), so a handler cannot make the change and forget the row, and a failure of either takes both back.
+ * The recorder is handed the transaction's connection, never a pool. `platform/persistence/audit-recorder.ts` implements this; a spec assigns it to this shape.
+ */
+export interface TransactionalAudit {
+  recordWithin(db: { query(text: string, values?: unknown[]): Promise<unknown> }, entry: AuditRecord): Promise<void>;
 }
+
+export type AuditFor = (userId: string) => AuditRecord;
 
 export interface Clock {
   now(): Date;
@@ -74,9 +81,8 @@ export interface UserWithCredential {
 export interface UserStore {
   findByEmail(emailNormalized: string): Promise<UserWithCredential | null>;
   findById(userId: string): Promise<UserWithCredential | null>;
-  /** `false` where the address is already taken, however the race went. */
-  create(user: User, credential: StoredCredential): Promise<boolean>;
-  markEmailVerified(userId: string, at: Date): Promise<void>;
+  /** `false` where the address is already taken, however the race went. The audit row is written with the user, and only if there is one. */
+  create(user: User, credential: StoredCredential, audit: AuditRecord): Promise<boolean>;
   /** Rewrites a credential under newer parameters, after a successful login. The password has not changed. */
   rehash(userId: string, credential: StoredCredential, at: Date): Promise<void>;
 }
@@ -117,18 +123,21 @@ export interface SessionStore {
 export interface OneTimeTokenStore {
   /** Stores a token for the user and purpose and supersedes every earlier one still open, in one transaction. */
   issue(token: { readonly tokenId: string; readonly userId: string; readonly purpose: OneTimeTokenPurpose; readonly tokenHash: Uint8Array; readonly createdAt: Date; readonly expiresAt: Date }): Promise<void>;
-  /** Marks an open, unexpired token of that purpose used, once, and says whose it was; `null` for a token that is unknown, used, superseded or expired — all alike. */
-  consume(tokenHash: Uint8Array, purpose: OneTimeTokenPurpose, at: Date): Promise<{ readonly userId: string } | null>;
+  /**
+   * Spends an open, unexpired verification code, once, marks its owner's address verified and writes the audit row, in one transaction; says whose it was. `null` for a code that is unknown,
+   * used, superseded or expired — all alike.
+   */
+  verifyEmail(tokenHash: Uint8Array, at: Date, audit: AuditFor): Promise<{ readonly userId: string } | null>;
 }
 
 /** Writes that change a credential and must take the user's sessions with them, atomically. */
 export interface CredentialStore {
   /** Replaces the credential and revokes every session of the user but `exceptSessionId`, in one transaction. */
-  replaceAndRevoke(change: { readonly userId: string; readonly credential: StoredCredential; readonly at: Date; readonly exceptSessionId: string | null; readonly reason: SessionRevocation }): Promise<{ readonly revoked: number }>;
+  replaceAndRevoke(change: { readonly userId: string; readonly credential: StoredCredential; readonly at: Date; readonly exceptSessionId: string | null; readonly reason: SessionRevocation; readonly audit: AuditRecord }): Promise<{ readonly revoked: number }>;
   /** Consumes a recovery token, replaces the credential, and revokes every session of the user, in one transaction. `null` where the token does not hold. */
-  resetWithToken(change: { readonly tokenHash: Uint8Array; readonly credential: StoredCredential; readonly at: Date }): Promise<{ readonly userId: string; readonly revoked: number } | null>;
+  resetWithToken(change: { readonly tokenHash: Uint8Array; readonly credential: StoredCredential; readonly at: Date; readonly audit: AuditFor }): Promise<{ readonly userId: string; readonly revoked: number } | null>;
   /** Every session of the user, revoked. */
-  revokeAll(userId: string, at: Date, reason: SessionRevocation): Promise<number>;
+  revokeAll(userId: string, at: Date, reason: SessionRevocation, audit: AuditRecord): Promise<number>;
 }
 
 /**
@@ -144,10 +153,10 @@ export type RoleChangeOutcome =
 export type FirstAdminOutcome = { readonly status: 'granted'; readonly userId: string } | { readonly status: 'not_found' | 'not_verified' | 'admin_exists' };
 
 export interface RoleStore {
-  /** `actorId` is who is asking: a person's own roles are not theirs to change, so a change aimed at the asker is `self`. */
-  change(change: { readonly actorId: string; readonly email: string; readonly role: string; readonly operation: RoleOperation }): Promise<RoleChangeOutcome>;
+  /** `actorId` is who is asking: a person's own roles are not theirs to change, so a change aimed at the asker is `self`. A change that changes something writes its audit row in the same transaction; one that changes nothing writes none. */
+  change(change: { readonly actorId: string; readonly email: string; readonly role: string; readonly operation: RoleOperation; readonly audit: AuditFor }): Promise<RoleChangeOutcome>;
   /** Makes the user with this verified address an `admin` if, and only if, no enabled admin exists; the check and the grant are one transaction, serialised against a second caller. */
-  grantFirstAdmin(email: string): Promise<FirstAdminOutcome>;
+  grantFirstAdmin(email: string, audit: AuditFor): Promise<FirstAdminOutcome>;
 }
 
 export type MailPurpose = 'email_verification' | 'password_recovery' | 'already_registered';

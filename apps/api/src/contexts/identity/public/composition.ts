@@ -8,7 +8,7 @@ import { ChangePasswordHandler, LoginHandler, RegisterHandler, RequestPasswordRe
 import { AssignRoleHandler, BootstrapFirstAdminHandler, RemoveRoleHandler } from '../application/handlers/role-handlers.js';
 import { LogoutAllHandler, LogoutHandler, RotateSessionHandler } from '../application/handlers/session-handlers.js';
 import { RequestEmailVerificationHandler, VerifyEmailHandler } from '../application/handlers/verification-handlers.js';
-import type { AuditRecorder, BoundedRunner, BreachedPasswords, Clock, IdentifierFactory, MailPort, PasswordHasher, RateLimiter } from '../application/ports.js';
+import type { TransactionalAudit, BoundedRunner, BreachedPasswords, Clock, IdentifierFactory, MailPort, PasswordHasher, RateLimiter } from '../application/ports.js';
 import { PasswordScreen } from '../application/password-screen.js';
 import { SessionAuthenticator } from '../application/session-authenticator.js';
 import { DirectoryMail, MemoryMail, UnconfiguredMail } from '../infrastructure/mail-adapters.js';
@@ -39,6 +39,7 @@ export function defaultMail(environment: { readonly nodeEnv: 'development' | 'te
 
 export interface IdentityPrincipalsDeps {
   readonly pool: Pool;
+  readonly audit: TransactionalAudit;
   readonly clock: Clock;
   readonly logger?: AuthLogger;
 }
@@ -51,11 +52,11 @@ export interface IdentityPrincipals {
 }
 
 export function identityPrincipals(deps: IdentityPrincipalsDeps): IdentityPrincipals {
-  for (const key of ['pool', 'clock'] as const) {
+  for (const key of ['pool', 'clock', 'audit'] as const) {
     if (deps[key] === undefined) throw new Error(`identity composition is missing required dependency: ${key}`);
   }
   const resolutions = new SessionResolutions();
-  const authenticator = new SessionAuthenticator({ sessions: new PostgresSessionStore(deps.pool), users: new PostgresUserStore(deps.pool), tokens: new CryptoTokenFactory(), clock: deps.clock });
+  const authenticator = new SessionAuthenticator({ sessions: new PostgresSessionStore(deps.pool), users: new PostgresUserStore(deps.pool, deps.audit), tokens: new CryptoTokenFactory(), clock: deps.clock });
   return { resolver: new PostgresPrincipalResolver(resolutions, deps.logger), middleware: sessionAuthentication(authenticator, resolutions) };
 }
 
@@ -63,7 +64,7 @@ export interface IdentityCompositionDeps {
   readonly pool: Pool;
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
-  readonly audit: AuditRecorder;
+  readonly audit: TransactionalAudit;
   readonly mail: MailPort;
   readonly principals: PrincipalResolver;
   /** The most live sessions a user may hold; the oldest is ended when a login exceeds it. */
@@ -100,10 +101,10 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
     if (deps[key] === undefined) throw new Error(`identity composition is missing required dependency: ${key}`);
   }
   if (!Number.isInteger(deps.maxSessionsPerUser) || deps.maxSessionsPerUser < 1) throw new Error('identity composition: maxSessionsPerUser must be a positive integer');
-  const users = new PostgresUserStore(deps.pool);
+  const users = new PostgresUserStore(deps.pool, deps.audit);
   const sessions = new PostgresSessionStore(deps.pool);
-  const oneTime = new PostgresOneTimeTokenStore(deps.pool);
-  const credentials = new PostgresCredentialStore(deps.pool);
+  const oneTime = new PostgresOneTimeTokenStore(deps.pool, deps.audit);
+  const credentials = new PostgresCredentialStore(deps.pool, deps.audit);
   const screen = new PasswordScreen({
     source: deps.breached ?? new BundledPasswordList(),
     log: {
@@ -113,18 +114,18 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
   });
   const common = { users, hasher: new BoundedPasswordHasher(deps.hasher ?? new ScryptPasswordHasher(), deps.hashBound), tokens: new CryptoTokenFactory(), clock: deps.clock, identifiers: deps.identifiers, screen };
   return {
-    register: new RegisterHandler({ ...common, oneTime, mail: deps.mail, audit: deps.audit }),
+    register: new RegisterHandler({ ...common, oneTime, mail: deps.mail }),
     login: new LoginHandler({ ...common, sessions, maxSessionsPerUser: deps.maxSessionsPerUser }),
     requestPasswordRecovery: new RequestPasswordRecoveryHandler({ ...common, oneTime, mail: deps.mail }),
-    resetPassword: new ResetPasswordHandler({ ...common, credentials, audit: deps.audit }),
-    changePassword: new ChangePasswordHandler({ ...common, sessions, credentials, audit: deps.audit }),
-    verifyEmail: new VerifyEmailHandler({ oneTime, users, tokens: common.tokens, clock: deps.clock, audit: deps.audit }),
+    resetPassword: new ResetPasswordHandler({ ...common, credentials }),
+    changePassword: new ChangePasswordHandler({ ...common, sessions, credentials }),
+    verifyEmail: new VerifyEmailHandler({ oneTime, users, tokens: common.tokens, clock: deps.clock }),
     requestEmailVerification: new RequestEmailVerificationHandler({ oneTime, users, mail: deps.mail, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers }),
     logout: new LogoutHandler({ sessions, tokens: common.tokens, clock: deps.clock }),
-    logoutAll: new LogoutAllHandler({ credentials, clock: deps.clock, audit: deps.audit }),
+    logoutAll: new LogoutAllHandler({ credentials, clock: deps.clock }),
     rotateSession: new RotateSessionHandler({ sessions, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers }),
-    assignRole: new AssignRoleHandler({ roles: new PostgresRoleStore(deps.pool), clock: deps.clock, audit: deps.audit }),
-    removeRole: new RemoveRoleHandler({ roles: new PostgresRoleStore(deps.pool), clock: deps.clock, audit: deps.audit }),
+    assignRole: new AssignRoleHandler({ roles: new PostgresRoleStore(deps.pool, deps.audit), clock: deps.clock }),
+    removeRole: new RemoveRoleHandler({ roles: new PostgresRoleStore(deps.pool, deps.audit), clock: deps.clock }),
   };
 }
 
@@ -140,5 +141,5 @@ const BOOTSTRAP_PRINCIPAL = Object.freeze({ kind: 'system' as const, id: '000000
  * The result says what happened in the words of the handler's refusals, so the command can print them.
  */
 export async function bootstrapFirstAdmin(deps: Pick<IdentityCompositionDeps, 'pool' | 'clock' | 'audit'>, email: string, correlationId: string) {
-  return new BootstrapFirstAdminHandler({ roles: new PostgresRoleStore(deps.pool), clock: deps.clock, audit: deps.audit }).handle({ email }, { principal: BOOTSTRAP_PRINCIPAL, correlationId });
+  return new BootstrapFirstAdminHandler({ roles: new PostgresRoleStore(deps.pool, deps.audit), clock: deps.clock }).handle({ email }, { principal: BOOTSTRAP_PRINCIPAL, correlationId });
 }

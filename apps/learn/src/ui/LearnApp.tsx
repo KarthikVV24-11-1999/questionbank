@@ -48,7 +48,7 @@ export function LearnApp({ session, form }: LearnAppProps): JSX.Element {
     <div style={{ background: TOKENS.surface, color: TOKENS.textPrimary }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', padding: TOKENS.spaceSmall, borderBottom: `1px solid ${TOKENS.borderSubtle}` }}>
         <TimerBadge remainingMs={snapshot.remainingMs} />
-        <SyncIndicator status={snapshot.sync} pending={snapshot.pending} onRetry={() => void session.syncNow()} />
+        <SyncIndicator status={snapshot.sync} pending={snapshot.pending} unsaved={snapshot.unsaved} storageError={snapshot.storageError} onRetry={() => void session.syncNow()} />
       </header>
 
       {submitting ? (

@@ -3,11 +3,15 @@ import type { StoredCredential } from '../domain/password-hash.js';
 import type { OneTimeTokenPurpose } from '../domain/session-policy.js';
 import type { User } from '../domain/user.js';
 import { ROLES } from '../../../platform/auth/roles.js';
-import type { CredentialStore, FirstAdminOutcome, RoleChangeOutcome, RoleOperation, RoleStore, NewSession, OneTimeTokenStore, SessionRecord, SessionRevocation, SessionStore, UserStore, UserWithCredential } from '../application/ports.js';
+import type { AuditFor, AuditRecord, CredentialStore, FirstAdminOutcome, TransactionalAudit, RoleChangeOutcome, RoleOperation, RoleStore, NewSession, OneTimeTokenStore, SessionRecord, SessionRevocation, SessionStore, UserStore, UserWithCredential } from '../application/ports.js';
 
 /**
  * Identity's tables (M8-01). Every write that has to move together does so in one transaction: a credential that changes takes the user's sessions with it, a rotated
  * session is replaced and ended at once, a token is spent and the password changed together. A failure between the halves would leave a login standing that should not be.
+ */
+/**
+ * (M8-14, closes D106 in docs/DEBT.md.) Each store method that audits takes the record and writes it on the connection of its own transaction, after the change it records, so the
+ * two commit together or roll back together. The recorder is handed the client and never the pool (DEC-M8-7 in docs/IMPLEMENTATION-DECISIONS.md).
  */
 async function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -57,7 +61,10 @@ function toUser(row: UserRow): UserWithCredential {
 const credentialColumns = (credential: StoredCredential) => [credential.parameters.algorithm, credential.parameters.n, credential.parameters.r, credential.parameters.p, credential.parameters.keyLength, Buffer.from(credential.salt), Buffer.from(credential.hash)];
 
 export class PostgresUserStore implements UserStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly audit: TransactionalAudit,
+  ) {}
 
   async findByEmail(emailNormalized: string): Promise<UserWithCredential | null> {
     const { rows } = await this.pool.query<UserRow>(`${USER_SELECT} WHERE u.email_normalized = $1`, [emailNormalized]);
@@ -69,7 +76,7 @@ export class PostgresUserStore implements UserStore {
     return rows[0] === undefined ? null : toUser(rows[0]);
   }
 
-  async create(user: User, credential: StoredCredential): Promise<boolean> {
+  async create(user: User, credential: StoredCredential, audit: AuditRecord): Promise<boolean> {
     return inTransaction(this.pool, async (client) => {
       const inserted = await client.query(
         `INSERT INTO identity.app_user (user_id, email, email_normalized, roles, created_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (email_normalized) DO NOTHING`,
@@ -77,12 +84,9 @@ export class PostgresUserStore implements UserStore {
       );
       if (inserted.rowCount === 0) return false;
       await client.query(`INSERT INTO identity.credential (user_id, algorithm, n, r, p, key_length, salt, hash, changed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [user.userId, ...credentialColumns(credential), user.createdAt]);
+      await this.audit.recordWithin(client, audit);
       return true;
     });
-  }
-
-  async markEmailVerified(userId: string, at: Date): Promise<void> {
-    await this.pool.query('UPDATE identity.app_user SET email_verified_at = COALESCE(email_verified_at, $2) WHERE user_id = $1', [userId, at]);
   }
 
   async rehash(userId: string, credential: StoredCredential, at: Date): Promise<void> {
@@ -158,7 +162,10 @@ export class PostgresSessionStore implements SessionStore {
 }
 
 export class PostgresOneTimeTokenStore implements OneTimeTokenStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly audit: TransactionalAudit,
+  ) {}
 
   async issue(token: { readonly tokenId: string; readonly userId: string; readonly purpose: OneTimeTokenPurpose; readonly tokenHash: Uint8Array; readonly createdAt: Date; readonly expiresAt: Date }): Promise<void> {
     await inTransaction(this.pool, async (client) => {
@@ -170,8 +177,14 @@ export class PostgresOneTimeTokenStore implements OneTimeTokenStore {
     });
   }
 
-  async consume(tokenHash: Uint8Array, purpose: OneTimeTokenPurpose, at: Date): Promise<{ readonly userId: string } | null> {
-    return consumeOn(this.pool, tokenHash, purpose, at);
+  async verifyEmail(tokenHash: Uint8Array, at: Date, audit: AuditFor): Promise<{ readonly userId: string } | null> {
+    return inTransaction(this.pool, async (client) => {
+      const spent = await consumeOn(client, tokenHash, 'email_verification', at);
+      if (spent === null) return null;
+      await client.query('UPDATE identity.app_user SET email_verified_at = COALESCE(email_verified_at, $2) WHERE user_id = $1', [spent.userId, at]);
+      await this.audit.recordWithin(client, audit(spent.userId));
+      return spent;
+    });
   }
 }
 
@@ -198,30 +211,39 @@ const supersedeRecoveryTokens = (client: PoolClient, userId: string, at: Date) =
   client.query(`UPDATE identity.one_time_token SET superseded_at = $2 WHERE user_id = $1 AND purpose = 'password_recovery' AND used_at IS NULL AND superseded_at IS NULL`, [userId, at]);
 
 export class PostgresCredentialStore implements CredentialStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly audit: TransactionalAudit,
+  ) {}
 
-  async replaceAndRevoke(change: { readonly userId: string; readonly credential: StoredCredential; readonly at: Date; readonly exceptSessionId: string | null; readonly reason: SessionRevocation }): Promise<{ readonly revoked: number }> {
+  async replaceAndRevoke(change: { readonly userId: string; readonly credential: StoredCredential; readonly at: Date; readonly exceptSessionId: string | null; readonly reason: SessionRevocation; readonly audit: AuditRecord }): Promise<{ readonly revoked: number }> {
     return inTransaction(this.pool, async (client) => {
       await replaceCredential(client, change.userId, change.credential, change.at);
       const revoked = await revokeSessions(client, change.userId, change.at, change.reason, change.exceptSessionId);
       await supersedeRecoveryTokens(client, change.userId, change.at);
+      await this.audit.recordWithin(client, change.audit);
       return { revoked };
     });
   }
 
-  async resetWithToken(change: { readonly tokenHash: Uint8Array; readonly credential: StoredCredential; readonly at: Date }): Promise<{ readonly userId: string; readonly revoked: number } | null> {
+  async resetWithToken(change: { readonly tokenHash: Uint8Array; readonly credential: StoredCredential; readonly at: Date; readonly audit: AuditFor }): Promise<{ readonly userId: string; readonly revoked: number } | null> {
     return inTransaction(this.pool, async (client) => {
       const spent = await consumeOn(client, change.tokenHash, 'password_recovery', change.at);
       if (spent === null) return null;
       await replaceCredential(client, spent.userId, change.credential, change.at);
       const revoked = await revokeSessions(client, spent.userId, change.at, 'password_reset', null);
       await supersedeRecoveryTokens(client, spent.userId, change.at);
+      await this.audit.recordWithin(client, change.audit(spent.userId));
       return { userId: spent.userId, revoked };
     });
   }
 
-  async revokeAll(userId: string, at: Date, reason: SessionRevocation): Promise<number> {
-    return inTransaction(this.pool, (client) => revokeSessions(client, userId, at, reason, null));
+  async revokeAll(userId: string, at: Date, reason: SessionRevocation, audit: AuditRecord): Promise<number> {
+    return inTransaction(this.pool, async (client) => {
+      const revoked = await revokeSessions(client, userId, at, reason, null);
+      await this.audit.recordWithin(client, audit);
+      return revoked;
+    });
   }
 }
 
@@ -229,9 +251,12 @@ export class PostgresCredentialStore implements CredentialStore {
 const FIRST_ADMIN_LOCK = 8_100_001;
 
 export class PostgresRoleStore implements RoleStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly audit: TransactionalAudit,
+  ) {}
 
-  async change(change: { readonly actorId: string; readonly email: string; readonly role: string; readonly operation: RoleOperation }): Promise<RoleChangeOutcome> {
+  async change(change: { readonly actorId: string; readonly email: string; readonly role: string; readonly operation: RoleOperation; readonly audit: AuditFor }): Promise<RoleChangeOutcome> {
     return inTransaction(this.pool, async (client) => {
       // Removing an admin: every admin row is locked first, in one order, so two removals of two admins run one after the other and the second sees what the first did.
       if (change.operation === 'remove' && change.role === ROLES.admin) await client.query('SELECT user_id FROM identity.app_user WHERE $1 = ANY(roles) ORDER BY user_id FOR UPDATE', [ROLES.admin]);
@@ -243,6 +268,7 @@ export class PostgresRoleStore implements RoleStore {
       if (change.operation === 'assign') {
         if (held) return { status: 'unchanged', userId: target.user_id, roles: target.roles };
         const updated = await client.query<{ roles: string[] }>('UPDATE identity.app_user SET roles = array_append(roles, $2) WHERE user_id = $1 RETURNING roles', [target.user_id, change.role]);
+        await this.audit.recordWithin(client, change.audit(target.user_id));
         return { status: 'changed', userId: target.user_id, roles: updated.rows[0]!.roles };
       }
       if (!held) return { status: 'unchanged', userId: target.user_id, roles: target.roles };
@@ -252,11 +278,12 @@ export class PostgresRoleStore implements RoleStore {
         if (others.rowCount === 0) return { status: 'last_admin' };
       }
       const updated = await client.query<{ roles: string[] }>('UPDATE identity.app_user SET roles = array_remove(roles, $2) WHERE user_id = $1 RETURNING roles', [target.user_id, change.role]);
+      await this.audit.recordWithin(client, change.audit(target.user_id));
       return { status: 'changed', userId: target.user_id, roles: updated.rows[0]!.roles };
     });
   }
 
-  async grantFirstAdmin(email: string): Promise<FirstAdminOutcome> {
+  async grantFirstAdmin(email: string, audit: AuditFor): Promise<FirstAdminOutcome> {
     return inTransaction(this.pool, async (client) => {
       await client.query('SELECT pg_advisory_xact_lock($1)', [FIRST_ADMIN_LOCK]);
       const existing = await client.query('SELECT 1 FROM identity.app_user WHERE $1 = ANY(roles) AND disabled_at IS NULL LIMIT 1', [ROLES.admin]);
@@ -266,6 +293,7 @@ export class PostgresRoleStore implements RoleStore {
       if (target === undefined) return { status: 'not_found' };
       if (target.email_verified_at === null) return { status: 'not_verified' };
       await client.query('UPDATE identity.app_user SET roles = array_append(roles, $2) WHERE user_id = $1', [target.user_id, ROLES.admin]);
+      await this.audit.recordWithin(client, audit(target.user_id));
       return { status: 'granted', userId: target.user_id };
     });
   }

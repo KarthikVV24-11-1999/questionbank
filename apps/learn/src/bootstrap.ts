@@ -2,7 +2,7 @@ import type { AssessmentApi } from './api/assessment-api.js';
 import { loadPackage, type PackageRefusal } from './package/load.js';
 import type { FormPackage } from './package/types.js';
 import { AttemptSession } from './session/attempt-session.js';
-import { activeAttemptId, loadRecord } from './session/persistence.js';
+import { loadRecord } from './session/persistence.js';
 import type { SessionPorts } from './session/ports.js';
 
 /**
@@ -60,8 +60,9 @@ function unknownToServer(error: unknown): boolean {
 
 export async function boot(params: BootParams): Promise<BootResult> {
   const { api, ports } = params;
-  const activeId = activeAttemptId(ports.storage);
-  const record = activeId === null ? null : loadRecord(ports.storage, activeId);
+  // A disk that cannot be read is a disk with nothing on it: the sitting begins from the server, which is the authority on the attempt (and the screen says if the disk then cannot be written).
+  const activeId = await ports.records.active().catch(() => null);
+  const record = activeId === null ? null : await loadRecord(ports.records, activeId).catch(() => null);
 
   const [response, key] = await Promise.all([api.getPackage(params.formId), api.getSigningKey()]);
   const loaded = await loadPackage(response, key);

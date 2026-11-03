@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Page } from 'playwright-core';
+import { readDeviceRecordInPage } from './device-record.js';
 
 /**
  * What a run keeps when a condition it waited for never came true (D80): the page's console, every request it made and what became of it, a
@@ -69,6 +70,12 @@ export async function writeEvidence(input: EvidenceInput): Promise<string> {
     })),
     null,
   );
+  // what the device's store held for the attempt on screen, as the app keeps it (IndexedDB since M8-15): the counts, not the events
+  const held = await within(5_000, input.page.evaluate(readDeviceRecordInPage, null), null);
+  const device = held === null ? 'no record, or the page did not answer' : (() => {
+    const record = JSON.parse(held) as { events: unknown[]; acknowledgedIds: unknown[]; rejectedIds: unknown[] };
+    return { events: record.events.length, acknowledged: record.acknowledgedIds.length, rejected: record.rejectedIds.length };
+  })();
   writeFileSync(
     resolve(target, 'summary.json'),
     `${JSON.stringify(
@@ -79,6 +86,7 @@ export async function writeEvidence(input: EvidenceInput): Promise<string> {
         serverRequests: input.server.requests.map((request) => `${request.method} ${request.path}`),
         screenshot: screenshot ? 'screenshot.png' : 'unavailable: the page did not answer',
         page: shown ?? 'unavailable: the page did not answer',
+        device,
       },
       null,
       2,

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { BoundedRunner, RateLimiter as IdentityRateLimiter, RouteLimits as IdentityRouteLimits } from '../../contexts/identity/application/ports.js';
+import type { Pool } from 'pg';
+import type { BoundedRunner, TransactionalAudit, RateLimiter as IdentityRateLimiter, RouteLimits as IdentityRouteLimits } from '../../contexts/identity/application/ports.js';
 import { isSaturation } from '../../contexts/identity/application/saturation.js';
 import { BoundedWork, WorkSaturated } from '../concurrency/bounded-work.js';
+import { PostgresAuditRecorder } from '../persistence/audit-recorder.js';
 import { systemTimers } from '../scheduling/system-timers.js';
 import { MemoryRateLimiter } from './memory-rate-limiter.js';
 import type { RouteLimits } from './rate-limiter.js';
@@ -25,5 +27,26 @@ describe('the platform\'s limiter and bound fit the ports identity declares', ()
     expect(isSaturation(new WorkSaturated('queue_full'))).toBe(true);
     expect(isSaturation(new WorkSaturated('wait_timeout'))).toBe(true);
     for (const other of [new Error('boom'), null, undefined, 'queue_full', { saturated: true }, { saturated: true, reason: 'other' }, { saturated: false, reason: 'queue_full' }]) expect(isSaturation(other)).toBe(false);
+  });
+});
+
+describe('the platform\'s audit recorder fits the transactional audit identity declares (M8-14)', () => {
+  const entry = { principal: { kind: 'human' as const, id: 'p', roleContext: ['admin'] }, action: 'RoleAssigned', targetContext: 'identity' as const, targetType: 'UserRole', targetId: 'u:author', correlationId: 'c', occurredAt: new Date('2026-11-03T09:00:00.000Z') };
+
+  it('writes on the connection it is handed, and never on its own pool', async () => {
+    const written: Array<{ text: string; values: unknown[] | undefined }> = [];
+    const pool = { query: () => Promise.reject(new Error('the pool must not be used')) } as unknown as Pool;
+    const audit: TransactionalAudit = new PostgresAuditRecorder(pool);
+    await audit.recordWithin({ query: (text, values) => (written.push({ text, values }), Promise.resolve({})) }, entry);
+    expect(written).toHaveLength(1);
+    expect(written[0]!.text).toContain('INSERT INTO platform.audit_record');
+    expect(written[0]!.values).toEqual(['human', 'p', 'RoleAssigned', 'identity', 'UserRole', 'u:author', null, 'c', entry.occurredAt, null]);
+  });
+
+  it('and record() is the same write on the pool', async () => {
+    const written: unknown[][] = [];
+    const pool = { query: (_text: string, values: unknown[]) => (written.push(values), Promise.resolve({})) } as unknown as Pool;
+    await new PostgresAuditRecorder(pool).record(entry);
+    expect(written).toHaveLength(1);
   });
 });

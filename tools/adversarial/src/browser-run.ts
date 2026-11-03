@@ -1,6 +1,7 @@
 import { projectResponses, type ResponseEvent } from '@questionbank/attempt-engine';
 import type { BrowserContext, Page } from 'playwright-core';
 import { launchChrome, type RunningChrome } from './chrome.js';
+import { installForgetfulStore, installIntentLog, readDeviceRecordInPage } from './device-record.js';
 import { DURABLE_WAIT_MS, readFromDisk, storageListing, waitUntilDurable } from './durable.js';
 import { defaultEvidenceDir, recordPage, writeEvidence, type Recorder } from './evidence.js';
 import type { Interruption, Option, Scenario, SlotIndex, Step } from './scenario.js';
@@ -29,6 +30,8 @@ export interface KillReport {
   readonly questionOpen: boolean;
   readonly projectionEqual: boolean;
   readonly logIsPrefixOfReopened: boolean;
+  /** Where the restored log stops being the one that was killed: the position, and the two events there. `null` where it never does. */
+  readonly firstDifference: string | null;
   /** The events the device held at the kill and the restored record does not: what a loss is, as a fact. */
   readonly missingAfterRestore: readonly string[];
   readonly eventsBefore: number;
@@ -117,11 +120,8 @@ export async function freshChrome(environment: RunEnvironment): Promise<RunningC
 }
 
 async function readRecord(page: Page): Promise<DeviceRecord | null> {
-  return page.evaluate(() => {
-    const id = window.localStorage.getItem('qb.attempt.active');
-    const raw = id === null ? null : window.localStorage.getItem(`qb.attempt.${id}`);
-    return raw === null ? null : (JSON.parse(raw) as never);
-  });
+  const raw = await page.evaluate(readDeviceRecordInPage, null);
+  return raw === null ? null : (JSON.parse(raw) as DeviceRecord);
 }
 
 function lastKindFor(record: DeviceRecord | null, slot: string, kinds: readonly string[]): ResponseEvent | undefined {
@@ -165,6 +165,11 @@ export interface RunOptions {
   readonly waitMs?: number;
   /** Where a run that times out leaves its console, network log and screenshot (D80). `false`: nowhere, for a run that is meant to fail. */
   readonly evidence?: { readonly dir: string } | false;
+  /**
+   * A device whose disk is slow to take a write: the app's writes to its store are held in memory for this long before they are put on disk (`device-record.ts`). The only condition
+   * under which a browser killed without waiting for durability loses anything now that the log is in IndexedDB, so the run that shows the gate before a durable kill is needed plants it.
+   */
+  readonly slowDiskMs?: number;
   /** The port the scenario's server listens on, for a test that needs two scenarios to be the same origin to the browser. */
   readonly port?: number;
 }
@@ -206,14 +211,8 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
   const open = async (): Promise<Page> => {
     const opened = await chrome.context.newPage();
     watched = { page: opened, recorder: recordPage(opened) };
-    if (options.sabotage === 'device-forgets-responses') {
-      await opened.addInitScript(() => {
-        const real = Storage.prototype.setItem;
-        Storage.prototype.setItem = function (key: string, value: string) {
-          if (!key.startsWith('qb.attempt.')) real.call(this, key, value);
-        };
-      });
-    }
+    if (options.slowDiskMs !== undefined) await opened.addInitScript(installIntentLog, options.slowDiskMs);
+    if (options.sabotage === 'device-forgets-responses') await opened.addInitScript(installForgetfulStore);
     if (options.sabotage === 'attempt-requests-are-cached') {
       await opened.addInitScript(() => {
         const realFetch = window.fetch.bind(window);
@@ -306,8 +305,24 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     return record;
   };
 
+  /**
+   * What the device holds once the app has finished writing what it was given. The app writes in groups (M8-15): a tap that comes while a commit is out is written in the next one,
+   * which starts when the first lands, so a read queued behind the first does not see it. Two reads a moment apart that agree are the app with nothing left to write; before the
+   * log moved to IndexedDB a read always saw everything, because a write to `localStorage` is seen at once.
+   */
+  const settledRecord = async (from: Page = page!): Promise<DeviceRecord> => {
+    let last = JSON.stringify(await deviceRecord(from));
+    for (let looks = 0; looks < 40; looks += 1) {
+      await new Promise((resolveLook) => setTimeout(resolveLook, 60));
+      const next = JSON.stringify(await deviceRecord(from));
+      if (next === last) return JSON.parse(next) as DeviceRecord;
+      last = next;
+    }
+    throw new Error(`seed ${scenario.seed}: the device's record was still changing after 40 looks 60 ms apart`);
+  };
+
   const kill = async (how: Interruption, afterStep: number): Promise<void> => {
-    const before = await deviceRecord();
+    const before = await settledRecord();
     const questionOpen = (() => {
       for (let i = before.events.length - 1; i >= 0; i -= 1) {
         const event = before.events[i]!;
@@ -337,8 +352,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       // by reading the record back from what is on disk, with a second browser started on a copy of it, and not by looking for the event's bytes in a file (`durable.ts` says why
       // that proxy failed). A kill that does not wait is `known-gaps.spec.ts`, which says what it loses (D66).
       if (last !== undefined && options.sabotage !== 'kill-without-durability') {
-        const key = `qb.attempt.${before.attemptId}`;
-        await waitUntilDurable({ read: () => readFromDisk(environment.chrome.profileDir, server.origin, key), listing: () => storageListing(environment.chrome.profileDir), eventId: last.eventId });
+        await waitUntilDurable({ read: () => readFromDisk(environment.chrome.profileDir, server.origin, before.attemptId), listing: () => storageListing(environment.chrome.profileDir), eventId: last.eventId });
       }
       await chrome.kill();
       chrome = await freshChrome(environment);
@@ -348,7 +362,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
     // The backend comes back for the reopen: reopening during an outage is a separate, recorded gap (see `offline-reopen.spec.ts`).
     server.outage = 'off';
     const reopened = await open();
-    const after = await deviceRecord(reopened);
+    const after = await settledRecord(reopened);
     const remainingText = await reopened.getByRole('timer').innerText();
     const remainingOnReopenMs = parseRemaining(remainingText);
     const serverRemainingMs = server.attempt!.deadline - Date.now();
@@ -360,6 +374,11 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       questionOpen,
       projectionEqual: restoredProjection(before, after),
       logIsPrefixOfReopened: before.events.every((event, i) => JSON.stringify(after.events[i]) === JSON.stringify(event)),
+      firstDifference: (() => {
+        const at = before.events.findIndex((event, i) => JSON.stringify(after.events[i]) !== JSON.stringify(event));
+        if (at >= 0) return `event ${at + 1}: killed ${JSON.stringify(before.events[at])}, restored ${JSON.stringify(after.events[at])}`;
+        return restoredProjection(before, after) ? null : `the logs agree and the projections do not: killed ${JSON.stringify(projectionOf(before).slots)}, restored ${JSON.stringify(projectionOf(after).slots)}; the restored log goes on with ${JSON.stringify(after.events.slice(before.events.length))}`;
+      })(),
       missingAfterRestore: before.events.filter((event) => !after.events.some((held) => held.eventId === event.eventId)).map((event) => event.eventId),
       eventsBefore: before.events.length,
       eventsAfter: after.events.length,
@@ -403,7 +422,7 @@ export async function runScenario(scenario: Scenario, environment: RunEnvironmen
       if (!kill.projectionEqual || !kill.logIsPrefixOfReopened) {
         throw new Error(
           `seed ${scenario.seed}: after a ${kill.how} the reopened attempt is not the one that was killed: the device held ${kill.eventsBefore} events before it (the last ${kill.lastBefore}), the restored record holds ${kill.eventsAfter}` +
-            (kill.missingAfterRestore.length === 0 ? ' with none missing (the projection or the order differs)' : ` and is missing ${kill.missingAfterRestore.length}: ${kill.missingAfterRestore.slice(0, 3).join(', ')}${kill.missingAfterRestore.length > 3 ? ', …' : ''}`),
+            (kill.missingAfterRestore.length === 0 ? ` with none missing (the projection or the order differs${kill.firstDifference === null ? '' : `; ${kill.firstDifference}`})` : ` and is missing ${kill.missingAfterRestore.length}: ${kill.missingAfterRestore.slice(0, 3).join(', ')}${kill.missingAfterRestore.length > 3 ? ', …' : ''}`),
         );
       }
       if (kill.remainingOnReopenMs > kill.serverRemainingMs + 2_000) throw new Error(`seed ${scenario.seed}: after a ${kill.how} the page showed ${kill.remainingOnReopenMs} ms left; the server's deadline leaves ${kill.serverRemainingMs}`);

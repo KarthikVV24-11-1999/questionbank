@@ -676,3 +676,17 @@ transaction serialised against a second caller, and writes an audit row naming t
 (docs/SECURITY-ARCHITECTURE.md §4), so one stolen session cannot widen itself and a second administrator is what an administrator's own change needs. It is open again only when every administrator is disabled, because then nobody can administer.
 → `apps/api/src/bootstrap-admin.ts`
 
+### DEC-M8-7 — A store that makes an audited change writes the audit row, on the same connection, in the same transaction
+The shape follows M3-32 (the repositories take the events with the aggregate): a store method that changes something audited takes the record to write, or, where the person is only known inside the transaction (a reset by code, a verification
+by code, a role change by address), a function from their id to it, and writes it after the change on the transaction's own client. A handler cannot make the change and forget the row, and a failure of either takes both back. The recorder is handed the
+client and never a pool, and identity is always given the database's recorder, because one a test substituted for the other contexts would not be in the transaction. Eight writes had the hole and all are fixed; what is not audited (a login,
+rotating or ending one session, rewriting a hash) says nothing a session row does not.
+→ `apps/api/src/contexts/identity/infrastructure/postgres-stores.ts`
+
+### DEC-M8-8 — The learner's screen does not wait for the disk, and nothing is sent until the commit that holds it has landed
+The response log is in IndexedDB and each commit is one transaction opened with strict durability, resolved when it completes. The screen takes the answer at once; a writer keeps one commit in flight and puts everything that changed meanwhile in the
+next, so the cost of a tap does not grow with a slow disk or a long attempt. An event is handed on to be sent only when its commit has resolved: sent first, a kill before the commit would leave the server holding an event the device had forgotten, and the device
+would number its next event after the last it remembered, two events under one sequence number. If a commit fails the answer is kept in the engine, the screen says this device is not keeping the log and to keep the page open, and the events are sent as they
+are given, because holding them back for a disk that is not answering would lose them. A submission waits for answers to reach the disk for up to five seconds of the monotonic clock and then goes without waiting.
+→ `apps/learn/src/session/record-writer.ts`
+

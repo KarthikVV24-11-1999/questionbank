@@ -3,6 +3,7 @@ import type { LearningApi } from '../api/learning-api.js';
 import type { DiagnosticReportDto, PaceAnalyticsDto, ReviewPlanDto } from '../api/learning-schemas.js';
 import type { AttemptDto, AttemptWithLogDto, ResultDto } from '../api/schemas.js';
 import type { PackageResponse, SigningKey } from '../package/load.js';
+import { assembleRecord, saveRecord, type EventRow, type RecordChange, type RecordStore, type SessionRecord, type StoredAttempt } from '../session/persistence.js';
 import type { AttemptTransport, KeyValueStore, MonotonicClock, SessionPorts, WallClock } from '../session/ports.js';
 import { DEFAULT_SYNC_POLICY } from '../session/ports.js';
 
@@ -38,6 +39,59 @@ export class MemoryStorage implements KeyValueStore {
   }
   removeItem(key: string): void {
     this.data.delete(key);
+  }
+}
+
+/**
+ * The device's disk, in memory. A commit lands in `attempts` and `rows` only when it resolves, as a real one is on disk only then; a test can hold every commit (`hold()`), release
+ * them (`release()`), or make them fail (`failWith`). `peek` reads what is committed, as a restart would find it.
+ */
+export class MemoryRecords implements RecordStore {
+  readonly attempts = new Map<string, unknown>();
+  readonly rows = new Map<string, Map<string, EventRow>>();
+  activeId: string | null = null;
+  readonly commits: RecordChange[] = [];
+  failWith: Error | null = null;
+  #held: Array<() => void> | null = null;
+
+  /** Commits wait, from now until `release()`. */
+  hold(): void {
+    this.#held ??= [];
+  }
+
+  release(): void {
+    const waiting = this.#held ?? [];
+    this.#held = null;
+    for (const go of waiting) go();
+  }
+
+  async commit(change: RecordChange): Promise<void> {
+    if (this.#held !== null) await new Promise<void>((resolve) => this.#held!.push(resolve));
+    if (this.failWith !== null) throw this.failWith;
+    this.commits.push(change);
+    this.attempts.set(change.meta.attemptId, change.meta);
+    const rows = this.rows.get(change.meta.attemptId) ?? new Map<string, EventRow>();
+    for (const row of change.rows) rows.set(row.eventId, row);
+    this.rows.set(change.meta.attemptId, rows);
+    if (change.active) this.activeId = change.meta.attemptId;
+  }
+
+  async read(attemptId: string): Promise<StoredAttempt | null> {
+    return this.attempts.has(attemptId) ? { meta: this.attempts.get(attemptId), rows: [...(this.rows.get(attemptId)?.values() ?? [])] } : null;
+  }
+
+  async active(): Promise<string | null> {
+    return this.activeId;
+  }
+
+  /** Lets every commit that can finish, finish: a few turns of the microtask queue. */
+  async settle(): Promise<void> {
+    for (let turn = 0; turn < 25; turn += 1) await Promise.resolve();
+  }
+
+  /** What a restart would read for this attempt, right now. */
+  peek(attemptId: string): SessionRecord | null {
+    return assembleRecord(attemptId, this.attempts.has(attemptId) ? { meta: this.attempts.get(attemptId), rows: [...(this.rows.get(attemptId)?.values() ?? [])] } : null);
   }
 }
 
@@ -110,10 +164,10 @@ export function aRig(overrides: Partial<SessionPorts> = {}) {
   const clock = new ManualClock();
   const wall = new ManualWallClock();
   const transport = new FakeTransport();
-  const storage = new MemoryStorage();
+  const records = new MemoryRecords();
   let n = 0;
-  const ports: SessionPorts = { clock, wall, transport, storage, newId: () => `ev-${(n += 1)}`, syncPolicy: DEFAULT_SYNC_POLICY, ...overrides };
-  return { clock, wall, transport, storage, ports };
+  const ports: SessionPorts = { clock, wall, transport, records, newId: () => `ev-${(n += 1)}`, syncPolicy: DEFAULT_SYNC_POLICY, ...overrides };
+  return { clock, wall, transport, records, ports };
 }
 
 /** A whole fake server for the bootstrap: a signed package, a key, and the attempt routes. */
@@ -197,4 +251,15 @@ export class FakeLearningApi implements LearningApi {
     if (pace instanceof Error) throw pace;
     return pace;
   }
+}
+
+/** What a restart would read for an attempt once the session's pending commits have landed. */
+export async function stored(rig: { readonly records: MemoryRecords }, attemptId: string): Promise<SessionRecord | null> {
+  await rig.records.settle();
+  return rig.records.peek(attemptId);
+}
+
+/** Rewrites what the device holds for an attempt, as a device whose record was of another shape or another build would hold it. */
+export async function tamper(rig: { readonly records: MemoryRecords }, attemptId: string, change: (record: SessionRecord) => SessionRecord): Promise<void> {
+  await saveRecord(rig.records, change((await stored(rig, attemptId))!));
 }

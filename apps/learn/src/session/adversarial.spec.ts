@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { aRig, attemptDto, attemptWithLogDto } from '../testing/fakes.js';
+import { aRig, attemptDto, attemptWithLogDto, stored } from '../testing/fakes.js';
 import { AttemptSession } from './attempt-session.js';
-import { loadRecord } from './persistence.js';
 
 /**
  * The clock-skew and outage halves of the adversarial criteria (M6-55, M6-56), against the session with time and the network supplied.
@@ -115,16 +114,16 @@ describe('the device clock jumps (M6-55)', () => {
 });
 
 describe('a question left open when the app dies (M6-54)', () => {
-  it('is visited again on resume, so the time the app was not running is counted towards nothing', () => {
+  it('is visited again on resume, so the time the app was not running is counted towards nothing', async () => {
     const first = begin();
     first.session.goTo(SLOT);
     first.clock.advance(10_000);
     first.session.select(SLOT, 'a');
 
     // killed and reopened a long time later, on a new clock origin that happens to be far ahead of the old visit
-    const reopened = aRig({ storage: first.storage, newId: () => `r-${Math.random()}` });
+    const reopened = aRig({ records: first.records, newId: () => `r-${Math.random()}` });
     reopened.clock.reading = 5_000_000;
-    const resumed = AttemptSession.resume({ record: loadRecord(first.storage, 'att-1')!, server: attemptWithLogDto() }, reopened.ports);
+    const resumed = AttemptSession.resume({ record: (await stored(first, 'att-1'))!, server: attemptWithLogDto() }, reopened.ports);
     reopened.clock.advance(7_000);
     resumed.leave();
     // without the revisit this interval would be 5,000,000 + 7,000 − 1,000 capped to 90,000; with it, only the seven seconds the app was open
@@ -135,23 +134,24 @@ describe('a question left open when the app dies (M6-54)', () => {
     const first = begin();
     first.session.goTo(SLOT);
     first.session.leave();
-    const eventsBefore = loadRecord(first.storage, 'att-1')!.events.length;
-    AttemptSession.resume({ record: loadRecord(first.storage, 'att-1')!, server: attemptWithLogDto() }, aRig({ storage: first.storage }).ports);
-    expect(loadRecord(first.storage, 'att-1')!.events).toHaveLength(eventsBefore);
+    const eventsBefore = (await stored(first, 'att-1'))!.events.length;
+    AttemptSession.resume({ record: (await stored(first, 'att-1'))!, server: attemptWithLogDto() }, aRig({ records: first.records }).ports);
+    expect((await stored(first, 'att-1'))!.events).toHaveLength(eventsBefore);
 
     const second = begin();
     second.session.goTo(SLOT);
     second.transport.online = false;
     await second.session.submit('manual');
-    const submitting = loadRecord(second.storage, 'att-1')!;
-    AttemptSession.resume({ record: submitting, server: attemptWithLogDto() }, aRig({ storage: second.storage }).ports);
-    expect(loadRecord(second.storage, 'att-1')!.events).toHaveLength(submitting.events.length);
+    const submitting = (await stored(second, 'att-1'))!;
+    AttemptSession.resume({ record: submitting, server: attemptWithLogDto() }, aRig({ records: second.records }).ports);
+    expect((await stored(second, 'att-1'))!.events).toHaveLength(submitting.events.length);
   });
 });
 
 describe('the backend goes away and comes back (M6-56)', () => {
   it('every answer given through an outage is on the device, none is lost, and all of it drains when the backend returns', async () => {
-    const { session, clock, transport, storage } = begin();
+    const rig = begin();
+    const { session, clock, transport } = rig;
     session.goTo(SLOT);
     transport.online = false;
     const given: string[] = [];
@@ -163,7 +163,7 @@ describe('the backend goes away and comes back (M6-56)', () => {
       expect(session.getSnapshot().sync).not.toBe('idle');
       expect(session.getSnapshot().projection.slots.find((slot) => slot.slot === SLOT)?.answer).toBe(answer);
     }
-    expect(loadRecord(storage, 'att-1')!.events.filter((event) => event.kind === 'select' || event.kind === 'change')).toHaveLength(given.length);
+    expect((await stored(rig, 'att-1'))!.events.filter((event) => event.kind === 'select' || event.kind === 'change')).toHaveLength(given.length);
     expect(transport.stored.size).toBe(0);
 
     transport.online = true;

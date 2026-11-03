@@ -9,8 +9,8 @@ missing afterwards.
 
 | Dimension | Runs in | Notes |
 |---|---|---|
-| Tab crash, tab close, browser quit | **Real Chrome**, real `localStorage` on a real profile | `Page.crash`, `page.close`, `Browser.close` |
-| Browser killed (`SIGKILL`) | **Real Chrome** | only once the last event is durable, read back by a second browser started on a copy of the profile (`durable.ts`, D93); a kill that does not wait loses it (D66), see `known-gaps.spec.ts` |
+| Tab crash, tab close, browser quit | **Real Chrome**, real IndexedDB on a real profile (the response log, M8-15) | `Page.crash`, `page.close`, `Browser.close` |
+| Browser killed (`SIGKILL`) | **Real Chrome** | only once the last event is durable, read back by a second browser started on a copy of the profile (`durable.ts`, D93); on a healthy disk a kill loses nothing but an answer whose commit is still out (about 15 ms; D66, `known-gaps.spec.ts`), and a run that plants a slow disk (`slowDiskMs`) shows the gate is what keeps a durable kill honest (`negative-controls.spec.ts`) |
 | Backend down (`503`) and connection dropped | **Real Chrome** against `src/stub-server.ts` | not the API: it speaks the contract's shapes and keeps events in memory |
 | Wall clock shifted forward and back | **Real Chrome** (`Date` is replaced in the page) | nothing in the app reads it, which is what is being shown |
 | Monotonic clock jumping or drifting | jsdom, in `apps/learn/src/session/adversarial.spec.ts` | a browser's monotonic clock cannot be moved on demand |
@@ -24,7 +24,7 @@ seed alone (`QB_ADVERSARIAL_SEED=<n> corepack pnpm --filter @questionbank/advers
 each step; `QB_ADVERSARIAL_RUNS` and `QB_ADVERSARIAL_WORKERS` change the count and the number of browsers.
 
 A run that times out also leaves what the page did, in `tools/adversarial/failures/seed-<n>/`: `console.log`, `network.log`, `screenshot.png` and
-`summary.json` (what the page was showing, whether the worker controlled it, the keys it held). CI uploads that directory as the `adversarial-failures`
+`summary.json` (what the page was showing, whether the worker controlled it, the keys it held, how many events the device's store held). CI uploads that directory as the `adversarial-failures`
 artifact; read `summary.json` first (D80).
 
 No test sleeps for a duration. Every wait is for a condition (a record holding an event, the status saying all is sent, a file holding

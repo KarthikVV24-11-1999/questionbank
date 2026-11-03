@@ -2,7 +2,7 @@ import { ROLES } from '../../../../platform/auth/roles.js';
 import { normalizeEmail } from '../../domain/email.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
-import type { ApplicationContext, AuditRecorder, Clock, RoleOperation, RoleStore } from '../ports.js';
+import type { ApplicationContext, Clock, RoleOperation, RoleStore } from '../ports.js';
 
 /**
  * Giving a person a role, and taking it away (M8-12, closes D96 in docs/DEBT.md), and making the first administrator.
@@ -20,7 +20,8 @@ import type { ApplicationContext, AuditRecorder, Clock, RoleOperation, RoleStore
  * **What it tells the caller.** Whether the address is registered: an administrator who names an unknown address is told so. That is the opposite of DEC-M8-2, which is about a
  * stranger, and the caller here has been authenticated and holds the role that may ask.
  *
- * Every change that changes something is audited, naming the person and the role; one that changes nothing (a role already held) is not.
+ * Every change that changes something is audited, naming the person and the role; one that changes nothing (a role already held) is not. The row is written by the store in the transaction
+ * that changes the roles (M8-14): a grant with no record of who made it cannot be left by a crash or a failed write between the two.
  */
 export const ASSIGN_ROLE_POLICY = policy('AssignRole', [ROLES.admin]);
 export const REMOVE_ROLE_POLICY = policy('RemoveRole', [ROLES.admin]);
@@ -34,7 +35,6 @@ const isAssignable = (value: unknown): value is string => typeof value === 'stri
 interface Deps {
   readonly roles: RoleStore;
   readonly clock: Clock;
-  readonly audit: AuditRecorder;
 }
 
 export interface RoleChanged {
@@ -50,7 +50,23 @@ async function change(deps: Deps, operation: RoleOperation, command: { readonly 
   if (!email.ok) return err(applicationError('Validation', email.error, 'That is not an email address.'));
   if (!isAssignable(command.role)) return err(applicationError('Validation', 'ROLE_NOT_ASSIGNABLE', 'That is not a role a person can hold.'));
 
-  const outcome = await deps.roles.change({ actorId: context.principal.id, email: email.value, role: command.role, operation });
+  const now = deps.clock.now();
+  const outcome = await deps.roles.change({
+    actorId: context.principal.id,
+    email: email.value,
+    role: command.role,
+    operation,
+    // written by the store in the transaction that changes the roles, and only if they change
+    audit: (userId) => ({
+      principal: context.principal,
+      action: operation === 'assign' ? 'RoleAssigned' : 'RoleRemoved',
+      targetContext: 'identity',
+      targetType: 'UserRole',
+      targetId: `${userId}:${command.role}`,
+      correlationId: context.correlationId,
+      occurredAt: now,
+    }),
+  });
   switch (outcome.status) {
     case 'not_found':
       return err(applicationError('NotFound', 'USER_NOT_FOUND', 'There is no one with that address.'));
@@ -63,15 +79,6 @@ async function change(deps: Deps, operation: RoleOperation, command: { readonly 
     case 'unchanged':
       return ok({ userId: outcome.userId, roles: outcome.roles, changed: false });
     case 'changed':
-      await deps.audit.record({
-        principal: context.principal,
-        action: operation === 'assign' ? 'RoleAssigned' : 'RoleRemoved',
-        targetContext: 'identity',
-        targetType: 'UserRole',
-        targetId: `${outcome.userId}:${command.role}`,
-        correlationId: context.correlationId,
-        occurredAt: deps.clock.now(),
-      });
       return ok({ userId: outcome.userId, roles: outcome.roles, changed: true });
   }
 }
@@ -114,7 +121,16 @@ export class BootstrapFirstAdminHandler {
     if (!permitted.ok) return err(permitted.error);
     const email = normalizeEmail(command.email);
     if (!email.ok) return err(applicationError('Validation', email.error, 'That is not an email address.'));
-    const outcome = await this.deps.roles.grantFirstAdmin(email.value);
+    const now = this.deps.clock.now();
+    const outcome = await this.deps.roles.grantFirstAdmin(email.value, (userId) => ({
+      principal: context.principal,
+      action: 'FirstAdminGranted',
+      targetContext: 'identity',
+      targetType: 'UserRole',
+      targetId: `${userId}:${ROLES.admin}`,
+      correlationId: context.correlationId,
+      occurredAt: now,
+    }));
     switch (outcome.status) {
       case 'not_found':
         return err(applicationError('NotFound', 'USER_NOT_FOUND', 'There is no one with that address; register it first.'));
@@ -123,7 +139,6 @@ export class BootstrapFirstAdminHandler {
       case 'admin_exists':
         return err(applicationError('RuleViolation', 'ADMIN_EXISTS', 'There is already an administrator; roles are assigned by one.'));
       case 'granted':
-        await this.deps.audit.record({ principal: context.principal, action: 'FirstAdminGranted', targetContext: 'identity', targetType: 'UserRole', targetId: `${outcome.userId}:${ROLES.admin}`, correlationId: context.correlationId, occurredAt: this.deps.clock.now() });
         return ok({ userId: outcome.userId });
     }
   }

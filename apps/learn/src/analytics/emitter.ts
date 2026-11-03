@@ -5,10 +5,10 @@ import type { KeyValueStore } from '../session/ports.js';
  * The learner app's analytics emitter (M7-62, EVENT-TAXONOMY §1).
  *
  * **It can never cost the learner anything.** `emit` returns nothing, does no I/O the caller waits for, and cannot throw: an event is built, put in a buffer on the
- * device and sent in the background, and anything that goes wrong on the way is swallowed. It touches nothing the attempt engine keeps (the response log is the
- * engine's, under its own storage keys), so an analytics failure cannot lose a response.
+ * device and sent in the background, and anything that goes wrong on the way is swallowed. It touches nothing the attempt engine keeps (the response log is in IndexedDB,
+ * under the session's own store), so an analytics failure cannot lose a response.
  *
- * **Events survive the network the way responses do.** They are written to the device before they are sent and removed only when the edge has answered for them;
+ * **Events survive the network the way responses do, but not a killed browser (D107 in docs/DEBT.md).** They are written to the device before they are sent and removed only when the edge has answered for them;
  * an answer of "sink unavailable" or a failed request keeps them for the next flush. The buffer is bounded, and when it is full the oldest go: an event is worth
  * less than the device's storage the learner's answers need. (The response log's own channel carries only the engine's closed vocabulary of response events, so
  * these ride the same offline-buffering pattern in a channel of their own: DEC-M7-37.)

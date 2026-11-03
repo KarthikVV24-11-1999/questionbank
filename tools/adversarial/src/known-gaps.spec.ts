@@ -2,22 +2,23 @@ import { resolve } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, describe, expect, it } from 'vitest';
 import { clearCarriedOver, freshChrome, newProfileDir, waitFor, type RunEnvironment } from './browser-run.js';
+import { installCommitTimer, readDeviceRecordInPage } from './device-record.js';
 import { readFromDisk, storageListing, waitUntilDurable } from './durable.js';
 import type { RunningChrome } from './chrome.js';
 import { StubServer } from './stub-server.js';
 
 /**
- * One thing the adversarial runs do not and cannot claim (D66), written down as a test that passes while the gap is there and goes red the day it closes, so
- * the register entry that names it cannot go stale unnoticed. And, beside it, what a tab reopened during an outage does (D67, closed):
+ * What the adversarial runs say about a browser killed outright, and what a tab reopened during an outage does:
  *
- *   - **D66** — Chrome keeps a page's `localStorage` writes in memory and commits them to disk some seconds later. A browser killed
- *     outright (the way an out-of-memory phone kills one) inside that window loses what the learner did in it, **unless the server
- *     already has it**. A closed tab, a crashed tab and a browser that quits keep everything; the hundred runs show it.
+ *   - **D66, closed (M8-15)** — the response log was in `localStorage`, which Chrome commits to disk some seconds after a write and, after the first few commits, about once a minute,
+ *     so a browser killed outright (the way an out-of-memory phone kills one) lost up to a minute of answers unless the server had them. The log is in IndexedDB now, where a transaction
+ *     completes once its data is on disk. These tests are what closed it: an answer given with the backend unreachable and the browser killed at once, with no wait for anything, is
+ *     there on reopening, every time; and the window that is left, between a tap and the commit that holds it, is measured and not asserted away.
  *   - **D67** — a tab reopened while the backend is down resumes from the device, whether the earlier visit was reloaded or not. A reloaded visit is
  *     controlled by the service worker, which caches the package for it; a first visit alone is not, so the page puts the package in the worker's cache
  *     itself once it has rendered. Both are plain tests.
  *
- * The control beside the first (a kill once the write is on disk loses nothing) shows the loss is the window and not the kill.
+ * The control beside the first (a kill once the write is known to be on disk loses nothing) shows the kill is not what loses an answer.
  */
 const environment: RunEnvironment = { distDir: resolve(import.meta.dirname, '../../../apps/learn/dist'), chrome: { current: null, profileDir: newProfileDir() } };
 const URL_PATH = '/?form=00000000-0000-4000-8000-0000000000f1&session=2026-01-27/shift-1';
@@ -34,13 +35,19 @@ async function sitting(): Promise<{ server: StubServer; chrome: RunningChrome }>
   return { server, chrome };
 }
 
-async function answerOffline(chrome: RunningChrome, server: StubServer, option: string, beforeOutage: (page: Page) => Promise<void> = async () => undefined) {
+/**
+ * Answers `option` with the backend down, so that the answer exists on the device and nowhere else. Then lets the device's store finish the write the answer started, unless
+ * `settle` is false: a read of the store queues behind a write in flight, so it returns when the write has landed. A test that closes the tab or kills the browser on purpose before that
+ * is testing the window (the next describe measures it); one that is about something else does not want to be racing it.
+ */
+async function answerOffline(chrome: RunningChrome, server: StubServer, option: string, beforeOutage: (page: Page) => Promise<void> = async () => undefined, settle = true) {
   const page = await chrome.context.newPage();
   await page.goto(`${server.origin}${URL_PATH}`);
   await page.getByRole('region', { name: 'Question 1' }).waitFor();
   await beforeOutage(page);
   server.outage = '503'; // nothing can reach the server: what the learner does now exists on the device and nowhere else
   await page.getByRole('radio', { name: new RegExp(`^Option ${option}$`, 'iu') }).check();
+  if (settle) await page.evaluate(readDeviceRecordInPage, null);
   return page;
 }
 
@@ -52,15 +59,14 @@ const answerOf = async (chrome: RunningChrome, server: StubServer): Promise<stri
   return null;
 };
 
-describe('a browser killed outright (D66)', () => {
-  it('keeps an answer once the write is on disk — the kill is not the loss, the window is', async () => {
+describe('a browser killed outright (D66, closed by M8-15)', () => {
+  it('keeps an answer once it is known to be on disk — the kill is not the loss', async () => {
     const { server, chrome } = await sitting();
     const page = await answerOffline(chrome, server, 'c');
-    const key = await page.evaluate(() => `qb.attempt.${window.localStorage.getItem('qb.attempt.active')}`);
-    const record = await page.evaluate((name) => window.localStorage.getItem(name), key);
-    const last = (JSON.parse(record!) as { events: Array<{ eventId: string }> }).events.at(-1)!;
+    const attemptId = (await page.evaluate(readDeviceRecordInPage, null).then((raw) => JSON.parse(raw!) as { attemptId: string })).attemptId;
+    const last = (JSON.parse((await page.evaluate(readDeviceRecordInPage, null))!) as { events: Array<{ eventId: string }> }).events.at(-1)!;
     // durable is read back from what is on disk, not looked for in a file (`durable.ts`)
-    await waitUntilDurable({ read: () => readFromDisk(environment.chrome.profileDir, server.origin, key), listing: () => storageListing(environment.chrome.profileDir), eventId: last.eventId });
+    await waitUntilDurable({ read: () => readFromDisk(environment.chrome.profileDir, server.origin, attemptId), listing: () => storageListing(environment.chrome.profileDir), eventId: last.eventId });
     await chrome.kill();
     environment.chrome.current = null;
     const reopened = await freshChrome(environment);
@@ -69,25 +75,46 @@ describe('a browser killed outright (D66)', () => {
     await server.stop();
   });
 
-  it('loses an answer the browser had not yet written to disk when it was killed, with the server unreachable', async () => {
-    // Whether a given kill lands inside the window is up to Chrome, so the test reads what the restored browser holds and only counts a kill that left the answer out of it.
-    // Such a kill happens nearly every time; the loop is for the rare one that does not.
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+  it('keeps an answer given with the backend unreachable when the browser is killed a quarter of a second later, waiting for nothing to reach the disk: every time', async () => {
+    // This is the test the old log failed. It answered, killed with no wait for the disk, and found the answer gone nearly every time: the commit of `localStorage` was seconds to a minute
+    // away, so a quarter of a second was well inside the window; the server was down, so nothing else held it. A quarter of a second is some fifteen times what a commit takes now
+    // (measured below), and a kill that lands inside the commit itself is that window, which this does not claim to close. It is many kills and not one for the rare slow commit.
+    for (const option of ['d', 'a', 'c', 'b', 'd', 'a'] as const) {
       const { server, chrome } = await sitting();
-      const page = await answerOffline(chrome, server, 'd');
+      const page = await answerOffline(chrome, server, option, undefined, false);
+      await page.waitForTimeout(250);
       await chrome.kill();
       environment.chrome.current = null;
       const reopened = await freshChrome(environment);
       server.outage = 'off';
-      const answer = await answerOf(reopened, server);
+      expect(await answerOf(reopened, server), `a kill a quarter of a second after answering ${option}`).toBe(option);
       await server.stop();
-      // a kill that landed after the browser's commit restores the answer: not the window, so look again
-      if (answer === 'd') continue;
-      // D66: the answer was never on disk, the server never had it, and nothing else holds it. When this goes red, the loss has closed.
-      expect(answer).toBeNull();
-      return;
     }
-    throw new Error('ten kills in a row landed after the write was on disk; the window this test describes could not be found');
+  }, 120_000);
+
+  it('leaves a window, and this measures it: from a tap to the commit that holds it, on this machine', async () => {
+    // What is still lost is an answer whose transaction has not completed when the browser dies. That is the time below, per tap; it is not zero, and it is the only window left.
+    const { server, chrome } = await sitting();
+    const page = await chrome.context.newPage();
+    await page.addInitScript(installCommitTimer);
+    try {
+      await page.goto(`${server.origin}${URL_PATH}`);
+      await page.getByRole('region', { name: 'Question 1' }).waitFor();
+      server.outage = '503';
+      for (let tap = 0; tap < 24; tap += 1) {
+        await page.getByRole('radio', { name: new RegExp(`^Option ${'abcd'[tap % 4]}$`, 'iu') }).check();
+        await page.waitForTimeout(40);
+      }
+      const timings = await page.evaluate(() => (window as unknown as { __qbCommitMs: number[] }).__qbCommitMs);
+      const sorted = [...timings].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)]!;
+      console.info(`D66 window: ${timings.length} commits, median ${median.toFixed(1)} ms, slowest ${sorted.at(-1)!.toFixed(1)} ms (tap to a transaction that completes after the data is on disk)`);
+      expect(timings.length).toBeGreaterThanOrEqual(24);
+      expect(sorted.at(-1)).toBeLessThan(1_000); // tens of milliseconds, against a minute
+    } finally {
+      await page.close();
+      await server.stop();
+    }
   });
 });
 

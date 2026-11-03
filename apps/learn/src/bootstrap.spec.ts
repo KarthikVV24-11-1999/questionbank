@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { boot } from './bootstrap.js';
-import { aRig, attemptDto, attemptWithLogDto, FakeApi } from './testing/fakes.js';
+import { tamper, aRig, attemptDto, attemptWithLogDto, FakeApi, stored } from './testing/fakes.js';
 import { aPackageDocument, aSigner, encode, slotIds } from './testing/signed-package.js';
 import { AttemptSession } from './session/attempt-session.js';
-import { loadRecord } from './session/persistence.js';
 
 const signer = aSigner();
 const key = { keyId: signer.keyId, publicKey: signer.publicKey };
@@ -35,7 +34,24 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     const result = await boot(params(api, rig));
     expect(result).toEqual({ kind: 'package-refused', refusal: 'SIGNATURE_DOES_NOT_VERIFY' });
     expect(api.calls).toEqual(['getPackage', 'getSigningKey']);
-    expect(rig.storage.data.size).toBe(0);
+    expect(rig.records.attempts.size).toBe(0);
+    expect(rig.records.commits).toEqual([]);
+  });
+
+  it('begins from the server when the device\'s store cannot be read, rather than failing: a disk that cannot be read is a disk with nothing on it', async () => {
+    for (const broken of ['active', 'read'] as const) {
+      const rig = aRig();
+      const reads = rig.ports.records;
+      const records = {
+        commit: (change: Parameters<typeof reads.commit>[0]) => reads.commit(change),
+        active: () => (broken === 'active' ? Promise.reject(new Error('the store is blocked')) : Promise.resolve('att-1')),
+        read: () => Promise.reject(new Error('the store is blocked')),
+      };
+      const api = new FakeApi(signedResponse(), key);
+      const result = await boot(params(api, { ...rig, ports: { ...rig.ports, records } }));
+      expect(result.kind, broken).toBe('ready');
+      expect(api.calls, broken).toContain('createAttempt');
+    }
   });
 
   it('refuses a package with no signature, before it has made anything', async () => {
@@ -53,7 +69,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     opened.session.goTo(slotIds[0]);
     opened.session.select(slotIds[0], 'b');
 
-    const reloaded = aRig({ storage: first.storage, newId: () => `reload-${Math.random()}` });
+    const reloaded = aRig({ records: first.records, newId: () => `reload-${Math.random()}` });
     const api2 = new FakeApi(signedResponse(), key);
     api2.stored = attemptWithLogDto({ formId: '00000000-0000-4000-8000-0000000000f1', serverNow: '2026-10-21T10:30:00.000Z' });
     const resumed = await boot(params(api2, reloaded));
@@ -71,12 +87,12 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     expect(opened.kind).toBe('ready');
     const api = new FakeApi(signedResponse(), key);
     api.stored = attemptWithLogDto({ formId: 'another-form' });
-    expect((await boot(params(api, aRig({ storage: first.storage })))).kind).toBe('ready');
+    expect((await boot(params(api, aRig({ records: first.records })))).kind).toBe('ready');
     expect(api.calls).toContain('createAttempt');
 
     const abandoned = new FakeApi(signedResponse(), key);
     abandoned.stored = attemptWithLogDto({ formId: '00000000-0000-4000-8000-0000000000f1', state: 'abandoned' });
-    expect((await boot(params(abandoned, aRig({ storage: first.storage })))).kind).toBe('ready');
+    expect((await boot(params(abandoned, aRig({ records: first.records })))).kind).toBe('ready');
     expect(abandoned.calls).toContain('createAttempt');
   });
 
@@ -86,7 +102,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     if (opened.kind !== 'ready') throw new Error('not ready');
     const api = new FakeApi(signedResponse(), key);
     api.stored = attemptWithLogDto({ formId: '00000000-0000-4000-8000-0000000000f1', state: 'submitted', submission: { reason: 'manual', submittedAt: 't', pastDeadline: false } });
-    const resumed = await boot(params(api, aRig({ storage: first.storage })));
+    const resumed = await boot(params(api, aRig({ records: first.records })));
     expect(resumed.kind === 'ready' && resumed.session.getSnapshot().phase).toBe('submitted');
   });
 
@@ -95,7 +111,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     const api = new FakeApi(signedResponse(), key);
     api.startAttempt = async () => attemptDto({ deadline: null });
     expect(await boot(params(api, rig))).toEqual({ kind: 'cannot-start', reason: 'the server did not give a deadline' });
-    expect(loadRecord(rig.storage, 'att-1')).toBeNull();
+    expect((await stored(rig, 'att-1'))).toBeNull();
     expect(AttemptSession).toBeDefined();
   });
 
@@ -117,7 +133,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
       return first;
     };
     const reopened = (first: Awaited<ReturnType<typeof earlier>>, wall = '2026-10-21T09:25:00.000Z') => {
-      const rig = aRig({ storage: first.storage, newId: () => `reopen-${Math.random()}` });
+      const rig = aRig({ records: first.records, newId: () => `reopen-${Math.random()}` });
       rig.wall.reading = Date.parse(wall);
       return rig;
     };
@@ -130,12 +146,12 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
       const first = await earlier();
       const rig = reopened(first);
       const seen: string[] = [];
-      const device = rig.ports.storage;
-      const storage = { getItem: (name: string) => (seen.push('device'), device.getItem(name)), setItem: (name: string, value: string) => device.setItem(name, value), removeItem: (name: string) => device.removeItem(name) };
+      const device = rig.ports.records;
+      const records = { commit: (change: Parameters<typeof device.commit>[0]) => device.commit(change), read: (id: string) => (seen.push('device'), device.read(id)), active: () => (seen.push('device'), device.active()) };
       const api = new FakeApi(signedResponse(), key);
       const served = api.getPackage.bind(api);
       api.getPackage = async () => (seen.push('network'), served());
-      await boot(params(api, { ...rig, ports: { ...rig.ports, storage } }));
+      await boot(params(api, { ...rig, ports: { ...rig.ports, records } }));
       expect(seen.slice(0, 3)).toEqual(['device', 'device', 'network']);
     });
 
@@ -187,8 +203,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
 
       it('starts a clean attempt rather than throwing, and says nothing when the record held nothing the server lacked', async () => {
         const first = await earlier();
-        const record = JSON.parse(first.storage.data.get('qb.attempt.att-1')!);
-        first.storage.data.set('qb.attempt.att-1', JSON.stringify({ ...record, acknowledgedIds: record.events.map((event: { eventId: string }) => event.eventId) }));
+        await tamper(first, 'att-1', (record) => ({ ...record, acknowledgedIds: record.events.map((event) => event.eventId) }));
         const api = deniesFirstAsk(new FakeApi(signedResponse(), key), { status: 404 });
         const result = await boot(params(api, reopened(first)));
         expect(api.calls).toEqual(['getPackage', 'getSigningKey', 'getAttempt', 'createAttempt', 'startAttempt', 'getAttempt']);
@@ -198,7 +213,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
 
       it('reports the events the server never had, in the result', async () => {
         const first = await earlier();
-        const unsent = (JSON.parse(first.storage.data.get('qb.attempt.att-1')!) as { events: unknown[] }).events.length;
+        const unsent = (await stored(first, 'att-1'))!.events.length;
         expect(unsent).toBeGreaterThan(0);
         const api = deniesFirstAsk(new FakeApi(signedResponse(), key), { problem: { status: 404 } });
         const result = await boot(params(api, reopened(first)));
@@ -228,8 +243,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
 
     it('does not carry a record of one form into the paper of another when it cannot ask the server', async () => {
       const first = await earlier();
-      const record = JSON.parse(first.storage.data.get('qb.attempt.att-1')!);
-      first.storage.data.set('qb.attempt.att-1', JSON.stringify({ ...record, formId: 'another-form' }));
+      await tamper(first, 'att-1', (record) => ({ ...record, formId: 'another-form' }));
       const api = outage(new FakeApi(signedResponse(), key));
       await expect(boot(params(api, reopened(first)))).rejects.toThrow('Failed to fetch');
       expect(api.calls).not.toContain('createAttempt');
@@ -238,8 +252,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
     it('does not resume offline from a record that never took an offset to the server\'s clock or never said which form it was of', async () => {
       for (const missing of ['formId', 'serverOffsetMs']) {
         const first = await earlier();
-        const record = JSON.parse(first.storage.data.get('qb.attempt.att-1')!);
-        first.storage.data.set('qb.attempt.att-1', JSON.stringify({ ...record, [missing]: null }));
+        await tamper(first, 'att-1', (record) => ({ ...record, [missing]: null }));
         await expect(boot(params(outage(new FakeApi(signedResponse(), key)), reopened(first)))).rejects.toThrow('Failed to fetch');
       }
       expect(FORM).toBeDefined();
@@ -260,7 +273,7 @@ describe('bringing the sitting up (M6-47, M6-48, M6-50)', () => {
       if (resumed.kind !== 'ready') throw new Error('not ready');
       expect(resumed.session.getSnapshot().projection.slots.find((slot) => slot.slot === slotIds[0])?.answer).toBe('c');
       resumed.session.select(slotIds[1], 'd');
-      const written = loadRecord(rig.storage, 'att-1')!.events;
+      const written = (await stored(rig, 'att-1'))!.events;
       expect(written.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
       expect(written.at(-1)).toMatchObject({ slot: slotIds[1], kind: 'select', answer: 'd' });
     });

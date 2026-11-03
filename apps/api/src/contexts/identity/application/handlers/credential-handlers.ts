@@ -8,7 +8,7 @@ import { applicationError, authorize, policy, type ApplicationError } from '../a
 import { describeRefusal, type PasswordScreen } from '../password-screen.js';
 import type {
   ApplicationContext,
-  AuditRecorder,
+  AuditRecord,
   Clock,
   CredentialStore,
   IdentifierFactory,
@@ -27,6 +27,8 @@ import type {
  * enough that the bodies match: each path does the same *work*, so the time says no more than the body. A login for an unknown address still pays for a password hash,
  * against a credential made once at start-up; a registration for a known address still hashes the password it was given; a recovery for an unknown address still draws a
  * token and hashes it. Nothing here returns early on an address it does not know.
+ *
+ * **What is audited.** The row is handed to the store with the change it records, and written in the same transaction (M8-14): a change and its row land together or neither does.
  *
  * **What is never kept.** No password reaches a log, an error, an audit row or a response, and none is stored: a credential is a salted, parameterised hash.
  */
@@ -57,7 +59,7 @@ export class RegisterHandler {
   readonly name = 'Register';
   readonly policy = REGISTER_POLICY;
 
-  constructor(private readonly deps: Common & { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort; readonly audit: AuditRecorder }) {}
+  constructor(private readonly deps: Common & { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort }) {}
 
   /** Always answers `accepted`: a new address gets a verification message, a known one gets a message saying so, and the caller cannot tell which from here. */
   async handle(command: { readonly email: unknown; readonly password: unknown }, context: ApplicationContext): Promise<Result<{ readonly accepted: true }, ApplicationError>> {
@@ -81,10 +83,11 @@ export class RegisterHandler {
       disabledAt: null,
       createdAt: now,
     });
-    const created = existing === null && (await this.deps.users.create(user, credential));
+    // the audit row goes into the store with the user: written with it, or neither is
+    const registered: AuditRecord = { principal: context.principal, action: 'UserRegistered', targetContext: 'identity', targetType: 'User', targetId: user.userId, correlationId: context.correlationId, occurredAt: now };
+    const created = existing === null && (await this.deps.users.create(user, credential, registered));
     if (created) {
       await issueAndMail(this.deps, user, 'email_verification', now);
-      await this.deps.audit.record({ principal: context.principal, action: 'UserRegistered', targetContext: 'identity', targetType: 'User', targetId: user.userId, correlationId: context.correlationId, occurredAt: now });
     } else {
       await this.deps.mail.send({ to: email.value, purpose: 'already_registered', subject: 'You already have an account', body: 'Someone tried to register with this address. If it was you, log in or recover your password; if not, ignore this message.' });
     }
@@ -150,7 +153,7 @@ export class ChangePasswordHandler {
   readonly name = 'ChangePassword';
   readonly policy = CHANGE_PASSWORD_POLICY;
 
-  constructor(private readonly deps: Common & { readonly sessions: SessionStore; readonly credentials: CredentialStore; readonly audit: AuditRecorder }) {}
+  constructor(private readonly deps: Common & { readonly sessions: SessionStore; readonly credentials: CredentialStore }) {}
 
   /** The current password is asked for again, a new one replaces it, and every other session of the user is revoked in the same transaction. The one in use stays. */
   async handle(
@@ -174,8 +177,8 @@ export class ChangePasswordHandler {
       at: now,
       exceptSessionId: current?.sessionId ?? null,
       reason: 'password_changed',
+      audit: { principal: context.principal, action: 'PasswordChanged', targetContext: 'identity', targetType: 'User', targetId: userId, correlationId: context.correlationId, occurredAt: now },
     });
-    await this.deps.audit.record({ principal: context.principal, action: 'PasswordChanged', targetContext: 'identity', targetType: 'User', targetId: userId, correlationId: context.correlationId, occurredAt: now });
     return ok({ revokedOtherSessions: changed.revoked });
   }
 }
@@ -207,7 +210,7 @@ export class ResetPasswordHandler {
   readonly name = 'ResetPassword';
   readonly policy = RESET_PASSWORD_POLICY;
 
-  constructor(private readonly deps: Common & { readonly credentials: CredentialStore; readonly audit: AuditRecorder }) {}
+  constructor(private readonly deps: Common & { readonly credentials: CredentialStore }) {}
 
   /** Spends a recovery token, sets the new password, and revokes every session of the user — someone who had the old password does not keep a login. */
   async handle(command: { readonly token: unknown; readonly newPassword: unknown }, context: ApplicationContext): Promise<Result<{ readonly done: true }, ApplicationError>> {
@@ -217,9 +220,13 @@ export class ResetPasswordHandler {
     if (!next.ok) return err(applicationError('Validation', next.error, describeRefusal(next.error)));
     if (typeof command.token !== 'string' || command.token.length === 0 || command.token.length > 256) return err(TOKEN_INVALID);
     const now = this.deps.clock.now();
-    const reset = await this.deps.credentials.resetWithToken({ tokenHash: this.deps.tokens.hashToken(command.token), credential: await this.deps.hasher.hash(next.value), at: now });
+    const reset = await this.deps.credentials.resetWithToken({
+      tokenHash: this.deps.tokens.hashToken(command.token),
+      credential: await this.deps.hasher.hash(next.value),
+      at: now,
+      audit: (userId) => ({ principal: context.principal, action: 'PasswordReset', targetContext: 'identity', targetType: 'User', targetId: userId, correlationId: context.correlationId, occurredAt: now }),
+    });
     if (reset === null) return err(TOKEN_INVALID);
-    await this.deps.audit.record({ principal: context.principal, action: 'PasswordReset', targetContext: 'identity', targetType: 'User', targetId: reset.userId, correlationId: context.correlationId, occurredAt: now });
     return ok({ done: true });
   }
 }

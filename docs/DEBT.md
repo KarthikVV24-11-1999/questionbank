@@ -483,21 +483,6 @@ recognised as a second, and investigated, rather than re-run until it passes.
 **Trigger** A second failure of that test, or any failure of it in CI: capture the output and the run's concurrency, and check what the test
 shares with its neighbours (the clock variable, the pool, the exam profile rows).
 **Cited** `apps/api/src/platform/composition/assessment-attempts.integration.spec.ts`
-### D66 — A browser killed outright loses what it had not yet written to disk
-
-The learner app writes every response to the device's `localStorage` before it tries to send it, and a tab that crashes or is closed, and a
-browser that quits, keep all of it — a hundred seeded runs in a real Chrome show that. A browser killed with no warning (the way a phone
-short of memory kills one) is different: Chrome commits `localStorage` to disk some seconds after the write, and what was written in that window
-is gone on reopening. If the server has the response the learner gets it back from there; **if the backend was unreachable, nothing has it.**
-Measured in `known-gaps.spec.ts`: a kill that lands before the write is on disk loses the answer, and one that waits for the write loses nothing.
-**The window is not five seconds.** Chrome commits an origin's `localStorage` about five seconds after a write only for the first few commits; after that it commits about once a minute
-however often the page writes (measured: a commit, then nothing for fifty-odd seconds while the page wrote every three; another origin in the same browser was not held back), so a learner who
-has been answering for a while has up to a minute of answers that are not on disk (D93).
-
-**Trigger** Real-device evidence that a learner is killed mid-attempt while offline, or any change to how the log is kept: the log moved to
-IndexedDB with strict durability (a transaction that completes only once it is on disk) closes the window, and the test that describes it goes red.
-**Cited** `apps/learn/src/session/persistence.ts`
-
 ### D69 — The learner app takes its bearer token from `localStorage`
 
 There is no sign-in. As in Studio, a developer sets `localStorage['qb-dev-token']` to a bearer token, and the app sends it. It is a development
@@ -747,9 +732,9 @@ answer is decided (accept, and leave one record), but no adapter makes the call.
 NFR SEC-05 says multi-factor is mandatory for Content Ops, Support and Platform Admin and that destructive actions need step-up; SECURITY-ARCHITECTURE §4 marks role administration as requiring it, and §1.2 leans on step-up for the
 insider. None of it exists: the policies carry a `requiresStepUp` flag nothing can satisfy, and a login is a password and a session. M8-12 makes the gap real, because there is now a way to make an administrator. What stands in
 the meantime is that only an administrator can assign a role, nobody changes their own, every change is audited, and the first administrator is made by a command that needs the database. The same applies to the alert the document asks
-for on a new-device login to a privileged account (no device is recorded), and to the audit row for a role change being written after the change and not in its transaction, so a crash between them leaves a grant unaudited.
+for on a new-device login to a privileged account (no device is recorded).
 
-**Trigger** The first person who is not a developer and holds a role other than `learner`: a second factor at login for those roles, a step-up the role routes can require and a person can satisfy, and the audit row written with the change.
+**Trigger** The first person who is not a developer and holds a role other than `learner`: a second factor at login for those roles, and a step-up the role routes can require and a person can satisfy.
 **Cited** `apps/api/src/contexts/identity/application/handlers/role-handlers.ts`
 
 ### D102 — A session is an opaque thirty-day token with rotation, not a short-lived token with a refresh that detects reuse
@@ -787,6 +772,16 @@ have, so none of its rules has anything to bind to.
 **Trigger** The support console, or the first alert definition: one record per denial, with the principal and the policy and not the body, and the role added to the vocabulary with its policies.
 **Cited** `apps/api/src/contexts/identity/application/authorization.ts`
 
+### D107 — The analytics buffer is in `localStorage` and has the window the response log had
+
+`emitter.ts` buffers analytics events on the device "the way responses do" and sends them in the background. It still keeps the buffer in `localStorage`, which Chrome commits some seconds after a write and, after the first few commits,
+about once a minute (D66, closed for the response log). A browser killed outright loses the events buffered in that window, as well as the pseudonymous actor id if it was first made in it. Nothing a learner did is lost: the responses
+are in the response log, which is in IndexedDB. Analytics is at-most-once by its own account (D92), so this is a smaller loss than the wording of the header suggested, but the header did say "the way responses do".
+
+**Trigger** Anything that relies on an event reaching the edge that a killed browser can lose, or the next change to the emitter: keep its buffer in the same store as the response log (`RecordStore` has the shape, with another object store), or say in the header
+that the buffer is best-effort.
+**Cited** `apps/learn/src/analytics/emitter.ts`
+
 ## Closed
 
 ### D93 — The gate before a durable kill looked for the event's bytes, and failed on a runner while the app lost nothing *(closed in the repair after M7 Track I)*
@@ -801,8 +796,8 @@ after that, so a scenario that had been writing for a while had its newest event
 know of. The gate was right that the value was not durable and wrong about how long that could last; a runner is slower, so a scenario reaches its limit earlier.
 
 **What closed it.** The gate now reads the fact. A second Chrome is started on a copy of the profile's storage and asked for the record, so "durable" means that a browser started from nothing but the
-disk reads the event; the files are looked at only to know when to ask again, never for the answer. It waits up to two minutes, which is the browser's own commit and not a timeout to be raised
-when a runner is slow. A durable kill that does not wait is shown to lose events, and the failure names them: the event expected, how many the device held, how many the restored record holds, and
+disk reads the event; the files are looked at only to know when to ask again, never for the answer. It waited up to two minutes, which was the browser's own commit and not a timeout to be raised
+when a runner is slow (M8 Track D moved the log to IndexedDB, whose transactions are durable when they complete, and the wait with it: D66). A durable kill that does not wait is shown to lose events, and the failure names them: the event expected, how many the device held, how many the restored record holds, and
 which are missing. The D66 tests read the restored value too (`durable.ts`, `durable.spec.ts`).
 
 **Cited** `tools/adversarial/src/durable.ts`
@@ -1086,4 +1081,34 @@ Everyone who registered was a `learner`, and the first author, reviewer or admin
 request on the session they already have. Nobody changes their own roles, nobody is left without one, and the last enabled administrator cannot be removed. The first administrator is made by `bootstrap-admin`, a command that needs the
 database, works only while no enabled administrator exists, and is audited as the system. What is left is D101 (no second factor or step-up for the roles that should have one) and D105 (no support role).
 **Cited** `apps/api/src/contexts/identity/application/handlers/role-handlers.ts`
+
+### D106 — A change and the audit row that records it were written apart *(closed by M8 Track D, [ADR-0059](adr/ADR-0059-an-audited-write-is-one-transaction-and-the-response-log-is-on-disk.md))*
+
+Identity committed a change (a role, a password, a verified address, the end of every session, a new account) and then wrote its audit row through a second call, so a crash or a failed audit write between the two left a privilege
+grant, or any of the others, with no record of who made it. Found in M8 Track C and first written into D101.
+
+**What closed it.** The store that makes a change writes its audit row on the same connection, in the same transaction: the method takes the record, or a function from the person's id to it where the id is only known inside the
+transaction, and the platform's recorder writes on the connection it is handed. Eight writes were checked, all had the hole, and all are fixed: registering, verifying an address (which also spent the code and marked the address in
+three separate calls, now one), changing a password, resetting one, ending every session, giving a role, taking one away, and making the first administrator. A spec runs each twice, with an audit write that fails (nothing of the change
+remains) and with a recorder that looks from a second connection while the transaction is open (neither the change nor the row is visible yet). Not audited, by design: logging in, rotating or ending one session, and rewriting a hash
+under newer parameters, which say nothing a session row does not.
+**Cited** `apps/api/src/contexts/identity/infrastructure/postgres-stores.ts`
+
+### D66 — A browser killed outright loses what it had not yet written to disk *(closed by M8 Track D, [ADR-0059](adr/ADR-0059-an-audited-write-is-one-transaction-and-the-response-log-is-on-disk.md))*
+
+The learner app wrote every response to `localStorage` before it tried to send it. A tab that crashes or is closed, and a browser that quits, keep all of it; a browser killed with no warning (the way a phone short of memory kills one)
+did not: Chrome commits an origin's `localStorage` about five seconds after a write for its first few commits and about once a minute after that, so a learner who had been answering for a while could lose up to a minute of answers,
+and with the backend unreachable nothing anywhere had them (D93 measured the window).
+
+**What closed it.** The response log is in IndexedDB, in one transaction per commit opened with strict durability and reported complete only when the data is on disk. The screen does not wait for the commit: the answer is in the engine and
+shown at once, one commit is kept in flight and everything that changed meanwhile goes in the next, and an event is sent only after the commit that holds it (so the server never holds what the device would forget). A record an earlier build left in
+`localStorage` is moved across before the page renders, removed only after the commit. If the device cannot keep the log the screen says so and the answers are sent as they are given.
+
+**Evidence.** An answer given with the backend unreachable and the browser killed a quarter of a second later is there on reopening, six kills in six (`known-gaps.spec.ts`); the same test against the previous build fails on the first, as D66
+said it would. Measured in Chrome on the machine this was written on, a commit takes a median of 14.7 ms and at most 17 ms.
+
+**What is still lost.** An answer whose commit has not completed when the browser dies or the tab closes: about 15 ms after a tap on a healthy disk, longer on a slow one, when the backend is also unreachable. That is the window, not nothing; a tab closed
+inside it loses the answer, as the first version of the offline-reopen tests showed. Strict durability is about the operating system or the power failing, which a killed browser process does not distinguish from relaxed, and the run that proves it
+cannot kill the machine. What the adversarial runs plant is a slow disk (`device-record.ts`), under which a kill without the gate before it loses events and one with it does not.
+**Cited** `apps/learn/src/session/persistence.ts`
 

@@ -1,3 +1,4 @@
+import { seedPerson } from './testing/identity-people.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { run } from './bootstrap-admin.js';
@@ -26,7 +27,7 @@ beforeEach(async () => {
 async function person(verified: boolean): Promise<{ email: string; userId: string }> {
   const userId = randomUUID();
   const email = `first-${userId.slice(0, 8)}@example.com`;
-  await new PostgresUserStore(database.pool).create({ userId, email, emailNormalized: email, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: NOW }, { parameters: CURRENT_PASSWORD_PARAMETERS, salt: new Uint8Array(16), hash: new Uint8Array(32) });
+  await seedPerson(database.pool, { userId, email, emailNormalized: email, emailVerifiedAt: null, roles: ['learner'], disabledAt: null, createdAt: NOW }, { parameters: CURRENT_PASSWORD_PARAMETERS, salt: new Uint8Array(16), hash: new Uint8Array(32) });
   if (verified) await database.pool.query('UPDATE identity.app_user SET email_verified_at = $2 WHERE user_id = $1', [userId, NOW]);
   return { email, userId };
 }

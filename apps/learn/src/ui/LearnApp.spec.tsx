@@ -7,10 +7,10 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formPackageSchema } from '../package/types.js';
 import { AttemptSession } from '../session/attempt-session.js';
-import { loadRecord } from '../session/persistence.js';
 import { aPackageDocument, slotIds } from '../testing/signed-package.js';
-import { aRig } from '../testing/fakes.js';
+import { aRig, stored } from '../testing/fakes.js';
 import { LearnApp } from './LearnApp.js';
+import { NOT_KEPT } from './SyncIndicator.js';
 
 afterEach(cleanup);
 
@@ -22,10 +22,10 @@ function sitting() {
   const session = AttemptSession.begin(START, rig.ports);
   return { ...rig, session };
 }
-const events = (storage: ReturnType<typeof aRig>['storage']) => loadRecord(storage, 'att-1')!.events;
+const events = async (rig: ReturnType<typeof aRig>) => (await stored(rig, 'att-1'))!.events;
 
 describe('the sitting is chrome-less (§7, M6-46)', () => {
-  it('has no site navigation and no link out: the only way off is to submit', () => {
+  it('has no site navigation and no link out: the only way off is to submit', async () => {
     const { session } = sitting();
     const { container } = render(<LearnApp session={session} form={form} />);
     expect(container.querySelectorAll('a')).toHaveLength(0);
@@ -34,28 +34,30 @@ describe('the sitting is chrome-less (§7, M6-46)', () => {
     expect(screen.getAllByRole('navigation').map((nav) => nav.getAttribute('aria-label'))).toEqual(['Questions']);
   });
 
-  it('opens on the first question, by visiting it — an event in the log like any other', () => {
-    const { session, storage } = sitting();
+  it('opens on the first question, by visiting it — an event in the log like any other', async () => {
+    const rig = sitting();
+    const { session } = rig;
     render(<LearnApp session={session} form={form} />);
     expect(screen.getByRole('region', { name: 'Question 1' })).toBeInTheDocument();
-    expect(events(storage).map((event) => `${event.kind}:${event.slot}`)).toEqual([`visit:${slotIds[0]}`]);
+    expect((await events(rig)).map((event) => `${event.kind}:${event.slot}`)).toEqual([`visit:${slotIds[0]}`]);
   });
 });
 
 describe('the UI holds no attempt state (M6-47)', () => {
   it('shows an answer because the log says so: choosing it is an event, and the control is checked from the projection', async () => {
-    const { session, storage } = sitting();
+    const rig = sitting();
+    const { session } = rig;
     render(<LearnApp session={session} form={form} />);
     await userEvent.click(screen.getByRole('radio', { name: /option b/iu }));
     expect(screen.getByRole('radio', { name: /option b/iu })).toBeChecked();
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'select', slot: slotIds[0], answer: 'b' });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'select', slot: slotIds[0], answer: 'b' });
     await userEvent.click(screen.getByRole('radio', { name: /option c/iu }));
     expect(screen.getByRole('radio', { name: /option c/iu })).toBeChecked();
     expect(screen.getByRole('radio', { name: /option b/iu })).not.toBeChecked();
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'change', answer: 'c' });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'change', answer: 'c' });
   });
 
-  it('follows the engine when the engine is changed from outside the UI — it has no copy to disagree with', () => {
+  it('follows the engine when the engine is changed from outside the UI — it has no copy to disagree with', async () => {
     const { session } = sitting();
     render(<LearnApp session={session} form={form} />);
     expect(screen.getByRole('radio', { name: /option d/iu })).not.toBeChecked();
@@ -86,8 +88,8 @@ describe('the UI holds no attempt state (M6-47)', () => {
     view.unmount();
 
     // a reload: new objects everywhere, the same disk, the server's own reading of the deadline
-    const reloaded = aRig({ storage: first.storage, newId: () => `r-${Math.random()}` });
-    const resumed = AttemptSession.resume({ record: loadRecord(first.storage, 'att-1')!, server: { ...(await first.transport.getAttempt()), serverNow: '2026-10-21T09:30:00.000Z' } }, reloaded.ports);
+    const reloaded = aRig({ records: first.records, newId: () => `r-${Math.random()}` });
+    const resumed = AttemptSession.resume({ record: (await stored(first, 'att-1'))!, server: { ...(await first.transport.getAttempt()), serverNow: '2026-10-21T09:30:00.000Z' } }, reloaded.ports);
     render(<LearnApp session={resumed} form={form} />);
     expect(screen.getByRole('region', { name: 'Question 2' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /option c/iu })).toBeChecked();
@@ -115,6 +117,38 @@ describe('the UI holds no attempt state (M6-47)', () => {
   });
 });
 
+describe('the screen says what the disk is doing (M8-15)', () => {
+  it('says saving, and not all saved, while an answer is not yet on the disk, then all saved once it is and sent', async () => {
+    const { session, records } = sitting();
+    render(<LearnApp session={session} form={form} />);
+    await act(() => session.pump());
+    expect(screen.getByRole('status')).toHaveTextContent('All answers saved');
+    records.hold();
+    await userEvent.click(screen.getByRole('radio', { name: /option b/iu }));
+    expect(screen.getByRole('radio', { name: /option b/iu })).toBeChecked(); // shown at once
+    expect(screen.getByRole('status')).toHaveTextContent(/saving your answers/iu);
+    expect(screen.getByRole('status')).not.toHaveTextContent('All answers saved');
+    records.release();
+    await act(() => session.pump());
+    expect(screen.getByRole('status')).toHaveTextContent('All answers saved');
+  });
+
+  it('tells the learner, calmly and with what to do, when the device cannot keep their answers, and keeps taking them', async () => {
+    const { session, records, transport } = sitting();
+    render(<LearnApp session={session} form={form} />);
+    records.failWith = new Error('full');
+    await userEvent.click(screen.getByRole('radio', { name: /option c/iu }));
+    await act(() => session.saved());
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(NOT_KEPT);
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('radio', { name: /option c/iu })).toBeChecked();
+    await act(() => session.pump());
+    expect(transport.sends.flat()).toContain('ev-2'); // the answer went to the server, which is all that holds it
+  });
+});
+
 describe('the sync indicator is the engine\'s word, and calm (M6-49)', () => {
   it('says all saved, then saving, then that answers are kept and will be sent — never an alarm', async () => {
     const { session, transport, clock } = sitting();
@@ -138,7 +172,7 @@ describe('the sync indicator is the engine\'s word, and calm (M6-49)', () => {
     expect(screen.getByRole('status')).toHaveTextContent('All answers saved');
   });
 
-  it('asks nothing of the browser about connectivity: it reads no navigator.onLine', () => {
+  it('asks nothing of the browser about connectivity: it reads no navigator.onLine', async () => {
     // The rule is in learn-rules.ts; this checks the component against the same source text.
     // (A second notion of "online" is what this project keeps paying for.)
     expect(stripComments(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'SyncIndicator.tsx'), 'utf8'))).not.toMatch(/onLine|addEventListener\('online'/u);
@@ -286,31 +320,32 @@ describe('what the shell shows of a question', () => {
   const other = formPackageSchema.parse(OTHER_TYPES);
 
   it('takes several options for a multiple-answer item, a typed value for a numeric one, and pairs for matching — each as the log\'s answer', async () => {
-    const { session, storage } = sitting();
+    const rig = sitting();
+    const { session } = rig;
     render(<LearnApp session={session} form={other} />);
     await userEvent.click(screen.getByRole('checkbox', { name: /multi a/iu }));
     await userEvent.click(screen.getByRole('checkbox', { name: /multi b/iu }));
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'change', answer: ['a', 'b'] });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'change', answer: ['a', 'b'] });
     await userEvent.click(screen.getByRole('checkbox', { name: /multi a/iu }));
-    expect(events(storage).at(-1)).toMatchObject({ answer: ['b'] });
+    expect((await events(rig)).at(-1)).toMatchObject({ answer: ['b'] });
     await userEvent.click(screen.getByRole('checkbox', { name: /multi b/iu }));
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'clear' });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'clear' });
 
     await userEvent.click(screen.getByRole('button', { name: /^question 2/iu }));
     expect(screen.getByLabelText(/your answer \(in m\/s\^2\)/iu)).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText(/your answer/iu), '9.8');
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'change', answer: '9.8' });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'change', answer: '9.8' });
     await userEvent.clear(screen.getByLabelText(/your answer/iu));
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'clear' });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'clear' });
 
     await userEvent.click(screen.getByRole('button', { name: /^question 3/iu }));
     await userEvent.selectOptions(screen.getByRole('combobox'), 'r2');
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'select', answer: ['l1:r2'] });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'select', answer: ['l1:r2'] });
     await userEvent.selectOptions(screen.getByRole('combobox'), '');
-    expect(events(storage).at(-1)).toMatchObject({ kind: 'clear' });
+    expect((await events(rig)).at(-1)).toMatchObject({ kind: 'clear' });
   });
 
-  it('shows the passage a question refers to', () => {
+  it('shows the passage a question refers to', async () => {
     const { session } = sitting();
     render(<LearnApp session={session} form={form} />);
     expect(screen.getByRole('complementary', { name: 'Passage' })).toHaveTextContent('A passage that question one refers to.');
@@ -318,7 +353,7 @@ describe('what the shell shows of a question', () => {
 });
 
 describe('what the shell never shows (M6-47)', () => {
-  it('shows no key even from a package that carries one: it draws what it was built to draw and nothing else', () => {
+  it('shows no key even from a package that carries one: it draws what it was built to draw and nothing else', async () => {
     const leaky = formPackageSchema.parse(aPackageDocument({ correctOptionId: 'b', answerKey: { kind: 'SINGLE_CORRECT', optionId: 'b' }, solution: 'The answer is B because…' }));
     const { session } = sitting();
     const { container } = render(<LearnApp session={session} form={leaky} />);
@@ -328,7 +363,7 @@ describe('what the shell never shows (M6-47)', () => {
     expect(JSON.stringify(leaky)).toContain('correctOptionId');
   });
 
-  it('the key is in the data the shell was handed, and the same scan finds it wherever it is drawn', () => {
+  it('the key is in the data the shell was handed, and the same scan finds it wherever it is drawn', async () => {
     const leaky = formPackageSchema.parse(aPackageDocument({ correctOptionId: 'b', answerKey: { kind: 'SINGLE_CORRECT', optionId: 'b' }, solution: 'The answer is B because…' }));
     const words = ['correctOptionId', 'answerKey', 'The answer is B', 'SINGLE_CORRECT"'];
     for (const word of words) expect(JSON.stringify(leaky)).toContain(word);

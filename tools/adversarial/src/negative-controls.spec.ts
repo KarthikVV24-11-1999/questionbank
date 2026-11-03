@@ -35,10 +35,14 @@ describe('the adversarial harness is red when something is wrong', () => {
     await expect(runScenario(generateScenario(SEED), environment, { sabotage, waitMs: 4_000, evidence: false })).rejects.toThrow(message);
   });
 
-  it('fails when a durable kill does not wait for durability, and says which events the restored record is missing', async () => {
-    // a browser killed in the browser's own write delay loses what it had not yet committed (D66); the gate before a durable kill is what keeps that out of the runs
+  // The response log is in IndexedDB (M8-15), whose transactions complete once their data is on disk, so a kill on a healthy disk loses nothing and a missing gate has nothing to lose. A
+  // device whose disk is slow to take a write is the one condition that gives it something, so the pair below plants one (`slowDiskMs`, `device-record.ts`): the same scenario, the same
+  // kill, once without the gate before it and once with.
+  const SLOW_DISK_MS = 4_000;
+
+  it('fails when a durable kill does not wait for durability on a slow disk, and says which events the restored record is missing', async () => {
     const scenario = { seed: 1, steps: [{ t: 'answer', slot: 0, option: 'a' }, { t: 'outage', mode: '503' }, { t: 'answer', slot: 1, option: 'b' }, { t: 'answer', slot: 2, option: 'c' }, { t: 'kill', how: 'sigkill-durable' }] } as const;
-    const error = await runScenario(scenario, environment, { sabotage: 'kill-without-durability', waitMs: 4_000, evidence: false }).then(() => null, (thrown: unknown) => thrown as Error);
+    const error = await runScenario(scenario, environment, { sabotage: 'kill-without-durability', slowDiskMs: SLOW_DISK_MS, waitMs: 4_000, evidence: false }).then(() => null, (thrown: unknown) => thrown as Error);
     const said = /after a sigkill-durable the reopened attempt is not the one that was killed: the device held (\d+) events before it \(the last [0-9a-f-]{36} \(select\)\), the restored record holds (\d+) and is missing (\d+): [0-9a-f-]{36}/u.exec(error?.message ?? '');
     expect(said, error?.message).not.toBeNull();
     const [before, after, missing] = said!.slice(1).map(Number) as [number, number, number];
@@ -49,9 +53,14 @@ describe('the adversarial harness is red when something is wrong', () => {
     expect(after).toBeGreaterThan(0); // never an empty record: the reopen writes its own visit
   });
 
-  it('passes the same scenario with the gate in place: the event is durable before the kill, and comes back', async () => {
+  it('passes the same scenario on the same slow disk with the gate in place: the run waits until the event is durable, and it comes back', async () => {
     const scenario = { seed: 1, steps: [{ t: 'answer', slot: 0, option: 'a' }, { t: 'outage', mode: '503' }, { t: 'answer', slot: 1, option: 'b' }, { t: 'answer', slot: 2, option: 'c' }, { t: 'kill', how: 'sigkill-durable' }] } as const;
-    await expect(runScenario(scenario, environment, { waitMs: 4_000, evidence: false })).resolves.toMatchObject({ seed: 1 });
+    await expect(runScenario(scenario, environment, { slowDiskMs: SLOW_DISK_MS, waitMs: 4_000, evidence: false })).resolves.toMatchObject({ seed: 1 });
+  }, 90_000);
+
+  it('passes the same scenario on a healthy disk with no gate at all: nothing is in the window, so a kill at once loses nothing', async () => {
+    const scenario = { seed: 1, steps: [{ t: 'answer', slot: 0, option: 'a' }, { t: 'outage', mode: '503' }, { t: 'answer', slot: 1, option: 'b' }, { t: 'answer', slot: 2, option: 'c' }, { t: 'kill', how: 'sigkill-durable' }] } as const;
+    await expect(runScenario(scenario, environment, { sabotage: 'kill-without-durability', waitMs: 4_000, evidence: false })).resolves.toMatchObject({ seed: 1 });
   });
 
   it('names every planted defect it can plant: none is left without a case', () => {

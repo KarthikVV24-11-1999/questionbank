@@ -1,12 +1,13 @@
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { freshChrome, newProfileDir, type RunEnvironment } from './browser-run.js';
+import { dumpDeviceStoreInPage } from './device-record.js';
 import { StubServer } from './stub-server.js';
 
 /**
  * The learner's own screens and what the device keeps (M6-59, F6/F35), in a real browser. The server is made to leak: the signed
  * package carries an answer key and a solution on every item, which the real server never does. The shell must draw none of it and
- * keep none of it in the page's storage — and the same scan must find the leak in the bytes the server sent, so that an empty result elsewhere is an empty result and not a scan that
+ * keep none of it in the page's storage (`localStorage`, `sessionStorage` and the IndexedDB the response log is in) — and the same scan must find the leak in the bytes the server sent, so that an empty result elsewhere is an empty result and not a scan that
  * cannot see. (The service worker's cache keeps the package as it came, leak and all, and is not scanned here; KEY-FREE.md says so, under what the layers do not claim.)
  */
 const environment: RunEnvironment = { distDir: resolve(import.meta.dirname, '../../../apps/learn/dist'), chrome: { current: null, profileDir: newProfileDir() } };
@@ -38,8 +39,12 @@ describe('a package that leaks a key is not drawn and not kept (F6, F35)', () =>
       screens.push(await page.content());
 
       const stored = await page.evaluate(() => JSON.stringify({ ...window.localStorage, session: { ...window.sessionStorage } }));
+      // the response log is in IndexedDB (M8-15): the same scan reads every row of it, and that it read something is checked, so an empty result is not a scan of nothing
+      const device = await page.evaluate(dumpDeviceStoreInPage);
+      expect(device).toContain('"select"');
       expect(screens.flatMap(found)).toEqual([]);
       expect(found(stored)).toEqual([]);
+      expect(found(device!)).toEqual([]);
 
       // non-vacuity: the leak is real, and the same scan sees it in the bytes the server sent
       const served = await (await fetch(`${server.origin}/v1/assessment/forms/00000000-0000-4000-8000-0000000000f1/package`)).text();

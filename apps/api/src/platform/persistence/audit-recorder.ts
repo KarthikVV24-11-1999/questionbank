@@ -46,7 +46,15 @@ export class PostgresAuditRecorder implements AuditRecorderLike {
   }
 
   async record(entry: AuditRecordLike): Promise<void> {
-    await this.#pool.query(
+    await this.recordWithin(this.#pool, entry);
+  }
+
+  /**
+   * The same insert on a connection the caller owns, so a row can be written in the transaction of the change it records (M8-14): a context that audits what it writes hands the
+   * transaction's client here, and the row commits, or rolls back, with the change.
+   */
+  async recordWithin(db: { query(text: string, values?: unknown[]): Promise<unknown> }, entry: AuditRecordLike): Promise<void> {
+    await db.query(
       `INSERT INTO platform.audit_record
          (principal_kind, principal_id, action, target_context, target_type, target_id,
           target_version, correlation_id, occurred_at, justification)
