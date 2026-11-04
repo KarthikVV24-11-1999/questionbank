@@ -810,26 +810,40 @@ The learner app signs a person in (ADR-0065). Studio, which authors and reviews 
 **Trigger** The first person who is not a developer to author or review content in Studio: a sign-in screen on the same routes, and the session in the same cookie.
 **Cited** `apps/studio/src/main.tsx`
 
-### D122 — A learner signed in on one device too many is signed out of the oldest, and nothing tells them
-
-`MAX_SESSIONS_PER_USER` (default 5) ends the oldest session when a login exceeds it. The server answers the login with success and says nothing of the session it ended, so the learner app has no message to show and the person on the oldest device finds themselves at the sign-in screen without being told why. The limit has no surface to build a screen on: no refusal, no field in the login answer. Building the screen first would have meant inventing the server's side.
-
-**Trigger** The first report of a learner signed out without cause, or a decision to tell a person when a login ends another session: the login answer says which session ended (or that one did), and the sign-in screen says so.
-**Cited** `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
-
-### D123 — The Compose file publishes an unauthenticated database and the API on every interface
-
-`infra/compose/docker-compose.yml` publishes Postgres on 5432 with `POSTGRES_HOST_AUTH_METHOD: trust` (anyone who can reach the port is the superuser), the API on 3000, and Studio on 4173, each on all interfaces. That is what a laptop and a CI runner want (the seed commands and the journey reach them on `localhost`) and what a host that faces the internet must not have. `docs/DEPLOYMENT.md` tells the owner to firewall everything but 80 and 443; the file does nothing about it. Binding them to `127.0.0.1` would fix it, but `compose-rules.ts` reads a published port's first colon-separated field as its host port, so every binding to `127.0.0.1:` would read as one port collision.
-
-**Trigger** The first host that faces the internet: bind the three to `127.0.0.1` (and teach `compose-rules.ts` the three-field form), or give the database a password.
-**Cited** `infra/compose/docker-compose.yml`
-
 ### D124 — A production process does not start, so the process that serves people runs as `development`
 
 `createMediaStore` refuses `NODE_ENV=production` as a boot failure, because the only media store is the filesystem one and no S3 adapter exists (D32). Nothing else refuses it, so a deployment runs as `development` (DEC-M8-24, DEC-M8-27): debug-level log lines are not suppressed (the configured level, `info`, still applies), a log line may carry a stack, and a message goes to a file unless the SES settings are present. None of it reaches a response. It was found by trying to start one, when the SES adapter was meant to be chosen for production and could not be.
 
 **Trigger** The S3 adapter (D32), or a decision to allow the filesystem store in production behind an explicit setting: then `NODE_ENV=production` for the process that serves people, and the Compose file's `NODE_ENV` follows.
 **Cited** `apps/api/src/platform/persistence/filesystem-media-store.ts`
+
+### D125 — The security scan sees advisories and credential shapes, and nothing about this code's own security
+
+`tools/security/scan.mjs` (the `security` job) audits the lockfile against published advisories and scans tracked files for credential-shaped text. It does not see this code's own logic, authorization or data handling: a route that forgets to check who is asking passes it. It does not see an advisory published after the last push (the job runs on a push or a pull request, so a new one is seen at the next, not when it is published), an unreported malicious package, or a secret that is not shaped like one. M8's acceptance line also wants a manual security review, which has not been done, and M9 wants an independent penetration test.
+
+**Trigger** The manual review (before the first student's data) and the penetration test (M9); a scheduled run of the job, if an unchanged lockfile is to be watched.
+**Cited** `tools/security/scan.mjs`
+
+### D126 — Five moderate advisories remain, all in the test tooling
+
+`pnpm audit` reports five at moderate, none at high: vitest and `@vitest/mocker` 3.2.7 (path traversal and code injection through the mock server, fixed in 4.1.12), and `minimatch` 5, 9 and 10 and `glob` 10 under the coverage tool (fixed in minimatch 11 and glob 14). All are in the dev dependencies of the test runner and none is in a shipped bundle or the API image (which holds no dependencies). The version that closes the vitest ones is a major upgrade of the runner across every package, with a behaviour change in the mocking the specs use; it is not done here because it is a larger change than this track and a risk to every test. The gate is at high, so these are printed on every run and do not fail it.
+
+**Trigger** The next planned upgrade of vitest to 4.1.12 or later, or a high-severity advisory in the same packages.
+**Cited** `package.json`
+
+### D127 — The learner screens are checked by a machine against WCAG 2.2 AA, and the manual half is not done
+
+`tools/adversarial/src/accessibility.spec.ts` runs axe over every learner screen in each state it can show (loading, loaded, empty, failed), in a real Chrome against the built bundle. It found one thing, which was fixed: controls 21 pixels high, under the 24 that WCAG 2.2 2.5.8 asks, now 44 (a stylesheet in `index.html`). What it cannot see, and nobody has checked: whether the reading order makes sense; whether an error is announced when it happens (a `role="alert"` is checked for being there, not for being heard); where focus goes after a screen changes; whether the diagnostic can be sat with a screen reader from the first question to the last; whether the words are plain; zoom and reflow at 400%; a keyboard-only pass. axe's own figure is that automation finds about a third of the problems a person would. The stylesheet is also the app's first: the colour tokens the components name (`var(--qb-color-...)`) are defined nowhere, so every colour is the browser's default, and the contrast the pass reports is the contrast of defaults, not of a design.
+
+**Trigger** The manual pass M8's acceptance wants (before the first student), a design that defines the tokens (then the pass is re-run on it), and M9's third-party audit.
+**Cited** `tools/adversarial/src/accessibility.spec.ts`
+
+### D128 — Backups are proved on the Compose stack, not on a host, and are not kept off it
+
+`backup.sh`, `restore.sh` and `restore-drill.mjs` back up the stack's database, drop it, restore it and count every table again, in CI. They have not run on a host; a backup lands on the disk it protects until the owner copies it off; nothing schedules one; there is no point-in-time recovery (the dump is a snapshot, so up to a day of answers is what a daily backup can lose); the drill's database is a few hundred kilobytes, so nothing is known about a restore of a database of a realistic size or how long it takes; and a dump is unencrypted. The restore stops the API with `docker compose stop`, which the CI drill exercises but cannot show to matter (a restore that left the API running would also have worked there).
+
+**Trigger** The host (D118): run the restore into a second database there, set the schedule, the copy off the host and the retention; point-in-time recovery when the data is worth more than a day.
+**Cited** `infra/compose/restore-drill.mjs`
 
 ## Closed
 
@@ -1258,4 +1272,18 @@ from `localStorage`, D69), so nothing a person does in a browser reaches the jou
 
 **What closed it (M8-41, M8-43).** A process with the four SES settings sends through SES, in development or production (DEC-M8-27); production without them refuses every send; half-configured does not start. The learner app has a sign-in, a registration with a check-your-mail screen and a resend, and a screen the link in a message opens. **What is not earned:** that SES accepts a message from a real account (D120); the Compose stack's CI run is still without the settings, so mail there is a file; and the process that serves people is a development process, because production does not start (D124).
 **Cited** `apps/api/src/contexts/identity/public/composition.ts`
+
+### D123 — The Compose file publishes an unauthenticated database and the API on every interface *(closed by M8 Track K)*
+
+`infra/compose/docker-compose.yml` publishes Postgres on 5432 with `POSTGRES_HOST_AUTH_METHOD: trust` (anyone who can reach the port is the superuser), the API on 3000, and Studio on 4173, each on all interfaces. That is what a laptop and a CI runner want (the seed commands and the journey reach them on `localhost`) and what a host that faces the internet must not have. `docs/DEPLOYMENT.md` tells the owner to firewall everything but 80 and 443; the file does nothing about it. Binding them to `127.0.0.1` would fix it, but `compose-rules.ts` reads a published port's first colon-separated field as its host port, so every binding to `127.0.0.1:` would read as one port collision.
+
+**What closed it (M8-46).** The database, the API, Studio and minio publish on `127.0.0.1` only, and `compose-rules.ts` reads the three-field form and fails the `fitness` job if any of the four is published wider. The database asks for a password (`QB_DB_PASSWORD`, a reference, generated per run by `boot.mjs`). **What does not close:** the learner app's 8080 is meant to be reached and publishes on every interface, so a firewall is still the only protection for it (it is a static app and a proxy to the API, which has its own limits); a database volume made under `trust` before this change keeps accepting anyone until it is removed; and nothing here checks a host's own firewall.
+**Cited** `infra/compose/docker-compose.yml`
+
+### D122 — A learner signed in on one device too many is signed out of the oldest, and nothing tells them *(closed by M8 Track K, DEC-M8-28)*
+
+`MAX_SESSIONS_PER_USER` (default 5) ends the oldest session when a login exceeds it. The server answers the login with success and says nothing of the session it ended, so the learner app has no message to show and the person on the oldest device finds themselves at the sign-in screen without being told why. The limit has no surface to build a screen on: no refusal, no field in the login answer. Building the screen first would have meant inventing the server's side.
+
+**What closed it (M8-47).** The login answer carries `sessionsEnded`, a count. A new route, `GET /v1/identity/session`, says whether the session a request carries is in force and whether a later sign-in ended it (`endedBy: 'another_sign_in'`), answering 200 either way; the learner app asks it on every load in place of reading the profile, and its sign-in screen says "You were signed out because your account was signed in on another device." **What does not close:** the person on the new device is not told that another was signed out (the count is in the answer and no screen shows it); the sentence is shown for as long as the stale cookie is held and goes when they sign in; a session ended any other way (a sign-out elsewhere, a password change) says nothing of why; and no screen lists devices, by design.
+**Cited** `apps/api/src/contexts/identity/application/handlers/session-handlers.ts`
 

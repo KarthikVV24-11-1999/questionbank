@@ -102,6 +102,7 @@ interface SessionRow {
   last_seen_at: Date;
   expires_at: Date;
   revoked_at: Date | null;
+  revoked_reason: string | null;
   rotated_from: string | null;
 }
 
@@ -133,13 +134,13 @@ export class PostgresSessionStore implements SessionStore {
 
   async findByTokenHash(tokenHash: Uint8Array): Promise<SessionRecord | null> {
     const { rows } = await this.pool.query<SessionRow>(
-      'SELECT session_id, user_id, token_hash, created_at, last_seen_at, expires_at, revoked_at, rotated_from FROM identity.session WHERE token_hash = $1',
+      'SELECT session_id, user_id, token_hash, created_at, last_seen_at, expires_at, revoked_at, revoked_reason, rotated_from FROM identity.session WHERE token_hash = $1',
       [Buffer.from(tokenHash)],
     );
     const row = rows[0];
     return row === undefined
       ? null
-      : { sessionId: row.session_id, userId: row.user_id, tokenHash: row.token_hash, createdAt: row.created_at, lastSeenAt: row.last_seen_at, expiresAt: row.expires_at, revokedAt: row.revoked_at, rotatedFrom: row.rotated_from };
+      : { sessionId: row.session_id, userId: row.user_id, tokenHash: row.token_hash, createdAt: row.created_at, lastSeenAt: row.last_seen_at, expiresAt: row.expires_at, revokedAt: row.revoked_at, revokedReason: row.revoked_reason, rotatedFrom: row.rotated_from };
   }
 
   async touch(sessionId: string, at: Date): Promise<void> {

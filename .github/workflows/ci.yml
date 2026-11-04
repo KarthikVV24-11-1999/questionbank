@@ -113,6 +113,21 @@ jobs:
       - run: corepack pnpm --filter @questionbank/studio build
       - run: corepack pnpm --filter @questionbank/learn build
 
+  security:
+    # The dependency audit over the lockfile (a finding at high or above fails the job) and a scan of the tracked files for text shaped like a credential, both in tools/security/scan.mjs.
+    # What this is NOT: an audit sees published advisories about this lockfile and nothing about this code's own logic, authorization or data handling, and not an advisory published
+    # after the last push. It is not the manual security review M8's acceptance wants or the independent penetration test M9 wants (D125 in docs/DEBT.md).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
+      - run: node --test tools/security/scan.test.mjs
+      - run: node tools/security/scan.mjs
+
   compose:
     # F8 (docs/ARCHITECTURE.md): the stack is built, started with --wait, migrated and seeded, and the journey from sign-up to a first named weakness is run against it. The script holds the checks; this job runs it.
     runs-on: ubuntu-latest

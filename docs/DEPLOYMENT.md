@@ -37,6 +37,7 @@ umask 077
   echo "AUTH_SIGNING_KEY=$(openssl rand -base64 32)"
   echo "AUDIT_ANCHOR_KEY=$(openssl rand -base64 32)"
   echo "FORM_PACKAGE_SIGNING_KEY=$(openssl rand -base64 32)"
+  echo "QB_DB_PASSWORD=$(openssl rand -hex 18)"
 } | sudo tee /etc/questionbank/stack.env >/dev/null
 ```
 
@@ -65,8 +66,8 @@ docker compose --env-file /etc/questionbank/stack.env -f infra/compose/docker-co
 
 ```bash
 corepack enable && corepack pnpm install --frozen-lockfile
-DATABASE_URL=postgres://postgres@localhost:5432/questionbank corepack pnpm --filter @questionbank/seed run seed
-DATABASE_URL=postgres://postgres@localhost:5432/questionbank corepack pnpm --filter @questionbank/seed run seed:items
+DATABASE_URL=postgres://postgres:$QB_DB_PASSWORD@127.0.0.1:5432/questionbank corepack pnpm --filter @questionbank/seed run seed
+DATABASE_URL=postgres://postgres:$QB_DB_PASSWORD@127.0.0.1:5432/questionbank corepack pnpm --filter @questionbank/seed run seed:items
 ```
 
 **7. Put the TLS proxy in front of port 8080** and point the domain at the host. `PUBLIC_URL` must be exactly the address people type, with `https://` and no path: the API refuses a browser request that names another origin (ADR-0065), so a `PUBLIC_URL` that is wrong or missing makes every sign-in-then-act request fail with a refusal and no other symptom.
@@ -75,7 +76,7 @@ DATABASE_URL=postgres://postgres@localhost:5432/questionbank corepack pnpm --fil
 
 ```bash
 set -a && . /etc/questionbank/stack.env && set +a
-DATABASE_URL=postgres://postgres@localhost:5432/questionbank corepack pnpm --filter @questionbank/api mail-smoke you@your-verified-address.example
+DATABASE_URL=postgres://postgres:$QB_DB_PASSWORD@127.0.0.1:5432/questionbank corepack pnpm --filter @questionbank/api mail-smoke you@your-verified-address.example
 ```
 
 Exit 0 means SES took the message, which is not delivery; read the inbox. Exit 1 prints what SES said (an unverified sender, a recipient the sandbox does not allow, a bad key) without the key. Exit 2 means the mail settings are absent or incomplete.
@@ -86,12 +87,12 @@ Exit 0 means SES took the message, which is not delivery; read the inbox. Exit 1
 
 ```bash
 set -a && . /etc/questionbank/stack.env && set +a
-DATABASE_URL=postgres://postgres@localhost:5432/questionbank corepack pnpm --filter @questionbank/api bootstrap-admin you@your-verified-address.example
+DATABASE_URL=postgres://postgres:$QB_DB_PASSWORD@127.0.0.1:5432/questionbank corepack pnpm --filter @questionbank/api bootstrap-admin you@your-verified-address.example
 ```
 
 It refuses once an administrator exists. Studio has no sign-in yet (D121), so an administrator can assign roles through the API and cannot yet use Studio.
 
-> **Warning: the Compose file publishes the database and the API on every interface.** Postgres is published on 5432 with trust authentication (anyone who can reach the port is the superuser), and the API on 3000, as is Studio on 4173. That suits a laptop and a CI runner and is wrong for a host that faces the internet. Item 7 of the list at the top is not optional: leave only 80 and 443 reachable. The file does not do it for you (D123).
+> **The Compose file publishes only the learner app on every interface** (8080, for the TLS proxy on this host). The database (5432), the API (3000), Studio (4173) and minio listen on `127.0.0.1`, and the database asks for `QB_DB_PASSWORD`; a rule in the `fitness` job fails if one of them is widened (D123). The firewall in item 7 is still the right second line, and the only one for 8080. **A database volume made before this change, under `trust`, keeps accepting anyone until it is removed** (`docker compose down -v`, which deletes its data) or its role is given a password; the password applies when a volume is first made. The file does not do it for you (D123).
 
 ## Every setting the API reads
 
@@ -99,7 +100,8 @@ Set in the environment file. *Secret* means: never written to a file in the repo
 
 | Variable | Purpose | Secret | Default / note |
 |---|---|---|---|
-| `DATABASE_URL` | The database. Set by the Compose file for the container; the host commands above set it themselves. | no (it holds no password here: trust authentication on a private network) | required |
+| `DATABASE_URL` | The database. Set by the Compose file for the container, from `QB_DB_PASSWORD`; the host commands above build it themselves. | **yes**, because it holds the password | required |
+| `QB_DB_PASSWORD` | The database's password. Read by the Compose file; 36 hex characters from the command in step 2. | **yes** | none: Compose will not start without it |
 | `NODE_ENV` | Fixed at `development` by the Compose file, and it has to be: a `production` process does not start (D124). Mail goes through SES when the four mail settings are present and to a file when they are not. | no | `development` |
 | `AUTH_SIGNING_KEY` | The key the application's tokens are signed with. At least 32 bytes. | **yes** | none: the process will not start without it |
 | `AUDIT_ANCHOR_KEY` | The audit trail's anchor. Must differ from the one above. | **yes** | none |
@@ -140,6 +142,36 @@ After step 9, in a browser, with an address you can read:
 
 Steps 1, 2, 4, 5, 6 and 7 are what `tools/adversarial/src/stack-journey.ts` does in headless Chrome on the runner, against a stack in development mode. Step 3 is the one only a host can show.
 
+## Backups and restoring
+
+Two commands, against the stack's database in its volume. **Tier 1 for the mechanism, Tier 3 for your host:** `infra/compose/restore-drill.mjs` ran them in CI on every push, on the stack the `compose` job boots, backing up a database a learner had just used, dropping it, restoring it and counting every table again; nobody has run them on a host. The drill proves these scripts bring back what that stack's journeys made. It does not prove your disk, your cron, your copy or your retention.
+
+```bash
+infra/compose/backup.sh /var/backups/questionbank/$(date +%F).dump     # a custom-format pg_dump, read back before it is kept
+infra/compose/restore.sh /var/backups/questionbank/2026-11-04.dump     # stops the API and the two proxies, REPLACES the database, says how to start again
+```
+
+`backup.sh` runs inside the database container, needs no password, and does not stop anything. `restore.sh` **replaces the database**: whatever it held since the backup is gone. After it, `docker compose --env-file /etc/questionbank/stack.env -f infra/compose/docker-compose.yml up -d --wait`, then the smoke path.
+
+**What the owner has to decide and do, since the repository cannot:**
+
+1. **Where a backup goes.** It is on the host's disk when `backup.sh` ends, which protects against a bad migration or a mistake and against nothing that takes the host. Copy it off the host (a bucket in another account or region, versioned) on every run. A backup that is only on the disk it protects is not one.
+2. **How often.** At most the data you can afford to redo: a daily cron is a starting point, and a student's day of practice is what a daily backup can lose. The repository has no point-in-time recovery.
+3. **How long it is kept.** Long enough to find a mistake made a while ago: two weeks of dailies is a starting point, with the retention set on the copy off the host.
+4. **Who can read it.** A dump holds every learner's address, password hashes and answers. `chmod 600`, keep it out of the repository, and encrypt it before it leaves the host.
+5. **Whether it restores.** Do not run `restore-drill.mjs` on a stack that holds real data: it drops the database. To try a backup without touching the live one, restore it into a second database and look:
+
+```bash
+docker compose --env-file /etc/questionbank/stack.env -f infra/compose/docker-compose.yml exec -T postgres createdb -U postgres qb_check
+docker compose --env-file /etc/questionbank/stack.env -f infra/compose/docker-compose.yml exec -T postgres pg_restore -U postgres --dbname=qb_check --exit-on-error --no-owner < /var/backups/questionbank/2026-11-04.dump
+docker compose --env-file /etc/questionbank/stack.env -f infra/compose/docker-compose.yml exec -T postgres psql -U postgres -d qb_check -c 'select count(*) from identity.app_user'
+docker compose --env-file /etc/questionbank/stack.env -f infra/compose/docker-compose.yml exec -T postgres dropdb -U postgres qb_check
+```
+
+Do this once before anyone is invited, and on a schedule after.
+
+**A volume that is gone** is restored the same way: start the database (`up -d --wait postgres`), run `restore.sh`, then start the rest. The dump carries the migrations table, so the migrator does not run again.
+
 ## What this page does not cover
 
-Backups of the database volume; keeping the host patched; collecting logs and raising an alert (there is no production observability yet); bounces and complaints from SES (D120); running more than one host; Studio's sign-in (D121); and where the beta finally runs (D118).
+Keeping the host patched; collecting logs and raising an alert (there is no production observability yet); bounces and complaints from SES (D120); running more than one host; Studio's sign-in (D121); and where the beta finally runs (D118).

@@ -18,6 +18,20 @@ export const SECRET_ENV = ['AUTH_SIGNING_KEY', 'AUDIT_ANCHOR_KEY', 'FORM_PACKAGE
 const HEALTHCHECK_KEYS = ['test', 'interval', 'timeout', 'retries', 'start_period'] as const;
 const KEY_SHAPED_ENV_PATTERN = /_?(API_?KEY|SECRET|TOKEN)$/iu;
 
+/**
+ * The services that hold something worth taking, which must publish only on the loopback address (D123). Postgres is the superuser's to whoever reaches it, the API and Studio are
+ * the unproxied way past the learner app's nginx, and minio holds a fixed password. The learner app's port is the one that is meant to be reached, by the TLS proxy on the same host.
+ */
+export const LOOPBACK_ONLY_SERVICES = ['postgres', 'api', 'studio', 'minio'] as const;
+export const LOOPBACK = '127.0.0.1';
+
+/** A published port as Compose reads it: `[ip:]host:container[/protocol]`. The host port is the second from last field, and the address, if there is one, is the one before it. */
+export function parsePublished(mapping: string): { readonly address: string | null; readonly hostPort: string } {
+  const fields = mapping.split('/')[0]!.split(':');
+  const hostPort = fields.at(-2) ?? fields[0] ?? mapping;
+  return { address: fields.length >= 3 ? (fields.at(-3) as string) : null, hostPort };
+}
+
 export interface ComposeViolation {
   readonly rule: string;
   readonly detail: string;
@@ -118,9 +132,19 @@ export function checkCompose(compose: ComposeFile, baseDir?: string): ComposeVio
 
     // Port collisions.
     for (const mapping of service.ports ?? []) {
-      const hostPort = mapping.split(':')[0] ?? mapping;
+      const { address, hostPort } = parsePublished(mapping);
+      if ((LOOPBACK_ONLY_SERVICES as readonly string[]).includes(name) && address !== LOOPBACK) {
+        violations.push({ rule: 'PORT_NOT_LOOPBACK', detail: `${name}: ${mapping}` });
+      }
       const existing = publishedPorts.get(hostPort) ?? [];
       publishedPorts.set(hostPort, [...existing, name]);
+    }
+
+    // The database asks for a password, and the password is whoever runs the stack's to supply (D123): `trust` makes the port's reachability the only protection there is.
+    if (name === 'postgres') {
+      const env = Object.fromEntries(serviceEnvEntries(service));
+      if (env['POSTGRES_HOST_AUTH_METHOD'] === 'trust') violations.push({ rule: 'POSTGRES_TRUST', detail: 'POSTGRES_HOST_AUTH_METHOD is trust' });
+      if (!/^\$\{[A-Z0-9_]+\}$/u.test(env['POSTGRES_PASSWORD'] ?? '')) violations.push({ rule: 'POSTGRES_PASSWORD_NOT_A_REFERENCE', detail: 'POSTGRES_PASSWORD is not a ${NAME} reference' });
     }
 
     // No key-shaped environment variable, anywhere — the stack must boot
@@ -152,7 +176,7 @@ export function checkCompose(compose: ComposeFile, baseDir?: string): ComposeVio
   }
 
   // postgres publishes 5432 (DEC-M0-8).
-  const postgresPorts = (services['postgres']?.ports ?? []).map((mapping) => mapping.split(':')[0]);
+  const postgresPorts = (services['postgres']?.ports ?? []).map((mapping) => parsePublished(mapping).hostPort);
   if (!postgresPorts.includes('5432')) {
     violations.push({ rule: 'POSTGRES_PORT', detail: 'postgres does not publish 5432' });
   }

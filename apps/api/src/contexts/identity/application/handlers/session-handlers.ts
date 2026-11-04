@@ -1,8 +1,8 @@
 import { ROLES } from '../../../../platform/auth/roles.js';
 import { err, ok, type Result } from '../../domain/result.js';
-import { SESSION_LIFETIME_MS } from '../../domain/session-policy.js';
+import { SESSION_LIFETIME_MS, sessionState } from '../../domain/session-policy.js';
 import { applicationError, authorize, policy, type ApplicationError } from '../authorization.js';
-import type { ApplicationContext, Clock, CredentialStore, IdentifierFactory, SessionStore, TokenFactory } from '../ports.js';
+import type { ApplicationContext, Clock, CredentialStore, IdentifierFactory, SessionStore, TokenFactory, UserStore } from '../ports.js';
 
 /**
  * Ending and renewing sessions (M8-03). Revocation is effective: a revoked session is refused by the next request, because every request looks the session up
@@ -11,6 +11,7 @@ import type { ApplicationContext, Clock, CredentialStore, IdentifierFactory, Ses
 const AUTHENTICATED = [ROLES.learner, ROLES.author, ROLES.reviewer, ROLES.contentOps, ROLES.curriculumCurator, ROLES.examOwner, ROLES.ops, ROLES.admin];
 export const LOGOUT_POLICY = policy('Logout', AUTHENTICATED);
 export const LOGOUT_ALL_POLICY = policy('LogoutAll', AUTHENTICATED);
+export const SESSION_STATUS_POLICY = policy('SessionStatus', [ROLES.guest]);
 export const ROTATE_SESSION_POLICY = policy('RotateSession', AUTHENTICATED);
 
 interface Deps {
@@ -83,3 +84,37 @@ export class RotateSessionHandler {
     return ok({ sessionToken, sessionId, expiresAt: expiresAt.toISOString() });
   }
 }
+
+/** Why a session is not in force, in terms a person can be told: only the one reason there is a sentence for. */
+export type SessionEnd = 'another_sign_in';
+
+export interface SessionStatus {
+  readonly signedIn: boolean;
+  /** Set when the session was ended by a sign-in that put the person over the device limit (D122); `null` for every other reason, and when there was no session. */
+  readonly endedBy: SessionEnd | null;
+}
+
+export class SessionStatusHandler {
+  readonly name = 'SessionStatus';
+  readonly policy = SESSION_STATUS_POLICY;
+
+  constructor(private readonly deps: { readonly sessions: SessionStore; readonly users: UserStore; readonly tokens: TokenFactory; readonly clock: Clock }) {}
+
+  /**
+   * Whether the token the request carries is a session in force, and if it was ended by a later sign-in, that. It answers 200 either way, so a page asking on every load is not a
+   * stream of 401s, and it says no more to someone holding a token than that token's own session would. A token that is nobody's is the same answer as one that has ended for any other
+   * reason, so it cannot be used to find out which tokens exist.
+   */
+  async handle(command: { readonly sessionToken: unknown }, context: ApplicationContext): Promise<Result<SessionStatus, ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return err(permitted.error);
+    const session = typeof command.sessionToken === 'string' ? await this.deps.sessions.findByTokenHash(this.deps.tokens.hashToken(command.sessionToken)) : null;
+    if (session === null) return ok({ signedIn: false, endedBy: null });
+    if (sessionState(session, this.deps.clock.now()) === 'live') {
+      const found = await this.deps.users.findById(session.userId);
+      return ok({ signedIn: found !== null && found.user.disabledAt === null, endedBy: null });
+    }
+    return ok({ signedIn: false, endedBy: session.revokedReason === 'device_limit' ? 'another_sign_in' : null });
+  }
+}
+

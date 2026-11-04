@@ -15,6 +15,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { webcrypto } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 
 const BASE = (process.env.STACK_URL ?? 'http://localhost:8080').replace(/\/$/u, '');
 const MAIL_DIR = process.env.MAIL_DIR;
@@ -166,6 +167,9 @@ const weak = await timed('home names the first weakness', async () => {
   return named.body.concepts[0];
 });
 check(typeof weak.name === 'string' && weak.name.length > 0 && !/^[0-9a-f-]{8,}$/u.test(weak.name), `the weakest topic is not named: ${JSON.stringify(weak)}`);
+
+// who this made, for the restore drill to bring back (tools/stack-journey/returning.mjs); nothing else reads it
+if (process.env.JOURNEY_LEARNER_FILE !== undefined) writeFileSync(process.env.JOURNEY_LEARNER_FILE, JSON.stringify({ address, password: PASSWORD }));
 
 const total = Math.round(steps.reduce((sum, entry) => sum + entry.ms, 0));
 const lines = steps.map((entry) => `  ${entry.step.padEnd(62)} ${String(entry.ms).padStart(9)} ms`);

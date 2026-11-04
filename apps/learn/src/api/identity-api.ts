@@ -1,4 +1,4 @@
-import { ApiProblemError, type ApiClient } from '@questionbank/contracts/client';
+import type { ApiClient } from '@questionbank/contracts/client';
 import { z } from 'zod';
 
 /**
@@ -6,8 +6,8 @@ import { z } from 'zod';
  * (ADR-0065): a login answers with the session's token for clients that are not browsers, and nothing here reads or keeps it.
  */
 export interface IdentityApi {
-  /** Whether a session is in force: `true`, `false` only on the server's "who are you", and an error for anything else, so a lost connection is not read as being signed out. */
-  signedIn(): Promise<boolean>;
+  /** Whether a session is in force, and if it was ended by a later sign-in, that. An error for anything but the server's answer, so a lost connection is not read as being signed out. */
+  signedIn(): Promise<SessionStatus>;
   register(email: string, password: string): Promise<void>;
   login(email: string, password: string): Promise<void>;
   logout(): Promise<void>;
@@ -20,19 +20,14 @@ export interface IdentityApi {
 }
 
 const answered = z.object({}).passthrough();
+const sessionStatus = z.object({ signedIn: z.boolean(), endedBy: z.literal('another_sign_in').nullable() });
+export type SessionStatus = z.infer<typeof sessionStatus>;
 
 export function createIdentityApi(client: ApiClient): IdentityApi {
   const post = (path: string, body: object = {}): Promise<void> => client.request({ method: 'POST', path: `/v1/identity${path}`, body, responseSchema: answered }).then(() => undefined);
   const verified = new Map<string, Promise<void>>();
   return {
-    signedIn: () =>
-      client.request({ path: '/v1/learning/profile', responseSchema: answered }).then(
-        () => true,
-        (error: unknown) => {
-          if (error instanceof ApiProblemError && error.problem.status === 401) return false;
-          throw error;
-        },
-      ),
+    signedIn: () => client.request({ path: '/v1/identity/session', responseSchema: sessionStatus }),
     register: (email, password) => post('/register', { email, password }),
     login: (email, password) => post('/login', { email, password }),
     logout: () => post('/logout'),

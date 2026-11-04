@@ -102,6 +102,8 @@ export interface LoginResult {
   readonly expiresAt: string;
   readonly userId: string;
   readonly emailVerified: boolean;
+  /** How many of the person's other sessions this login ended because they were over the limit: a count, and not which (DEC-M8-28). */
+  readonly sessionsEnded: number;
 }
 
 export class LoginHandler {
@@ -133,11 +135,11 @@ export class LoginHandler {
     const sessionToken = this.deps.tokens.newToken();
     const sessionId = this.deps.identifiers.next();
     const expiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS);
-    await this.deps.sessions.insertWithinLimit(
+    const { revokedForLimit } = await this.deps.sessions.insertWithinLimit(
       { sessionId, userId: user.userId, tokenHash: this.deps.tokens.hashToken(sessionToken), createdAt: now, expiresAt, rotatedFrom: null },
       this.deps.maxSessionsPerUser,
     );
-    return ok({ sessionToken, sessionId, expiresAt: expiresAt.toISOString(), userId: user.userId, emailVerified: user.emailVerifiedAt !== null });
+    return ok({ sessionToken, sessionId, expiresAt: expiresAt.toISOString(), userId: user.userId, emailVerified: user.emailVerifiedAt !== null, sessionsEnded: revokedForLimit });
   }
 
   private decoy(): Promise<StoredCredential> {

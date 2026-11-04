@@ -84,3 +84,16 @@ steps are already named in the test so the two can be set side by side.
 
 What is proved without them: the request SES would receive (endpoint, sender, one recipient, subject and body) and its signature, the last against AWS's published test vector; that a refusal, an unreadable answer, a timeout and an unreachable provider each fail the send with a reason that holds neither the address nor the code; that a process with all four settings sends through SES, one with none writes a file (development) or refuses every send (production), and one with some does not start and names the missing ones; that the composed application carries the settings, the app's address and a failed send's one log line to the adapter; and that none of it changes what a stranger is told when a send fails (DEC-M8-25). **The `compose` job boots the stack in development mode, where mail is a file; a green boot says nothing about SES.**
 
+## Before a host exists (M8 Track K)
+
+What was checked by a machine, what it found, and what stays open. None of this is a statement about real people.
+
+| What | Result | What it is worth |
+|---|---|---|
+| Dependency audit of the lockfile (`tools/security/scan.mjs`, the `security` job) | The first run found **52 advisories: 3 critical, 21 high, 23 moderate, 5 low**. Overrides to the patched releases (DEC-M8-29) leave **5 moderate**, all in the test runner (D126). The job fails at high. | Published advisories about this lockfile, and nothing about this code. The manual security review and M9's penetration test are not done (D125). |
+| Credential-shaped text in tracked files | None, apart from two files planted on purpose so that F39 can be seen to find them. The scan's own test was the first thing it found. | Shapes, not secrets (D125). |
+| Learner screens against WCAG 2.2 AA (`accessibility.spec.ts`, axe in a real Chrome) | 44 screens and states; **one finding: controls 21 pixels high**, under the 24 WCAG 2.2 asks for. They are 44 now. | About a third of what a person would find. Reading order, announcements, focus, a screen-reader pass of the diagnostic and the unstyled colour tokens are not checked (D127). |
+| A learner signed out by a login elsewhere (D122) | Told so on the sign-in screen, from a route that says why the session ended. | One reason, in one sentence; no list of devices. |
+| The database and the API reachable from outside the host (D123) | Published on `127.0.0.1` only, enforced by the `fitness` job; the database asks for a password. | Not a firewall: 8080 is meant to be reached. |
+| Backup and restore | The restore drill runs in the `compose` job (below once it has run). | The stack's volume, not a host, and not kept off it (D128). |
+

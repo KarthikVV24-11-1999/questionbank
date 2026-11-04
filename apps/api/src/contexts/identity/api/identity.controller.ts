@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Headers, Inject, Ip, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Inject, Ip, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ROLES } from '../../../platform/auth/roles.js';
 import type { ApplicationError } from '../application/authorization.js';
@@ -89,6 +89,12 @@ export class IdentityController {
   @Post('/v1/identity/logout-all')
   async logoutAll(@Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
     await this.run(response, headers, this.handlers.logoutAll, {}, 200, 'session', null, ip);
+  }
+
+  /** Whether the session the request carries is in force, and whether a later sign-in ended it (D122). A read, so it asks for no echo, and it answers 200 either way. */
+  @Get('/v1/identity/session')
+  async sessionStatus(@Headers() headers: Record<string, string>, @Ip() ip: string, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, this.handlers.sessionStatus, { sessionToken: bearerOf(headers) }, 200, 'anonymous', null, ip);
   }
 
   @Post('/v1/identity/session/rotate')

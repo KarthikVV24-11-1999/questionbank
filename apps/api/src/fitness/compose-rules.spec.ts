@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { baseDirOf, checkCompose, parseCompose, REQUIRED_SERVICES, SECRET_ENV } from './compose-rules.js';
+import { baseDirOf, checkCompose, LOOPBACK_ONLY_SERVICES, parseCompose, parsePublished, REQUIRED_SERVICES, SECRET_ENV } from './compose-rules.js';
 
 const COMPOSE_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -46,7 +46,7 @@ describe('planted mutations — one per assertion', () => {
 
   it('a duplicate host port is a violation', () => {
     const mutated = clone(real);
-    mutated.services!['studio']!.ports = ['5432:5432'];
+    mutated.services!['studio']!.ports = ['127.0.0.1:5432:5432'];
     expect(checkCompose(mutated).some((v) => v.rule === 'DUPLICATE_HOST_PORT')).toBe(true);
   });
 
@@ -76,7 +76,7 @@ describe('planted mutations — one per assertion', () => {
 
   it('postgres not publishing 5432 is a violation', () => {
     const mutated = clone(real);
-    mutated.services!['postgres']!.ports = ['5433:5432'];
+    mutated.services!['postgres']!.ports = ['127.0.0.1:5433:5432'];
     expect(checkCompose(mutated).some((v) => v.rule === 'POSTGRES_PORT')).toBe(true);
   });
 
@@ -144,3 +144,57 @@ describe('the commands to boot it', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 });
+
+describe('published ports (D123)', () => {
+  const real = parseCompose(COMPOSE_PATH);
+
+  it('reads the two-field and the three-field forms, and a protocol', () => {
+    expect(parsePublished('5432:5432')).toEqual({ address: null, hostPort: '5432' });
+    expect(parsePublished('127.0.0.1:5432:5432')).toEqual({ address: '127.0.0.1', hostPort: '5432' });
+    expect(parsePublished('0.0.0.0:3000:3000/tcp')).toEqual({ address: '0.0.0.0', hostPort: '3000' });
+  });
+
+  it('holds the database, the API, Studio and minio to the loopback address, and says which port', () => {
+    expect([...LOOPBACK_ONLY_SERVICES]).toEqual(['postgres', 'api', 'studio', 'minio']);
+    for (const name of LOOPBACK_ONLY_SERVICES) {
+      for (const published of real.services![name]!.ports ?? []) expect(parsePublished(published).address, `${name}: ${published}`).toBe('127.0.0.1');
+    }
+    for (const widened of ['5432:5432', '0.0.0.0:5432:5432', '[::]:5432:5432']) {
+      const mutated = clone(real);
+      mutated.services!['postgres']!.ports = [widened];
+      expect(checkCompose(mutated), widened).toContainEqual({ rule: 'PORT_NOT_LOOPBACK', detail: `postgres: ${widened}` });
+    }
+  });
+
+  it('leaves the learner app\'s port to be reached', () => {
+    const mutated = clone(real);
+    mutated.services!['learn']!.ports = ['8080:8080'];
+    expect(checkCompose(mutated).filter((v) => v.rule === 'PORT_NOT_LOOPBACK')).toEqual([]);
+  });
+
+  it('still sees a collision between two published ports on one address', () => {
+    const mutated = clone(real);
+    mutated.services!['studio']!.ports = ['127.0.0.1:5432:4173'];
+    expect(checkCompose(mutated).some((v) => v.rule === 'DUPLICATE_HOST_PORT')).toBe(true);
+  });
+});
+
+describe('the database asks for a password (D123)', () => {
+  const real = parseCompose(COMPOSE_PATH);
+
+  it('is refused when it trusts whoever connects', () => {
+    const mutated = clone(real);
+    (mutated.services!['postgres']!.environment as Record<string, string>)['POSTGRES_HOST_AUTH_METHOD'] = 'trust';
+    expect(checkCompose(mutated).map((v) => v.rule)).toContain('POSTGRES_TRUST');
+  });
+
+  it('is refused when the password is written into the file, or absent', () => {
+    const written = clone(real);
+    (written.services!['postgres']!.environment as Record<string, string>)['POSTGRES_PASSWORD'] = 'hunter2';
+    expect(checkCompose(written).map((v) => v.rule)).toContain('POSTGRES_PASSWORD_NOT_A_REFERENCE');
+    const absent = clone(real);
+    delete (absent.services!['postgres']!.environment as Record<string, string>)['POSTGRES_PASSWORD'];
+    expect(checkCompose(absent).map((v) => v.rule)).toContain('POSTGRES_PASSWORD_NOT_A_REFERENCE');
+  });
+});
+

@@ -46,6 +46,14 @@ describe('signing in', () => {
     await vi.waitFor(() => expect(onOpen).toHaveBeenCalled());
   });
 
+  it('says a later sign-in ended the session only when it is told so, and says it as a statement with a way on', () => {
+    open();
+    expect(screen.queryByText(/another device/u)).toBeNull();
+    cleanup();
+    render(<SignInScreen identity={new FakeIdentityApi()} returnTo="?" changed={false} ended onOpen={vi.fn()} />);
+    expect(screen.getByRole('status')).toHaveTextContent('You were signed out because your account was signed in on another device. Sign in again to carry on here.');
+  });
+
   it('offers the other ways in: creating an account and asking for a new password', () => {
     open();
     expect(screen.getByRole('link', { name: 'Create an account' })).toHaveAttribute('href', '?auth=register');

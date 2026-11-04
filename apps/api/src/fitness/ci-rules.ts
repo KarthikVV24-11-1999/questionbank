@@ -32,7 +32,7 @@ interface Workflow {
   jobs?: Record<string, WorkflowJob>;
 }
 
-export const REQUIRED_JOBS = ['typecheck', 'unit', 'integration', 'fitness', 'build', 'compose'] as const;
+export const REQUIRED_JOBS = ['typecheck', 'unit', 'integration', 'fitness', 'build', 'security', 'compose'] as const;
 
 /** A `run:` step containing an inline assertion — the shape DEC-M0-3 forbids. */
 const INLINE_ASSERTION_PATTERN = /\bgrep\b.*&&\s*exit\s*1|\btest\s+-[a-z]\s|\[\[.*\]\]\s*\|\|\s*exit/u;
@@ -91,6 +91,15 @@ export function checkWorkflow(workflow: Workflow): CiViolation[] {
   const composeSteps = (jobs['compose']?.steps ?? []).map((step) => step.run ?? '').join('\n');
   if (composeSteps.length > 0 && !composeSteps.includes('node infra/compose/boot.mjs')) {
     violations.push({ rule: 'COMPOSE_NOT_INVOKED_BY_NAME', detail: 'compose' });
+  }
+
+  // The scan is a script the job runs by name, so a job that merely prints an audit cannot stand in for it: the exit code is the script's.
+  const securitySteps = (jobs['security']?.steps ?? []).map((step) => step.run ?? '').join('\n');
+  if (securitySteps.length > 0 && !securitySteps.includes('node tools/security/scan.mjs')) {
+    violations.push({ rule: 'SECURITY_NOT_INVOKED_BY_NAME', detail: 'security' });
+  }
+  if (/\|\|\s*true\b|\bpnpm audit\b/u.test(securitySteps)) {
+    violations.push({ rule: 'SECURITY_GATE_SWALLOWED', detail: 'security: the job calls pnpm audit itself or discards a failure' });
   }
 
   const installSteps = Object.values(jobs).flatMap((job) => job.steps ?? []).map((step) => step.run ?? '');

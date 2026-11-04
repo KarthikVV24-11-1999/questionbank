@@ -57,12 +57,13 @@ const sent = (go: (entry: Entry) => void) => (event: FormEvent<HTMLFormElement>)
   go({ form: new FormData(event.currentTarget) });
 };
 
-export function SignInScreen({ identity, returnTo, changed, onOpen }: { readonly identity: IdentityApi; readonly returnTo: string; readonly changed: boolean; readonly onOpen: (href: string) => void }): JSX.Element {
+export function SignInScreen({ identity, returnTo, changed, ended = false, onOpen }: { readonly identity: IdentityApi; readonly returnTo: string; readonly changed: boolean; readonly ended?: boolean; readonly onOpen: (href: string) => void }): JSX.Element {
   const signIn = useSubmit(({ form }: Entry) => identity.login(text(form, 'email'), text(form, 'password')), () => onOpen(returnTo));
   return (
     <main aria-label="Sign in" style={page}>
       <h1>Sign in</h1>
       {changed ? <p role="status">Your password is changed. Sign in with the new one.</p> : null}
+      {ended ? <p role="status">You were signed out because your account was signed in on another device. Sign in again to carry on here.</p> : null}
       <form aria-label="Sign in" onSubmit={sent(signIn.go)}>
         <Email autoComplete="username" />
         <Password label="Password" autoComplete="current-password" />

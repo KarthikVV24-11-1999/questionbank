@@ -11,7 +11,7 @@ name: questionbank
 #   docker compose -f infra/compose/docker-compose.yml up -d --wait postgres
 #   docker compose -f infra/compose/docker-compose.yml run --rm --no-deps api node migrate.js
 #   docker compose -f infra/compose/docker-compose.yml up -d --wait
-#   DATABASE_URL=postgres://postgres@localhost:5432/questionbank pnpm seed && pnpm --filter @questionbank/seed run seed:items
+#   DATABASE_URL=postgres://postgres:$QB_DB_PASSWORD@localhost:5432/questionbank pnpm seed && pnpm --filter @questionbank/seed run seed:items
 #
 # The secrets are references and are supplied by whoever runs the stack: AUTH_SIGNING_KEY, AUDIT_ANCHOR_KEY and FORM_PACKAGE_SIGNING_KEY, each 32 random bytes, base64 (`openssl rand -base64 32`),
 # and the three different. Nothing here holds one.
@@ -25,15 +25,20 @@ name: questionbank
 # fixtures in tests), so the service, its build context and the API's dependency on it were removed rather than a fixture written for a dependency nobody has. `valkey` and `minio` are
 # the same: the application uses neither (no cache or queue; media is a directory), so they are kept for parity with TECH-STACK §14 under the `parity` profile and are not started by default.
 
+# Which ports are published, and to whom (D123). The database, the API, Studio and minio publish on 127.0.0.1 only: the seed commands, the CI journeys and a person on the host reach them on
+# `localhost`, and nothing from outside the host can, whatever its firewall says. The learner app's 8080 is the one meant to be reached (by the TLS proxy on the same host), so it publishes
+# on every interface. `compose-rules.ts` fails the `fitness` job if one of the four is published any wider. The database also asks for a password, QB_DB_PASSWORD, a reference like the
+# keys: it takes effect when the volume is first made, so a volume made under the old `trust` setting keeps accepting anyone until it is removed (`down -v`) or its role is given a password.
+
 services:
   postgres:
     image: postgres:16
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: questionbank
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_PASSWORD: ${QB_DB_PASSWORD}
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
@@ -59,8 +64,8 @@ services:
       MINIO_ROOT_USER: questionbank
       MINIO_ROOT_PASSWORD: questionbank-local
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
     healthcheck:
       test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s
@@ -73,9 +78,9 @@ services:
       context: ../..
       dockerfile: apps/api/Dockerfile
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     environment:
-      DATABASE_URL: postgres://postgres@postgres:5432/questionbank
+      DATABASE_URL: postgres://postgres:${QB_DB_PASSWORD}@postgres:5432/questionbank
       # development, and it has to be: a production process does not start, because the only media store refuses it (D32, D124). Mail is a file unless the four settings below are given.
       NODE_ENV: development
       PORT: '3000'
@@ -130,7 +135,7 @@ services:
       context: ../..
       dockerfile: apps/studio/Dockerfile
     ports:
-      - '4173:4173'
+      - '127.0.0.1:4173:4173'
     depends_on:
       api:
         condition: service_healthy

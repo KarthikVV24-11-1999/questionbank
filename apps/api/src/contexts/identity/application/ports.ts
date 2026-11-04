@@ -97,6 +97,8 @@ export interface SessionRecord {
   readonly lastSeenAt: Date;
   readonly expiresAt: Date;
   readonly revokedAt: Date | null;
+  /** Why it was ended (`logout`, `device_limit`, ...), where it was. */
+  readonly revokedReason: string | null;
   readonly rotatedFrom: string | null;
 }
 

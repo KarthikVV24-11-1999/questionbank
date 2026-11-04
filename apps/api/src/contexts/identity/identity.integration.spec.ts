@@ -695,3 +695,33 @@ describe('when the provider will not take a message (DEC-M8-25)', () => {
     expect((await post('/register', { email: address, password: OTHER_PASSWORD })).status).toBe(202);
   });
 });
+
+describe('a session ended by a later sign-in (D122, DEC-M8-28)', () => {
+  const status = (token?: string) => (token === undefined ? http().get('/v1/identity/session') : http().get('/v1/identity/session').set('Authorization', `Bearer ${token}`));
+
+  it('is counted in the answer to the login that ended it, and told to the device that held it, and to no one else', async () => {
+    const address = await registered();
+    const sessions: string[] = [];
+    const counts: number[] = [];
+    for (let i = 0; i <= MAX_SESSIONS; i += 1) {
+      // the clock is fixed in this spec, and which session is the oldest is decided by when it was made
+      now = new Date(now.getTime() + 1_000);
+      const response = await post('/login', { email: address, password: PASSWORD });
+      sessions.push(response.body.sessionToken);
+      counts.push(response.body.sessionsEnded);
+    }
+    expect(counts).toEqual([0, 0, 0, 1]);
+    expect((await status(sessions[0])).body).toEqual({ signedIn: false, endedBy: 'another_sign_in' });
+    for (const live of sessions.slice(1)) expect((await status(live)).body, live).toEqual({ signedIn: true, endedBy: null });
+  });
+
+  it('is not claimed for a session the person ended themselves, or for a token that is nobody\'s', async () => {
+    const login = await loggedIn(await registered());
+    expect((await post('/logout', {}, login.token)).status).toBe(200);
+    expect((await status(login.token)).body).toEqual({ signedIn: false, endedBy: null });
+    expect((await status('not-a-token')).body).toEqual({ signedIn: false, endedBy: null });
+    const bare = await status();
+    expect([bare.status, bare.body]).toEqual([200, { signedIn: false, endedBy: null }]);
+  });
+});
+

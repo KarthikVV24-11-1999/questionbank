@@ -12,7 +12,7 @@ function rig(options: { session?: Partial<SessionRecord> | null; roles?: string[
   const session: SessionRecord | null =
     options.session === null
       ? null
-      : { sessionId: 's1', userId: USER_ID, tokenHash: new Uint8Array(), createdAt: NOW, lastSeenAt: NOW, expiresAt: new Date(NOW.getTime() + SESSION_LIFETIME_MS), revokedAt: null, rotatedFrom: null, ...options.session };
+      : { sessionId: 's1', userId: USER_ID, tokenHash: new Uint8Array(), createdAt: NOW, lastSeenAt: NOW, expiresAt: new Date(NOW.getTime() + SESSION_LIFETIME_MS), revokedAt: null, revokedReason: null, rotatedFrom: null, ...options.session };
   const sessions = { findByTokenHash: async () => session, touch: async (id: string, at: Date) => void touched.push([id, at]) } as unknown as SessionStore;
   const found: UserWithCredential | null = options.missingUser
     ? null
@@ -24,7 +24,7 @@ function rig(options: { session?: Partial<SessionRecord> | null; roles?: string[
 describe('roles after the session was made (M8-12)', () => {
   it('are the ones the user holds now, read at every request: a role given or taken away is in force at the next one, on the same session', async () => {
     let roles = ['learner'];
-    const session: SessionRecord = { sessionId: 's1', userId: USER_ID, tokenHash: new Uint8Array(), createdAt: NOW, lastSeenAt: NOW, expiresAt: new Date(NOW.getTime() + SESSION_LIFETIME_MS), revokedAt: null, rotatedFrom: null };
+    const session: SessionRecord = { sessionId: 's1', userId: USER_ID, tokenHash: new Uint8Array(), createdAt: NOW, lastSeenAt: NOW, expiresAt: new Date(NOW.getTime() + SESSION_LIFETIME_MS), revokedAt: null, revokedReason: null, rotatedFrom: null };
     const sessions = { findByTokenHash: async () => session, touch: async () => undefined } as unknown as SessionStore;
     const users = { findById: async () => ({ user: { userId: USER_ID, email: 'a@b.co', emailNormalized: 'a@b.co', emailVerifiedAt: null, roles, disabledAt: null, createdAt: NOW }, credential: null }) } as unknown as UserStore;
     const authenticator = new SessionAuthenticator({ sessions, users, tokens, clock: { now: () => NOW } });

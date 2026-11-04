@@ -7,7 +7,8 @@
 // demonstration questions. F8 is the sum of those, against a budget of ten minutes (BOOT_BUDGET_SECONDS). Then the journey from sign-up to a first named weakness is run over HTTP against the stack
 // (tools/stack-journey/journey.mjs) and its time is reported on its own, since it is not part of getting the stack to boot. Then the same journey is run in a real Chrome, through the learner app's
 // own screens (tools/adversarial/src/stack-journey.ts, M8-44), and reported on its own as well. The stack runs in development mode, where mail is a file the browser run reads: a green run says nothing
-// about mail through SES, which no run here can try (docs/M8-ACCEPTANCE.md, D120).
+// about mail through SES, which no run here can try (docs/M8-ACCEPTANCE.md, D120). Last, the database is backed up, dropped and restored, and the first journey's learner signs in again
+// to find their own data (infra/compose/restore-drill.mjs, M8-50).
 //
 // Nothing here is a secret: the three keys the API needs are generated for this run and discarded with it, unless the caller already supplied them. The stack is taken down at the end
 // (and its volumes removed) unless KEEP_STACK=1. Exit code 0 means every phase ran, the journey passed, and the boot was inside its budget; the time it took is printed either way.
@@ -30,10 +31,14 @@ const env = {
   AUTH_SIGNING_KEY: process.env.AUTH_SIGNING_KEY ?? randomBytes(32).toString('base64'),
   AUDIT_ANCHOR_KEY: process.env.AUDIT_ANCHOR_KEY ?? randomBytes(32).toString('base64'),
   FORM_PACKAGE_SIGNING_KEY: process.env.FORM_PACKAGE_SIGNING_KEY ?? randomBytes(32).toString('base64'),
+  // hex, so it is safe in a URL
+  QB_DB_PASSWORD: process.env.QB_DB_PASSWORD ?? randomBytes(18).toString('hex'),
   QB_MAIL_DIR: mailDir,
 };
-const DATABASE_URL = 'postgres://postgres@localhost:5432/questionbank';
+// the database publishes on 127.0.0.1 only (D123), and asks for the password above
+const DATABASE_URL = `postgres://postgres:${env.QB_DB_PASSWORD}@127.0.0.1:5432/questionbank`;
 
+const learnerFile = join(mailDir, 'learner.json');
 const phases = [];
 /** A line a GitHub Actions runner turns into an annotation on the run, readable without the job's log: the failure's cause, and each phase's time. */
 const annotate = (level, title, message) => process.stdout.write(`::${level} title=${title}::${message.slice(-3500).replace(/%/gu, '%25').replace(/\r/gu, '%0D').replace(/\n/gu, '%0A')}\n`);
@@ -61,6 +66,7 @@ const docker = (...args) => run('docker', [...compose, ...args]);
 let failure;
 let journey;
 let browserJourney;
+let restoreDrill;
 try {
   phase('build the images', () => docker('build'));
   phase('start the database', () => docker('up', '-d', '--wait', 'postgres'));
@@ -73,7 +79,7 @@ try {
   annotate('notice', 'F8', `the stack booted, migrated and seeded in ${Math.round(boot * 10) / 10} s (budget ${BUDGET_SECONDS} s)`);
 
   const began = performance.now();
-  const steps = run('node', [join(root, 'tools/stack-journey/journey.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir });
+  const steps = run('node', [join(root, 'tools/stack-journey/journey.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir, JOURNEY_LEARNER_FILE: learnerFile });
   journey = Math.round((performance.now() - began) / 100) / 10;
   annotate('notice', 'journey over HTTP', steps);
 
@@ -82,6 +88,12 @@ try {
   run('corepack', ['pnpm', '--filter', '@questionbank/adversarial', 'exec', 'vitest', 'run', '--config', 'vitest.stack.config.ts'], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir, STACK_BROWSER_REPORT: reportFile });
   browserJourney = Math.round((performance.now() - browserBegan) / 100) / 10;
   annotate('notice', 'journey in a real browser', JSON.parse(readFileSync(reportFile, 'utf8')).text);
+
+  // the database is backed up, destroyed and restored, and the learner the first journey made signs in to find their own data (M8-50)
+  const drillBegan = performance.now();
+  const drill = run('node', [join(root, 'infra/compose/restore-drill.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir, JOURNEY_LEARNER_FILE: learnerFile });
+  restoreDrill = Math.round((performance.now() - drillBegan) / 100) / 10;
+  annotate('notice', 'restore drill', drill.slice(drill.indexOf('RESTORE DRILL:')));
   if (boot > BUDGET_SECONDS) throw new Error(`F8 fails: the boot took ${boot} s and the budget is ${BUDGET_SECONDS} s`);
 } catch (error) {
   failure = error;
@@ -95,5 +107,5 @@ try {
 }
 
 const total = Math.round(phases.reduce((sum, entry) => sum + entry.seconds, 0) * 10) / 10;
-process.stdout.write(`\nBOOT PHASES\n${phases.map((entry) => `  ${entry.name.padEnd(62)} ${String(entry.seconds).padStart(7)} s`).join('\n')}\n  ${'total'.padEnd(62)} ${String(total).padStart(7)} s${journey === undefined ? '' : `\n  journey over HTTP (not part of the boot): ${journey} s`}${browserJourney === undefined ? '' : `\n  journey in a real browser, with Chrome starting (not part of the boot): ${browserJourney} s`}\n`);
+process.stdout.write(`\nBOOT PHASES\n${phases.map((entry) => `  ${entry.name.padEnd(62)} ${String(entry.seconds).padStart(7)} s`).join('\n')}\n  ${'total'.padEnd(62)} ${String(total).padStart(7)} s${journey === undefined ? '' : `\n  journey over HTTP (not part of the boot): ${journey} s`}${browserJourney === undefined ? '' : `\n  journey in a real browser, with Chrome starting (not part of the boot): ${browserJourney} s`}${restoreDrill === undefined ? '' : `\n  backup, destroy, restore and journey again (not part of the boot): ${restoreDrill} s`}\n`);
 if (failure !== undefined) process.exit(1);

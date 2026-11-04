@@ -1,4 +1,4 @@
-import type { IdentityApi } from '../api/identity-api.js';
+import type { IdentityApi, SessionStatus } from '../api/identity-api.js';
 
 /** The server's sign-in as a screen sees it: it keeps what it was asked and can be made to refuse any call, once. */
 export class FakeIdentityApi implements IdentityApi {
@@ -17,9 +17,11 @@ export class FakeIdentityApi implements IdentityApi {
     }
   }
 
-  async signedIn(): Promise<boolean> {
+  /** Set when the session was ended by a later sign-in. */
+  endedBy: SessionStatus['endedBy'] = null;
+  async signedIn(): Promise<SessionStatus> {
     this.record('signedIn');
-    return this.session;
+    return { signedIn: this.session, endedBy: this.session ? null : this.endedBy };
   }
   async register(email: string, password: string): Promise<void> {
     this.record('register', email, password);

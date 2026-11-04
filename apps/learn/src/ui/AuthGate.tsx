@@ -36,10 +36,10 @@ export function AuthGate(props: AuthGateProps): JSX.Element {
 function Checked({ identity, auth, returnTo, offerSignOut, onOpen, children }: AuthGateProps): JSX.Element {
   const signedIn = useRemote(() => identity.signedIn());
   if (signedIn.status === 'loading') return <p role="status" style={{ padding: TOKENS.spaceMedium }}>Opening…</p>;
-  if (signedIn.status === 'loaded' && !signedIn.value) {
+  if (signedIn.status === 'loaded' && !signedIn.value.signedIn) {
     if (auth.screen === 'register') return <RegisterScreen identity={identity} onOpen={onOpen} />;
     if (auth.screen === 'recover') return <RecoverScreen identity={identity} asked={auth.flags.asked === true} onOpen={onOpen} />;
-    return <SignInScreen identity={identity} returnTo={returnTo} changed={auth.flags.changed === true} onOpen={onOpen} />;
+    return <SignInScreen identity={identity} returnTo={returnTo} changed={auth.flags.changed === true} ended={signedIn.value.endedBy === 'another_sign_in'} onOpen={onOpen} />;
   }
   return (
     <>

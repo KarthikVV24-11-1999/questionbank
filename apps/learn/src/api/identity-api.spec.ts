@@ -1,4 +1,4 @@
-import { ApiProblemError, type ApiClient, type RequestOptions } from '@questionbank/contracts/client';
+import { ApiProblemError, createClient, ResponseSchemaError, type ApiClient, type RequestOptions } from '@questionbank/contracts/client';
 import { describe, expect, it } from 'vitest';
 import { createIdentityApi } from './identity-api.js';
 
@@ -54,15 +54,22 @@ describe('the identity calls', () => {
 });
 
 describe('whether a session is in force', () => {
-  it('is yes when the profile can be read, asking the one question', async () => {
-    const { seen, api } = rig();
-    expect(await api.signedIn()).toBe(true);
-    expect(seen).toEqual([{ path: '/v1/learning/profile' }]);
+  it('asks the one question, of the identity route, and gives back what the server said, including why a session ended', async () => {
+    const { seen, api } = rig(() => ({ signedIn: false, endedBy: 'another_sign_in' }));
+    expect(await api.signedIn()).toEqual({ signedIn: false, endedBy: 'another_sign_in' });
+    expect(seen).toEqual([{ path: '/v1/identity/session' }]);
+    expect(await rig(() => ({ signedIn: true, endedBy: null })).api.signedIn()).toEqual({ signedIn: true, endedBy: null });
   });
 
-  it('is no on the server\'s "who are you" and on nothing else', async () => {
-    expect(await rig(() => Promise.reject(problem(401))).api.signedIn()).toBe(false);
-    for (const status of [403, 500, 503]) await expect(rig(() => Promise.reject(problem(status))).api.signedIn(), String(status)).rejects.toBeInstanceOf(ApiProblemError);
+  it('is an error, and not "signed out", for anything but the server\'s answer: a failure, a lost connection, a shape it does not know', async () => {
+    for (const status of [401, 403, 500, 503]) await expect(rig(() => Promise.reject(problem(status))).api.signedIn(), String(status)).rejects.toBeInstanceOf(ApiProblemError);
     await expect(rig(() => Promise.reject(new TypeError('Failed to fetch'))).api.signedIn()).rejects.toThrow('Failed to fetch');
+  });
+
+  it('reads only the two reasons it knows through the real client: a shape it does not know is an error, not a sentence', async () => {
+    const through = (body: unknown) => createIdentityApi(createClient({ baseUrl: 'https://api.example/', getToken: () => null, fetchImpl: (async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch }));
+    expect(await through({ signedIn: false, endedBy: 'another_sign_in' }).signedIn()).toEqual({ signedIn: false, endedBy: 'another_sign_in' });
+    await expect(through({ signedIn: false, endedBy: 'session abc123' }).signedIn()).rejects.toBeInstanceOf(ResponseSchemaError);
+    await expect(through({ signedIn: 'yes' }).signedIn()).rejects.toBeInstanceOf(ResponseSchemaError);
   });
 });

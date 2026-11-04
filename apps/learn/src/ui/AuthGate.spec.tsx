@@ -60,6 +60,19 @@ describe('who sees the app', () => {
     expect(await screen.findByText(/Your password is changed\./u)).toBeInTheDocument();
   });
 
+  it('tells a person whose session a later sign-in ended so, in a learner\'s words, and a person whose session ended any other way nothing of it', async () => {
+    const ended = new FakeIdentityApi();
+    ended.endedBy = 'another_sign_in';
+    const view = open({ identity: ended }).view;
+    expect(await screen.findByText(/You were signed out because your account was signed in on another device\./u)).toBeInTheDocument();
+    expectNoDomainVocabulary(view.container);
+    expect((await axe.run(view.container)).violations).toEqual([]);
+    cleanup();
+    open();
+    await screen.findByRole('heading', { name: 'Sign in' });
+    expect(screen.queryByText(/signed in on another device/u)).toBeNull();
+  });
+
   it('shows the app, not a way in, to someone who is signed in and opens an address for the way in', async () => {
     open({ identity: signedIn(), screen: 'register' });
     expect(await screen.findByText('The app')).toBeInTheDocument();

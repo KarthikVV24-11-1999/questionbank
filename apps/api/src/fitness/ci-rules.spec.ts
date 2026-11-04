@@ -119,3 +119,35 @@ describe('planted violations — one per assertion', () => {
     expect(checkWorkflow(mutated).some((v) => v.rule === 'MISSING_WORKSPACE_CONCURRENCY_1')).toBe(false);
   });
 });
+
+describe('the security job (M8-48)', () => {
+  const real = parseWorkflow(WORKFLOW_PATH);
+  const steps = (workflow: typeof real) => workflow.jobs!['security']!.steps as unknown as { run?: string }[];
+
+  it('is required, and runs the scan by name', () => {
+    expect(REQUIRED_JOBS).toContain('security');
+    expect(steps(real).some((step) => (step.run ?? '').includes('node tools/security/scan.mjs'))).toBe(true);
+    expect(checkWorkflow(real)).toEqual([]);
+  });
+
+  it('a workflow without it is refused', () => {
+    const dropped = structuredClone(real) as typeof real;
+    delete dropped.jobs!['security'];
+    expect(checkWorkflow(dropped)).toContainEqual({ rule: 'MISSING_JOB', detail: 'security' });
+  });
+
+  it('a job that does not run the script is refused', () => {
+    const renamed = structuredClone(real) as typeof real;
+    renamed.jobs!['security']!.steps = steps(renamed).filter((step) => !(step.run ?? '').includes('scan.mjs')) as never;
+    expect(checkWorkflow(renamed).map((v) => v.rule)).toContain('SECURITY_NOT_INVOKED_BY_NAME');
+  });
+
+  it('a job that audits on its own, or throws a failure away, is refused: that is a report and not a gate', () => {
+    for (const run of ['corepack pnpm audit', 'node tools/security/scan.mjs || true']) {
+      const swallowed = structuredClone(real) as typeof real;
+      steps(swallowed).push({ run });
+      expect(checkWorkflow(swallowed).map((v) => v.rule), run).toContain('SECURITY_GATE_SWALLOWED');
+    }
+  });
+});
+

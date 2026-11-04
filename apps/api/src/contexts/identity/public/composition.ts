@@ -6,7 +6,7 @@ import { IdentityModule } from '../api/identity.module.js';
 import type { PrincipalResolver } from '../api/identity.controller.js';
 import { ChangePasswordHandler, LoginHandler, RegisterHandler, type MailFailureReport, RequestPasswordRecoveryHandler, ResetPasswordHandler } from '../application/handlers/credential-handlers.js';
 import { AssignRoleHandler, BootstrapFirstAdminHandler, RemoveRoleHandler } from '../application/handlers/role-handlers.js';
-import { LogoutAllHandler, LogoutHandler, RotateSessionHandler } from '../application/handlers/session-handlers.js';
+import { LogoutAllHandler, LogoutHandler, RotateSessionHandler, SessionStatusHandler } from '../application/handlers/session-handlers.js';
 import { RequestEmailVerificationHandler, VerifyEmailHandler } from '../application/handlers/verification-handlers.js';
 import type { TransactionalAudit, BoundedRunner, BreachedPasswords, Clock, IdentifierFactory, MailPort, PasswordHasher, RateLimiter } from '../application/ports.js';
 import { PasswordScreen } from '../application/password-screen.js';
@@ -109,6 +109,7 @@ export interface IdentityHandlers {
   readonly requestEmailVerification: RequestEmailVerificationHandler;
   readonly logout: LogoutHandler;
   readonly logoutAll: LogoutAllHandler;
+  readonly sessionStatus: SessionStatusHandler;
   readonly rotateSession: RotateSessionHandler;
   readonly assignRole: AssignRoleHandler;
   readonly removeRole: RemoveRoleHandler;
@@ -144,6 +145,7 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
     requestEmailVerification: new RequestEmailVerificationHandler({ oneTime, users, mail: deps.mail, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers, publicUrl: deps.publicUrl }),
     logout: new LogoutHandler({ sessions, tokens: common.tokens, clock: deps.clock }),
     logoutAll: new LogoutAllHandler({ credentials, clock: deps.clock }),
+    sessionStatus: new SessionStatusHandler({ sessions, users, tokens: common.tokens, clock: deps.clock }),
     rotateSession: new RotateSessionHandler({ sessions, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers }),
     assignRole: new AssignRoleHandler({ roles: new PostgresRoleStore(deps.pool, deps.audit), clock: deps.clock }),
     removeRole: new RemoveRoleHandler({ roles: new PostgresRoleStore(deps.pool, deps.audit), clock: deps.clock }),
