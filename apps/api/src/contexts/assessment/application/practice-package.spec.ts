@@ -107,6 +107,22 @@ describe('the package of a practice run (M8-23, D87)', () => {
     expect(r.content.asked.filter((q) => q.startsWith('stimulus '))).toEqual([`stimulus ${id(TAG.stimulus, 1)}`]);
   });
 
+  it('reads an item version two slots share once', async () => {
+    const r = rig();
+    const attemptId = await run(r, 3);
+    const stored = r.attempts.stored.get(attemptId)!;
+    r.attempts.stored.set(attemptId, { ...stored, slots: stored.slots.map((slot) => ({ ...slot, itemVersionId: stored.slots[0]!.itemVersionId })) });
+    expectValue(await r.handler.handle({ attemptId }, learner()));
+    expect(r.content.asked.filter((q) => q.startsWith('item '))).toEqual([`item ${stored.slots[0]!.itemVersionId}`]);
+  });
+
+  it('says what content said when a stimulus cannot be read, though its items can', async () => {
+    const r = rig();
+    const attemptId = await run(r, 3);
+    r.content.stimuli.clear();
+    expect(expectError(await r.handler.handle({ attemptId }, learner()))).toMatchObject({ kind: 'NotFound' });
+  });
+
   it('is a different package when the run grows, with the first slots unchanged and the digest changed', async () => {
     const r = rig();
     const attemptId = await run(r, 2);
@@ -150,6 +166,22 @@ describe('the package builder, apart from the handler', () => {
     const stimuli = new Map<string, { stimulusVersionId: string; body: string }>(attempt.slots.flatMap((slot) => (slot.stimulusVersionId === null ? [] : [[slot.stimulusVersionId, { stimulusVersionId: slot.stimulusVersionId, body: 'p' }] as const])));
     return { attempt, items, stimuli };
   }
+
+  it('refuses an attempt that is not a practice run', async () => {
+    const { attempt, items, stimuli } = await built();
+    expect(expectError(buildPracticePackage({ ...attempt, mode: 'mock' }, { items, stimuli })).code).toBe('PACKAGE_ATTEMPT_NOT_PRACTICE');
+  });
+
+  it('refuses a slot with no content, a view of another version, and a stimulus nobody supplied', async () => {
+    const { attempt, items, stimuli } = await built();
+    const first = attempt.slots[0]!.itemVersionId;
+    const without = new Map(items);
+    without.delete(first);
+    expect(expectError(buildPracticePackage(attempt, { items: without, stimuli })).code).toBe('PACKAGE_ITEM_MISSING');
+    const other = new Map(items).set(first, { itemVersionId: id(TAG.itemVersion, 6), stem: 'x' });
+    expect(expectError(buildPracticePackage(attempt, { items: other, stimuli })).code).toBe('PACKAGE_VIEW_DISAGREES_WITH_PIN');
+    expect(expectError(buildPracticePackage(attempt, { items, stimuli: new Map() })).code).toBe('PACKAGE_STIMULUS_MISSING');
+  });
 
   it('lists slots in the order of their ordinals however the run holds them', async () => {
     const { attempt, items, stimuli } = await built();
