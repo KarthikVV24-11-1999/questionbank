@@ -97,6 +97,7 @@ services:
       retries: 10
       start_period: 15s
 
+  # the healthchecks of the two nginx services name 127.0.0.1 and not localhost: nginx here listens on IPv4 only, and `localhost` in the image resolves to ::1 first
   learn:
     build:
       context: ../..
@@ -107,7 +108,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider http://localhost:8080/']
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:8080/']
       interval: 5s
       timeout: 3s
       retries: 10
@@ -123,7 +124,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider http://localhost:4173/']
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:4173/']
       interval: 5s
       timeout: 3s
       retries: 10
