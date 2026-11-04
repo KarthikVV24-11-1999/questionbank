@@ -32,6 +32,8 @@ import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
 import { HealthModule } from '../http/health.module.js';
+import { MetricsModule } from '../http/metrics.module.js';
+import { createApiMetrics } from '../observability/api-metrics.js';
 import { contentForAssessment, contentForGeneration, contentForLearning, contentJobs, register as registerContent } from '../../contexts/content/public/composition.js';
 import { curriculumForAssessment, curriculumForGeneration, curriculumForLearning, register as registerCurriculum } from '../../contexts/curriculum/public/composition.js';
 import { assessmentConsumers, assessmentForLearning, assessmentJobs, register as registerAssessment } from '../../contexts/assessment/public/composition.js';
@@ -154,6 +156,9 @@ export async function createApplication(
   const mediaStore =
     overrides.mediaStore ?? createMediaStore({ mediaStorageRoot: config.mediaStorageRoot, nodeEnv: config.nodeEnv });
   const analyticsLog = createLogger({ logLevel: config.logLevel, nodeEnv: config.nodeEnv, ...(overrides.logWrite === undefined ? {} : { write: overrides.logWrite }) });
+  // what the process measures about itself, read at GET /metrics (M8-53); refusals are counted where admission control logs them
+  const metrics = createApiMetrics({ pool, now: clock.now.bind(clock), rss: () => process.memoryUsage.rss() });
+  const refusalLog = metrics.countingRefusals(analyticsLog);
   // Who a request is: a session, looked up on every request (M8-03). The resolver every context takes is answered from the session table by a middleware installed below.
   // The token stub is not here; a test that wants it passes it as `principals`, and then no middleware is installed and no session is read.
   // identity writes its audit rows in the transaction of the change they record, so it always has the database's recorder: one a test substituted for the other contexts would not be in that transaction
@@ -220,6 +225,7 @@ export async function createApplication(
     learning: learningForAssessment({ pool }),
     // a scored practice run is announced as completed (M8-34)
     runEvents: analytics,
+    mockEvents: analytics,
     intervalCapMs: config.timeOnItemIntervalCapMs,
     ...(config.formPackageSigningKey === undefined ? {} : { packageSigningKey: config.formPackageSigningKey }),
   };
@@ -247,7 +253,7 @@ export async function createApplication(
     curriculum: new CurriculumLearnerSource(curriculumForLearning(curriculumDeps)),
     limiter: overrides.limiter ?? rateCounters,
     limits: config.rateLimitProfile,
-    refusals: analyticsLog,
+    refusals: refusalLog,
   });
   const learningForConsumers = learningForRelay({ pool, clock, identifiers });
   const learningConsumer = new LearningAttemptScoredConsumer({ evidence: learningEvidence, learning: learningForConsumers, analytics });
@@ -258,9 +264,10 @@ export async function createApplication(
     ['AttemptScored', [learningConsumer, reportConsumer]],
     ['AttemptScoreSuperseded', [learningConsumer, reportConsumer]],
   ]);
+  metrics.consumes(consumers.keys());
   const relay = new OutboxRelay(pool, consumers, overrides.relayPolicy ?? DEFAULT_RELAY_POLICY);
   const scheduler = new Scheduler([
-    { name: 'outbox.drain', everyMs: 1_000, run: async (now) => void (await relay.drain(now)) },
+    { name: 'outbox.drain', everyMs: 1_000, run: async (now) => metrics.drained(await relay.drain(now), now) },
     { name: 'rate-counters.reap', everyMs: 600_000, run: async (now) => void (await rateCounters.reapExpired(now)) },
     ...assessmentJobs(assessmentDeps),
     ...contentJobs(contentDeps),
@@ -284,13 +291,13 @@ export async function createApplication(
       passwordChange: config.rateLimitPasswordChange,
     },
     hashBound: new BoundedWork({ concurrency: config.passwordHashConcurrency, queueLimit: config.passwordHashQueue, waitMs: config.passwordHashWaitMs, timers: systemTimers }),
-    refusals: analyticsLog,
+    refusals: refusalLog,
     ...(overrides.hasher === undefined ? {} : { hasher: overrides.hasher }),
     ...(overrides.breached === undefined ? {} : { breached: overrides.breached }),
     mail: overrides.mail ?? defaultMail({ nodeEnv: config.nodeEnv, directory: join(config.mediaStorageRoot, '..', 'mail'), now: clock.now.bind(clock), ...(config.mailSes === undefined ? {} : { ses: config.mailSes }) }),
     ...(config.publicUrl === undefined ? {} : { publicUrl: config.publicUrl }),
   });
-  const rootImports = [identityModule, AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
+  const rootImports = [identityModule, AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, MetricsModule.register(metrics.registry), HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
   // a test supplied through `overrides.pool` stays that test's to close, so
   // `app.close()` never double-closes a connection the caller still owns
@@ -305,6 +312,7 @@ export async function createApplication(
     app.use(sessionCookies({ ...(config.publicUrl === undefined ? {} : { allowedOrigin: config.publicUrl }) }));
     app.use(identity.middleware);
   }
+  app.use(metrics.http());
   app.useGlobalInterceptors(new TelemetryInterceptor(telemetry));
 
   return app;

@@ -38,6 +38,10 @@ describe('a practice submission is scored without a form, and a paper\'s consume
       expect(rules({ composition: FIXTURE('composition-shared-consumer.ts') })).toEqual(['M8_25_CONSUMER_SHARED_BY_TWO_TYPES']);
     });
 
+    it('one consumer among several registered for both types, whether named or spread', () => {
+      expect(rules({ composition: FIXTURE('composition-shared-among-several.ts') })).toEqual(['M8_25_CONSUMER_SHARED_BY_TWO_TYPES']);
+    });
+
     it('a consumer for runs that reads a form', () => {
       expect(rules({ consumer: FIXTURE('consumer-reads-forms.ts') })).toEqual(['M8_25_PRACTICE_CONSUMER_READS_A_FORM']);
     });

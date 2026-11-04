@@ -31,6 +31,7 @@ import { PostgresIdempotencyStore } from '../persistence/idempotency-store.js';
 import { serveOnLoopback } from '../../testing/loopback.js';
 import { learningForLearner } from '../../contexts/learning/public/composition.js';
 import { tokenPrincipals } from '../../testing/service-tokens.js';
+import { MemorySink } from '../analytics/sink.js';
 
 /**
  * A submission becomes a score (M6-38 to M6-42): the real application, real Postgres, the real relay draining the real outbox to the
@@ -49,6 +50,7 @@ let background: Background;
 let profile: PublishedProfile;
 let formId: string;
 let slotIds: string[];
+const sink = new MemorySink();
 let now = INSIDE;
 let appClock = (): Date => new Date(now);
 
@@ -130,6 +132,7 @@ beforeAll(async () => {
     telemetry: createRecordingTelemetry(),
     clock: { now: () => appClock() },
     identifiers: uuidFactory,
+    analyticsSink: sink,
   });
   await serveOnLoopback(app);
   background = app.get<Background>(BACKGROUND);
@@ -176,6 +179,21 @@ describe('a submission is scored, once (M6-39, M6-40; D60)', () => {
     expect(after.body.score).toMatchObject({ attemptId, generation: 1, totalRaw: '10', totalMaxAvailable: '24' });
     expect(after.body.score.itemOutcomes.map((outcome: { correctness: string }) => outcome.correctness).sort()).toEqual(['correct', 'correct', 'correct', 'incorrect', 'incorrect', 'unattempted']);
     expect(await scoreRecords(attemptId)).toBe(1);
+  });
+
+  it('says that the attempt started, and that it was submitted, once each, from the facts the server committed (M8-54)', async () => {
+    const { who, attemptId } = await sat();
+    const said = (name: string) => sink.events.filter((event) => event.event_name === name && (event.context as { attempt_id?: string }).attempt_id === attemptId);
+    expect(said('mock.attempt_started')).toHaveLength(1);
+    expect(said('mock.attempt_started')[0]).toMatchObject({ surface: 'server', actor: { pseudonymous_id: who.id }, payload: { form_id: formId, profile_version_id: profile.profileVersionId, is_offline: false } });
+    expect(said('mock.attempt_submitted')).toEqual([]);
+    expect((await submit(who, attemptId)).status).toBe(200);
+    expect(said('mock.attempt_submitted')).toEqual([]);
+    await drain();
+    await database.pool.query(`UPDATE platform.outbox_message SET published_at = NULL, claimed_until = NULL, retry_at = NULL WHERE aggregate_id = $1 AND event_type = 'AttemptSubmitted'`, [attemptId]);
+    await drain();
+    expect(said('mock.attempt_submitted')).toHaveLength(1);
+    expect(said('mock.attempt_submitted')[0]).toMatchObject({ surface: 'server', payload: { submission_mode: 'manual', answered: 5, unanswered: 1, flagged: 0 } });
   });
 
   it('scores once under redelivery: the same message delivered again writes nothing', async () => {

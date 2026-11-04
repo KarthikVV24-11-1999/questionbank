@@ -19,7 +19,9 @@ import { Ed25519PackageSigner } from '../infrastructure/package-signer.js';
 import { PostgresSolutionReleases } from '../infrastructure/solution-release.repository.js';
 import { ContentSolutionReader } from '../infrastructure/content-solution-reader.js';
 import { PostgresResponseLog } from '../infrastructure/response-log.repository.js';
+import { MockAttemptEventsConsumer } from '../application/consumers/mock-attempt-events-consumer.js';
 import { ScorePracticeAttemptConsumer, type RunEvents } from '../application/consumers/practice-scoring-consumer.js';
+import type { MockEvents } from '../application/mock-events.js';
 import { ScoreSubmittedAttemptConsumer, type ScoringKeyReader, type ScoringSpecReader, type Scorer } from '../application/consumers/scoring-consumer.js';
 import type { ScoreRecordReader } from '../application/handlers/attempt-handlers.js';
 import { SubmitExpiredAttemptsHandler } from '../application/handlers/expiry-handler.js';
@@ -55,6 +57,8 @@ export interface AssessmentCompositionDeps {
   readonly curriculum: { readonly examProfilePins: ProfilePinsHandler; readonly scoringSpec: ScoringSpecReader };
   /** Where a scored practice run is announced as completed (M8-34); the root passes the analytics emitter. Absent, and nothing is said. */
   readonly runEvents?: RunEvents;
+  /** Where an attempt on a form is said to have started and been submitted (M8-54); the root passes the analytics emitter. Absent, and nothing is said. */
+  readonly mockEvents?: MockEvents;
   /** Scoring's two handlers assessment uses — scoring's `scoringForAssessment`, passed through (M6-40). */
   readonly scoring: { readonly scoreAttempt: Scorer; readonly scoreRecord: ScoreRecordReader; readonly judge: SlotJudge };
   /**
@@ -101,6 +105,7 @@ function assemble(deps: AssessmentCompositionDeps) {
     clock: deps.clock,
     identifiers: deps.identifiers,
     audit: deps.audit,
+    ...(deps.mockEvents === undefined ? {} : { events: deps.mockEvents }),
     signer: deps.packageSigningKey === undefined ? undefined : new Ed25519PackageSigner(deps.packageSigningKey),
   };
 }
@@ -129,8 +134,10 @@ export function assessmentConsumers(deps: AssessmentCompositionDeps): ReadonlyMa
     scorer: deps.scoring.scoreAttempt,
   });
   const practice = new ScorePracticeAttemptConsumer({ attempts: bag.attempts, responses: bag.responses, keys: deps.content.answerKeys, spec: deps.curriculum.scoringSpec, scorer: deps.scoring.scoreAttempt, ...(deps.runEvents === undefined ? {} : { events: deps.runEvents }) });
+  // the fact that a mock was submitted is said by a consumer of its own, so a score that fails does not keep it out of the completion rate (M8-54)
+  const submitted = deps.mockEvents === undefined ? [] : [new MockAttemptEventsConsumer({ attempts: bag.attempts, responses: bag.responses, events: deps.mockEvents })];
   return new Map([
-    ['AttemptSubmitted', [scoring]],
+    ['AttemptSubmitted', [scoring, ...submitted]],
     ['PracticeAttemptSubmitted', [practice]],
   ]);
 }

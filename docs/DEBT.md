@@ -70,13 +70,11 @@ the replacement is a swap rather than a rewrite.
 URL filters.
 **Cited** `apps/studio/src/shell/use-route.ts`
 
-### D31 — No OpenTelemetry exporter
+### D31 — The span tree is not exported, and there is no OpenTelemetry SDK
 
-The span tree stands in for a trace and does not pretend to be one. Writing an exporter against an SDK
-this repository cannot compile against would produce a file never type-checked against the API it
-claims to implement, which is worse than its absence.
+The span tree stands behind a port (`Telemetry`) and is written as JSON lines; it is not an OTLP exporter and does not pretend to be one. The first reason given here, that no `@opentelemetry/*` package could be fetched, stopped being true when the lockfile began to move (M8 Track K resolved a dozen overrides): the registry is reachable. The SDK is still not taken on, for different reasons. It is a large dependency surface that the `security` job gates at high severity; it exports to a collector, and there is no collector to export to; and the port means an exporter can be written against it later without a caller changing. What stands in the meantime is a plain text metrics page (`GET /metrics`, M8-53, DEC-M8-30): request counts and latency by route template, the outbox backlog and its age, the relay's lag, the pool, and refusals by tier. It carries no trace, and a trace id appears only in logs and spans, so a slow request can be found by its correlation id and not followed across a service.
 
-**Trigger** The OTel SDK becoming installable.
+**Trigger** A collector to export to (a host that runs one, or a hosted one chosen): write an exporter against the `Telemetry` port, and take the SDK on then, behind the audit.
 **Cited** `platform/observability/telemetry.ts`
 
 ### D32 — No S3 media store adapter
@@ -598,12 +596,14 @@ delivers; conformance is measured before the sink (DEC-M7-36). An event that con
 **Trigger** Object storage is wired, which M8's production environment brings: a sink that writes Parquet partitioned by the same date is a second implementation of the same port.
 **Cited** `apps/api/src/platform/analytics/sink.ts`
 
-### D91 — Thirty-one events whose surface shipped before capture existed are not emitted
+### D91 — Twenty-nine events whose surface shipped before capture existed are not emitted *(two of the thirty-one are now: M8 Track L, M8-54)*
 
 Events owned by M1 (taxonomy), M3 (item authoring and publication), M4 (review decisions), M5 (generation and prechecks) and M6 (the mock attempt: started, answered, flagged, interrupted,
 submitted, the package download, a failed sync) have a surface that has existed for milestones, and nothing emits them. The taxonomy was specified for M0 and capture begins at M7, and M7 wired
 only the events its own surfaces produce, so the mock attempt's whole funnel (`mock.attempt_started` against `mock.attempt_submitted` is the completion rate M8 is accepted on) is not captured.
 Some are the cheapest to add: `mock.attempt_submitted`, `item.published` and `item.review_decided` are facts a domain event in the outbox already carries.
+
+**Two are emitted (M8-54, DEC-M8-31):** `mock.attempt_started`, said where an attempt on a form is started, and `mock.attempt_submitted`, said by a consumer of the outbox's `AttemptSubmitted`. Together they are what acceptance criterion 2 (the mock completion rate) is counted from. **The other twenty-nine are still not emitted**: the rest of the M6 mock funnel (the package download, the items visited, answered and flagged, the sections, connectivity, interruption and recovery, the result viewed), M1's taxonomy, M3's item authoring and publication, M4's review decisions and M5's generation. Three limits on the two: the start is said directly after the attempt is saved, so a process that dies between the two loses it and the completion rate then reads slightly high; `is_offline` is `false` by construction, because the server hears of a start only when the device reached it; and `sync_lag_ms` is the time between the server last receiving a response event and the submission, on the server's clock, because the server holds no device wall times, so it is not the lag of the device's own queue.
 
 **Trigger** The first real learner. M8's closed beta opens the mock attempt to people whose events cannot be recovered afterwards; the M6 events are captured, derived from the outbox where a
 domain event carries the fact, before it does.
@@ -844,6 +844,34 @@ The learner app signs a person in (ADR-0065). Studio, which authors and reviews 
 
 **Trigger** The host (D118): run the restore into a second database there, set the schedule, the copy off the host and the retention; point-in-time recovery when the data is worth more than a day.
 **Cited** `infra/compose/restore-drill.mjs`
+
+### D129 — Two hundred students signing in at the same instant wait in a queue, and the queue has no sentence in the learner app
+
+Password hashing is bounded: two derives at once, 256 waiting, and a wait of at most 15 seconds (`PASSWORD_HASH_*`, D99). A derive takes 160 to 220 ms of CPU, so the sign-in rate the machine can serve is about two per core-second of derive, and a whole class signing in at once is a queue. The load run's stampede (every one of 200 students signing in in the same instant, `tools/load/load.mjs`) measures it: the figures are in `docs/M8-ACCEPTANCE.md`. The derived day-one rate (2 a second at 3x) is well within what a core serves, so the NFR targets hold at the rate the beta is expected to arrive at; the stampede is the bound on the worst case, and nothing in the NFR table states a target for it. A sign-in that waits near 15 seconds is a screen that looks hung, and one that waits longer is a "busy" refusal the learner app shows as a failure with no instruction to try again.
+
+**Trigger** The first class told to sign in together, or a stampede run that finishes slower than 15 seconds or refuses anyone: show the wait as a wait (and retry the refusal for the learner, with a delay), set `PASSWORD_HASH_CONCURRENCY` to the host's cores, and raise the capacity.
+**Cited** `tools/load/load.mjs`
+
+### D130 — Outbox messages of a type nothing consumes accumulate for ever
+
+The relay claims only messages whose type has a consumer. `ItemPublished` and `SolutionPublished` have none, so every item published leaves two live rows in `platform.outbox_message` that are never claimed, delivered or dead-lettered, and never leave the table: 36 on the seeded stack of 18 questions. They do not slow the relay (the claim's index is partial on live rows and filtered by type), but they make a count of "the outbox backlog" meaningless unless the unconsumed are counted apart, which `qb_outbox_unconsumed` now does. It was found by the soak, whose oldest unrelayed message was 14.6 days old.
+
+**Trigger** The first consumer of either type (Studio's search, an item feed), or the table's size becoming a cost: a retention sweep for messages nothing will ever consume, or a consumer that acknowledges them.
+**Cited** `apps/api/src/platform/observability/api-metrics.ts`
+
+### D131 — The load test and the soak are a floor, on a runner, for minutes
+
+`tools/load/load.mjs` plays the beta's derived rates at 3x for 90 seconds, and the soak for 180, on a two-vCPU runner that also runs the thing being measured. Latency is pessimistic, throughput is a ceiling, neither is the host's, and a percentile on it is not a production percentile. A 90-second run is about 900 operations: it cannot show a problem that needs a different shape of load (a long idle, a mock's real deadline), a leak that needs a day or a restart, or contention that needs more than one source address (the source tiers of three limits are raised for the run, so it does not measure the limiter, which has its own simulation). The 75-item form's submission and its scoring (PER-10, PER-11, PER-12) cannot be measured on a stack seeded with 18 questions and are blocked, not simulated.
+
+**Trigger** The host: run the same script against it from another machine, with a published 75-item form, and read the figures as the host's.
+**Cited** `tools/load/load.mjs`
+
+### D132 — The metrics, objectives and alert rules are files that nothing evaluates, and nothing pages anyone
+
+`GET /metrics`, `infra/observability/slo.json`, the burn-rate rules rendered from it and the synthetic probe exist, and are Tier 2 (ADR-0013): parsed and asserted, never loaded by a monitoring system, never fired. There is no Prometheus or other scraper, no store for the series, no dashboard, no receiver for a page and no on-call rotation, so acceptance criterion 5 (pages per person per week) remains blocked on exactly that; and a file full of alert rules is not observability until something reads it. The alert expressions have not been checked by `promtool` (not installed here). The objectives' numbers (99.5% available, 95% under the NFR latencies, 99% for the relay and the probe) are this repository's proposals for a beta of two hundred and have not been agreed with anyone who would be paged by them.
+
+**Trigger** A host with a monitoring system: load the rules, check them with `promtool`, point a receiver at the page alerts, and write what a page should make the person do (docs/DEPLOYMENT.md, Watching it).
+**Cited** `infra/observability/slo.json`
 
 ## Closed
 

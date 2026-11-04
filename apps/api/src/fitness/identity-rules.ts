@@ -30,6 +30,7 @@ const ALLOWED_TO_READ_CREDENTIALS = [/^src\/platform\/auth\//u, /^src\/contexts\
 /** Probes: no data and no person. Everything else with a route goes through the port. */
 export const ROUTES_WITHOUT_THE_PORT: Readonly<Record<string, string>> = {
   'src/platform/http/health.controller.ts': 'liveness and readiness probes: no data, no person, and not a versioned API surface',
+  'src/platform/http/metrics.controller.ts': 'the metrics page: counts and gauges, no person, not a versioned API surface; kept private by the loopback binding and by proxy-rules.ts, which fails the build if a proxy passes it, and not by a login (M8-53)',
 };
 
 const posix = (path: string): string => path.split('\\').join('/');

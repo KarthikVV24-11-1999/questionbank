@@ -10,8 +10,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const DOCUMENT = readFileSync(resolve(ROOT, 'docs/EVENT-CONFORMANCE.md'), 'utf8');
 const CATALOG = readCatalog(resolve(ROOT, 'docs/EVENT-TAXONOMY.md'));
 const EMITTED = emittedNamesIn([resolve(ROOT, 'apps/learn/src'), resolve(ROOT, 'apps/api/src')], CATALOG);
-/** M7's events, and M8's once shipped source emits them: an event that is emitted has a row, whoever owns it. M8's that nothing emits yet (D108, D91) have none, as M9's have none. */
-const OWNED = CATALOG.filter((event) => event.owner === 'M7' || (event.owner === 'M8' && EMITTED.includes(event.name))).map((event) => event.name);
+/** M7's events, and any other owner's once shipped source emits them: an event that is emitted has a row, whoever owns it. M8's that nothing emits yet (D108), M6's that nothing emits (D91), and M9's have none. */
+const OWNED = CATALOG.filter((event) => event.owner === 'M7' || EMITTED.includes(event.name)).map((event) => event.name);
 const M7_OWNED = CATALOG.filter((event) => event.owner === 'M7').map((event) => event.name);
 const FILE = 'apps/api/src/fitness/event-conformance-rules.spec.ts';
 const wired = (event: string, emitted: string, canFail: string) => `| \`${event}\` | wired | \`${FILE}\` :: ${emitted} | \`${FILE}\` :: ${canFail} | — |`;
@@ -21,6 +21,8 @@ const rules = (document: string, owned = ['x.one'], emitted: string[] = []) => c
 /** The envelope each wired event is emitted with, as the call site builds it. */
 const EMITTED_AS = {
   'mastery.gain_verified': { payload: { concept_identity_id: '5b0d6a1e-3f4c-4d8b-9a2e-7c1f0e9d8b6a', days_to_verify: 3.5, evidence_count: 10 }, surface: 'server' as const },
+  'mock.attempt_started': { payload: { form_id: '5b0d6a1e-3f4c-4d8b-9a2e-7c1f0e9d8b6a', profile_version_id: '5b0d6a1e-3f4c-4d8b-9a2e-7c1f0e9d8b6b', is_offline: false }, surface: 'server' as const },
+  'mock.attempt_submitted': { payload: { submission_mode: 'manual', answered: 70, unanswered: 5, flagged: 3, sync_lag_ms: 1_200 }, surface: 'server' as const },
   'mock.diagnostic_viewed': { payload: { findings_shown: 2, deepest_drill_level: 0 }, surface: 'web' as const },
   'mock.remediation_clicked': { payload: { finding_rank: 1, hours_after_result: 1.99 }, surface: 'web' as const },
   'practice.session_started': { payload: { selection_strategy: 'filtered', source: 'remediation', concept_ids: ['5b0d6a1e-3f4c-4d8b-9a2e-7c1f0e9d8b6a'], item_count: 10 }, surface: 'web' as const },
@@ -51,7 +53,7 @@ describe('the conformance table (M7-63)', () => {
     expect(parseConformanceTable(DOCUMENT).map((row) => row.event).sort()).toEqual([...OWNED].sort());
     expect(EMITTED.filter((event) => M7_OWNED.includes(event))).toEqual(['mastery.gain_verified', 'mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.item_answered', 'practice.session_abandoned', 'practice.session_completed', 'practice.session_started']);
     // M8's first emitters are onboarding (M8-22) and the concept map (M8-29); every one has a row, and nothing is emitted that no one owns
-    expect(EMITTED.filter((event) => !M7_OWNED.includes(event))).toEqual(['concept_map.viewed', 'onboarding.scope_declared', 'onboarding.step_completed']);
+    expect(EMITTED.filter((event) => !M7_OWNED.includes(event))).toEqual(['concept_map.viewed', 'mock.attempt_started', 'mock.attempt_submitted', 'onboarding.scope_declared', 'onboarding.step_completed']);
     expect(EMITTED.filter((event) => !OWNED.includes(event))).toEqual([]);
     expect(checkConformanceIndex(ROOT, DOCUMENT, OWNED, EMITTED)).toEqual([]);
   });
@@ -84,6 +86,8 @@ describe('the conformance table (M7-63)', () => {
 
 describe('the conformance check can fail', () => {
   it('catches a planted bad envelope for mastery.gain_verified', async () => expectCheckCatches('mastery.gain_verified'));
+  it('catches a planted bad envelope for mock.attempt_started', async () => expectCheckCatches('mock.attempt_started'));
+  it('catches a planted bad envelope for mock.attempt_submitted', async () => expectCheckCatches('mock.attempt_submitted'));
   it('catches a planted bad envelope for mock.diagnostic_viewed', async () => expectCheckCatches('mock.diagnostic_viewed'));
   it('catches a planted bad envelope for mock.remediation_clicked', async () => expectCheckCatches('mock.remediation_clicked'));
   it('catches a planted bad envelope for practice.session_started', async () => expectCheckCatches('practice.session_started'));

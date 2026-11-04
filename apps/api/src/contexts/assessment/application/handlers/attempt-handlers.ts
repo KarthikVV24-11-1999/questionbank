@@ -17,6 +17,7 @@ import {
   SUBMIT_ATTEMPT_POLICY,
 } from '../policies.js';
 import type { ApplicationContext, AttemptPinSource, AuditRecorder, Clock, IdentifierFactory } from '../ports.js';
+import type { MockEvents } from '../mock-events.js';
 import { toAttemptView, toAttemptWithLogView, type AttemptView, type AttemptWithLogView } from '../views.js';
 
 /** What the result handler asks of scoring, in the shape assessment needs of it. */
@@ -36,6 +37,8 @@ export interface AttemptDependencies {
   readonly clock: Clock;
   readonly identifiers: IdentifierFactory;
   readonly audit: AuditRecorder;
+  /** Where `mock.attempt_started` is said (M8-54). Absent where nothing listens. */
+  readonly events?: MockEvents;
 }
 
 /** The constraint names the database reports, which is how a conflict says what it was. */
@@ -253,6 +256,17 @@ export class StartAttemptHandler implements Handler<StartAttempt, AttemptView> {
       return err(fromAssessment(saved.error));
     }
     await record(this.deps, context, 'StartAttempt', saved.value.attemptId);
+    // an attempt on a form is the mock whose completion rate is counted (M8-54); a practice run says its own events
+    if (saved.value.formId !== null) {
+      await this.deps.events?.emit({
+        name: 'mock.attempt_started',
+        factKey: saved.value.attemptId,
+        occurredAt: now, // the moment `startAttempt` was given: the attempt's own start
+        actor: saved.value.studentId,
+        context: { attempt_id: saved.value.attemptId },
+        payload: { form_id: saved.value.formId, profile_version_id: saved.value.examProfileVersionId, is_offline: false },
+      });
+    }
     return ok(toAttemptView(saved.value, now));
   }
 }

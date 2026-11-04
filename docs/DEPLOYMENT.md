@@ -118,6 +118,27 @@ Set in the environment file. *Secret* means: never written to a file in the repo
 
 A process with **none** of the mail settings writes each message to a file inside the container: nobody outside could read it, so nobody could confirm an address. With **some** it does not start and says which are missing. Check the mail settings before inviting anyone (step 8).
 
+## Metrics
+
+`GET /metrics` on port 3000 answers in the plain text exposition format that Prometheus and anything compatible with it reads: requests and a latency histogram by route and status class, the outbox backlog and the age of its oldest message, the relay's lag (`qb_outbox_relay_seconds_since_drain`), the database pool by state, refusals by tier, and resident memory. It is **unauthenticated**, and what keeps it private is that the API listens on `127.0.0.1` and the learner app's proxy passes `/v1/` and nothing else (a rule in the `fitness` job fails if that changes). A scraper on the same host can read it at `http://127.0.0.1:3000/metrics`. **Your TLS proxy must not pass it either:** pass `/` to port 8080 and nothing to 3000. Nothing in the repository scrapes it, stores it or pages on it (D132).
+
+## Watching it
+
+What exists, and what does not. **Tier 2 (ADR-0013): everything in this section but the first paragraph is a file that has been parsed and never run.** The objectives, the alert rules and the probe are in the repository; nothing here scrapes, evaluates, stores or pages, because there is no monitoring system, no on-call rotation and no receiver for a page, and acceptance criterion 5 (pages per person per week) stays blocked on those (D132).
+
+**Scrape `GET /metrics`** on port 3000 from the host (see Metrics above) with whatever you run; Prometheus, or an agent that reads the text format. `infra/observability/alerts.yaml` is a Prometheus rule file, rendered from `infra/observability/slo.json` by `node tools/observability/render-alerts.mjs` (change an objective, render again; `--check` fails if they differ). It holds, for each of six objectives, the three multiwindow burn-rate alerts (14.4x over an hour and five minutes, 6x over six hours and thirty, 1x over three days and six hours) and two for the absence of data. They have never been loaded by Prometheus, so check them with `promtool check rules infra/observability/alerts.yaml` before relying on them.
+
+**Run the probe** from somewhere that is not the host, every five minutes. It signs in as one account you have made by registering through the app, reads what a learner's home reads, signs out, and exits non-zero naming the step. It needs three variables and a place to write, and holds no credential in the repository:
+
+```bash
+PROBE_URL=https://learn.example.org PROBE_EMAIL=probe@example.org PROBE_PASSWORD="$(cat /etc/questionbank/probe-password)" \
+  PROBE_TEXTFILE=/var/lib/node_exporter/textfile/questionbank_probe.prom node tools/stack-journey/probe.mjs
+```
+
+On a schedule with cron: `*/5 * * * * <the line above>`, or a systemd timer. `PROBE_TEXTFILE` is in the text exposition format (`qb_probe_success`, `qb_probe_duration_seconds{step}`, `qb_probe_last_run_timestamp_seconds`), for a node exporter's textfile collector to pick up, and is what the `probe` objective and the `ProbeAbsent` alert read. The probe's account is a learner like any other: it counts in the learner totals, and its password should not be a person's.
+
+**What a page should make you do** is not written, because no one has been paged: the first time one is, write it here.
+
 ## Health
 
 | Route | Question | Answers |

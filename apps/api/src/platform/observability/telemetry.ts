@@ -3,15 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { ALLOWED_ATTRIBUTE_KEYS, filterAllowlisted } from './serializer.js';
 
 /**
- * ROADMAP M0's "OpenTelemetry wiring end to end", as far as an offline
- * `node_modules/.pnpm` store allows: no `@opentelemetry/*` package is
- * present and there is no network to fetch one, so this ships the **port and
+ * ROADMAP M0's "OpenTelemetry wiring end to end", as far as it goes: this ships the **port and
  * the span tree**, not the vendor. `JsonTelemetry` below is not an OTLP
- * exporter and does not pretend to be one — writing an exporter against an
- * SDK this repository cannot compile against would produce a file that has
- * never been type-checked against the API it claims to implement, which is
- * worse than its absence. Recorded as debt **D31** ([docs/DEBT.md](../../../../../docs/DEBT.md)),
- * trigger: the OTel SDK becoming installable.
+ * exporter and does not pretend to be one. The SDK is not taken on because
+ * there is no collector to export to and it is a large surface to audit; an
+ * exporter can be written against this port later without a caller changing.
+ * Recorded as debt **D31** ([docs/DEBT.md](../../../../../docs/DEBT.md)),
+ * trigger: a collector to export to. What a host can read in the meantime is
+ * `GET /metrics` (`api-metrics.ts`).
  *
  * The correlation id `http-runner.ts` already echoes on every response
  * (§8) *is* the trace id here — not a second identifier invented alongside

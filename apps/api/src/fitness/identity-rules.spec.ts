@@ -13,7 +13,7 @@ describe('a person is authenticated by a session and by nothing else (M8-05)', (
   });
 
   it('looked at a real tree: controllers, the composition root and a probe it names as the one exception', () => {
-    expect(Object.keys(ROUTES_WITHOUT_THE_PORT)).toEqual(['src/platform/http/health.controller.ts']);
+    expect(Object.keys(ROUTES_WITHOUT_THE_PORT)).toEqual(['src/platform/http/health.controller.ts', 'src/platform/http/metrics.controller.ts']);
     expect(checkSessionOnlyAuthentication(API_ROOT, { files: ['src/platform/http/health.controller.ts'] })).toEqual([]);
   });
 

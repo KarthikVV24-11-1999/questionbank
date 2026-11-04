@@ -1,3 +1,8 @@
+import { clientEnvelopeSchema, findPii } from '@questionbank/contracts/analytics';
+import { AnalyticsEdge } from '../../../platform/analytics/edge.js';
+import { ServerEmitter } from '../../../platform/analytics/server-emitter.js';
+import { MemorySink } from '../../../platform/analytics/sink.js';
+import { logEmission } from '../../../testing/event-log.js';
 import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../platform/config/config.js';
 import { describe, expect, it } from 'vitest';
 import { conflictError } from '../domain/assessment-error.js';
@@ -438,6 +443,69 @@ describe('the paths the composed application used to be the only test of (M7-19)
     expectValue(await new SubmitAttemptHandler(r.deps).handle({ attemptId, reason: 'manual', idempotencyKey: 'sub' }, ctx()));
     const after = expectValue(await ingest.handle({ attemptId, events: [wire(attemptId, 2, 'leave')] }, ctx()));
     expect(after.results.map((e) => e.outcome)).toEqual(['late']);
+  });
+});
+
+describe('saying that a mock attempt started (M8-54)', () => {
+  function said() {
+    const sent: Array<Record<string, unknown>> = [];
+    return { sent, events: { emit: async (event: Record<string, unknown>) => void sent.push(event) } };
+  }
+
+  it('says it once, when the attempt on a form is started, as a fact about the learner\'s attempt with the form, the pinned profile and no device in it', async () => {
+    const r = rig();
+    const { sent, events } = said();
+    const created = expectValue(await create(r));
+    const handler = new StartAttemptHandler({ ...r.deps, events } as never);
+    expectValue(await handler.handle({ attemptId: created.attempt.attemptId }, ctx()));
+    expect(sent).toEqual([
+      {
+        name: 'mock.attempt_started',
+        factKey: created.attempt.attemptId,
+        occurredAt: '2026-10-21T09:00:00.000Z',
+        actor: STUDENT,
+        context: { attempt_id: created.attempt.attemptId },
+        payload: { form_id: FORM.formId, profile_version_id: r.attempts.stored.get(created.attempt.attemptId)!.examProfileVersionId, is_offline: false },
+      },
+    ]);
+  });
+
+  it('says nothing when the start is a replay, or the attempt is refused, or nothing listens', async () => {
+    const r = rig();
+    const { sent, events } = said();
+    const created = expectValue(await create(r));
+    const handler = new StartAttemptHandler({ ...r.deps, events } as never);
+    expectValue(await handler.handle({ attemptId: created.attempt.attemptId }, ctx()));
+    expectValue(await handler.handle({ attemptId: created.attempt.attemptId }, ctx()));
+    expect(sent).toHaveLength(1);
+    expectError(await handler.handle({ attemptId: created.attempt.attemptId }, ctx('system')));
+    expect(sent).toHaveLength(1);
+    const silent = rig();
+    const made = expectValue(await create(silent));
+    expectValue(await new StartAttemptHandler(silent.deps).handle({ attemptId: made.attempt.attemptId }, ctx()));
+  });
+
+  it('says nothing for a practice run, which has events of its own', async () => {
+    const r = rig();
+    const { sent, events } = said();
+    const created = expectValue(await create(r));
+    r.attempts.stored.set(created.attempt.attemptId, { ...r.attempts.stored.get(created.attempt.attemptId)!, formId: null, mode: 'practice' } as Attempt);
+    expectValue(await new StartAttemptHandler({ ...r.deps, events } as never).handle({ attemptId: created.attempt.attemptId }, ctx()));
+    expect(sent).toEqual([]);
+  });
+
+  it('emits mock.attempt_started as a valid server envelope for the learner, with no personal data in it', async () => {
+    const r = rig();
+    const sink = new MemorySink();
+    const edge = new AnalyticsEdge(sink, () => new Date('2026-10-21T10:00:00.000Z'));
+    const created = expectValue(await create(r));
+    expectValue(await new StartAttemptHandler({ ...r.deps, events: new ServerEmitter({ edge, appVersion: 'api', observe: logEmission }) } as never).handle({ attemptId: created.attempt.attemptId }, ctx()));
+    expect(sink.events).toHaveLength(1);
+    const { received_at: _stamp, ...built } = sink.events[0]!;
+    expect(clientEnvelopeSchema.safeParse(built).success).toBe(true);
+    expect(sink.events[0]).toMatchObject({ event_name: 'mock.attempt_started', surface: 'server', actor: { kind: 'human', pseudonymous_id: STUDENT }, context: { attempt_id: created.attempt.attemptId }, payload: { is_offline: false } });
+    expect(findPii(sink.events)).toEqual([]);
+    expect(edge.stats()).toMatchObject({ accepted: 1, quarantined: { UNKNOWN_EVENT_NAME: 0, INVALID_ENVELOPE: 0, PII: 0 } });
   });
 });
 

@@ -96,6 +96,10 @@ services:
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       # where the learner app is reached, so the link in a message opens it; the port is the learner service's, below
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      # the source tiers of three rate limits, blank (so the code's defaults) except in the load run, which is one source standing in for two hundred (tools/load/load.mjs says why and what is kept)
+      RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-}
+      RATE_LIMIT_REGISTER: ${RATE_LIMIT_REGISTER:-}
+      RATE_LIMIT_PROFILE: ${RATE_LIMIT_PROFILE:-}
       # mail through SES when all four are set, and none otherwise (the process refuses to start on some). References, never values: blank here means not set.
       MAIL_SES_REGION: ${MAIL_SES_REGION:-}
       MAIL_SENDER: ${MAIL_SENDER:-}

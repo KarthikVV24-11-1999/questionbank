@@ -1,0 +1,60 @@
+{
+  "tier": 2,
+  "tierNote": "Tier 2 (ADR-0013): these objectives and the alert rules generated from them are parsed and asserted by apps/api/src/fitness/observability-rules.spec.ts. No alert has fired, nothing evaluates them, and nothing pages anyone (D132).",
+  "window": "28d",
+  "burnWindows": [
+    { "long": "1h", "short": "5m", "burn": 14.4, "severity": "page", "for": "2m", "spends": "2% of the 28-day budget in an hour" },
+    { "long": "6h", "short": "30m", "burn": 6, "severity": "page", "for": "15m", "spends": "5% of the budget in six hours" },
+    { "long": "3d", "short": "6h", "burn": 1, "severity": "ticket", "for": "1h", "spends": "the whole budget at exactly the rate that exhausts it" }
+  ],
+  "objectives": [
+    {
+      "id": "availability",
+      "name": "Requests are answered without a server error",
+      "nfr": "AVL (beta)",
+      "objective": 0.995,
+      "errorRatio": "sum(rate(qb_http_requests_total{status_class=\"5xx\"}[$W])) / sum(rate(qb_http_requests_total[$W]))",
+      "why": "The beta's own figure, not the NFR's: 99.5% over 28 days is about 3.4 hours of 5xx, which two hundred students tolerate and which a single host with no standby can keep."
+    },
+    {
+      "id": "read-latency",
+      "name": "A read is answered within 200 ms",
+      "nfr": "PER-08",
+      "objective": 0.95,
+      "errorRatio": "1 - (sum(rate(qb_http_request_duration_seconds_bucket{le=\"0.2\",route=~\"GET .*\"}[$W])) / sum(rate(qb_http_request_duration_seconds_count{route=~\"GET .*\"}[$W])))",
+      "why": "PER-08's target is a p95, so the objective is that 95% of reads are under it."
+    },
+    {
+      "id": "write-latency",
+      "name": "A write is answered within 300 ms",
+      "nfr": "PER-09",
+      "objective": 0.95,
+      "errorRatio": "1 - (sum(rate(qb_http_request_duration_seconds_bucket{le=\"0.3\",route=~\"(POST|PATCH|PUT|DELETE) .*\"}[$W])) / sum(rate(qb_http_request_duration_seconds_count{route=~\"(POST|PATCH|PUT|DELETE) .*\"}[$W])))",
+      "why": "PER-09's p95. Sign-in is a write and a password hash; the load test found it close to this under a stampede (D129)."
+    },
+    {
+      "id": "concept-map-latency",
+      "name": "The concept map is read within 500 ms",
+      "nfr": "PER-16",
+      "objective": 0.95,
+      "errorRatio": "1 - (sum(rate(qb_http_request_duration_seconds_bucket{le=\"0.5\",route=\"GET /v1/learning/concept-map\"}[$W])) / sum(rate(qb_http_request_duration_seconds_count{route=\"GET /v1/learning/concept-map\"}[$W])))",
+      "why": "PER-16's p95, on the route that serves it."
+    },
+    {
+      "id": "relay-freshness",
+      "name": "No message waits more than a minute for the relay",
+      "nfr": "PER-13 (stands in for it)",
+      "objective": 0.99,
+      "errorRatio": "1 - avg_over_time((qb_outbox_oldest_unrelayed_age_seconds < bool 60)[$W:1m])",
+      "why": "PER-13 asks for a result within 60 s of submission. The API does not time that end to end; the age of the oldest message the relay has not delivered is the part of it that can queue, and it is a gauge, so it is averaged over the window and not rated."
+    },
+    {
+      "id": "probe",
+      "name": "The synthetic probe signs in and reads",
+      "nfr": "(beta)",
+      "objective": 0.99,
+      "errorRatio": "1 - avg_over_time(qb_probe_success[$W])",
+      "why": "The probe (tools/stack-journey/probe.mjs) is the one check made from outside, through the proxy; the others are the API's account of itself. A host that cannot be reached answers none of them."
+    }
+  ]
+}

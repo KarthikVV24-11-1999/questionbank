@@ -97,3 +97,9 @@ What was checked by a machine, what it found, and what stays open. None of this 
 | The database and the API reachable from outside the host (D123) | Published on `127.0.0.1` only, enforced by the `fitness` job; the database asks for a password. | Not a firewall: 8080 is meant to be reached. |
 | Backup and restore | The drill ran in the `compose` job on [CI run 41926051358](https://github.com/KarthikVV24-11-1999/questionbank/actions/runs/41926051358): 82 tables and 2,034 rows backed up (430 kB) in 0.4 s, the database dropped, restored in 1 s, every table counted the same, the learner from before signed in and found their exam, chapters and answers, and a new learner ran the journey. The stack took 12 s to start again. | The stack's volume, not a host, and not kept off it (D128). |
 
+## Load and soak (M8 Track L)
+
+What `tools/load/load.mjs` measures, against what, and what it cannot ([DEC-M8-32](IMPLEMENTATION-DECISIONS.md), DEC-M8-33; the limits are D131). The load is the beta's own share of NFR §1.1 (200 students: day-one sign-in in five minutes, B1 80% pulling a package in fifteen, B2 60% submitting in five, B3 everyone reading a result in thirty) multiplied by 3 (SCA-01), played as rates for 90 seconds on four streams at once, with every student signing in at the same instant as a fifth, reported measure. The source tiers of three rate limits are raised for the run and the subject tiers are not. Paths that need a published 75-item form (PER-10, PER-11, PER-12) and the ceiling-sized scenarios (SCA-02, SCA-03, SCA-04) are blocked and are not simulated. The sign-in stampede is D129; the outbox messages nothing consumes are D130.
+
+*Figures and the run they came from are added below once the `compose` job has produced them.*
+

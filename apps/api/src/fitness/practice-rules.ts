@@ -63,7 +63,14 @@ export function checkPracticePath(root: string, options: { readonly events?: str
 
   const declared = [...(/ASSESSMENT_EVENT_TYPES\s*=\s*\[([^\]]*)\]/u.exec(eventCode)?.[1] ?? '').matchAll(/'([A-Za-z]+)'/gu)].map((match) => match[1]!);
   const compositionCode = readCode(join(root, composition));
-  const registered = [...compositionCode.matchAll(/\[\s*'([A-Za-z]+)'\s*,\s*\[\s*([A-Za-z_$][\w$]*)\s*\]\s*\]/gu)].map((match) => ({ type: match[1]!, consumer: match[2]! }));
+  // a type's consumers are a list: one name, or several, and `...rest` for a list made elsewhere (a consumer that only says a fact beside the one that scores, M8-54)
+  const registered = [...compositionCode.matchAll(/\[\s*'([A-Za-z]+)'\s*,\s*\[([^\]]*)\]\s*\]/gu)].flatMap((match) =>
+    match[2]!
+      .split(',')
+      .map((name) => name.replace(/^\s*\.\.\./u, '').trim())
+      .filter((name) => /^[A-Za-z_$][\w$]*$/u.test(name))
+      .map((consumer) => ({ type: match[1]!, consumer })),
+  );
   for (const type of declared) {
     if (!registered.some((entry) => entry.type === type)) {
       violations.push({ rule: 'M8_25_EVENT_WITHOUT_A_CONSUMER', file: composition, message: `${composition}: ${type} is declared in ASSESSMENT_EVENT_TYPES and no consumer is registered for it, so it would sit in the outbox undelivered` });

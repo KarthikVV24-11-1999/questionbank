@@ -96,4 +96,27 @@ describe('createApplication — the composed application resolves every context,
     const response = await request(app.getHttpServer()).get('/v1/exams');
     expect(response.status).toBe(401);
   });
+
+  it('publishes what it measures at GET /metrics: counted by route template and status class, the outbox and the pool read now, and the page itself not counted', async () => {
+    await request(app.getHttpServer()).get('/healthz');
+    await request(app.getHttpServer()).get('/v1/exams');
+    await request(app.getHttpServer()).get('/no/such/route/3f2a9c10-1b2c-4d3e-8f4a-5b6c7d8e9f00');
+    const first = await request(app.getHttpServer()).get('/metrics');
+    expect(first.status).toBe(200);
+    expect(first.headers['content-type']).toMatch(/^text\/plain;/u);
+    expect(first.headers['content-type']).toContain('version=0.0.4');
+    expect(first.headers['cache-control']).toBe('no-store');
+    expect(first.text).toMatch(/^qb_http_requests_total\{route="GET \/healthz",status_class="2xx"\} [1-9]/mu);
+    expect(first.text).toMatch(/^qb_http_requests_total\{route="GET \/v1\/exams",status_class="4xx"\} [1-9]/mu);
+    expect(first.text).toMatch(/^qb_http_requests_total\{route="unmatched",status_class="4xx"\} [1-9]/mu);
+    expect(first.text).not.toContain('3f2a9c10');
+    expect(first.text).toMatch(/^qb_outbox_depth \d+$/mu);
+    expect(first.text).toMatch(/^qb_outbox_oldest_unrelayed_age_seconds \d/mu);
+    expect(first.text).toMatch(/^qb_db_pool_connections\{state="total"\} \d+$/mu);
+    expect(first.text).toMatch(/^qb_process_resident_memory_bytes \d+$/mu);
+    expect(first.text).not.toContain('qb_collector_failed{');
+    const second = await request(app.getHttpServer()).get('/metrics');
+    expect(second.text).not.toContain('route="GET /metrics"');
+  });
 });
+

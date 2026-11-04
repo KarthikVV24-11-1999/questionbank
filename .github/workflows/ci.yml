@@ -39,6 +39,7 @@ jobs:
       - run: corepack pnpm --filter @questionbank/content-renderer test
       - run: corepack pnpm --filter @questionbank/domain-types test
       - run: corepack pnpm --filter @questionbank/attempt-engine test
+      - run: node --test tools/load/model.test.mjs tools/stack-journey/probe.test.mjs tools/observability/render.test.mjs
 
   adversarial:
     # A real Chrome (the runner has one) is started, killed and restarted against the built learner app: see tools/adversarial/README.md.
@@ -131,7 +132,7 @@ jobs:
   compose:
     # F8 (docs/ARCHITECTURE.md): the stack is built, started with --wait, migrated and seeded, and the journey from sign-up to a first named weakness is run against it. The script holds the checks; this job runs it.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

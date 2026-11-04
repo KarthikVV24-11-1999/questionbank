@@ -8,7 +8,8 @@
 // (tools/stack-journey/journey.mjs) and its time is reported on its own, since it is not part of getting the stack to boot. Then the same journey is run in a real Chrome, through the learner app's
 // own screens (tools/adversarial/src/stack-journey.ts, M8-44), and reported on its own as well. The stack runs in development mode, where mail is a file the browser run reads: a green run says nothing
 // about mail through SES, which no run here can try (docs/M8-ACCEPTANCE.md, D120). Last, the database is backed up, dropped and restored, and the first journey's learner signs in again
-// to find their own data (infra/compose/restore-drill.mjs, M8-50).
+// to find their own data (infra/compose/restore-drill.mjs, M8-50). Then the load test at 3x the beta's projected peak and a soak of the same profile (tools/load/load.mjs, M8-51, M8-52); a breach of the NFR
+// table's targets, a drift past a threshold or a failed operation fails the run.
 //
 // Nothing here is a secret: the three keys the API needs are generated for this run and discarded with it, unless the caller already supplied them. The stack is taken down at the end
 // (and its volumes removed) unless KEEP_STACK=1. Exit code 0 means every phase ran, the journey passed, and the boot was inside its budget; the time it took is printed either way.
@@ -67,6 +68,8 @@ let failure;
 let journey;
 let browserJourney;
 let restoreDrill;
+let loadRun;
+let soakRun;
 try {
   phase('build the images', () => docker('build'));
   phase('start the database', () => docker('up', '-d', '--wait', 'postgres'));
@@ -94,6 +97,22 @@ try {
   const drill = run('node', [join(root, 'infra/compose/restore-drill.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir, JOURNEY_LEARNER_FILE: learnerFile });
   restoreDrill = Math.round((performance.now() - drillBegan) / 100) / 10;
   annotate('notice', 'restore drill', drill.slice(drill.indexOf('RESTORE DRILL:')));
+
+  // the load test and the soak (M8-51, M8-52). One source stands in for two hundred, so the SOURCE tiers of three limits are raised for these runs and the subject tiers are not (tools/load/load.mjs).
+  const raised = {
+    RATE_LIMIT_LOGIN: 'source=100000/10s,1000000/1h;subject=5/1m,30/15m',
+    RATE_LIMIT_REGISTER: 'source=100000/10s,1000000/1h;subject=3/1m,10/1h',
+    RATE_LIMIT_PROFILE: 'source=100000/1m,1000000/1h;subject=30/1m,300/1h',
+  };
+  run('docker', [...compose, 'up', '-d', '--force-recreate', '--wait', 'api'], raised);
+  const loadBegan = performance.now();
+  const loaded = run('node', [join(root, 'tools/load/load.mjs'), 'load'], { STACK_URL: 'http://localhost:8080', METRICS_URL: 'http://127.0.0.1:3000/metrics' });
+  loadRun = Math.round((performance.now() - loadBegan) / 100) / 10;
+  annotate('notice', 'load test', loaded.slice(loaded.indexOf('RESULTS')));
+  const soakBegan = performance.now();
+  const soaked = run('node', [join(root, 'tools/load/load.mjs'), 'soak'], { STACK_URL: 'http://localhost:8080', METRICS_URL: 'http://127.0.0.1:3000/metrics', LOAD_SECONDS: '180' });
+  soakRun = Math.round((performance.now() - soakBegan) / 100) / 10;
+  annotate('notice', 'soak', soaked.slice(soaked.indexOf('SOAK:')));
   if (boot > BUDGET_SECONDS) throw new Error(`F8 fails: the boot took ${boot} s and the budget is ${BUDGET_SECONDS} s`);
 } catch (error) {
   failure = error;
@@ -107,5 +126,5 @@ try {
 }
 
 const total = Math.round(phases.reduce((sum, entry) => sum + entry.seconds, 0) * 10) / 10;
-process.stdout.write(`\nBOOT PHASES\n${phases.map((entry) => `  ${entry.name.padEnd(62)} ${String(entry.seconds).padStart(7)} s`).join('\n')}\n  ${'total'.padEnd(62)} ${String(total).padStart(7)} s${journey === undefined ? '' : `\n  journey over HTTP (not part of the boot): ${journey} s`}${browserJourney === undefined ? '' : `\n  journey in a real browser, with Chrome starting (not part of the boot): ${browserJourney} s`}${restoreDrill === undefined ? '' : `\n  backup, destroy, restore and journey again (not part of the boot): ${restoreDrill} s`}\n`);
+process.stdout.write(`\nBOOT PHASES\n${phases.map((entry) => `  ${entry.name.padEnd(62)} ${String(entry.seconds).padStart(7)} s`).join('\n')}\n  ${'total'.padEnd(62)} ${String(total).padStart(7)} s${journey === undefined ? '' : `\n  journey over HTTP (not part of the boot): ${journey} s`}${browserJourney === undefined ? '' : `\n  journey in a real browser, with Chrome starting (not part of the boot): ${browserJourney} s`}${restoreDrill === undefined ? '' : `\n  backup, destroy, restore and journey again (not part of the boot): ${restoreDrill} s`}${loadRun === undefined ? '' : `\n  load test (not part of the boot): ${loadRun} s`}${soakRun === undefined ? '' : `\n  soak (not part of the boot): ${soakRun} s`}\n`);
 if (failure !== undefined) process.exit(1);
