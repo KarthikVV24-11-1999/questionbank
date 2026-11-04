@@ -287,7 +287,7 @@ Automated checks that fail the build when the architecture erodes.
 | F5 | Every JSONB column has a sibling `*_schema_version` |
 | F6 | Answer keys and solutions absent from every client payload (SEC-08) |
 | F7 | Every append-only table lacks UPDATE/DELETE grants for the app role (P5) |
-| F8 | Full stack boots in Compose within 10 minutes |
+| F8 | Full stack boots in Compose within 10 minutes — **passes: 50.7 s** to built, started, migrated and seeded, on [CI run 41794610763](https://github.com/KarthikVV24-11-1999/questionbank/actions/runs/41794610763) (`compose` job, `infra/compose/boot.mjs`; M8 Track I) |
 | F9 | Golden-set scoring regression passes 100% |
 | F10 | No PII string pattern in any log or telemetry output |
 

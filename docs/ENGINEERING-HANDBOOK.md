@@ -392,4 +392,4 @@ If step 3 does not work, that is the first bug and it outranks whatever you were
 ### The Compose path — built and booted in CI (Tier 1, ADR-0013, ADR-0023)
 
 `git clone && pnpm install && node infra/compose/boot.mjs`: build the images, start the database, apply the migrations, start the rest with `--wait`, load the seed and the demonstration questions, and run the journey from sign-up to a first named recommendation over HTTP. The `compose` job in `.github/workflows/ci.yml` runs
-exactly that, and F8 (`full stack healthy in ≤ 10 min`) carries the time it measured and the run it came from; the script's exit code is the claim. It has been run on a CI runner and nowhere else.
+exactly that, and F8 (`full stack healthy in ≤ 10 min`) carries the time it measured and the run it came from; the script's exit code is the claim. It has been run on a CI runner and nowhere else: [run 41794610763](https://github.com/KarthikVV24-11-1999/questionbank/actions/runs/41794610763) booted it in 50.7 s.

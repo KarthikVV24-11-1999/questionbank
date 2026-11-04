@@ -15,16 +15,16 @@ the whole catalog at M7 would report a figure that no amount of M7 work could mo
 ## The measurement
 
 `pnpm --filter @questionbank/api run event-conformance` runs the learner suite, the API's call-site specs and the built app in a real Chrome with a log marker made in the temp directory, so that every event they emit is
-appended to a file, then replays that file through a fresh edge. Last run, 2026-11-04 (after M8 Track H):
+appended to a file, then replays that file through a fresh edge. Last run, 2026-11-04 (after M8 Track I):
 
 | | |
 |---|---|
-| Events emitted by the run | 50 (40 from the learner app's screens, 7 from the server, 3 from the built app in a real Chrome) |
-| Admitted by the edge | 50 of 50 |
-| **Envelope conformance** | **50 / 50 = 100%** |
-| **Catalog coverage** | **6 of 14** M7-owned events wired |
+| Events emitted by the run | 52 (41 from the learner app's screens, 8 from the server, 3 from the built app in a real Chrome) |
+| Admitted by the edge | 52 of 52 |
+| **Envelope conformance** | **52 / 52 = 100%** |
+| **Catalog coverage** | **7 of 14** M7-owned events wired |
 
-Nineteen of the 50 are M8's: fourteen onboarding events (`onboarding.step_completed` and `onboarding.scope_declared`, from the learner's onboarding screen, M8-22) and five `concept_map.viewed` (the map and a topic's answers, M8-29). They are measured here, in the envelope figure, because the run emits them, and each has a row in the table below, as an event that is emitted has whoever owns it. They are not in the coverage figure, which is a fraction of M7's events. `onboarding.abandoned` is in the catalog and nothing emits it (D108). Neither D91 nor D92 counted `concept_map.viewed`, which M8 owns and was never in either list, so neither is narrowed by emitting it.
+Nineteen of the 52 are M8's: fourteen onboarding events (`onboarding.step_completed` and `onboarding.scope_declared`, from the learner's onboarding screen, M8-22) and five `concept_map.viewed` (the map and a topic's answers, M8-29). They are measured here, in the envelope figure, because the run emits them, and each has a row in the table below, as an event that is emitted has whoever owns it. They are not in the coverage figure, which is a fraction of M7's events. `onboarding.abandoned` is in the catalog and nothing emits it (D108). Neither D91 nor D92 counted `concept_map.viewed`, which M8 owns and was never in either list, so neither is narrowed by emitting it.
 
 Events planted on purpose, to show the check refusing them, are not logged and are not in the denominator: they are test inputs made to fail, not something the app
 emitted. The tests that plant them are the second column of the table below.

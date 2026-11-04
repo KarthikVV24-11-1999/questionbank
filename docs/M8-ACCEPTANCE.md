@@ -14,6 +14,34 @@ criterion that rests on a mechanism credited as a mechanism. M8 is not closed: i
 **One is built and timed and four are blocked.** All four blocked lines carry the blocker every milestone since M6 has carried: nothing runs where real people are, so nothing that is a statement about real people can be earned ([ADR-0013](adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md); D36 in [DEBT.md](DEBT.md)).
 They are marked blocked rather than partial because no part of any of them is true yet.
 
+## The same journey, two ways
+
+Both are one learner on one machine with nobody reading anything, so both are floors on the machine's share of the ten minutes. They differ in what they include, and the difference is the only honest basis for anything said later about the ten.
+
+| Step | In process (`first-weakness-journey.integration.spec.ts`, server's time) | Over HTTP against the booted stack (`tools/stack-journey/journey.mjs`, client's time) |
+|---|---|---|
+| register | 160 ms | 223 ms |
+| verify the address | 3 ms | 12 ms |
+| sign in | 133 ms | 191 ms |
+| choose an exam | 9 ms | 34 ms |
+| say which chapters are studied | 11 ms | 111 ms |
+| home decides what to offer | 14 ms | 43 ms |
+| make and start the diagnostic, and serve its questions | 48 ms | 193 ms |
+| send the answers | 10 ms | 37 ms |
+| submit | 6 ms | 11 ms |
+| score it and record what it showed | 38 ms | 643 ms |
+| open the map | 4 ms | (inside the line above) |
+| home names the first weakness | 8 ms | 19 ms |
+| **the path** | **443 ms** | **1,516 ms** |
+| the page and the service worker are served | not measured | 47 ms |
+
+The over-HTTP column is from [CI run 41794610763](https://github.com/KarthikVV24-11-1999/questionbank/actions/runs/41794610763) (the `compose` job; the figures are its annotations), through the address the learner app is served from, so each request crosses the network stack, the container and the proxy. It is about three and a half times the in-process path, and the difference is in two places. Every request pays the network and the proxy (the 20 to 100 ms the cheap steps gained). And the relay: in process the test drains the outbox by hand, and over HTTP the process drains it on
+its own one-second tick, so scoring and recording takes a tick; the 643 ms is that tick plus the script's polling every 100 ms, not the cost of scoring. Passwords hash in about 160 to 220 ms either way, and are the largest single cost of the machine's share.
+
+The stack booted, migrated and seeded in **50.7 s** on the same run (build the images 22.3 s, the database 10.5 s, the migrations 0.9 s, everything else healthy 12.1 s, the syllabus 2.4 s, the demonstration questions 2.5 s) against the ten minutes F8 allows. The over-HTTP run also checks that a practice run's signed package reaches the client intact through the proxy: its digest header, its ETag and its signature all agree with the bytes received, and its media type is kept.
+
+What neither is: a person with a browser. The learner app has no sign-in screen (D119), so the journey cannot be driven through it, and the time a learner spends reading and answering ten questions, about eight to ten minutes, is the largest part of the ten and is not measured here.
+
 ## What this table found
 
 The brief for the track that built row 1 assumed three things that were not so, and the table records them rather than build around them. Evidence is not recorded per response: it is recorded when a submitted run is scored, so a run answered and never submitted leaves nothing
