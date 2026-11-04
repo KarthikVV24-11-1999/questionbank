@@ -52,10 +52,11 @@ describe('assessment composition', () => {
 });
 
 describe('what the relay and the scheduler are given', () => {
-  it('hands AttemptSubmitted to the scoring consumer, and nothing else', () => {
+  it('hands AttemptSubmitted to the scoring consumer for a mock and PracticeAttemptSubmitted to the one for a run, each to its own and to no other', () => {
     const consumers = assessmentConsumers(deps());
-    expect([...consumers.keys()]).toEqual(['AttemptSubmitted']);
+    expect([...consumers.keys()]).toEqual(['AttemptSubmitted', 'PracticeAttemptSubmitted']);
     expect(consumers.get('AttemptSubmitted')?.map((consumer) => consumer.name)).toEqual(['ScoreSubmittedAttempt']);
+    expect(consumers.get('PracticeAttemptSubmitted')?.map((consumer) => consumer.name)).toEqual(['ScorePracticeAttempt']);
   });
 
   it('runs the two sweeps, named, each failing loudly when its command is refused', async () => {

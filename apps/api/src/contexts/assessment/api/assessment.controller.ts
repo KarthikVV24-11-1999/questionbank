@@ -10,6 +10,7 @@ import { statusForKind, toProblemDetails, validationProblem } from './problem-de
 
 /** What a package is served as: its own type, so nothing mistakes it for an API response. */
 export const PACKAGE_MEDIA_TYPE = 'application/vnd.questionbank.form-package+json';
+export const PRACTICE_PACKAGE_MEDIA_TYPE = 'application/vnd.questionbank.practice-package+json';
 
 export const ASSESSMENT_REGISTRY = Symbol('ASSESSMENT_REGISTRY');
 export const ASSESSMENT_PRINCIPAL_RESOLVER = Symbol('ASSESSMENT_PRINCIPAL_RESOLVER');
@@ -111,6 +112,12 @@ export class AssessmentController {
     await this.run(response, headers, 'GrowPracticeAttempt', 200, () => this.parse(growPracticeAttemptSchema, { ...this.object(body), attemptId }));
   }
 
+  /** The questions of one practice run, as signed bytes like a form's. The route is not under `/attempts`, so the service worker keeps the last copy for a run begun online and finished without a connection. */
+  @Get('/v1/assessment/practice-attempts/:attemptId/package')
+  async getPracticePackage(@Param('attemptId') attemptId: string, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetPracticePackage', 200, () => this.parse(attemptIdSchema, { attemptId }), (value) => this.sendPackage(response, value, PRACTICE_PACKAGE_MEDIA_TYPE));
+  }
+
   @Get('/v1/assessment/attempts/:attemptId/slots/:slotId/feedback')
   async getPracticeFeedback(
     @Param('attemptId') attemptId: string,
@@ -176,11 +183,11 @@ export class AssessmentController {
     return typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
   }
 
-  private sendPackage(response: Response, value: unknown): void {
+  private sendPackage(response: Response, value: unknown, mediaType: string = PACKAGE_MEDIA_TYPE): void {
     const built = value as { bytes: Uint8Array; digest: string; signature: string; keyId: string };
     response
       .status(200)
-      .setHeader('Content-Type', PACKAGE_MEDIA_TYPE)
+      .setHeader('Content-Type', mediaType)
       .setHeader('X-Package-Digest', `sha256=${built.digest}`)
       .setHeader('X-Package-Signature', built.signature)
       .setHeader('X-Package-Key-Id', built.keyId)

@@ -14,6 +14,8 @@ export interface AssessmentApi extends AttemptTransport {
   /** A practice run about the given concepts (M7-58). The key makes a retried tap return the run it already made. */
   createPracticeAttempt(request: PracticeRequest, idempotencyKey: string): Promise<AttemptDto>;
   getPackage(formId: string): Promise<PackageResponse>;
+  /** The package of one practice run: the caller's own, signed (M8-23). */
+  getPracticePackage(attemptId: string): Promise<PackageResponse>;
   getSigningKey(): Promise<SigningKey>;
 }
 
@@ -49,6 +51,10 @@ export function createAssessmentApi(client: ApiClient): AssessmentApi {
     getResult: (attemptId): Promise<ResultDto> => client.request({ path: attempt(attemptId, '/result'), responseSchema: resultSchema }),
     getPackage: async (formId) => {
       const { bytes, headers } = await client.requestBytes({ path: `/v1/assessment/forms/${encodeURIComponent(formId)}/package` });
+      return { bytes, signature: headers.get('x-package-signature'), digest: headers.get('x-package-digest'), keyId: headers.get('x-package-key-id') };
+    },
+    getPracticePackage: async (attemptId) => {
+      const { bytes, headers } = await client.requestBytes({ path: `/v1/assessment/practice-attempts/${encodeURIComponent(attemptId)}/package` });
       return { bytes, signature: headers.get('x-package-signature'), digest: headers.get('x-package-digest'), keyId: headers.get('x-package-key-id') };
     },
     getSigningKey: async () => {

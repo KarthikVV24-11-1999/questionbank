@@ -45,12 +45,12 @@ the shipped source about which events are emitted.
 | `mock.diagnostic_viewed` | wired | `apps/learn/src/ui/ReportScreen.spec.tsx` :: says the report was viewed, once, with how many findings it showed and that it has no drill-down | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for mock.diagnostic_viewed | — |
 | `mock.remediation_clicked` | wired | `apps/learn/src/ui/ReportScreen.spec.tsx` :: says the finding was tapped, with its rank and the hours since the score, and then that the run it made started, from a remediation | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for mock.remediation_clicked | — |
 | `practice.session_started` | wired | `apps/learn/src/ui/HomeScreen.spec.tsx` :: says a practice run started from the next action was a recommendation, and says nothing of a finding having been tapped | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for practice.session_started | — |
-| `practice.item_answered` | not wired | — | — | No route serves a run's questions, so no learner answers a practice item in the app (D87). M7. |
-| `practice.session_completed` | not wired | — | — | A practice submission is not scored and a run has no completion (D77). M7. |
+| `practice.item_answered` | not wired | — | — | A learner can answer a practice item in the app now (D87 is closed); the screen does not say so to analytics yet (D112). M7. |
+| `practice.session_completed` | not wired | — | — | A practice submission is scored now (D77 is closed); nothing emits the completion yet (D112). M7. |
 | `practice.session_abandoned` | not wired | — | — | A run is put down and picked up with no deadline; nothing says it was abandoned (D92). M7. |
 | `solution.viewed` | not wired | — | — | No screen shows a solution; the route serves one, and a served response is not a view (D92). M7. |
 | `remediation.set_generated` | not wired | — | — | What to practise next is computed on each read and no set is stored, so there is no moment of generation (D92). M7. |
-| `remediation.set_completed` | not wired | — | — | Needs a practice run completed and scored against a baseline (D77). M7. |
+| `remediation.set_completed` | not wired | — | — | Needs a practice run completed and scored against a baseline; a run is scored now (D77 is closed) and nothing compares it with a baseline or emits it (D112). M7. |
 | `mastery.regressed` | not wired | — | — | `days_since_gain` needs the instant of the gain the concept held, which the recorder's read of a concept does not return (D92). M7. |
 | `review.due_completed` | not wired | — | — | The review schedule is derived from evidence; no action of the learner completes a due review (D92). M7. |
 | `review.due_skipped` | not wired | — | — | No action lets a learner skip a due review (D92). M7. |

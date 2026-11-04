@@ -9,7 +9,7 @@ import pkg from '../package.json';
 import { createLearningApi, createProfileApi } from './api/learning-api.js';
 import { NO_DRAFTS, sendDraft } from './onboarding/draft.js';
 import { sentDraft } from './onboarding/onboarding-events.js';
-import { boot } from './bootstrap.js';
+import { boot, bootPractice } from './bootstrap.js';
 import { openDraftStore, openRecordStore, unavailableRecordStore } from './session/idb-record-store.js';
 import { createClockFacts } from './session/clock-facts.js';
 import { loadRecord, migrateLegacy } from './session/persistence.js';
@@ -144,7 +144,23 @@ function App(): JSX.Element {
   }
   if (formId !== null || sessionRef !== null) return <p role="alert">Open this page from your exam link.</p>;
   if (reportOf !== null) return <ReportScreen learning={learning} assessment={api} attemptId={reportOf} context={screenContext} onOpen={open} />;
-  if (practiceOf !== null) return <PracticeScreen assessment={api} attemptId={practiceOf} context={screenContext} />;
+  if (practiceOf !== null) {
+    return (
+      <PracticeScreen
+        boot={() => bootPractice({ api, ports, attemptId: practiceOf, deviceRef: window.localStorage.getItem('qb-device') ?? 'device' })}
+        every={(ms, fn) => {
+          const handle = window.setInterval(fn, ms);
+          return () => window.clearInterval(handle);
+        }}
+        onOnline={(fn) => {
+          window.addEventListener('online', fn);
+          return () => window.removeEventListener('online', fn);
+        }}
+        onUpdateWanted={() => void registration?.update()}
+        context={screenContext}
+      />
+    );
+  }
   if (onboarding !== null) return <OnboardingScreen profiles={profiles} drafts={drafts} edit={onboarding === 'coverage' ? 'coverage' : null} context={screenContext} onOpen={open} />;
   return <HomeScreen learning={learning} assessment={api} profiles={profiles} context={screenContext} onOpen={open} />;
 }

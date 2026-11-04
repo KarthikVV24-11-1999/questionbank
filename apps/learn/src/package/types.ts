@@ -59,3 +59,38 @@ export const formPackageSchema = z.object({
 export type FormPackage = z.infer<typeof formPackageSchema>;
 export type ItemView = z.infer<typeof itemViewSchema>;
 export type PackageSlot = FormPackage['sections'][number]['slots'][number];
+
+/**
+ * The package of one practice run (M8-23): the same envelope, bytes and signature as a form's, for the slots of a run. It names no form, window or session, and no marks: a run has none
+ * of those, and what a slot is worth is scoring's to read from the profile. `sittable` below is what the sitting needs of either.
+ */
+export const practicePackageSchema = z.object({
+  format: z.literal('questionbank.practice-package'),
+  formatVersion: z.literal(1),
+  run: z.object({ attemptId: z.string(), examProfileVersionId: z.string() }),
+  slots: z.array(
+    z.object({
+      slotId: z.string(),
+      ordinal: z.number(),
+      itemVersionId: z.string(),
+      stimulusVersionId: z.string().optional(),
+      item: itemViewSchema,
+    }),
+  ),
+  stimuli: z.array(z.object({ stimulusVersionId: z.string(), view: z.object({ body }).passthrough() })),
+});
+export type PracticePackage = z.infer<typeof practicePackageSchema>;
+
+/** A slot as the sitting reads it: what a form's and a run's have in common. Marks are the form's alone. */
+export type SittableSlot = Omit<PackageSlot, 'marksAvailable'>;
+
+/** What the screen sits: questions in one or more sections, and the stimuli they share. A form's package is one, and so is a practice run's. */
+export interface Paper {
+  readonly sections: ReadonlyArray<{ readonly slots: readonly SittableSlot[] }>;
+  readonly stimuli: FormPackage['stimuli'];
+}
+
+/** A run is one section that stands for nothing in any profile. */
+export function paperOfRun(run: PracticePackage): Paper {
+  return { sections: [{ slots: [...run.slots].sort((a, b) => a.ordinal - b.ordinal) }], stimuli: run.stimuli };
+}

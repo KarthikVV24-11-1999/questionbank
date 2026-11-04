@@ -39,6 +39,7 @@ x-assessment-routes:
   - /v1/assessment/package-signing-key
   - /v1/assessment/attempts
   - /v1/assessment/practice-attempts
+  - /v1/assessment/practice-attempts/{attemptId}/package
   - /v1/assessment/attempts/{attemptId}
   - /v1/assessment/attempts/{attemptId}/practice-items
   - /v1/assessment/attempts/{attemptId}/slots/{slotId}/feedback
@@ -316,6 +317,40 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/assessment/practice-attempts/{attemptId}/package:
+    get:
+      operationId: getPracticePackage
+      x-handler: GetPracticePackage
+      summary: The signed package of one practice run's questions
+      description: |
+        The same bytes-not-JSON discipline as a form's package, for one learner's own run: the body is the exact bytes that were signed, `X-Package-Signature`
+        (Ed25519, base64) covers them, `X-Package-Key-Id` says which key, and `X-Package-Digest` (also the `ETag`) is their SHA-256. It is **private to the
+        run's owner**: another learner's run, and a run that does not exist, are the same `404` with no bytes. A run that has grown (`practice-items`) has
+        more slots, so a different package and digest; the route revalidates every time. It holds no answer key and no solution, and no marks. Reading it
+        records nothing: the item's delivery was counted when its slot was added. With no signing key configured it is `503`, never an unsigned body.
+      tags: [attempts]
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The package, as the bytes that were signed.
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+            X-Package-Digest: { description: 'sha256=<hex> of the body', schema: { type: string } }
+            X-Package-Signature: { description: Ed25519 signature over the body, base64, schema: { type: string } }
+            X-Package-Key-Id: { description: Which key signed it, schema: { type: string } }
+            ETag: { description: The digest, quoted, schema: { type: string } }
+          content:
+            application/vnd.questionbank.practice-package+json:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
         '412': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 

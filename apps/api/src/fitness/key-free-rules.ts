@@ -25,6 +25,7 @@ export const KEY_FREE_SURFACES = [
   'catalogue-responses',
   'contract',
   'form-package',
+  'practice-package',
   'form-routes',
   'attempt-responses',
   'practice-feedback',

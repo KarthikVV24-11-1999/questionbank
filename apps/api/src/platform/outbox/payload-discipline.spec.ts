@@ -3,6 +3,9 @@ import { KEY_BEARING_FIELDS } from '../../fitness/content-rules.js';
 import { EVENT_FORBIDDEN_FIELDS, checkEventsCarryNoContent } from '../../fitness/generation-rules.js';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attemptSubmittedEvent } from '../../contexts/assessment/application/handlers/attempt-handlers.js';
+import { ASSESSMENT_EVENT_TYPES } from '../../contexts/assessment/domain/events/assessment-events.js';
+import { anAttempt, id, TAG } from '../../testing/assessment-fixtures.js';
 import { inDeliveryOrder } from './relay.js';
 import { FORBIDDEN_PAYLOAD_FIELDS, MAX_PAYLOAD_STRING_LENGTH, checkPayloadDiscipline } from './payload-discipline.js';
 
@@ -57,6 +60,27 @@ describe('the payload discipline', () => {
       'src/contexts/generation/domain/events/generation-events.ts',
     ];
     expect(checkEventsCarryNoContent(root, files)).toEqual([]);
+  });
+});
+
+describe('what a submission puts in the outbox (M8-25)', () => {
+  const context = { principal: { kind: 'human' as const, id: id(TAG.student, 1), roleContext: ['learner'] }, correlationId: 'c' };
+
+  it('declares both submissions, and a payload of either passes the discipline the relay applies', () => {
+    expect([...ASSESSMENT_EVENT_TYPES]).toEqual(['AttemptSubmitted', 'PracticeAttemptSubmitted']);
+    const mock = attemptSubmittedEvent(anAttempt(), 'manual', '2026-11-04T09:00:00.000Z', context);
+    const practice = attemptSubmittedEvent({ ...anAttempt(), mode: 'practice', formId: null }, 'manual', '2026-11-04T09:00:00.000Z', context);
+    expect([mock.eventType, practice.eventType]).toEqual(['AttemptSubmitted', 'PracticeAttemptSubmitted']);
+    expect(checkPayloadDiscipline(mock.payload)).toEqual([]);
+    expect(checkPayloadDiscipline(practice.payload)).toEqual([]);
+  });
+
+  it('keeps the mock\'s event as it was: it names its form, and the practice event names none', () => {
+    const mock = attemptSubmittedEvent(anAttempt(), 'manual', '2026-11-04T09:00:00.000Z', context);
+    const practice = attemptSubmittedEvent({ ...anAttempt(), mode: 'practice', formId: null }, 'expiry', '2026-11-04T09:00:00.000Z', context);
+    expect(mock).toMatchObject({ eventType: 'AttemptSubmitted', schemaVersion: 1, payload: { formId: expect.any(String) } });
+    expect(practice.payload).not.toHaveProperty('formId');
+    expect(practice.payload).toMatchObject({ reason: 'expiry' });
   });
 });
 

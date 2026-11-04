@@ -36,6 +36,9 @@ export const SWEEP_WINDOWS_POLICY: AuthorizationPolicy = policy('SweepWindows', 
  */
 export const GET_FORM_PACKAGE_POLICY: AuthorizationPolicy = policy('GetFormPackage', [ROLES.learner, ROLES.contentOps, ROLES.system]);
 
+/** A practice run's package is one learner's own run: it names `learner` alone, and the handler answers NotFound for anyone else's. */
+export const GET_PRACTICE_PACKAGE_POLICY: AuthorizationPolicy = policy('GetPracticePackage', [ROLES.learner]);
+
 /** The public half of the package signing key. Public by nature; the policy only keeps it behind sign-in like every other route. */
 export const GET_PACKAGE_SIGNING_KEY_POLICY: AuthorizationPolicy = policy('GetPackageSigningKey', [ROLES.learner, ROLES.contentOps, ROLES.system]);
 

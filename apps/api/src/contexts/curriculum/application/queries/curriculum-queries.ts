@@ -145,6 +145,11 @@ export interface ExamProfileScoringSpecView {
   readonly markingRuleSet: ReturnType<ExamProfileVersion['markingRuleSet']['toData']>;
   readonly markingRuleSetHash: string | null;
   readonly aggregation: ExamProfileVersion['aggregation'];
+  /**
+   * What one item is worth in this profile, when every section pays the same for each item (`maxMarks / itemCount` equal across sections and a whole number); `null` when they
+   * differ, because there is then no single answer for an item that belongs to no section. A practice run has no sections of its own, so this is what its slots are worth (M8-25).
+   */
+  readonly marksPerItem: number | null;
 }
 
 export interface ListExams {
@@ -402,6 +407,14 @@ export class GetExamProfilePinsQuery implements Handler<GetExamProfilePins, Exam
   }
 }
 
+/** `maxMarks / itemCount` when every section agrees on a whole number of marks, else `null`. */
+export function uniformMarksPerItem(sections: ReadonlyArray<{ readonly itemCount: number; readonly maxMarks: number }>): number | null {
+  const each = new Set(sections.map((section) => section.maxMarks / section.itemCount));
+  if (each.size !== 1) return null;
+  const [marks] = [...each] as [number];
+  return Number.isInteger(marks) && marks > 0 ? marks : null;
+}
+
 export class GetExamProfileScoringSpecQuery implements Handler<GetExamProfileScoringSpec, ExamProfileScoringSpecView> {
   readonly name = 'GetExamProfileScoringSpec';
   readonly policy = policy('GetExamProfileScoringSpec', [ROLES.system]);
@@ -422,6 +435,7 @@ export class GetExamProfileScoringSpecQuery implements Handler<GetExamProfileSco
         markingRuleSet: profile.markingRuleSet.toData(),
         markingRuleSetHash: profile.markingRuleSetHash ?? null,
         aggregation: profile.aggregation,
+        marksPerItem: uniformMarksPerItem(profile.sections),
       }),
     );
   }

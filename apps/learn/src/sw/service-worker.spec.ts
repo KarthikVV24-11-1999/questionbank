@@ -146,6 +146,37 @@ describe('what it caches', () => {
     expect(failing.handled && (await failing.response.text())).toBe('package bytes');
   });
 
+  it('keeps the last copy of a practice run\'s package for a run finished offline, and serves it when the network is down', async () => {
+    const worker = install();
+    worker.network.body = 'run bytes';
+    worker.network.headers = { 'x-package-signature': 'sig' };
+    const first = await worker.offer('/v1/assessment/practice-attempts/run-1/package');
+    expect(first.handled && (await first.response.text())).toBe('run bytes');
+    worker.network.online = false;
+    const offline = await worker.offer('/v1/assessment/practice-attempts/run-1/package');
+    expect(offline.handled && (await offline.response.text())).toBe('run bytes');
+    expect(offline.handled && offline.response.headers.get('x-package-signature')).toBe('sig');
+  });
+
+  it('gives a run that has grown its new package when the network is there, not the copy it holds', async () => {
+    const worker = install();
+    worker.network.body = 'two slots';
+    await worker.offer('/v1/assessment/practice-attempts/run-1/package');
+    worker.network.body = 'four slots';
+    const grown = await worker.offer('/v1/assessment/practice-attempts/run-1/package');
+    expect(grown.handled && (await grown.response.text())).toBe('four slots');
+    worker.network.online = false;
+    const offline = await worker.offer('/v1/assessment/practice-attempts/run-1/package');
+    expect(offline.handled && (await offline.response.text())).toBe('four slots');
+  });
+
+  it('does not answer the writes to a run, nor its attempt routes: the answers are the app\'s queue\'s', async () => {
+    const worker = install();
+    expect((await worker.offer('/v1/assessment/practice-attempts/run-1/package', { method: 'POST' })).handled).toBe(false);
+    expect((await worker.offer('/v1/assessment/attempts/run-1/practice-items', { method: 'POST' })).handled).toBe(false);
+    expect((await worker.offer('/v1/assessment/attempts/run-1/slots/s1/feedback')).handled).toBe(false);
+  });
+
   it('does not hide a refusal behind a stale copy: a 4xx is the answer, and is not cached', async () => {
     const worker = install();
     worker.network.body = 'package bytes';

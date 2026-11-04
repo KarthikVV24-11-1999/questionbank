@@ -64,3 +64,15 @@ export function aPackageDocument(extra: Record<string, unknown> = {}) {
 }
 
 export const encode = (document: unknown): Uint8Array => new TextEncoder().encode(JSON.stringify(document));
+
+/** A practice run's package document in the server's shape (M8-23): the three questions of `aPackageDocument`, as the slots of a run, with no form, section or marks. */
+export function aRunDocument(attemptId = 'run-1') {
+  const form = aPackageDocument();
+  return {
+    format: 'questionbank.practice-package',
+    formatVersion: 1,
+    run: { attemptId, examProfileVersionId: '00000000-0000-4000-8000-0000000000e1' },
+    slots: form.sections[0]!.slots.map(({ marksAvailable: _marks, ...slot }) => slot),
+    stimuli: form.stimuli,
+  };
+}

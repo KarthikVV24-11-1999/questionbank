@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { AttemptSession } from '../session/attempt-session.js';
-import type { FormPackage, PackageSlot } from '../package/types.js';
+import type { Paper, SittableSlot } from '../package/types.js';
 import { TOKENS } from '../tokens.js';
 import { Palette } from './Palette.js';
 import { QuestionPane } from './QuestionPane.js';
@@ -18,14 +18,16 @@ import { useSession } from './use-session.js';
  */
 export interface LearnAppProps {
   readonly session: AttemptSession;
-  readonly form: FormPackage;
+  readonly form: Paper;
+  /** Where a practice run is put down: given, the screen offers the way off it and back (a paper has none, and the only way off it is to submit). */
+  readonly leaveHref?: string;
   /** Called on a timer by the host to say time has passed; the app only asks for it. */
   readonly onPump?: () => void;
 }
 
-export function LearnApp({ session, form }: LearnAppProps): JSX.Element {
+export function LearnApp({ session, form, leaveHref }: LearnAppProps): JSX.Element {
   const snapshot = useSession(session);
-  const slots: PackageSlot[] = form.sections.flatMap((section) => section.slots);
+  const slots: SittableSlot[] = form.sections.flatMap((section) => section.slots);
   const stimuli = new Map(form.stimuli.map((entry) => [entry.stimulusVersionId, entry.view.body]));
   const answers = new Map(snapshot.projection.slots.map((entry) => [entry.slot, entry]));
 
@@ -38,7 +40,16 @@ export function LearnApp({ session, form }: LearnAppProps): JSX.Element {
   }, []);
 
   if (snapshot.phase === 'submitted') {
-    return <ResultPane result={snapshot.result} onRefresh={() => void session.refreshResult()} />;
+    return (
+      <>
+        <ResultPane result={snapshot.result} onRefresh={() => void session.refreshResult()} />
+        {leaveHref === undefined ? null : (
+          <p style={{ padding: TOKENS.spaceMedium }}>
+            <a href={leaveHref}>Back to what to do next</a>
+          </p>
+        )}
+      </>
+    );
   }
 
   const current = slots.find((slot) => slot.slotId === snapshot.currentSlot) ?? null;
@@ -47,7 +58,11 @@ export function LearnApp({ session, form }: LearnAppProps): JSX.Element {
   return (
     <div style={{ background: TOKENS.surface, color: TOKENS.textPrimary }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', padding: TOKENS.spaceSmall, borderBottom: `1px solid ${TOKENS.borderSubtle}` }}>
-        <TimerBadge remainingMs={snapshot.remainingMs} />
+        {snapshot.remainingMs === null ? (
+          leaveHref === undefined ? null : <a href={leaveHref}>Put this run down</a>
+        ) : (
+          <TimerBadge remainingMs={snapshot.remainingMs} />
+        )}
         <SyncIndicator status={snapshot.sync} pending={snapshot.pending} unsaved={snapshot.unsaved} storageError={snapshot.storageError} onRetry={() => void session.syncNow()} />
       </header>
 
@@ -84,7 +99,7 @@ export function LearnApp({ session, form }: LearnAppProps): JSX.Element {
             }))}
             onGo={(slotId) => session.goTo(slotId)}
           />
-          <SubmitControl onSubmit={() => void session.submit('manual')} unanswered={slots.filter((slot) => answers.get(slot.slotId)?.answer == null).length} />
+          <SubmitControl label={snapshot.remainingMs === null ? 'Finish run' : 'Submit paper'} onSubmit={() => void session.submit('manual')} unanswered={slots.filter((slot) => answers.get(slot.slotId)?.answer == null).length} />
         </main>
       )}
     </div>
@@ -92,12 +107,12 @@ export function LearnApp({ session, form }: LearnAppProps): JSX.Element {
 }
 
 /** The one thing here that is the shell's own: whether the confirmation is open. It is not about the attempt. */
-function SubmitControl({ onSubmit, unanswered }: { readonly onSubmit: () => void; readonly unanswered: number }): JSX.Element {
+function SubmitControl({ label, onSubmit, unanswered }: { readonly label: string; readonly onSubmit: () => void; readonly unanswered: number }): JSX.Element {
   const [confirming, setConfirming] = useState(false);
   if (!confirming) {
     return (
       <button type="button" onClick={() => setConfirming(true)} style={{ margin: TOKENS.spaceMedium }}>
-        Submit paper
+        {label}
       </button>
     );
   }

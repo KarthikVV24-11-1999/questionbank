@@ -546,16 +546,6 @@ for an item type in section one answers `FEEDBACK_UNAVAILABLE` instead of a wron
 slot is worth and under which section's rules; both should take the rule from the item's own section in the exam it was drawn for.
 **Cited** `apps/api/src/contexts/assessment/infrastructure/scoring-response-judge.ts`
 
-### D77 — A practice attempt's submission is not scored
-
-Scoring marks the slots of a *form*, and `AttemptSubmitted` names one. A practice attempt has no form (M7-25), so submitting one records the submission and writes
-no event: nothing reaches scoring, no score record exists for it, and Learning receives no evidence from it through the relay. This is deliberate and stated, not a
-quiet skip — the alternative, an event scoring cannot act on, would dead-letter every practice submission. It means practice responses do not yet move mastery.
-
-**Trigger** The track that feeds practice evidence to Learning: scoring needs a way to mark slots that carry no form (marks from the pinned rule set per item type), and
-the event needs a form-free shape. Until then the response log holds the responses and nothing reads them for mastery.
-**Cited** `apps/api/src/contexts/assessment/application/handlers/attempt-handlers.ts`
-
 ### D81 — A re-score does not correct the error notebook
 
 A re-score corrects the evidence Learning holds and the transitions decided on it (D72, ADR-0053). It does not touch `learning.error_entry`: a response that was wrong and is now right still has
@@ -612,16 +602,6 @@ it read, the source hands that on, and the report is labelled with it and not wi
 for the one that does.
 **Cited** `apps/api/src/contexts/learning/application/handlers/report-handlers.ts`
 
-### D87 — A practice run's questions have no route, so the app starts a run it cannot show
-
-A practice run is made and started by one tap (M7-58, DEC-M7-31) and exists on the server with its items chosen, each with an exposure row. No route gives a learner those
-items: the attempt route returns a count of slots and not their identifiers, and the content a learner is shown comes only from a signed form package, which a practice run
-(of no form) does not have. So the practice screen can show that the run has begun and how large it is, and says plainly that its questions cannot be shown; a learner cannot
-answer them, and the `GetPracticeFeedback` route has nothing to be asked about. The roadmap's one tap reaches the run and stops there.
-
-**Trigger** The route that serves a practice run's slots and their delivery content, which is a new surface on the key-free boundary and gets a `KEY-FREE.md` row of its own before it is built; the practice screen then becomes the sitting.
-**Cited** `apps/learn/src/ui/PracticeScreen.tsx`
-
 ### D88 — The learner screens are told their exam profile and taxonomy by the address, and name a concept by its identifier
 
 A practice run is made under an exam profile version, and "what is weakest" is asked about a taxonomy version; no route offers the learner either, and the attempt view does not name
@@ -673,7 +653,7 @@ Ten of the fourteen events M7 owns are not emitted, each for a fact that does no
 - `mastery.regressed` — `days_since_gain` needs the instant of the gain the concept held, which the recorder's read of a concept does not return.
 - `review.due_completed`, `review.due_skipped` — the schedule is derived from evidence; no action of the learner completes or skips a due review.
 - `error_notebook.entry_reviewed` — no route or screen marks an entry reviewed.
-- `practice.item_answered`, `practice.session_completed`, `remediation.set_completed` — held by D87 and D77, which are their own entries.
+- `practice.item_answered`, `practice.session_completed`, `remediation.set_completed` — were held by D87 and D77, which M8 Track F closed; they have a surface now and are held by D112.
 
 And `mastery.gain_verified` is emitted by the relay's consumer after the recorder has committed. If the process dies between the two, the redelivery finds the evidence stored and the gain is
 not announced again. An outbox row for the gain, written in the recorder's transaction, would make it at-least-once.
@@ -797,7 +777,57 @@ A learner who is offline can answer the class and give a past score, and the ans
 **Trigger** The first learner who starts onboarding on a connection that drops before the third question and is lost there: keep the last list read, with the taxonomy version it was read for, and say when it is older than the version in force.
 **Cited** `apps/learn/src/ui/OnboardingScreen.tsx`
 
+### D110 — A practice run cannot be scored under an exam profile whose sections pay differently for an item
+
+A practice slot belongs to no section, so what a correct answer is worth cannot come from a section. The scoring consumer for runs takes it from the profile the run pinned when every section pays the same whole number of marks per item
+(`marksPerItem`), which JEE Main and NEET do. Where they differ it fails with `PRACTICE_MARKS_UNDEFINED` and the delivery goes to the dead letters, where an operator sees it: a learner on such a profile has runs that never score, and no
+evidence from them. It is loud, not a zero, and it is still a run that does nothing.
+
+**Trigger** The first exam profile whose sections pay different marks per item: decide what an item that is in no section is worth for it (the lowest, the section of its subject, or a value the profile states for practice), and publish it as data on the profile.
+**Cited** `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.ts`
+
+### D112 — Three practice events have a surface now and nothing emits them
+
+`practice.item_answered`, `practice.session_completed` and `remediation.set_completed` were not wired because a learner could not answer a practice item (D87) and a practice submission was not scored (D77). Both are closed (M8 Track F). The screen
+the learner sits a run on is a paper's, which emits nothing for an answer, and the practice screen's finish is a submission like a paper's. The events are in the catalog and owned by M7, and none is emitted.
+
+**Trigger** The next change to the practice screen or its session: emit the three from the call sites that now know the fact (the answer, the finish of a run, a scored run set against the baseline of the concept it was started for), each with the row in the conformance table.
+**Cited** `docs/EVENT-CONFORMANCE.md`
+
+### D111 — The practice screen does not show a verdict, and a run cannot be grown from the app
+
+`GET …/slots/{slotId}/feedback` serves the word correct, incorrect or unattempted for an answered slot of a run (M7-29, and it works against the real judge), and `POST …/practice-items` adds slots to a run and changes its package. Neither has a place on
+the practice screen: a learner answers a run and finishes it, is told nothing until it is scored, and cannot ask for more questions in the same run. Both are what a practice run is for beyond being answered at all.
+
+**Trigger** The track that makes practice a loop and not a quiz: the verdict shown after each answer, and one action that adds questions and fetches the package the run now has.
+**Cited** `apps/learn/src/ui/PracticeScreen.tsx`
+
 ## Closed
+
+### D87 — A practice run's questions had no route, so the app started a run it could not show *(closed by M8 Track F, [ADR-0061](adr/ADR-0061-a-practice-run-is-delivered-as-a-package-and-scored-without-a-form.md))*
+
+A practice run was made and started by one tap (M7-58, DEC-M7-31) and existed on the server with its items chosen, each with an exposure row. No route gave a learner those items: the attempt route returned a count of
+slots, and the content a learner is shown comes only from a signed package, which a run, having no form, did not have. So the practice screen could show that the run had begun and say plainly that its questions could not
+be shown; a learner could not answer them, and the feedback route had nothing to be asked about.
+
+**What closed it (M8-23, M8-24).** A run has a signed package of its own, served by the code that serves a form's, under the same key and bytes-not-JSON discipline, at `GET /v1/assessment/practice-attempts/{attemptId}/package`.
+It is private to the run's owner (another learner's is a 404 with no bytes), changes with the run when it grows, and counts nothing when it is read. It has a row of its own in the key-free argument (`practice-package`). The
+practice screen is now the sitting: one question at a time on the screen a paper is sat on, through the same session, response log and writer, with the answers held on the device and sent after the commit that holds them, and
+finished through the attempt routes. Feedback on an answered slot works (`practice-loop.integration.spec.ts`); the screen does not show it yet (D111).
+
+**Cited** `apps/learn/src/ui/PracticeScreen.tsx`
+
+### D77 — A practice attempt's submission was not scored *(closed by M8 Track F, [ADR-0061](adr/ADR-0061-a-practice-run-is-delivered-as-a-package-and-scored-without-a-form.md))*
+
+Scoring marks the slots of a form, and `AttemptSubmitted` named one. A practice attempt has no form (M7-25), so submitting one recorded the submission and wrote no event: no score record existed for it and Learning
+received no evidence from it through the relay, so practice responses did not move mastery. That was deliberate and stated; the alternative, an event scoring could not act on, would have dead-lettered every practice submission.
+
+**What closed it (M8-25).** A form-free submission is its own event, `PracticeAttemptSubmitted`, with no form in it; `AttemptSubmitted` keeps its required form and its version, and the relay's map hands each type to its own consumer.
+Scoring read the form for the slots to mark and what each is worth. The slots are the run's own; what each is worth is what the pinned profile pays per item when its sections agree (D110 is the case where they do not). A run is
+one section standing for nothing in the profile, and the profile's best-of, which names sections of a paper, is not applied to it. Learning needed nothing new. Against real Postgres, a run is started, served, answered, submitted,
+scored and recorded as evidence, and the concept's state is made of exactly those responses (`practice-loop.integration.spec.ts`). A rule holds the wiring (`practice-rules.ts`).
+
+**Cited** `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.ts`
 
 ### D93 — The gate before a durable kill looked for the event's bytes, and failed on a runner while the app lost nothing *(closed in the repair after M7 Track I)*
 

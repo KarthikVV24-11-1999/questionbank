@@ -146,7 +146,7 @@ React subscribes; React never owns. It persists on every event, not on unmount. 
 | Error summary at the top of the form with focus moved to it, plus inline field errors | WCAG 2.2 AA and the only pattern screen-reader users can actually navigate. |
 | Every field programmatically labeled; errors bound via `aria-describedby` | Placeholder-as-label fails both accessibility and usability. |
 | Autosave with debounce in Studio; explicit submit in Learn | Losing 40 minutes of authoring is unacceptable; accidental exam submission is worse. |
-| Multi-step flows keep step in the URL and draft in local storage | A dropped connection mid-checkout must not restart onboarding. |
+| Multi-step flows derive the step from what the server holds and keep an unsent answer in IndexedDB, in the response log's database | A dropped connection mid-onboarding must not restart it. The step is read from the profile and not stored beside it, so it cannot disagree with it; the draft is not in `localStorage` because that is committed some seconds after a write, which is the window D107 is about. Onboarding is built this way (ADR-0060). |
 | Destructive actions require typed confirmation, never a bare dialog | Re-scoring and retirement are not undoable by a click. |
 
 ---

@@ -54,7 +54,7 @@ export interface ScoringSpecReader {
   handle(
     query: { readonly profileVersionId: string },
     context: ApplicationContext,
-  ): Promise<Result<{ readonly markingRuleSet: ScoreAttempt['ruleSet']; readonly markingRuleSetHash: string | null; readonly aggregation: ScoreAttempt['aggregation'] }, ApplicationError>>;
+  ): Promise<Result<{ readonly markingRuleSet: ScoreAttempt['ruleSet']; readonly markingRuleSetHash: string | null; readonly aggregation: ScoreAttempt['aggregation']; readonly marksPerItem?: number | null }, ApplicationError>>;
 }
 
 export interface Scorer {

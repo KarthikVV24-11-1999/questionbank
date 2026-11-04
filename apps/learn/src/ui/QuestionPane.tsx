@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import { ContentRenderer } from '@questionbank/content-renderer';
-import type { PackageSlot } from '../package/types.js';
+import type { SittableSlot } from '../package/types.js';
 import { TOKENS } from '../tokens.js';
 
 /**
@@ -12,7 +12,7 @@ type Answer = string | number | readonly (string | number)[] | null;
 const body = (value: unknown) => value as Parameters<typeof ContentRenderer>[0]['body'];
 
 export interface QuestionPaneProps {
-  readonly slot: PackageSlot;
+  readonly slot: SittableSlot;
   readonly stimulus: unknown;
   readonly answer: Answer;
   readonly onAnswer: (answer: string | readonly string[]) => void;
@@ -88,7 +88,7 @@ export function QuestionPane({ slot, stimulus, answer, onAnswer, onClear }: Ques
 }
 
 /** Matching is answered as a list of `left:right` pairs, which is how scoring reads it. */
-function MatchingControls({ slot, chosen, onAnswer, onClear }: { readonly slot: PackageSlot; readonly chosen: readonly string[]; readonly onAnswer: QuestionPaneProps['onAnswer']; readonly onClear: () => void }): JSX.Element {
+function MatchingControls({ slot, chosen, onAnswer, onClear }: { readonly slot: SittableSlot; readonly chosen: readonly string[]; readonly onAnswer: QuestionPaneProps['onAnswer']; readonly onClear: () => void }): JSX.Element {
   const left = slot.item.matchingLeft ?? [];
   const right = slot.item.matchingRight ?? [];
   const pairs = new Map(chosen.map((pair) => pair.split(':') as [string, string]));

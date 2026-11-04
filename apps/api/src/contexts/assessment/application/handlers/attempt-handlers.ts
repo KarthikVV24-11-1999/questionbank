@@ -1,7 +1,7 @@
 import { admitNewAttempt, isExpired, startAttempt, submitAttempt, type Attempt } from '../../domain/attempt.js';
 import { createAttemptFromForm } from '../../domain/form.js';
 import type { AttemptRepository, FormRepository, ResponseLog } from '../../domain/repository-ports.js';
-import type { AttemptSubmitted } from '../../domain/events/assessment-events.js';
+import type { AttemptSubmitted, PracticeAttemptSubmitted } from '../../domain/events/assessment-events.js';
 import { acceptResponseEvent, type ResponseEvent } from '../../domain/response-event.js';
 import { mergeIncoming } from '../../domain/response-log.js';
 import { err, ok, type Result } from '../../domain/result.js';
@@ -42,17 +42,33 @@ export interface AttemptDependencies {
 const ACTIVE_MOCK_INDEX = 'attempt_one_active_mock_per_student';
 
 /**
- * The `AttemptSubmitted` event for an attempt, or none. Scoring marks a *form*, so an attempt with no form — a practice run — has nothing to
- * be scored against and says nothing to scoring. That is a stated limit and not a quiet one: D77 carries the trigger, and the submission
- * itself is recorded either way.
+ * The event a submission announces: `AttemptSubmitted` for an attempt on a form, `PracticeAttemptSubmitted` for a practice run, which has none (M8-25, closes D77).
+ * The two are different types so that scoring's consumer for a mock never receives a run it would dereference a null form of; the relay tells them apart by type.
  */
 export function attemptSubmittedEvent(
   attempt: Attempt,
   reason: 'manual' | 'expiry' | 'recovered',
   now: string,
   context: ApplicationContext,
-): AttemptSubmitted | undefined {
-  if (attempt.formId === null) return undefined;
+): AttemptSubmitted | PracticeAttemptSubmitted {
+  if (attempt.formId === null) {
+    return {
+      eventType: 'PracticeAttemptSubmitted',
+      schemaVersion: 1,
+      occurredAt: now,
+      principal: { kind: context.principal.kind, id: context.principal.id },
+      correlationId: context.correlationId,
+      payload: {
+        attemptId: attempt.attemptId,
+        studentId: attempt.studentId,
+        examProfileVersionId: attempt.examProfileVersionId,
+        markingRuleSetHash: attempt.markingRuleSetHash,
+        taxonomyVersionId: attempt.taxonomyVersionId,
+        reason,
+        submittedAt: now,
+      },
+    };
+  }
   return {
     eventType: 'AttemptSubmitted',
     schemaVersion: 1,

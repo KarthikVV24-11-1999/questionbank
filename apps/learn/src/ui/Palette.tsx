@@ -1,9 +1,9 @@
 import type { JSX } from 'react';
-import type { PackageSlot } from '../package/types.js';
+import type { SittableSlot } from '../package/types.js';
 import { TOKENS } from '../tokens.js';
 
 export interface PaletteEntry {
-  readonly slot: PackageSlot;
+  readonly slot: SittableSlot;
   readonly answered: boolean;
   readonly flagged: boolean;
   readonly current: boolean;

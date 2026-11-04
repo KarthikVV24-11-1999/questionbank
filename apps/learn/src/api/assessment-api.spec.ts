@@ -89,6 +89,15 @@ describe('the learner app\'s conversation with the server', () => {
     expect(await api.getSigningKey()).toEqual({ keyId: 'k1', publicKey: 'pk' });
   });
 
+  it('reads a practice run\'s package from the run\'s own route, as bytes with its three headers', async () => {
+    const { api, calls } = rig(() => new Response(new Uint8Array([4, 5]), { status: 200, headers: { 'x-package-signature': 'sig', 'x-package-digest': 'dig', 'x-package-key-id': 'k1' } }));
+    const response = await api.getPracticePackage('run/1');
+    expect(calls[0]).toMatchObject({ method: 'GET' });
+    expect(calls[0]!.url).toBe('http://api.test/v1/assessment/practice-attempts/run%2F1/package');
+    expect([...response.bytes]).toEqual([4, 5]);
+    expect(response).toMatchObject({ signature: 'sig', digest: 'dig', keyId: 'k1' });
+  });
+
   it('gives null for a header the server did not send, so the package is refused downstream rather than guessed at', async () => {
     const { api } = rig(() => new Response(new Uint8Array([1])));
     expect(await api.getPackage('f')).toMatchObject({ signature: null, digest: null, keyId: null });

@@ -1,4 +1,4 @@
-import { formPackageSchema, type FormPackage } from './types.js';
+import { formPackageSchema, paperOfRun, practicePackageSchema, type FormPackage, type Paper } from './types.js';
 import { verifyPackage } from './verify.js';
 
 /**
@@ -48,4 +48,29 @@ export async function loadPackage(response: PackageResponse, key: SigningKey | n
   }
   const form = formPackageSchema.safeParse(parsed);
   return form.success ? { ok: true, form: form.data, digest: response.digest } : { ok: false, refusal: 'NOT_A_PACKAGE_THIS_BUILD_UNDERSTANDS' };
+}
+
+export type LoadedRun =
+  | { readonly ok: true; readonly paper: Paper; readonly attemptId: string; readonly digest: string }
+  | { readonly ok: false; readonly refusal: PackageRefusal };
+
+/**
+ * A practice run's package, brought to the screen on the same terms as a form's: verified before it is read, by the same check against the same key, and refused as a value that is not a
+ * package otherwise. It is also refused if it is another run's, since a package that verifies is only vouched for as the bytes the server signed, not as the ones asked for.
+ */
+export async function loadRunPackage(response: PackageResponse, key: SigningKey | null, attemptId: string): Promise<LoadedRun> {
+  if (response.signature === null || response.digest === null) return { ok: false, refusal: 'SIGNATURE_MISSING' };
+  if (key === null) return { ok: false, refusal: 'KEY_MISSING' };
+  if (response.keyId !== key.keyId) return { ok: false, refusal: 'KEY_ID_DOES_NOT_MATCH' };
+  const verified = await verifyPackage({ bytes: response.bytes, signature: response.signature, publicKey: key.publicKey, digest: response.digest });
+  if (!verified) return { ok: false, refusal: 'SIGNATURE_DOES_NOT_VERIFY' };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(response.bytes));
+  } catch {
+    return { ok: false, refusal: 'NOT_A_PACKAGE_THIS_BUILD_UNDERSTANDS' };
+  }
+  const run = practicePackageSchema.safeParse(parsed);
+  if (!run.success || run.data.run.attemptId !== attemptId) return { ok: false, refusal: 'NOT_A_PACKAGE_THIS_BUILD_UNDERSTANDS' };
+  return { ok: true, paper: paperOfRun(run.data), attemptId, digest: response.digest };
 }

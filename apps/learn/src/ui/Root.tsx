@@ -17,6 +17,8 @@ export interface RootProps {
   readonly onOnline: (fn: () => void) => () => void;
   /** Asked for when the build cannot open a paper: it looks for a newer shell. */
   readonly onUpdateWanted?: () => void;
+  /** Given for a practice run, which can be put down: where "back" goes. */
+  readonly leaveHref?: string;
 }
 
 const PUMP_EVERY_MS = 1_000;
@@ -29,7 +31,7 @@ const REFUSALS: Readonly<Record<PackageRefusal, string>> = {
   NOT_A_PACKAGE_THIS_BUILD_UNDERSTANDS: 'This paper needs a newer version of this app. Reload the page to update.',
 };
 
-export function Root({ boot, every, onOnline, onUpdateWanted }: RootProps): JSX.Element {
+export function Root({ boot, every, onOnline, onUpdateWanted, leaveHref }: RootProps): JSX.Element {
   const [booted, setBooted] = useState<BootResult | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
 
@@ -65,12 +67,12 @@ export function Root({ boot, every, onOnline, onUpdateWanted }: RootProps): JSX.
   if (booted === null) return <p role="status">Opening your paper…</p>;
   if (booted.kind === 'package-refused') return <p role="alert">{REFUSALS[booted.refusal]}</p>;
   if (booted.kind === 'cannot-start') return <p role="alert">The attempt could not be started: {booted.reason}.</p>;
-  if (booted.discarded === undefined) return <LearnApp session={booted.session} form={booted.form} />;
+  if (booted.discarded === undefined) return <LearnApp session={booted.session} form={booted.form} {...(leaveHref === undefined ? {} : { leaveHref })} />;
   // Said once, above the paper (DEC-M7-34): the device held answers the server never had and could not be reconciled with it.
   return (
     <>
       <p role="note">Some of your earlier answers could not be found on the server, so this paper has started again from the beginning.</p>
-      <LearnApp session={booted.session} form={booted.form} />
+      <LearnApp session={booted.session} form={booted.form} {...(leaveHref === undefined ? {} : { leaveHref })} />
     </>
   );
 }

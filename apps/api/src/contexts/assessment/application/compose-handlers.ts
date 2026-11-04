@@ -12,7 +12,7 @@ import { AssembleDraftFormHandler, GetFormHandler, PublishFormHandler, ScheduleF
 import { GetSlotSolutionHandler, type SlotSolutionDependencies } from './handlers/slot-solution-handler.js';
 import { GetPracticeFeedbackHandler, type PracticeFeedbackDependencies } from './handlers/practice-feedback-handler.js';
 import { CreatePracticeAttemptHandler, GrowPracticeAttemptHandler, type PracticeDependencies } from './handlers/practice-handlers.js';
-import { GetFormPackageHandler, GetPackageSigningKeyHandler, type PackageDependencies } from './handlers/package-handler.js';
+import { GetFormPackageHandler, GetPackageSigningKeyHandler, GetPracticePackageHandler, type PackageDependencies } from './handlers/package-handler.js';
 import { SubmitExpiredAttemptsHandler, type ExpiryDependencies } from './handlers/expiry-handler.js';
 import { SweepWindowsHandler, type SweepDependencies } from './handlers/sweep-handler.js';
 
@@ -31,6 +31,7 @@ export function composeAssessmentHandlers(deps: AssessmentDependencies): Handler
     new GetFormHandler(deps),
     new GetFormPackageHandler(deps),
     new GetPackageSigningKeyHandler(deps),
+    new GetPracticePackageHandler(deps),
     new SweepWindowsHandler(deps),
     new SubmitExpiredAttemptsHandler(deps),
     new CreateAttemptHandler(deps),

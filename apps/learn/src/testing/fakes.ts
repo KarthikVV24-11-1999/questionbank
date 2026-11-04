@@ -187,6 +187,14 @@ export class FakeApi implements AssessmentApi {
     this.calls.push('getPackage');
     return this.packageResponse;
   }
+  /** The practice run's package, as served; absent, the run is not the caller's. */
+  practicePackageResponse: PackageResponse | Error | null = null;
+  async getPracticePackage(attemptId: string): Promise<PackageResponse> {
+    this.calls.push(`getPracticePackage ${attemptId}`);
+    if (this.practicePackageResponse instanceof Error) throw this.practicePackageResponse;
+    if (this.practicePackageResponse === null) throw Object.assign(new Error('no such run'), { problem: { status: 404 } });
+    return this.practicePackageResponse;
+  }
   async getSigningKey(): Promise<SigningKey> {
     this.calls.push('getSigningKey');
     if (this.key instanceof Error) throw this.key;

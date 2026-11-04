@@ -364,14 +364,14 @@ describe('SweepWindows — the operation a scheduler will call (D36)', () => {
 });
 
 describe('the composed registry', () => {
-  it('registers exactly the eighteen handlers, each with a policy, and admits system to exactly six of them', () => {
+  it('registers exactly the nineteen handlers, each with a policy, and admits system to exactly six of them', () => {
     const registry = composeAssessmentHandlers(rig().deps);
-    expect([...registry.names].sort()).toEqual(['AssembleDraftForm', 'CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GetSlotSolution', 'GrowPracticeAttempt', 'IngestResponseEvents', 'PublishForm', 'ScheduleForm', 'StartAttempt', 'SubmitAttempt', 'SubmitExpiredAttempts', 'SweepWindows']);
+    expect([...registry.names].sort()).toEqual(['AssembleDraftForm', 'CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GetPracticePackage', 'GetSlotSolution', 'GrowPracticeAttempt', 'IngestResponseEvents', 'PublishForm', 'ScheduleForm', 'StartAttempt', 'SubmitAttempt', 'SubmitExpiredAttempts', 'SweepWindows']);
     const admitting = (role: string) => registry.names.filter((name) => registry.get(name)?.policy.allowedRoles.includes(role)).sort();
     expect(admitting('system')).toEqual(['AssembleDraftForm', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'SubmitExpiredAttempts', 'SweepWindows']);
     expect(admitting('content_ops')).toEqual(['AssembleDraftForm', 'GetForm', 'GetFormPackage', 'GetPackageSigningKey', 'PublishForm', 'ScheduleForm']);
     // a student reaches the package of a form that is open, the key that verifies it, and their own attempt's lifecycle
-    expect(admitting('learner')).toEqual(['CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GetSlotSolution', 'GrowPracticeAttempt', 'IngestResponseEvents', 'StartAttempt', 'SubmitAttempt']);
+    expect(admitting('learner')).toEqual(['CreateAttempt', 'CreatePracticeAttempt', 'GetAttempt', 'GetAttemptResult', 'GetFormPackage', 'GetPackageSigningKey', 'GetPracticeFeedback', 'GetPracticePackage', 'GetSlotSolution', 'GrowPracticeAttempt', 'IngestResponseEvents', 'StartAttempt', 'SubmitAttempt']);
     for (const role of ['guest', 'author', 'reviewer', 'generation_pipeline']) expect(admitting(role), role).toEqual([]);
   });
 

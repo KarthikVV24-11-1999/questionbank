@@ -42,7 +42,7 @@ describe('the device clock jumps (M6-55)', () => {
     expect(session.getSnapshot().remainingMs).toBe(before);
     clock.advance(1_000); // and carries on from where it now is
     await session.pump();
-    expect(session.getSnapshot().remainingMs).toBe(before - 1_000);
+    expect(session.getSnapshot().remainingMs).toBe(before! - 1_000);
   });
 
   it('a monotonic jump forward past the deadline does not end the attempt: the server is asked, says time remains, and the timer takes its word', async () => {

@@ -708,3 +708,19 @@ Every step can be skipped and the skip is reversible; no route a learner uses af
 A step is written to the device first and sent second; it is removed when the server has acknowledged exactly that, and not before. The store is a second object store (`drafts`) in the database the response log uses, added by an upgrade that leaves the log as it was, with the same strict durability, not `localStorage` (D107 is why: it is committed some seconds after a write, and a learner on a bad connection is the one who needs the draft to survive). The draft is a `ProfileChange`, the body of the request, and no step marker; which step is next is worked out from the server's profile with the draft laid over it. A refusal from the server that is not "slow down" drops the draft and tells the learner, because it would otherwise be sent for ever.
 → `apps/learn/src/onboarding/draft.ts`
 
+### DEC-M8-13 — A practice run's questions are a signed package of its own, served by the mechanism a form's is, and private to the run's owner
+A plain JSON route would have bypassed the signature, the service worker's cache and the key-free scan, and left an offline run a second delivery runtime. The package has the same canonical bytes, key and discipline; its route is
+`GET /v1/assessment/practice-attempts/{attemptId}/package`, outside `/attempts` so the worker keeps the last copy. It is built from the run's slots, and another learner's run is a 404 with no bytes, because the bytes are the attempt's and not a form's. A run that
+grows is a changed package with a changed digest, and the route revalidates every time. Reading it writes nothing: a delivery is counted when a practice slot is appended, never when its package is read. It carries no marks.
+→ `apps/api/src/contexts/assessment/application/handlers/package-handler.ts`
+
+### DEC-M8-14 — A form-free submission is its own event, scored by its own consumer, and a slot is worth what the pinned profile pays per item
+`PracticeAttemptSubmitted` names no form and no section; `AttemptSubmitted` keeps its required form and `schemaVersion: 1`, so a consumer written for papers cannot receive a run and dereference a null. Scoring read the form for the slots and for what each is worth; a run holds
+its slots and has no marks of its own, so a slot is worth the marks per item every section of the pinned profile pays when they agree, and where they differ the delivery fails loudly rather than score a zero. A run is one section of ordinal 1 that stands for nothing in the profile, and the profile's best-of is not applied to it.
+→ `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.ts`
+
+### DEC-M8-15 — A practice run is sat on the paper's screen and session, untimed
+The session, the response log's writer and the send-after-commit ordering are used as they are. A run has no deadline, so the session takes `null`, shows no clock and is never submitted by the passing of time; it is recognised as untimed by having no duration, so a
+timed attempt the server reports no deadline for is still resumed against the record's. A run can be put down and picked up, which a paper cannot.
+→ `apps/learn/src/bootstrap.ts`
+

@@ -66,8 +66,8 @@ export interface SessionSnapshot {
   readonly projection: Projection;
   /** The slot with an open visit in the log, or `null` between questions. */
   readonly currentSlot: string | null;
-  /** Slots the learner has flagged, as the log says. */
-  readonly remainingMs: number;
+  /** `null` for an untimed attempt, a practice run: there is no clock to show and none that submits it. */
+  readonly remainingMs: number | null;
   /** The engine's own account of whether what was captured has been sent. */
   readonly sync: SyncStatus;
   readonly pending: number;
@@ -86,18 +86,18 @@ export interface SessionSnapshot {
 
 export interface SessionStart {
   readonly attemptId: string;
-  /** The form the attempt is of: written down, so a reopened app can tell with no server to ask whether its record is for the paper in front of it. */
-  readonly formId: string;
+  /** The form the attempt is of, or `null` for a practice run, which has none: written down, so a reopened app can tell with no server to ask whether its record is for the paper in front of it. */
+  readonly formId: string | null;
   readonly deviceRef: string;
   /** From the attempt response — read, not chosen. */
   readonly intervalCapMs: number;
-  /** The server's deadline and the server's reading of its clock when it said so: what is left is their difference. */
-  readonly deadline: string;
+  /** The server's deadline and the server's reading of its clock when it said so: what is left is their difference. `null` for a practice run, which has none. */
+  readonly deadline: string | null;
   readonly serverNow: string;
 }
 
 /** A record this device wrote with the two facts an offline resume needs: which paper it is of, and the offset to the server's clock. */
-export type OfflineResumable = SessionRecord & { readonly formId: string; readonly serverOffsetMs: number };
+export type OfflineResumable = SessionRecord & { readonly formId: string | null; readonly serverOffsetMs: number };
 
 /**
  * What an attempt is resumed from. Three ways, and one rule for all of them: **the log the session holds is the union (by event id) of what this
@@ -122,6 +122,9 @@ function lastSequence(attempt: Attempt): number {
   return attempt.log.events.at(-1)?.sequence ?? 0;
 }
 
+/** What the engine's timer is given for an attempt with no deadline: longer than any sitting, so it never reaches zero. It is never shown (`remainingMs` is `null`) and never submits. */
+const UNTIMED_MS = Number.MAX_SAFE_INTEGER;
+
 export class AttemptSession {
   #attempt: Attempt;
   #queue: SyncQueue;
@@ -142,7 +145,7 @@ export class AttemptSession {
   readonly #writer: RecordWriter;
 
   private constructor(
-    private readonly init: { readonly attemptId: string; readonly formId: string | null; readonly deviceRef: string; readonly intervalCapMs: number; readonly deadline: string },
+    private readonly init: { readonly attemptId: string; readonly formId: string | null; readonly deviceRef: string; readonly intervalCapMs: number; readonly deadline: string | null },
     serverOffsetMs: number | null,
     private readonly ports: SessionPorts,
     attempt: Attempt,
@@ -209,7 +212,10 @@ export class AttemptSession {
       // An in-progress attempt with no submission always takes one, so the result is the attempt.
       current = (submitAttempt(current, { reason, idempotencyKey: `submission:${attemptId}` }) as { attempt: Attempt }).attempt;
     }
-    const deadline = server?.deadline ?? record?.deadline;
+    // A practice run has no deadline because it has no duration, and that is said by the attempt (`durationMs: null`) or by the record that wrote it down (`deadline: null`). It is not the same as a
+    // timed attempt the server reports no deadline for, which falls back to the record's, or to nothing and cannot be resumed.
+    const untimed = server === null ? record.deadline === null : server.durationMs === null;
+    const deadline = untimed ? null : (server?.deadline ?? record?.deadline);
     if (deadline === undefined) throw new Error('the attempt has no deadline to resume against');
     const offset = server === null ? record.serverOffsetMs : Date.parse(server.serverNow) - ports.wall.now();
     const session = new AttemptSession(
@@ -237,12 +243,14 @@ export class AttemptSession {
   }
 
   /** The time left against the device's wall clock moved by an offset taken earlier: the stand-in for the server's reading when there is none to ask. */
-  private static timerAgainstWall(deadline: string, offsetMs: number, ports: SessionPorts): AttemptTimer {
+  private static timerAgainstWall(deadline: string | null, offsetMs: number, ports: SessionPorts): AttemptTimer {
+    if (deadline === null) return startTimer(UNTIMED_MS, ports.clock.now());
     const left = Date.parse(deadline) - (ports.wall.now() + offsetMs);
     return startTimer(left, ports.clock.now());
   }
 
-  private static timerFor(deadline: string, serverNow: string, ports: SessionPorts): AttemptTimer {
+  private static timerFor(deadline: string | null, serverNow: string, ports: SessionPorts): AttemptTimer {
+    if (deadline === null) return startTimer(UNTIMED_MS, ports.clock.now());
     const left = Math.max(0, Date.parse(deadline) - Date.parse(serverNow));
     return startTimer(left, ports.clock.now());
   }
@@ -267,7 +275,7 @@ export class AttemptSession {
       phase: this.#phase,
       projection: projectAttempt(this.#attempt, { intervalCapMs: this.init.intervalCapMs }),
       currentSlot: this.#openVisit(),
-      remainingMs: remainingMs(this.#timer, now),
+      remainingMs: this.init.deadline === null ? null : remainingMs(this.#timer, now),
       sync: syncStatus(this.#queue, now),
       pending: this.#queue.pending.length,
       rejected: this.#rejected.size,

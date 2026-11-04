@@ -161,11 +161,14 @@ describe('pause and resume, with no deadline', () => {
     expect(expectError(await new SubmitAttemptHandler(r.deps).handle({ attemptId, reason: 'expiry', idempotencyKey: 's' }, learner())).code).toBe('SUBMISSION_EXPIRY_BEFORE_DEADLINE');
   });
 
-  it('writes no AttemptSubmitted event for a practice submission: scoring marks forms (D77)', async () => {
+  it('announces a practice submission as its own event, with no form in it: a consumer written for mocks never receives it (M8-25)', async () => {
     const r = rig();
     const { attemptId } = await startedRun(r);
     expectValue(await new SubmitAttemptHandler(r.deps).handle({ attemptId, reason: 'manual', idempotencyKey: 's' }, learner()));
-    expect(r.attempts.events).toEqual([]);
+    expect(r.attempts.events).toHaveLength(1);
+    const [event] = r.attempts.events as Array<{ eventType: string; schemaVersion: number; payload: Record<string, unknown> }>;
+    expect(event).toMatchObject({ eventType: 'PracticeAttemptSubmitted', schemaVersion: 1, payload: { attemptId, reason: 'manual' } });
+    expect(Object.keys(event!.payload).sort()).toEqual(['attemptId', 'examProfileVersionId', 'markingRuleSetHash', 'reason', 'studentId', 'submittedAt', 'taxonomyVersionId']);
   });
 });
 

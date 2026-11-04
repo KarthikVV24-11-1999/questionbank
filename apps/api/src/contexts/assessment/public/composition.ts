@@ -19,6 +19,7 @@ import { Ed25519PackageSigner } from '../infrastructure/package-signer.js';
 import { PostgresSolutionReleases } from '../infrastructure/solution-release.repository.js';
 import { ContentSolutionReader } from '../infrastructure/content-solution-reader.js';
 import { PostgresResponseLog } from '../infrastructure/response-log.repository.js';
+import { ScorePracticeAttemptConsumer } from '../application/consumers/practice-scoring-consumer.js';
 import { ScoreSubmittedAttemptConsumer, type ScoringKeyReader, type ScoringSpecReader, type Scorer } from '../application/consumers/scoring-consumer.js';
 import type { ScoreRecordReader } from '../application/handlers/attempt-handlers.js';
 import { SubmitExpiredAttemptsHandler } from '../application/handlers/expiry-handler.js';
@@ -111,7 +112,7 @@ function checkDeps(deps: AssessmentCompositionDeps): void {
 }
 
 /**
- * What the outbox relay hands assessment's events to (M6-38, M6-40): `AttemptSubmitted` goes to the scoring consumer. Built from the
+ * What the outbox relay hands assessment's events to (M6-38, M6-40): `AttemptSubmitted` goes to the scoring consumer and `PracticeAttemptSubmitted` to the one for practice runs (M8-25). Built from the
  * same assembly `register` uses, so the attempt it scores is the attempt the routes wrote.
  */
 export function assessmentConsumers(deps: AssessmentCompositionDeps): ReadonlyMap<string, readonly OutboxConsumerLike[]> {
@@ -125,7 +126,11 @@ export function assessmentConsumers(deps: AssessmentCompositionDeps): ReadonlyMa
     spec: deps.curriculum.scoringSpec,
     scorer: deps.scoring.scoreAttempt,
   });
-  return new Map([['AttemptSubmitted', [scoring]]]);
+  const practice = new ScorePracticeAttemptConsumer({ attempts: bag.attempts, responses: bag.responses, keys: deps.content.answerKeys, spec: deps.curriculum.scoringSpec, scorer: deps.scoring.scoreAttempt });
+  return new Map([
+    ['AttemptSubmitted', [scoring]],
+    ['PracticeAttemptSubmitted', [practice]],
+  ]);
 }
 
 /**

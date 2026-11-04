@@ -1,6 +1,6 @@
 import type { AssessmentApi } from './api/assessment-api.js';
-import { loadPackage, type PackageRefusal } from './package/load.js';
-import type { FormPackage } from './package/types.js';
+import { loadPackage, loadRunPackage, type PackageRefusal } from './package/load.js';
+import type { Paper } from './package/types.js';
 import { AttemptSession } from './session/attempt-session.js';
 import { loadRecord } from './session/persistence.js';
 import type { SessionPorts } from './session/ports.js';
@@ -23,7 +23,7 @@ import type { SessionPorts } from './session/ports.js';
  * a record of another form. If the record held events the server never had, the result says so (`discarded`, DEC-M7-34) and the screen tells the learner.
  */
 export type BootResult =
-  | { readonly kind: 'ready'; readonly session: AttemptSession; readonly form: FormPackage; readonly discarded?: DiscardedRecord }
+  | { readonly kind: 'ready'; readonly session: AttemptSession; readonly form: Paper; readonly discarded?: DiscardedRecord }
   | { readonly kind: 'package-refused'; readonly refusal: PackageRefusal }
   | { readonly kind: 'cannot-start'; readonly reason: string };
 
@@ -108,4 +108,50 @@ export async function boot(params: BootParams): Promise<BootResult> {
     form: loaded.form,
     ...(discarded === undefined ? {} : { discarded }),
   };
+}
+
+export interface BootPracticeParams {
+  readonly api: AssessmentApi;
+  readonly ports: SessionPorts;
+  readonly attemptId: string;
+  readonly deviceRef: string;
+}
+
+/**
+ * Brings a practice run up to be sat (M8-24, closes D87; ADR-0061, DEC-M8-15 in docs/IMPLEMENTATION-DECISIONS.md): the signed package of the run, then the attempt, resumed if this device was already sitting it.
+ *
+ * It is the same order as a paper's and for the same reasons. **The device is read first**, because what it wrote down survives an outage; **the package is verified before anything is shown or started**, and
+ * it must be this run's; and then the server is asked for the attempt. A run has no deadline and no window, so there is nothing to resume a clock against: it is carried on from this device's log and the server's,
+ * joined by event id, whichever has more. If the server cannot be reached and this device holds a record of this run, it carries on from the record alone, and what it sends waits for the connection; a run begun online
+ * and finished with the connection gone loses no answer for the same reason a paper does, and by the same code (D107 and the response log's writer are not rebuilt here). A run the server has never heard of, or that is someone
+ * else's, is not started: the server answers 404 for both, and the screen says so.
+ */
+export async function bootPractice(params: BootPracticeParams): Promise<BootResult> {
+  const { api, ports, attemptId } = params;
+  const stored = await loadRecord(ports.records, attemptId).catch(() => null);
+  // a record of a practice run has no form; one that names a form is another thing under the same id, and is not carried on
+  const record = stored !== null && stored.formId === null ? stored : null;
+
+  const [response, key] = await Promise.all([api.getPracticePackage(attemptId), api.getSigningKey()]);
+  const loaded = await loadRunPackage(response, key, attemptId);
+  if (!loaded.ok) return { kind: 'package-refused', refusal: loaded.refusal };
+
+  let server: Awaited<ReturnType<AssessmentApi['getAttempt']>>;
+  try {
+    server = await api.getAttempt(attemptId);
+  } catch (error) {
+    if (unreachable(error) && record !== null && record.serverOffsetMs !== null) {
+      return { kind: 'ready', session: AttemptSession.resume({ record: { ...record, serverOffsetMs: record.serverOffsetMs }, server: null }, ports), form: loaded.paper };
+    }
+    if (unknownToServer(error)) return { kind: 'cannot-start', reason: 'there is no such run' };
+    throw error;
+  }
+  if (server.mode !== 'practice') return { kind: 'cannot-start', reason: 'that is not a practice run' };
+  if (server.state === 'created') {
+    await api.startAttempt(attemptId);
+    server = await api.getAttempt(attemptId);
+  }
+  if (server.state !== 'in_progress' && server.state !== 'submitted') return { kind: 'cannot-start', reason: `the run is ${server.state.replace('_', ' ')}` };
+  const session = record !== null ? AttemptSession.resume({ record, server }, ports) : AttemptSession.resume({ record: null, server, deviceRef: params.deviceRef }, ports);
+  return { kind: 'ready', session, form: loaded.paper };
 }

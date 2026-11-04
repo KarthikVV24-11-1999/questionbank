@@ -4,7 +4,7 @@
  * WHAT IT CACHES
  *   - The shell: the page and its hashed assets (`/assets/…`), so the app opens with no network. Pages are fetched network-first (a new
  *     shell arrives as soon as there is a connection) and fall back to the cached page; hashed assets never change, so they are cache-first.
- *   - The form package and the public key that verifies it, network-first, falling back to the last copy when the network is down or the
+ *   - The form package, or a practice run's (`/practice-attempts/:id/package`, deliberately not under `/attempts`), and the public key that verifies it, network-first, falling back to the last copy when the network is down or the
  *     server is failing (5xx). The cached bytes keep their signature headers, and the app verifies them every time it opens them, from the
  *     cache as from the network: this worker never decides a package is good.
  *
@@ -24,7 +24,7 @@ const PACKAGE_CACHE = 'qb-package-v1';
 const CURRENT_CACHES = [SHELL_CACHE, PACKAGE_CACHE];
 
 const NEVER_CACHED = /^\/v1\/assessment\/attempts(\/|$)/u;
-const PACKAGE_ROUTE = /^\/v1\/assessment\/forms\/[^/]+\/package$/u;
+const PACKAGE_ROUTE = /^\/v1\/assessment\/(?:forms|practice-attempts)\/[^/]+\/package$/u;
 const KEY_ROUTE = /^\/v1\/assessment\/package-signing-key$/u;
 const ASSET = /^\/assets\//u;
 

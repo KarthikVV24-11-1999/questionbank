@@ -254,7 +254,7 @@ verification (F41) · authorization negative-path 100%
 - Every concept state is traceable to the specific responses that produced it
 - A verified mastery gain requires confirmation ≥ 48h later in a different session
 - A diagnostic report is generated for every submitted mock, top finding within 60s
-- **Mock result → remediation entry is one tap** *(partial: one action on a finding makes a practice run about its concept and starts it, proved through the routes the report screen calls, but the run's questions cannot be shown in the app, D87, so nothing is remediated; [M7-ACCEPTANCE.md](M7-ACCEPTANCE.md))*
+- **Mock result → remediation entry is one tap** *(partial: one action on a finding makes a practice run about its concept and starts it, proved through the routes the report screen calls, but the run's questions could not be shown in the app, D87, so nothing was remediated; **closed by M8 Track F, which serves a run's questions, sits them, scores the submission and moves the concept's state**; [M7-ACCEPTANCE.md](M7-ACCEPTANCE.md))*
 - Event taxonomy conformance ≥ 99%
 
 > **Status, added 2026-10-27 (M7 Tracks A and B):** the evidence seams are built ([ADR-0042](adr/ADR-0042-a-score-and-its-event-are-written-in-one-transaction.md),
@@ -318,6 +318,8 @@ verification (F41) · authorization negative-path 100%
 > five criteria: two pass, three are partial, none is blocked** ([M7-ACCEPTANCE.md](M7-ACCEPTANCE.md)). The report is made in about a second and has not been put under load; the tap is one and leads to a run the app cannot show (D87);
 > the events conform and are few (D89 to D92). The taxonomy itself said capture began at M0; it begins here, and the events of the milestones in between are not recoverable. The status notes above were dated for a
 > one-track-a-day cadence that did not happen and now carry the dates of the commits they describe.
+>
+> **Status, added 2026-11-03 (M8 Track F):** the two gaps this section names as open are closed. A practice run's questions are served as a signed package of its own, private to the run's owner (D87, [ADR-0061](adr/ADR-0061-a-practice-run-is-delivered-as-a-package-and-scored-without-a-form.md)); a learner sits the run on the screen a paper is sat on, offline as a paper is; and a submitted run is scored under its own event and its evidence reaches Learning (D77). Against real Postgres a concept's state is made of the responses a learner actually gave (`practice-loop.integration.spec.ts`). **Open:** the screen does not show the verdict as the learner answers (D111); a profile whose sections pay differently for an item cannot score a run (D110); three practice events have a surface and are not emitted (D112); and a concept is still named by the start of its identifier (D88).
 
 **Testing** Mastery state-machine tests against synthetic learner histories · diagnostic finding correctness on fixture attempts · event schema validation
 

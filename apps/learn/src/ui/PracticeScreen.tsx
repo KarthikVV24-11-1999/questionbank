@@ -1,31 +1,24 @@
 import type { JSX } from 'react';
-import type { AssessmentApi } from '../api/assessment-api.js';
-import { TOKENS } from '../tokens.js';
+import type { BootResult } from '../bootstrap.js';
 import { screenHref, type ScreenContext } from './screen-context.js';
-import { useRemote } from './use-remote.js';
+import { Root } from './Root.js';
 
 /**
- * The practice run (M7-58), as far as the server lets a screen take it. A run is started by one tap and exists on the server with its questions chosen;
- * there is no route that gives a learner those questions or the slots to answer them in (D87), so this screen shows that the run has begun, how large it is,
- * and says plainly that its questions cannot be shown yet. It does not invent a way to show them.
+ * The practice run, sat (M8-24, closes D87; DEC-M8-15 in docs/IMPLEMENTATION-DECISIONS.md; what the screen does not do yet is D111 in docs/DEBT.md). It is the same screen a paper is sat on, one question at a time with the palette, the sync indicator and the confirmation before
+ * it is finished, over a run's own package: the answers go into the response log the paper's go into, by the same writer, and are sent by the same session after the commit
+ * that holds them. Nothing about delivery is rebuilt here; a second runtime for practice would have been the second set of bugs.
+ *
+ * What differs is stated, not hidden. A run has no clock, so none is shown and none submits it. It can be put down and picked up (the link above the question), which a paper cannot. It
+ * is finished through the attempt routes like a paper, and its result is read the same way and says `pending` until it has been scored.
  */
-export function PracticeScreen({ assessment, attemptId, context }: { readonly assessment: Pick<AssessmentApi, 'getAttempt'>; readonly attemptId: string; readonly context: ScreenContext }): JSX.Element {
-  const run = useRemote(() => assessment.getAttempt(attemptId));
-  return (
-    <main aria-label="Practice" style={{ padding: TOKENS.spaceMedium }}>
-      <h1>Your practice run</h1>
-      {run.status === 'loading' ? <p role="status">Opening your run…</p> : null}
-      {run.status === 'failed' ? <p role="alert">{run.message}</p> : null}
-      {run.status === 'loaded' && run.value.mode !== 'practice' ? <p role="alert">That is not a practice run.</p> : null}
-      {run.status === 'loaded' && run.value.mode === 'practice' ? (
-        <>
-          <p>
-            {run.value.slotCount} {run.value.slotCount === 1 ? 'question' : 'questions'} chosen for you. Your run is {run.value.state === 'in_progress' ? 'started' : run.value.state.replace('_', ' ')}.
-          </p>
-          <p role="note">The questions of a practice run cannot be shown in the app yet.</p>
-        </>
-      ) : null}
-      <a href={screenHref({}, context)}>Back to what to do next</a>
-    </main>
-  );
+export interface PracticeScreenProps {
+  readonly boot: () => Promise<BootResult>;
+  readonly every: (ms: number, fn: () => void) => () => void;
+  readonly onOnline: (fn: () => void) => () => void;
+  readonly onUpdateWanted?: () => void;
+  readonly context: ScreenContext;
+}
+
+export function PracticeScreen({ boot, every, onOnline, onUpdateWanted, context }: PracticeScreenProps): JSX.Element {
+  return <Root boot={boot} every={every} onOnline={onOnline} {...(onUpdateWanted === undefined ? {} : { onUpdateWanted })} leaveHref={screenHref({}, context)} />;
 }

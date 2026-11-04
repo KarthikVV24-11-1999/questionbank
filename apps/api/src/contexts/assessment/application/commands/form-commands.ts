@@ -40,5 +40,10 @@ export interface GetFormPackage {
   readonly formId: string;
 }
 
+/** The bytes a device downloads to sit one practice run: the run's own, and the caller's alone (M8-23). */
+export interface GetPracticePackage {
+  readonly attemptId: string;
+}
+
 /** The key a device verifies packages against (M6-26). */
 export type GetPackageSigningKey = Record<string, never>;

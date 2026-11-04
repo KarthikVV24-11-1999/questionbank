@@ -70,7 +70,7 @@ describe('a practice run against the real store', () => {
     expect(await rows()).toBe(4);
   });
 
-  it('is put down for two months and picked up, takes a response, and is submitted — with no deadline, no window, and no event for scoring', async () => {
+  it('is put down for two months and picked up, takes a response, and is submitted — with no deadline, no window, and an event for scoring that names no form', async () => {
     const candidates = [1, 2, 3].map(cand);
     const start = deps('2026-10-27T09:00:00.000Z', candidates);
     const created = expectValue(await new CreatePracticeAttemptHandler(start).handle({ examProfileVersionId: id(TAG.profile), selectionStrategy: 'filtered', scopeFilter: { subject: 'physics' }, count: 3, idempotencyKey: 'k' }, LEARNER));
@@ -90,6 +90,10 @@ describe('a practice run against the real store', () => {
     const outboxBefore = (await database.pool.query('SELECT count(*)::int AS n FROM platform.outbox_message')).rows[0].n as number;
     const submitted = expectValue(await new SubmitAttemptHandler(later).handle({ attemptId, reason: 'manual', idempotencyKey: 's' }, LEARNER));
     expect(submitted.state).toBe('submitted');
-    expect((await database.pool.query('SELECT count(*)::int AS n FROM platform.outbox_message')).rows[0].n).toBe(outboxBefore);
+    // one message, of the type for a run: the form-free submission (M8-25), and none of a paper's
+    expect((await database.pool.query('SELECT count(*)::int AS n FROM platform.outbox_message')).rows[0].n).toBe(outboxBefore + 1);
+    const sent = await database.pool.query("SELECT event_type, payload FROM platform.outbox_message WHERE aggregate_id = $1", [attemptId]);
+    expect(sent.rows.map((row) => row.event_type)).toEqual(['PracticeAttemptSubmitted']);
+    expect(sent.rows[0].payload).not.toHaveProperty('formId');
   });
 });
