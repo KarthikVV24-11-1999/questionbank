@@ -12,6 +12,7 @@ import type {
   Clock,
   CredentialStore,
   IdentifierFactory,
+  MailMessage,
   MailPort,
   OneTimeTokenStore,
   PasswordHasher,
@@ -59,7 +60,7 @@ export class RegisterHandler {
   readonly name = 'Register';
   readonly policy = REGISTER_POLICY;
 
-  constructor(private readonly deps: Common & { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort }) {}
+  constructor(private readonly deps: Common & { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort; readonly mailFailed?: MailFailureReport; readonly publicUrl?: string | undefined }) {}
 
   /** Always answers `accepted`: a new address gets a verification message, a known one gets a message saying so, and the caller cannot tell which from here. */
   async handle(command: { readonly email: unknown; readonly password: unknown }, context: ApplicationContext): Promise<Result<{ readonly accepted: true }, ApplicationError>> {
@@ -87,9 +88,9 @@ export class RegisterHandler {
     const registered: AuditRecord = { principal: context.principal, action: 'UserRegistered', targetContext: 'identity', targetType: 'User', targetId: user.userId, correlationId: context.correlationId, occurredAt: now };
     const created = existing === null && (await this.deps.users.create(user, credential, registered));
     if (created) {
-      await issueAndMail(this.deps, user, 'email_verification', now);
+      await issueAndMail(this.deps, user, 'email_verification', now, { report: this.deps.mailFailed, correlationId: context.correlationId });
     } else {
-      await this.deps.mail.send({ to: email.value, purpose: 'already_registered', subject: 'You already have an account', body: 'Someone tried to register with this address. If it was you, log in or recover your password; if not, ignore this message.' });
+      await sendQuietly(this.deps.mail, { to: email.value, purpose: 'already_registered', subject: 'You already have an account', body: 'Someone tried to register with this address. If it was you, log in or recover your password; if not, ignore this message.' }, { report: this.deps.mailFailed, correlationId: context.correlationId });
     }
     return ok({ accepted: true });
   }
@@ -187,7 +188,7 @@ export class RequestPasswordRecoveryHandler {
   readonly name = 'RequestPasswordRecovery';
   readonly policy = REQUEST_PASSWORD_RECOVERY_POLICY;
 
-  constructor(private readonly deps: Common & { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort }) {}
+  constructor(private readonly deps: Common & { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort; readonly mailFailed?: MailFailureReport; readonly publicUrl?: string | undefined }) {}
 
   /** Always answers `accepted`. A known address gets a single-use token that replaces any earlier one; an unknown one gets the same work and no message. */
   async handle(command: { readonly email: unknown }, context: ApplicationContext): Promise<Result<{ readonly accepted: true }, ApplicationError>> {
@@ -197,7 +198,7 @@ export class RequestPasswordRecoveryHandler {
     const found = email.ok ? await this.deps.users.findByEmail(email.value) : null;
     const now = this.deps.clock.now();
     if (found !== null && found.user.disabledAt === null) {
-      await issueAndMail(this.deps, found.user, 'password_recovery', now);
+      await issueAndMail(this.deps, found.user, 'password_recovery', now, { report: this.deps.mailFailed, correlationId: context.correlationId });
     } else {
       // the token that would have been drawn and hashed
       this.deps.tokens.hashToken(this.deps.tokens.newToken());
@@ -232,18 +233,45 @@ export class ResetPasswordHandler {
 }
 
 /** Draws a token, stores its hash (replacing any open one), and mails the token itself: the one place it exists in the clear besides the recipient's inbox. */
+/** Told when a message the caller must not learn about did not go: the purpose and the correlation id, never the address or the body. */
+export type MailFailureReport = (failure: { readonly purpose: MailMessage['purpose']; readonly correlationId: string; readonly reason: string }) => void;
+
+/**
+ * Sends, and when `quiet` is given a failure is reported and swallowed. Registration and recovery answer the same whether or not an address is known, so a send that fails
+ * for a known address and never happens for an unknown one would be an oracle: a 503 for the one and a 202 for the other. The account or the token is already stored, and
+ * the person's way to a message is the resend route (DEC-M8-25).
+ */
+export async function sendQuietly(mail: MailPort, message: MailMessage, quiet?: { readonly report: MailFailureReport | undefined; readonly correlationId: string }): Promise<void> {
+  if (quiet === undefined) return mail.send(message);
+  try {
+    await mail.send(message);
+  } catch (cause) {
+    quiet.report?.({ purpose: message.purpose, correlationId: quiet.correlationId, reason: cause instanceof Error ? cause.message.slice(0, 200) : 'unknown' });
+  }
+}
+
 export async function issueAndMail(
-  deps: { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort; readonly tokens: TokenFactory; readonly identifiers: IdentifierFactory },
+  deps: { readonly oneTime: OneTimeTokenStore; readonly mail: MailPort; readonly tokens: TokenFactory; readonly identifiers: IdentifierFactory; readonly publicUrl?: string | undefined },
   user: User,
   purpose: 'email_verification' | 'password_recovery',
   now: Date,
+  quiet?: { readonly report: MailFailureReport | undefined; readonly correlationId: string },
 ): Promise<void> {
   const token = deps.tokens.newToken();
   await deps.oneTime.issue({ tokenId: deps.identifiers.next(), userId: user.userId, purpose, tokenHash: deps.tokens.hashToken(token), createdAt: now, expiresAt: new Date(now.getTime() + ONE_TIME_TOKEN_TTL_MS[purpose]) });
-  await deps.mail.send({
-    to: user.email,
-    purpose,
-    subject: purpose === 'email_verification' ? 'Confirm your email address' : 'Reset your password',
-    body: purpose === 'email_verification' ? `Your confirmation code is ${token}. It works once, for 48 hours.` : `Your password reset code is ${token}. It works once, for one hour. If you did not ask for it, ignore this message.`,
-  });
+  const verification = purpose === 'email_verification';
+  // the link carries the code in the fragment, which a browser does not send to a server or to another site in a referrer
+  const link = deps.publicUrl === undefined ? '' : ` Or open ${deps.publicUrl}/#${verification ? 'verify' : 'reset'}=${token}`;
+  await sendQuietly(
+    deps.mail,
+    {
+      to: user.email,
+      purpose,
+      subject: verification ? 'Confirm your email address' : 'Reset your password',
+      body: verification
+        ? `Your confirmation code is ${token}. It works once, for 48 hours.${link}`
+        : `Your password reset code is ${token}. It works once, for one hour.${link} If you did not ask for it, ignore this message.`,
+    },
+    quiet,
+  );
 }

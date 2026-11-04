@@ -524,3 +524,44 @@ describe('loadConfig — what the authentication routes allow, and how much hash
     expect(() => parseRouteLimitsOrThrow('source=lots', true)).toThrow('built-in rate limit "source=lots" does not parse: source: "lots" is not hits/window, such as 5/1m');
   });
 });
+
+describe('mail through SES and the app address (M8-41)', () => {
+  const SES = { MAIL_SES_REGION: 'eu-west-1', MAIL_SENDER: 'no-reply@mail.example.org', AWS_ACCESS_KEY_ID: 'AKIDEXAMPLE0000000', AWS_SECRET_ACCESS_KEY: 'a-secret-that-is-not-one-0000000000' };
+
+  it('is absent when none of it is set, and all of it is read when all is', () => {
+    const none = loadConfig(validEnv());
+    expect(none.ok && 'mailSes' in none.value).toBe(false);
+    expect(none.ok && 'publicUrl' in none.value).toBe(false);
+    const all = loadConfig(validEnv({ ...SES, PUBLIC_URL: 'https://learn.example.org' }));
+    expect(all.ok && all.value.mailSes).toEqual({ region: 'eu-west-1', sender: 'no-reply@mail.example.org', accessKeyId: 'AKIDEXAMPLE0000000', secretAccessKey: SES.AWS_SECRET_ACCESS_KEY });
+    expect(all.ok && all.value.publicUrl).toBe('https://learn.example.org');
+  });
+
+  it('refuses to start with some of the four and names the ones missing, not the values present', () => {
+    for (const lacking of Object.keys(SES) as (keyof typeof SES)[]) {
+      const { [lacking]: _gone, ...rest } = SES;
+      const result = loadConfig(validEnv(rest));
+      expect(result.ok, lacking).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message, lacking).toContain(`missing ${lacking}`);
+        expect(result.error.message, lacking).not.toContain(SES.AWS_SECRET_ACCESS_KEY);
+        expect(result.error.message, lacking).not.toContain(SES.AWS_ACCESS_KEY_ID);
+      }
+    }
+    expect(loadConfig(validEnv({ ...SES, AWS_SECRET_ACCESS_KEY: '  ' }))).toMatchObject({ ok: false, error: { key: 'mailSecretAccessKey' } });
+  });
+
+  it('refuses a region, a sender and a key id that are not shaped like the thing', () => {
+    expect(loadConfig(validEnv({ ...SES, MAIL_SES_REGION: 'europe' }))).toMatchObject({ ok: false, error: { key: 'mailSesRegion' } });
+    expect(loadConfig(validEnv({ ...SES, MAIL_SENDER: 'Asha <a@b.example>' }))).toMatchObject({ ok: false, error: { key: 'mailSender' } });
+    expect(loadConfig(validEnv({ ...SES, MAIL_SENDER: 'not-an-address' }))).toMatchObject({ ok: false, error: { key: 'mailSender' } });
+    expect(loadConfig(validEnv({ ...SES, AWS_ACCESS_KEY_ID: 'short' }))).toMatchObject({ ok: false, error: { key: 'mailAccessKeyId' } });
+  });
+
+  it('takes the app address as an origin and refuses anything with more in it', () => {
+    expect(loadConfig(validEnv({ PUBLIC_URL: 'http://localhost:8080/' }))).toMatchObject({ ok: true, value: { publicUrl: 'http://localhost:8080' } });
+    for (const bad of ['learn.example.org', 'ftp://x.example', 'https://x.example/app', 'https://x.example/?a=1', 'https://u:p@x.example', 'https://x.example/#f']) {
+      expect(loadConfig(validEnv({ PUBLIC_URL: bad })), bad).toMatchObject({ ok: false, error: { key: 'publicUrl' } });
+    }
+  });
+});

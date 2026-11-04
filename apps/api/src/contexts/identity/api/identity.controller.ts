@@ -8,6 +8,7 @@ import { isSaturation } from '../application/saturation.js';
 import type { IdentityHandlers } from '../public/composition.js';
 import type { Admission, RouteClass } from './admission.js';
 import { statusForKind, toProblemDetails } from './problem-details.js';
+import { clearSessionCookies, setSessionCookies } from './session-cookies.js';
 
 export const IDENTITY_HANDLERS = Symbol('IDENTITY_HANDLERS');
 export const IDENTITY_PRINCIPAL_RESOLVER = Symbol('IDENTITY_PRINCIPAL_RESOLVER');
@@ -155,6 +156,13 @@ export class IdentityController {
     if (!result.ok) {
       this.fail(response, result.error, correlationId);
       return;
+    }
+    // a browser's session lives in a cookie it cannot read from script (ADR-0065); the token is still in the body for a client that is not a browser
+    if (handler.name === 'Login' || handler.name === 'RotateSession') {
+      const issued = result.value as { readonly sessionToken: string; readonly expiresAt: string };
+      setSessionCookies(response, issued.sessionToken, issued.expiresAt);
+    } else if (handler.name === 'Logout' || handler.name === 'LogoutAll') {
+      clearSessionCookies(response);
     }
     response.status(success).json(result.value);
   }

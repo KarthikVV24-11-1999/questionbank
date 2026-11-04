@@ -59,6 +59,13 @@ export interface ClientConfig {
   readonly fetchImpl?: typeof fetch;
   /** Overridable so a spec's correlation id is not random. Defaults to `crypto.randomUUID`. */
   readonly correlationId?: () => string;
+  /**
+   * Whether the browser sends its cookies with a request. A page whose session is a cookie (ADR-0065) says `include`; the default is the browser's own, which for the same origin is to send
+   * them and for any other is not.
+   */
+  readonly credentials?: 'include' | 'same-origin' | 'omit';
+  /** Headers added to every request, read fresh each time: the echo of the CSRF cookie, which changes when a person signs in. They never replace the ones the client sets. */
+  readonly extraHeaders?: () => Readonly<Record<string, string>>;
 }
 
 export interface RequestOptions<T> {
@@ -101,6 +108,7 @@ export function createClient(config: ClientConfig): ApiClient {
 
   function send(options: Omit<RequestOptions<never>, 'responseSchema'>, accept: string): Promise<Response> {
     const headers: Record<string, string> = {
+      ...config.extraHeaders?.(),
       ...options.headers,
       'X-Correlation-Id': nextCorrelationId(),
       Accept: accept,
@@ -112,6 +120,7 @@ export function createClient(config: ClientConfig): ApiClient {
     return fetchImpl(buildUrl(config.baseUrl, options.path, options.query), {
       method: options.method ?? 'GET',
       headers,
+      ...(config.credentials === undefined ? {} : { credentials: config.credentials }),
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
   }

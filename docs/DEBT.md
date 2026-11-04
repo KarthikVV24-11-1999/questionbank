@@ -469,16 +469,6 @@ recognised as a second, and investigated, rather than re-run until it passes.
 **Trigger** A second failure of that test, or any failure of it in CI: capture the output and the run's concurrency, and check what the test
 shares with its neighbours (the clock variable, the pool, the exam profile rows).
 **Cited** `apps/api/src/platform/composition/assessment-attempts.integration.spec.ts`
-### D69 — The learner app takes its bearer token from `localStorage`
-
-There is no sign-in. As in Studio, a developer sets `localStorage['qb-dev-token']` to a bearer token, and the app sends it. It is a development
-convenience that must not survive to a student's phone.
-
-There is now a sign-in on the API (ADR-0056), and the token this line sends is no longer accepted by it: the stub resolves no human request. What is still to do is the app's: a login screen on those routes, the session token held where script cannot read it, and this line removed from `main.tsx`.
-
-**Trigger** M8 (closed beta hardening): the login screen, the token held where script cannot read it, and this line removed from `main.tsx`.
-**Cited** `apps/learn/src/main.tsx`
-
 ### D70 — Evidence is attributed to an item's primary concept only
 
 `item_taxonomy_tag` carries a weight and an `is_primary` flag. The evidence a response yields counts for the primary concept and nothing for
@@ -806,13 +796,40 @@ what the Compose file runs. It is not the plan; the Compose file is.
 **Trigger** The decision where the beta runs. Then either the Terraform is brought to that target and validated against the images this track builds, or it is removed.
 **Cited** `infra/terraform/staging/main.tf`
 
-### D119 — A production process has no mail provider, so nobody can register against it
+### D120 — SES mail is proved up to the provider's door, takes a static credential, and ends a message at "accepted"
 
-`defaultMail` gives a development process a directory to write messages to, a test a list, and every other process a mail port that refuses to send, because a message carries a secret that must not be written to a disk by default and the provider is a decision not yet taken. The Compose stack therefore runs in development mode, and a stack in front of the public could not take a registration. The learner app also has no sign-in screen (it takes its bearer token
-from `localStorage`, D69), so nothing a person does in a browser reaches the journey; it is run over HTTP.
+`SesMail` is checked against a fake provider and AWS's published signing vector, never against SES, because no run here holds a credential or a verified sender (ADR-0013, Tier 3; the line in `docs/M8-ACCEPTANCE.md` is `Fail — blocked`). It takes an access key id and secret from the environment, not a role, so a host that grants credentials through an instance or task role cannot use it without a change; it reports the provider's answer to the call and not delivery, so a bounce or a complaint is invisible to the application; and a new SES account is in the sandbox, which delivers only to verified addresses until AWS grants production access.
 
-**Trigger** The decision of a mail provider, and the first stack a person who is not a developer is to register on: an adapter for it, and a sign-in screen in the learner app.
-**Cited** `apps/api/src/contexts/identity/public/composition.ts`
+**Trigger** The first run on a host with a verified sender: run `mail-smoke` (below), read the inbox, and either record the line as passed or fix what the provider said. Credentials from a role, and bounce handling, when the host is chosen (D118) or the first bounce is seen.
+**Cited** `apps/api/src/contexts/identity/infrastructure/ses-mail.ts`
+
+### D121 — Studio has no sign-in and takes a development token from `localStorage`
+
+The learner app signs a person in (ADR-0065). Studio, which authors and reviews content, still reads `localStorage['qb-dev-token']` and sends it as a bearer token, which the API's session resolver no longer accepts (ADR-0056), so nobody can use Studio against a real API. Studio was outside this track and is not on the beta path (learners are), so it was left as it stood rather than given a second copy of the learner screens.
+
+**Trigger** The first person who is not a developer to author or review content in Studio: a sign-in screen on the same routes, and the session in the same cookie.
+**Cited** `apps/studio/src/main.tsx`
+
+### D122 — A learner signed in on one device too many is signed out of the oldest, and nothing tells them
+
+`MAX_SESSIONS_PER_USER` (default 5) ends the oldest session when a login exceeds it. The server answers the login with success and says nothing of the session it ended, so the learner app has no message to show and the person on the oldest device finds themselves at the sign-in screen without being told why. The limit has no surface to build a screen on: no refusal, no field in the login answer. Building the screen first would have meant inventing the server's side.
+
+**Trigger** The first report of a learner signed out without cause, or a decision to tell a person when a login ends another session: the login answer says which session ended (or that one did), and the sign-in screen says so.
+**Cited** `apps/api/src/contexts/identity/application/handlers/credential-handlers.ts`
+
+### D123 — The Compose file publishes an unauthenticated database and the API on every interface
+
+`infra/compose/docker-compose.yml` publishes Postgres on 5432 with `POSTGRES_HOST_AUTH_METHOD: trust` (anyone who can reach the port is the superuser), the API on 3000, and Studio on 4173, each on all interfaces. That is what a laptop and a CI runner want (the seed commands and the journey reach them on `localhost`) and what a host that faces the internet must not have. `docs/DEPLOYMENT.md` tells the owner to firewall everything but 80 and 443; the file does nothing about it. Binding them to `127.0.0.1` would fix it, but `compose-rules.ts` reads a published port's first colon-separated field as its host port, so every binding to `127.0.0.1:` would read as one port collision.
+
+**Trigger** The first host that faces the internet: bind the three to `127.0.0.1` (and teach `compose-rules.ts` the three-field form), or give the database a password.
+**Cited** `infra/compose/docker-compose.yml`
+
+### D124 — A production process does not start, so the process that serves people runs as `development`
+
+`createMediaStore` refuses `NODE_ENV=production` as a boot failure, because the only media store is the filesystem one and no S3 adapter exists (D32). Nothing else refuses it, so a deployment runs as `development` (DEC-M8-24, DEC-M8-27): debug-level log lines are not suppressed (the configured level, `info`, still applies), a log line may carry a stack, and a message goes to a file unless the SES settings are present. None of it reaches a response. It was found by trying to start one, when the SES adapter was meant to be chosen for production and could not be.
+
+**Trigger** The S3 adapter (D32), or a decision to allow the filesystem store in production behind an explicit setting: then `NODE_ENV=production` for the process that serves people, and the Compose file's `NODE_ENV` follows.
+**Cited** `apps/api/src/platform/persistence/filesystem-media-store.ts`
 
 ## Closed
 
@@ -1217,4 +1234,28 @@ said it would. Measured in Chrome on the machine this was written on, a commit t
 inside it loses the answer, as the first version of the offline-reopen tests showed. Strict durability is about the operating system or the power failing, which a killed browser process does not distinguish from relaxed, and the run that proves it
 cannot kill the machine. What the adversarial runs plant is a slow disk (`device-record.ts`), under which a kill without the gate before it loses events and one with it does not.
 **Cited** `apps/learn/src/session/persistence.ts`
+
+### D69 — The learner app takes its bearer token from `localStorage` *(closed by M8 Track J, [ADR-0065](adr/ADR-0065-a-browsers-session-is-a-cookie-script-cannot-read-and-a-stranger-can-reach-the-product.md); Studio's part is D121)*
+
+There is no sign-in. As in Studio, a developer sets `localStorage['qb-dev-token']` to a bearer token, and the app sends it. It is a development
+convenience that must not survive to a student's phone.
+
+There is now a sign-in on the API (ADR-0056), and the token this line sends is no longer accepted by it: the stub resolves no human request. What is still to do is the app's: a login screen on those routes, the session token held where script cannot read it, and this line removed from `main.tsx`.
+
+**Trigger** M8 (closed beta hardening): the login screen, the token held where script cannot read it, and this line removed from `main.tsx`.
+**Cited** `apps/learn/src/main.tsx`
+
+**What closed it (M8-42, M8-43).** The learner app has a sign-in, and its session is an `HttpOnly`, `Secure`, `SameSite=Lax` cookie that script cannot read, with a second cookie echoed in a header and an origin check against another site. `localStorage['qb-dev-token']` is gone from `main.tsx`, and nothing about a session is kept in browser storage. **What does not close:** Studio still takes a development token from `localStorage` (D121).
+**Cited** `apps/learn/src/main.tsx`
+
+### D119 — A production process has no mail provider, so nobody can register against it *(closed by M8 Track J, [ADR-0065](adr/ADR-0065-a-browsers-session-is-a-cookie-script-cannot-read-and-a-stranger-can-reach-the-product.md); what is not proved is D120)*
+
+`defaultMail` gives a development process a directory to write messages to, a test a list, and every other process a mail port that refuses to send, because a message carries a secret that must not be written to a disk by default and the provider is a decision not yet taken. The Compose stack therefore runs in development mode, and a stack in front of the public could not take a registration. The learner app also has no sign-in screen (it takes its bearer token
+from `localStorage`, D69), so nothing a person does in a browser reaches the journey; it is run over HTTP.
+
+**Trigger** The decision of a mail provider, and the first stack a person who is not a developer is to register on: an adapter for it, and a sign-in screen in the learner app.
+**Cited** `apps/api/src/contexts/identity/public/composition.ts`
+
+**What closed it (M8-41, M8-43).** A process with the four SES settings sends through SES, in development or production (DEC-M8-27); production without them refuses every send; half-configured does not start. The learner app has a sign-in, a registration with a check-your-mail screen and a resend, and a screen the link in a message opens. **What is not earned:** that SES accepts a message from a real account (D120); the Compose stack's CI run is still without the settings, so mail there is a file; and the process that serves people is a development process, because production does not start (D124).
+**Cited** `apps/api/src/contexts/identity/public/composition.ts`
 

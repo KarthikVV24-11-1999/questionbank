@@ -8,6 +8,9 @@ import { TOKEN_INVALID, issueAndMail } from './credential-handlers.js';
 export const VERIFY_EMAIL_POLICY = policy('VerifyEmail', [ROLES.guest]);
 export const REQUEST_EMAIL_VERIFICATION_POLICY = policy('RequestEmailVerification', [ROLES.learner, ROLES.author, ROLES.reviewer, ROLES.contentOps, ROLES.curriculumCurator, ROLES.examOwner, ROLES.ops, ROLES.admin]);
 
+/** What asking for a new message says when the provider would not take it. */
+export const MAIL_UNAVAILABLE = applicationError('Unavailable', 'MAIL_UNAVAILABLE', 'The message could not be sent just now. Try again shortly.');
+
 export class VerifyEmailHandler {
   readonly name = 'VerifyEmail';
   readonly policy = VERIFY_EMAIL_POLICY;
@@ -30,7 +33,7 @@ export class RequestEmailVerificationHandler {
   readonly name = 'RequestEmailVerification';
   readonly policy = REQUEST_EMAIL_VERIFICATION_POLICY;
 
-  constructor(private readonly deps: { readonly oneTime: OneTimeTokenStore; readonly users: UserStore; readonly mail: MailPort; readonly tokens: TokenFactory; readonly clock: Clock; readonly identifiers: IdentifierFactory }) {}
+  constructor(private readonly deps: { readonly oneTime: OneTimeTokenStore; readonly users: UserStore; readonly mail: MailPort; readonly tokens: TokenFactory; readonly clock: Clock; readonly identifiers: IdentifierFactory; readonly publicUrl?: string | undefined }) {}
 
   /** A new code for the caller's own address, replacing the one before it. Already verified is not an error and sends nothing. */
   async handle(_command: Record<string, never>, context: ApplicationContext): Promise<Result<{ readonly accepted: true }, ApplicationError>> {
@@ -38,7 +41,14 @@ export class RequestEmailVerificationHandler {
     if (!permitted.ok) return err(permitted.error);
     const found = await this.deps.users.findById(context.principal.id);
     if (found === null) return err(applicationError('NotFound', 'USER_NOT_FOUND', 'There is no such user.'));
-    if (found.user.emailVerifiedAt === null) await issueAndMail(this.deps, found.user, 'email_verification', this.deps.clock.now());
+    if (found.user.emailVerifiedAt === null) {
+      try {
+        await issueAndMail(this.deps, found.user, 'email_verification', this.deps.clock.now());
+      } catch {
+        // the caller is signed in and the address is their own, so there is nothing to hide: say it did not go, and that asking again is the answer (DEC-M8-25)
+        return err(MAIL_UNAVAILABLE);
+      }
+    }
     return ok({ accepted: true });
   }
 }

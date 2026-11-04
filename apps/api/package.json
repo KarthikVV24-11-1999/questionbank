@@ -10,7 +10,8 @@
     "fitness": "vitest run --project unit src/fitness",
     "test:fast": "vitest run",
     "start": "vite-node src/main.ts",
-    "bootstrap-admin": "vite-node src/bootstrap-admin.ts"
+    "bootstrap-admin": "vite-node src/bootstrap-admin.ts",
+    "mail-smoke": "vite-node src/mail-smoke.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",

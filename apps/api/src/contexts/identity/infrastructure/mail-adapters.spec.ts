@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultMail } from '../public/composition.js';
+import { SesMail } from './ses-mail.js';
 import { DirectoryMail, MailProviderNotConfigured, MemoryMail, UnconfiguredMail } from './mail-adapters.js';
 
 const roots: string[] = [];
@@ -38,6 +39,16 @@ describe('the development mail adapters', () => {
     const environment = { directory: '/nowhere', now: () => new Date() };
     expect(defaultMail({ ...environment, nodeEnv: 'development' })).toBeInstanceOf(DirectoryMail);
     expect(defaultMail({ ...environment, nodeEnv: 'test' })).toBeInstanceOf(MemoryMail);
+    expect(defaultMail({ ...environment, nodeEnv: 'production' })).toBeInstanceOf(UnconfiguredMail);
+  });
+
+  it('sends through SES wherever it is configured but under test, and otherwise keeps to the environment: files in development, a refusal in production', () => {
+    const environment = { directory: '/nowhere', now: () => new Date() };
+    const ses = { region: 'eu-west-1', sender: 'a@b.example', accessKeyId: 'AKIDEXAMPLE0000000', secretAccessKey: 'x'.repeat(40) };
+    expect(defaultMail({ ...environment, ses, nodeEnv: 'production' })).toBeInstanceOf(SesMail);
+    expect(defaultMail({ ...environment, ses, nodeEnv: 'development' })).toBeInstanceOf(SesMail);
+    expect(defaultMail({ ...environment, ses, nodeEnv: 'test' })).toBeInstanceOf(MemoryMail);
+    expect(defaultMail({ ...environment, nodeEnv: 'development' })).toBeInstanceOf(DirectoryMail);
     expect(defaultMail({ ...environment, nodeEnv: 'production' })).toBeInstanceOf(UnconfiguredMail);
   });
 });

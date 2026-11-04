@@ -58,6 +58,11 @@ export const CONFIG_KEYS = [
   'passwordHashQueue',
   'passwordHashWaitMs',
   'trustProxyHops',
+  'publicUrl',
+  'mailSesRegion',
+  'mailSender',
+  'mailAccessKeyId',
+  'mailSecretAccessKey',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -141,6 +146,16 @@ export interface AppConfig {
   readonly passwordHashWaitMs: number;
   /** How many proxies sit in front of the application and may be believed about a client's address (M8-07). Zero: the connection's own address. */
   readonly trustProxyHops: number;
+  /**
+   * The address a person reaches the learner app at (M8-41), no trailing slash. A message that carries a link builds it from this; absent, a message carries the code alone.
+   * An origin, not a path: the link's path belongs to the app.
+   */
+  readonly publicUrl?: string;
+  /**
+   * Amazon SES as the mail provider (M8-41, D119). **All four of region, sender, access key id and secret, or none**: a process with some of them refuses to start and names
+   * the ones it lacks, because falling back to refusing every send at the first registration would find out too late. None, and development writes each message to a file while production keeps `UnconfiguredMail` (DEC-M8-27).
+   */
+  readonly mailSes?: { readonly region: string; readonly sender: string; readonly accessKeyId: string; readonly secretAccessKey: string };
   /**
    * Whether this process runs the background jobs — the outbox relay and the sweeps (M6-38, M6-42). On by default: every instance of
    * the application drains the outbox and sweeps, which is safe because the jobs claim or are idempotent. Off for a process that should
@@ -272,6 +287,11 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   passwordHashQueue: 'PASSWORD_HASH_QUEUE',
   passwordHashWaitMs: 'PASSWORD_HASH_WAIT_MS',
   trustProxyHops: 'TRUST_PROXY_HOPS',
+  publicUrl: 'PUBLIC_URL',
+  mailSesRegion: 'MAIL_SES_REGION',
+  mailSender: 'MAIL_SENDER',
+  mailAccessKeyId: 'AWS_ACCESS_KEY_ID',
+  mailSecretAccessKey: 'AWS_SECRET_ACCESS_KEY',
 };
 
 function fail(key: ConfigKey, message: string): ConfigResult<never> {
@@ -519,6 +539,43 @@ function parseFormPackageSigningKey(
   return { ok: true, value: raw };
 }
 
+function present(env: Readonly<Record<string, string | undefined>>, key: ConfigKey): string | undefined {
+  const raw = env[ENV_VAR_NAMES[key]];
+  return raw === undefined || raw.trim().length === 0 ? undefined : raw.trim();
+}
+
+function parsePublicUrl(env: Readonly<Record<string, string | undefined>>): ConfigResult<string | undefined> {
+  const raw = present(env, 'publicUrl');
+  if (raw === undefined) return { ok: true, value: undefined };
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return fail('publicUrl', `${ENV_VAR_NAMES.publicUrl} is not a valid URL`);
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.pathname !== '/' || url.search !== '' || url.hash !== '' || url.username !== '') {
+    return fail('publicUrl', `${ENV_VAR_NAMES.publicUrl} must be an http or https origin with no path, query or credentials`);
+  }
+  return { ok: true, value: url.origin };
+}
+
+const SES_KEYS = ['mailSesRegion', 'mailSender', 'mailAccessKeyId', 'mailSecretAccessKey'] as const;
+
+function parseMailSes(env: Readonly<Record<string, string | undefined>>): ConfigResult<AppConfig['mailSes']> {
+  const values = SES_KEYS.map((key) => present(env, key));
+  const missing = SES_KEYS.filter((_, index) => values[index] === undefined);
+  if (missing.length === SES_KEYS.length) return { ok: true, value: undefined };
+  if (missing.length > 0) {
+    // Names the variables lacking, never a value of one that is there.
+    return fail(missing[0] as ConfigKey, `mail through SES needs all of ${SES_KEYS.map((key) => ENV_VAR_NAMES[key]).join(', ')}; missing ${missing.map((key) => ENV_VAR_NAMES[key]).join(', ')}`);
+  }
+  const [region, sender, accessKeyId, secretAccessKey] = values as [string, string, string, string];
+  if (!/^[a-z]{2}(-[a-z]+)+-\d$/u.test(region)) return fail('mailSesRegion', `${ENV_VAR_NAMES.mailSesRegion} must be an AWS region name such as eu-west-1`);
+  if (!/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/u.test(sender)) return fail('mailSender', `${ENV_VAR_NAMES.mailSender} must be one plain email address`);
+  if (!/^[A-Z0-9]{16,128}$/u.test(accessKeyId)) return fail('mailAccessKeyId', `${ENV_VAR_NAMES.mailAccessKeyId} is not shaped like an AWS access key id`);
+  return { ok: true, value: { region, sender, accessKeyId, secretAccessKey } };
+}
+
 /**
  * Total: never throws, and returns the first violated key's error rather
  * than collecting all of them — one bad value is enough to refuse boot, and
@@ -598,6 +655,11 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   const trustProxyHops = parseBoundedInteger(env, 'trustProxyHops', 0, 10, 'a whole number from 0 to 10');
   if (!trustProxyHops.ok) return trustProxyHops;
 
+  const publicUrl = parsePublicUrl(env);
+  if (!publicUrl.ok) return publicUrl;
+  const mailSes = parseMailSes(env);
+  if (!mailSes.ok) return mailSes;
+
   const backgroundJobsEnabled = parseBackgroundJobsEnabled(env);
   if (!backgroundJobsEnabled.ok) return backgroundJobsEnabled;
 
@@ -633,6 +695,8 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       backgroundJobsEnabled: backgroundJobsEnabled.value,
       ...(generationPrecheckConfig.value === undefined ? {} : { generationPrecheckConfig: generationPrecheckConfig.value }),
       ...(formPackageSigningKey.value === undefined ? {} : { formPackageSigningKey: formPackageSigningKey.value }),
+      ...(publicUrl.value === undefined ? {} : { publicUrl: publicUrl.value }),
+      ...(mailSes.value === undefined ? {} : { mailSes: mailSes.value }),
     },
   };
 }

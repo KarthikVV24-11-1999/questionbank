@@ -4,7 +4,7 @@ import type { Pool } from 'pg';
 import { Admission, type IdentityRouteLimits, type RefusalLog } from '../api/admission.js';
 import { IdentityModule } from '../api/identity.module.js';
 import type { PrincipalResolver } from '../api/identity.controller.js';
-import { ChangePasswordHandler, LoginHandler, RegisterHandler, RequestPasswordRecoveryHandler, ResetPasswordHandler } from '../application/handlers/credential-handlers.js';
+import { ChangePasswordHandler, LoginHandler, RegisterHandler, type MailFailureReport, RequestPasswordRecoveryHandler, ResetPasswordHandler } from '../application/handlers/credential-handlers.js';
 import { AssignRoleHandler, BootstrapFirstAdminHandler, RemoveRoleHandler } from '../application/handlers/role-handlers.js';
 import { LogoutAllHandler, LogoutHandler, RotateSessionHandler } from '../application/handlers/session-handlers.js';
 import { RequestEmailVerificationHandler, VerifyEmailHandler } from '../application/handlers/verification-handlers.js';
@@ -12,6 +12,10 @@ import type { TransactionalAudit, BoundedRunner, BreachedPasswords, Clock, Ident
 import { PasswordScreen } from '../application/password-screen.js';
 import { SessionAuthenticator } from '../application/session-authenticator.js';
 import { DirectoryMail, MemoryMail, UnconfiguredMail } from '../infrastructure/mail-adapters.js';
+import { SesMail, type SesSettings } from '../infrastructure/ses-mail.js';
+
+export { SesMail };
+export { sessionCookies } from '../api/session-cookies.js';
 import { BundledPasswordList } from '../infrastructure/bundled-password-list.js';
 import { BoundedPasswordHasher } from '../infrastructure/bounded-password-hasher.js';
 import { ScryptPasswordHasher } from '../infrastructure/scrypt-password-hasher.js';
@@ -29,12 +33,24 @@ export type { BoundedRunner, BreachedPasswords, BreachVerdict, MailMessage, Mail
 export type { IdentityRouteLimits, RefusalLog } from '../api/admission.js';
 
 /**
- * The mail adapter for an environment (M8-04), when none is supplied. Development writes a file a message; a test keeps them; anything else gets an adapter that fails the
- * send, because the provider is a later decision and a message carries a secret that must not be written to a disk by default.
+ * The mail adapter for an environment (M8-04, M8-41), when none is supplied. A test keeps messages. A process with the SES settings sends through SES, in development as in production:
+ * the four settings are all-or-nothing and a person has to set each (`loadConfig` refuses the half), so they are an explicit choice and not something a laptop does by accident. Without
+ * them, development writes a file a message, and production gets an adapter that fails the send, because a message carries a secret that must not be written to a disk by default and a
+ * process that cannot send should say so at the first registration rather than drop the message quietly.
+ *
+ * SES is not tied to `production` because a production process cannot start yet: the only media store refuses it (D32). Until that is lifted, the process that serves people runs as
+ * `development` with these settings (DEC-M8-27).
  */
-export function defaultMail(environment: { readonly nodeEnv: 'development' | 'test' | 'production'; readonly directory: string; readonly now: () => Date }): MailPort {
-  if (environment.nodeEnv === 'development') return new DirectoryMail(environment.directory, environment.now);
-  return environment.nodeEnv === 'test' ? new MemoryMail() : new UnconfiguredMail();
+export function defaultMail(environment: {
+  readonly nodeEnv: 'development' | 'test' | 'production';
+  readonly directory: string;
+  readonly now: () => Date;
+  readonly ses?: SesSettings;
+  readonly fetch?: typeof fetch;
+}): MailPort {
+  if (environment.nodeEnv === 'test') return new MemoryMail();
+  if (environment.ses !== undefined) return new SesMail(environment.ses, { fetch: environment.fetch ?? fetch, now: environment.now });
+  return environment.nodeEnv === 'development' ? new DirectoryMail(environment.directory, environment.now) : new UnconfiguredMail();
 }
 
 export interface IdentityPrincipalsDeps {
@@ -79,6 +95,8 @@ export interface IdentityCompositionDeps {
   readonly refusals?: RefusalLog;
   /** Where a password is looked up before it is accepted (M8-11). Absent: the list that ships with the code. A test passes one that fails. */
   readonly breached?: BreachedPasswords;
+  /** The learner app's origin, for the link in a message (M8-41). Absent: a message carries the code alone. */
+  readonly publicUrl?: string;
 }
 
 export interface IdentityHandlers {
@@ -113,14 +131,17 @@ export function identityHandlers(deps: IdentityCompositionDeps): IdentityHandler
     },
   });
   const common = { users, hasher: new BoundedPasswordHasher(deps.hasher ?? new ScryptPasswordHasher(), deps.hashBound), tokens: new CryptoTokenFactory(), clock: deps.clock, identifiers: deps.identifiers, screen };
+  // a send that did not go leaves one warning with the purpose and the correlation id: no address, no body, no code
+  const mailFailed: MailFailureReport = ({ purpose, correlationId, reason }) =>
+    deps.refusals?.log({ level: 'warn', message: 'a message was not sent', correlationId, context: 'identity.mail', attributes: { errorCode: 'MAIL_SEND_FAILED', reason: `${purpose}: ${reason}`, route: purpose } });
   return {
-    register: new RegisterHandler({ ...common, oneTime, mail: deps.mail }),
+    register: new RegisterHandler({ ...common, oneTime, mail: deps.mail, publicUrl: deps.publicUrl, mailFailed }),
     login: new LoginHandler({ ...common, sessions, maxSessionsPerUser: deps.maxSessionsPerUser }),
-    requestPasswordRecovery: new RequestPasswordRecoveryHandler({ ...common, oneTime, mail: deps.mail }),
+    requestPasswordRecovery: new RequestPasswordRecoveryHandler({ ...common, oneTime, mail: deps.mail, publicUrl: deps.publicUrl, mailFailed }),
     resetPassword: new ResetPasswordHandler({ ...common, credentials }),
     changePassword: new ChangePasswordHandler({ ...common, sessions, credentials }),
     verifyEmail: new VerifyEmailHandler({ oneTime, users, tokens: common.tokens, clock: deps.clock }),
-    requestEmailVerification: new RequestEmailVerificationHandler({ oneTime, users, mail: deps.mail, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers }),
+    requestEmailVerification: new RequestEmailVerificationHandler({ oneTime, users, mail: deps.mail, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers, publicUrl: deps.publicUrl }),
     logout: new LogoutHandler({ sessions, tokens: common.tokens, clock: deps.clock }),
     logoutAll: new LogoutAllHandler({ credentials, clock: deps.clock }),
     rotateSession: new RotateSessionHandler({ sessions, tokens: common.tokens, clock: deps.clock, identifiers: deps.identifiers }),

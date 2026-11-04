@@ -27,7 +27,7 @@ import { AnalyticsEdge } from '../analytics/edge.js';
 import { ServerEmitter } from '../analytics/server-emitter.js';
 import { LocalDirectorySink, MemorySink, type AnalyticsSink } from '../analytics/sink.js';
 import { createLogger } from '../observability/logger.js';
-import { defaultMail, identityPrincipals, register as registerIdentity, type BreachedPasswords, type MailPort, type PasswordHasher } from '../../contexts/identity/public/composition.js';
+import { defaultMail, identityPrincipals, register as registerIdentity, sessionCookies, type BreachedPasswords, type MailPort, type PasswordHasher } from '../../contexts/identity/public/composition.js';
 import { createJsonTelemetry, type Telemetry } from '../observability/telemetry.js';
 import { instrumentPool } from '../observability/instrumented-pool.js';
 import { TelemetryInterceptor } from '../observability/telemetry.interceptor.js';
@@ -287,7 +287,8 @@ export async function createApplication(
     refusals: analyticsLog,
     ...(overrides.hasher === undefined ? {} : { hasher: overrides.hasher }),
     ...(overrides.breached === undefined ? {} : { breached: overrides.breached }),
-    mail: overrides.mail ?? defaultMail({ nodeEnv: config.nodeEnv, directory: join(config.mediaStorageRoot, '..', 'mail'), now: clock.now.bind(clock) }),
+    mail: overrides.mail ?? defaultMail({ nodeEnv: config.nodeEnv, directory: join(config.mediaStorageRoot, '..', 'mail'), now: clock.now.bind(clock), ...(config.mailSes === undefined ? {} : { ses: config.mailSes }) }),
+    ...(config.publicUrl === undefined ? {} : { publicUrl: config.publicUrl }),
   });
   const rootImports = [identityModule, AnalyticsModule.register({ edge: analyticsEdge, principals }), contentModule, curriculumModule, scoringModule, generationModule, assessmentModule, learningModule, HealthModule.register(pool)];
   // The pool this factory itself built is this factory's to close — a pool
@@ -299,7 +300,11 @@ export async function createApplication(
   const app = await NestFactory.create(RootModule.register(rootImports, rootProviders), { logger: false });
   // Behind a proxy a client's address is the proxy's unless the application is told how many to believe; every client would then be one source (M8-07).
   if (config.trustProxyHops > 0) app.getHttpAdapter().getInstance().set('trust proxy', config.trustProxyHops);
-  if (overrides.principals === undefined) app.use(identity.middleware);
+  if (overrides.principals === undefined) {
+    // before the session middleware: a browser's cookie becomes the bearer header it reads, after the origin and the echoed cookie are checked (M8-42)
+    app.use(sessionCookies({ ...(config.publicUrl === undefined ? {} : { allowedOrigin: config.publicUrl }) }));
+    app.use(identity.middleware);
+  }
   app.useGlobalInterceptors(new TelemetryInterceptor(telemetry));
 
   return app;

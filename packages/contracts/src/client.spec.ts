@@ -143,4 +143,31 @@ describe('createClient — headers, and a body kept as bytes (M6-47, M6-48)', ()
     const empty = (async () => new Response('', { status: 500 })) as typeof fetch;
     await expect(createClient(config(empty)).requestBytes({ path: '/package' })).rejects.toBeInstanceOf(UnparseableErrorResponse);
   });
+
+  it('sends the browser\'s cookies when asked to, and says nothing about them when not', async () => {
+    const seen: (string | undefined)[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      seen.push(init?.credentials);
+      return jsonResponse(200, { id: 'a', label: 'Item A' });
+    }) as unknown as typeof fetch;
+    await createClient({ baseUrl: 'https://api.example/', getToken: () => null, fetchImpl, credentials: 'include' }).request({ path: '/v1/items/a', responseSchema: ROW_SCHEMA });
+    await createClient({ baseUrl: 'https://api.example/', getToken: () => null, fetchImpl }).request({ path: '/v1/items/a', responseSchema: ROW_SCHEMA });
+    expect(seen).toEqual(['include', undefined]);
+  });
+
+  it('adds the headers it is given on every request, read afresh each time, and lets neither them nor a caller replace the ones it sets', async () => {
+    let echo = 'first';
+    const captured: Headers[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      captured.push(new Headers(init?.headers));
+      return jsonResponse(200, { id: 'a', label: 'Item A' });
+    }) as unknown as typeof fetch;
+    const client = createClient({ baseUrl: 'https://api.example/', getToken: () => 'real', fetchImpl, correlationId: () => 'fixed', extraHeaders: () => ({ 'X-CSRF-Token': echo, Authorization: 'Bearer forged', 'X-Correlation-Id': 'forged' }) });
+    await client.request({ path: '/v1/items/a', responseSchema: ROW_SCHEMA });
+    echo = 'second';
+    await client.request({ path: '/v1/items/a', responseSchema: ROW_SCHEMA });
+    expect(captured.map((headers) => headers.get('x-csrf-token'))).toEqual(['first', 'second']);
+    expect(captured.map((headers) => headers.get('authorization'))).toEqual(['Bearer real', 'Bearer real']);
+    expect(captured.map((headers) => headers.get('x-correlation-id'))).toEqual(['fixed', 'fixed']);
+  });
 });

@@ -23,7 +23,15 @@ import { SESSION_IDLE_MS, SESSION_LIFETIME_MS } from './domain/session-policy.js
  */
 let database: TestDatabase;
 let app: INestApplication;
-const mail = new MemoryMail();
+/** A provider that can be told to refuse: what SES does when it throttles, times out or has not verified the sender. */
+class FlakyMail extends MemoryMail {
+  refusing = false;
+  override async send(message: Parameters<MemoryMail['send']>[0]): Promise<void> {
+    if (this.refusing) throw new Error('the provider would not take it');
+    return super.send(message);
+  }
+}
+const mail = new FlakyMail();
 let now = new Date('2026-11-02T09:00:00.000Z');
 const PASSWORD = 'correct horse battery staple';
 const OTHER_PASSWORD = 'a different long passphrase';
@@ -45,6 +53,7 @@ afterAll(async () => {
 beforeEach(() => {
   now = new Date('2026-11-02T09:00:00.000Z');
   mail.sent.length = 0;
+  mail.refusing = false;
 });
 
 const http = () => request(app.getHttpServer());
@@ -653,5 +662,36 @@ describe('assigning and removing a role (M8-12)', () => {
     expect([unknown.status, unknown.body.reason]).toEqual([404, 'USER_NOT_FOUND']);
     const already = await post('/roles/assign', { email: address, role: 'learner' }, boss.token);
     expect([already.status, already.body.changed]).toEqual([200, false]);
+  });
+});
+
+describe('when the provider will not take a message (DEC-M8-25)', () => {
+  it('keeps the account a registration made, answers as it always does, and lets the resend route bring the message', async () => {
+    const address = email();
+    mail.refusing = true;
+    expect((await post('/register', { email: address, password: PASSWORD })).status).toBe(202);
+    expect(mail.sent).toEqual([]);
+    expect((await database.pool.query('SELECT count(*)::int AS n FROM identity.app_user WHERE email_normalized = $1', [address])).rows[0].n).toBe(1);
+    const login = await loggedIn(address);
+    expect(await post('/email/verification', {}, login.token)).toMatchObject({ status: 503, body: { reason: 'MAIL_UNAVAILABLE' } });
+    mail.refusing = false;
+    expect((await post('/email/verification', {}, login.token)).status).toBe(202);
+    expect((await post('/email/verify', { token: codeIn('email_verification') })).status).toBe(200);
+  });
+
+  it('answers recovery for a known address as it does for an unknown one, even when the message did not go', async () => {
+    const address = await registered();
+    mail.sent.length = 0;
+    mail.refusing = true;
+    const known = await post('/password/recovery', { email: address });
+    const unknown = await post('/password/recovery', { email: email() });
+    expect([known.status, unknown.status]).toEqual([202, 202]);
+    expect(withoutCorrelation(known.body)).toEqual(withoutCorrelation(unknown.body));
+  });
+
+  it('answers a registration for a known address the same, when the notice to its owner did not go', async () => {
+    const address = await registered();
+    mail.refusing = true;
+    expect((await post('/register', { email: address, password: OTHER_PASSWORD })).status).toBe(202);
   });
 });

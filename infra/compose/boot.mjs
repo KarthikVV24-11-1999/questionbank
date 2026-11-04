@@ -5,13 +5,15 @@
 //
 // The phases, each timed: build the images; start the database; apply the migrations; start everything else and wait for every healthcheck; load the syllabus and the exam profiles; load the
 // demonstration questions. F8 is the sum of those, against a budget of ten minutes (BOOT_BUDGET_SECONDS). Then the journey from sign-up to a first named weakness is run over HTTP against the stack
-// (tools/stack-journey/journey.mjs) and its time is reported on its own, since it is not part of getting the stack to boot.
+// (tools/stack-journey/journey.mjs) and its time is reported on its own, since it is not part of getting the stack to boot. Then the same journey is run in a real Chrome, through the learner app's
+// own screens (tools/adversarial/src/stack-journey.ts, M8-44), and reported on its own as well. The stack runs in development mode, where mail is a file the browser run reads: a green run says nothing
+// about mail through SES, which no run here can try (docs/M8-ACCEPTANCE.md, D120).
 //
 // Nothing here is a secret: the three keys the API needs are generated for this run and discarded with it, unless the caller already supplied them. The stack is taken down at the end
 // (and its volumes removed) unless KEEP_STACK=1. Exit code 0 means every phase ran, the journey passed, and the boot was inside its budget; the time it took is printed either way.
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, mkdtempSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +60,7 @@ const docker = (...args) => run('docker', [...compose, ...args]);
 
 let failure;
 let journey;
+let browserJourney;
 try {
   phase('build the images', () => docker('build'));
   phase('start the database', () => docker('up', '-d', '--wait', 'postgres'));
@@ -73,6 +76,12 @@ try {
   const steps = run('node', [join(root, 'tools/stack-journey/journey.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir });
   journey = Math.round((performance.now() - began) / 100) / 10;
   annotate('notice', 'journey over HTTP', steps);
+
+  const reportFile = join(mailDir, 'browser-journey.json');
+  const browserBegan = performance.now();
+  run('corepack', ['pnpm', '--filter', '@questionbank/adversarial', 'exec', 'vitest', 'run', '--config', 'vitest.stack.config.ts'], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir, STACK_BROWSER_REPORT: reportFile });
+  browserJourney = Math.round((performance.now() - browserBegan) / 100) / 10;
+  annotate('notice', 'journey in a real browser', JSON.parse(readFileSync(reportFile, 'utf8')).text);
   if (boot > BUDGET_SECONDS) throw new Error(`F8 fails: the boot took ${boot} s and the budget is ${BUDGET_SECONDS} s`);
 } catch (error) {
   failure = error;
@@ -86,5 +95,5 @@ try {
 }
 
 const total = Math.round(phases.reduce((sum, entry) => sum + entry.seconds, 0) * 10) / 10;
-process.stdout.write(`\nBOOT PHASES\n${phases.map((entry) => `  ${entry.name.padEnd(62)} ${String(entry.seconds).padStart(7)} s`).join('\n')}\n  ${'total'.padEnd(62)} ${String(total).padStart(7)} s${journey === undefined ? '' : `\n  journey over HTTP (not part of the boot): ${journey} s`}\n`);
+process.stdout.write(`\nBOOT PHASES\n${phases.map((entry) => `  ${entry.name.padEnd(62)} ${String(entry.seconds).padStart(7)} s`).join('\n')}\n  ${'total'.padEnd(62)} ${String(total).padStart(7)} s${journey === undefined ? '' : `\n  journey over HTTP (not part of the boot): ${journey} s`}${browserJourney === undefined ? '' : `\n  journey in a real browser, with Chrome starting (not part of the boot): ${browserJourney} s`}\n`);
 if (failure !== undefined) process.exit(1);

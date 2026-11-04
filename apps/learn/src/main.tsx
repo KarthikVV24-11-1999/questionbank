@@ -17,6 +17,9 @@ import { registerServiceWorker } from './sw/register.js';
 import { warmPackageCache } from './sw/warm-package.js';
 import { withinTime } from './api/within-time.js';
 import { createVerdictReporter } from './practice/verdict-events.js';
+import { createIdentityApi } from './api/identity-api.js';
+import { messageLinkOf, returnAddress, type AuthFlags, type AuthScreen } from './ui/auth-links.js';
+import { AuthGate } from './ui/AuthGate.js';
 import { ConceptMapScreen } from './ui/ConceptMapScreen.js';
 import { TopicScreen } from './ui/TopicScreen.js';
 import { HomeScreen } from './ui/HomeScreen.js';
@@ -27,8 +30,9 @@ import { Root } from './ui/Root.js';
 import type { ScreenContext } from './ui/screen-context.js';
 
 /**
- * The entry point (M6-46). A sitting is opened with `?form=<id>&session=<ref>`; there is no login UI yet — as in Studio, a developer sets
- * `localStorage['qb-dev-token']` to a bearer token, and real sign-in is M8's (debt D69). What it wires is the real clock (`performance.now`, which is
+ * The entry point (M6-46). A sitting is opened with `?form=<id>&session=<ref>`. A person signs in on the screens in `ui/AuthScreens.tsx`, and the session is a cookie the browser keeps and this
+ * code cannot read (ADR-0065, M8-42): requests send it (`credentials: 'include'`) and echo the readable `qb_csrf` cookie in a header, which is the only part of it this file touches.
+ * Nothing about a session is kept in `localStorage` any longer. What it wires is the real clock (`performance.now`, which is
  * monotonic), the wall clock (`Date.now`, read only to take the offset to the server's clock), the real disk (IndexedDB for the response log, M8-15; `localStorage` for the
  * small things), and the real network (through the typed client).
  *
@@ -45,7 +49,19 @@ const params = new URLSearchParams(window.location.search);
 const formId = params.get('form');
 const sessionRef = params.get('session');
 
-const client = createClient({ baseUrl: window.location.origin, getToken: () => window.localStorage.getItem('qb-dev-token') });
+/** The echo of the session's second cookie, which the server compares with what it expects for the session: another site cannot read this origin's cookies, so cannot send it (ADR-0065). */
+const csrfEcho = (): Record<string, string> => {
+  const kept = document.cookie.split('; ').find((cookie) => cookie.startsWith('qb_csrf='));
+  return kept === undefined ? {} : { 'X-CSRF-Token': decodeURIComponent(kept.slice('qb_csrf='.length)) };
+};
+const client = createClient({ baseUrl: window.location.origin, getToken: () => null, credentials: 'include', extraHeaders: csrfEcho });
+const identity = createIdentityApi(client);
+/** The link in a message carries its code after `#`; it is taken from the address at once, so it is not left in the history or the page. */
+const messageLink = messageLinkOf(window.location.hash);
+if (messageLink !== null) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+const authParam = params.get('auth');
+const authScreen: AuthScreen | null = authParam === 'signin' || authParam === 'register' || authParam === 'recover' || authParam === 'sent' ? authParam : null;
+const authFlags: AuthFlags = { changed: params.get('changed') === '1', again: params.get('again') === '1', asked: params.get('asked') === '1' };
 const api = createAssessmentApi(client);
 const learning = createLearningApi(client);
 const profiles = createProfileApi(client);
@@ -188,8 +204,12 @@ function App(): JSX.Element {
 
 const rootElement = document.getElementById('root');
 if (rootElement === null) throw new Error('main.tsx: #root element is missing from index.html');
+/** A paper or a practice run is not interrupted by an account control. */
+const sitting = (formId !== null && sessionRef !== null) || params.get('practice') !== null;
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <AuthGate identity={identity} link={messageLink} auth={{ screen: authScreen, flags: authFlags }} returnTo={returnAddress(window.location.search)} offerSignOut={!sitting} onOpen={open}>
+      <App />
+    </AuthGate>
   </StrictMode>,
 );

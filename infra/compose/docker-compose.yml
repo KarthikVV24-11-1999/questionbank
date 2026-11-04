@@ -16,8 +16,10 @@ name: questionbank
 # The secrets are references and are supplied by whoever runs the stack: AUTH_SIGNING_KEY, AUDIT_ANCHOR_KEY and FORM_PACKAGE_SIGNING_KEY, each 32 random bytes, base64 (`openssl rand -base64 32`),
 # and the three different. Nothing here holds one.
 #
-# NODE_ENV is `development` on purpose. A production process has no mail provider (it is a decision not yet taken) and refuses to send, so nobody can register; a development one writes
-# each message to a file (QB_MAIL_DIR, a directory or, by default, a volume). The stack is for a person on a machine or a staging VM, not for the public.
+# NODE_ENV is `development`, and a green boot of this file is not evidence that mail works. With none of the four mail settings below a development process writes each message to a file
+# (QB_MAIL_DIR, a directory or, by default, a volume), which is what lets the journey read its own verification link, and that is what the CI boot does; with all four it sends through Amazon
+# SES (M8-41), which this file's CI run never exercises: no run of it holds an AWS credential, so it would pass with SES entirely broken. The first message sent through SES is a step the owner
+# runs on the host (`mail-smoke`, docs/DEPLOYMENT.md). The stack is for a person on a machine or a staging VM, not for the public.
 #
 # There is no `ai-fixture` service. It was a local stand-in for an AI provider and nothing in the application or the beta path calls one (the generation pipeline runs against its own
 # fixtures in tests), so the service, its build context and the API's dependency on it were removed rather than a fixture written for a dependency nobody has. `valkey` and `minio` are
@@ -74,6 +76,7 @@ services:
       - '3000:3000'
     environment:
       DATABASE_URL: postgres://postgres@postgres:5432/questionbank
+      # development, and it has to be: a production process does not start, because the only media store refuses it (D32, D124). Mail is a file unless the four settings below are given.
       NODE_ENV: development
       PORT: '3000'
       AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY}
@@ -84,7 +87,15 @@ services:
       MEDIA_STORAGE_ROOT: /var/media/files
       LOG_LEVEL: info
       # the learner app and Studio reach this process through a proxy that sets X-Forwarded-For, so the rate limits count the learner's address and not the proxy's
-      TRUST_PROXY_HOPS: '1'
+      # one proxy (the learner app's nginx); a TLS proxy in front of that makes it 2
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      # where the learner app is reached, so the link in a message opens it; the port is the learner service's, below
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      # mail through SES when all four are set, and none otherwise (the process refuses to start on some). References, never values: blank here means not set.
+      MAIL_SES_REGION: ${MAIL_SES_REGION:-}
+      MAIL_SENDER: ${MAIL_SENDER:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     volumes:
       - ${QB_MAIL_DIR:-qb-mail}:/var/media/mail
     depends_on:

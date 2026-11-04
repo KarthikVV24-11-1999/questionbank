@@ -41,4 +41,5 @@ One line per document: the question it answers, not what it contains.
 
 - [M7-ACCEPTANCE.md](M7-ACCEPTANCE.md) — which of M7's criteria were met, and what is partial?
 - [M8-ACCEPTANCE.md](M8-ACCEPTANCE.md) — which of M8's acceptance lines can be earned before there are real users, and what is the measured time worth?
+- [DEPLOYMENT.md](DEPLOYMENT.md) — what must the owner obtain, and in what order are the steps to run the stack on one host?
 - [M6-ACCEPTANCE.md](M6-ACCEPTANCE.md) — which of M6's criteria were met, and what is still blocked on a device or a deployment?
