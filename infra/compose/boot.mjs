@@ -33,9 +33,17 @@ const env = {
 const DATABASE_URL = 'postgres://postgres@localhost:5432/questionbank';
 
 const phases = [];
+/** A line a GitHub Actions runner turns into an annotation on the run, readable without the job's log: the failure's cause, and each phase's time. */
+const annotate = (level, title, message) => process.stdout.write(`::${level} title=${title}::${message.slice(-3500).replace(/%/gu, '%25').replace(/\r/gu, '%0D').replace(/\n/gu, '%0A')}\n`);
 function run(command, args, extraEnv = {}) {
-  const result = spawnSync(command, args, { cwd: root, env: { ...env, ...extraEnv }, stdio: 'inherit' });
-  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} exited ${result.status}`);
+  const result = spawnSync(command, args, { cwd: root, env: { ...env, ...extraEnv }, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  process.stdout.write(result.stdout ?? '');
+  process.stderr.write(result.stderr ?? '');
+  if (result.status !== 0) {
+    const tail = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim().split('\n').slice(-30).join('\n');
+    throw new Error(`${command} ${args.join(' ')} exited ${result.status}\n${tail}`);
+  }
+  return result.stdout ?? '';
 }
 function phase(name, fn) {
   const began = performance.now();
@@ -44,6 +52,7 @@ function phase(name, fn) {
   const seconds = Math.round((performance.now() - began) / 100) / 10;
   phases.push({ name, seconds });
   process.stdout.write(`=== ${name}: ${seconds} s\n`);
+  annotate('notice', 'boot phase', `${name}: ${seconds} s`);
 }
 const docker = (...args) => run('docker', [...compose, ...args]);
 
@@ -58,15 +67,20 @@ try {
   phase('load the demonstration questions (pnpm seed:items)', () => run('corepack', ['pnpm', '--filter', '@questionbank/seed', 'run', 'seed:items'], { DATABASE_URL }));
   const boot = phases.reduce((sum, entry) => sum + entry.seconds, 0);
   process.stdout.write(`\nF8: the stack booted, migrated and seeded in ${Math.round(boot * 10) / 10} s (budget ${BUDGET_SECONDS} s)\n`);
+  annotate('notice', 'F8', `the stack booted, migrated and seeded in ${Math.round(boot * 10) / 10} s (budget ${BUDGET_SECONDS} s)`);
 
   const began = performance.now();
-  run('node', [join(root, 'tools/stack-journey/journey.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir });
+  const steps = run('node', [join(root, 'tools/stack-journey/journey.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir });
   journey = Math.round((performance.now() - began) / 100) / 10;
+  annotate('notice', 'journey over HTTP', steps);
   if (boot > BUDGET_SECONDS) throw new Error(`F8 fails: the boot took ${boot} s and the budget is ${BUDGET_SECONDS} s`);
 } catch (error) {
   failure = error;
-  process.stdout.write(`\nFAILED: ${error instanceof Error ? error.message : String(error)}\n`);
-  spawnSync('docker', [...compose, 'logs', '--no-color', '--tail', '200'], { cwd: root, env, stdio: 'inherit' });
+  const message = error instanceof Error ? error.message : String(error);
+  process.stdout.write(`\nFAILED: ${message}\n`);
+  const logs = spawnSync('docker', [...compose, 'logs', '--no-color', '--tail', '40'], { cwd: root, env, encoding: 'utf8' });
+  process.stdout.write(`${logs.stdout ?? ''}${logs.stderr ?? ''}`);
+  annotate('error', 'compose boot failed', `${message}\n--- container logs ---\n${`${logs.stdout ?? ''}${logs.stderr ?? ''}`.trim().split('\n').slice(-25).join('\n')}`);
 } finally {
   if (process.env.KEEP_STACK !== '1') spawnSync('docker', [...compose, 'down', '-v', '--remove-orphans'], { cwd: root, env, stdio: 'inherit' });
 }
