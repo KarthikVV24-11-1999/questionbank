@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 import type { AssessmentApi } from '../api/assessment-api.js';
+import type { ExamPins } from '../home/exam-pins.js';
 import { startPracticeOn } from '../practice/start-practice.js';
 import { screenHref, type ScreenContext } from './screen-context.js';
 import { useAction } from './use-remote.js';
@@ -13,6 +14,7 @@ export function PractiseButton({
   label,
   source,
   finding,
+  exam,
   assessment,
   context,
   onOpen,
@@ -23,19 +25,21 @@ export function PractiseButton({
   readonly source: 'remediation' | 'recommendation';
   /** Set where the tap is on a report's finding: its rank, and when the score it is a finding of was computed. */
   readonly finding?: { readonly rank: number; readonly resultAt: string | null };
+  /** The learner's exam, from their profile. Without one there is nothing a run can be made under. */
+  readonly exam: ExamPins | null;
   readonly assessment: Pick<AssessmentApi, 'createPracticeAttempt' | 'startAttempt'>;
   readonly context: ScreenContext;
   readonly onOpen: (href: string) => void;
 }): JSX.Element {
   const action = useAction(
-    () => startPracticeOn(assessment, { examProfileVersionId: context.examProfileVersionId as string, conceptIdentityId, idempotencyKey: `${context.pageKey}:${conceptIdentityId}` }),
+    () => startPracticeOn(assessment, { examProfileVersionId: (exam as ExamPins).examProfileVersionId, conceptIdentityId, idempotencyKey: `${context.pageKey}:${conceptIdentityId}` }),
     (run) => {
       context.analytics.emit(
         'practice.session_started',
         { selection_strategy: 'filtered', source, concept_ids: [conceptIdentityId], item_count: run.slotCount },
         { attempt_id: run.attemptId, concept_identity_id: conceptIdentityId },
       );
-      onOpen(screenHref({ practice: run.attemptId }, context));
+      onOpen(screenHref({ practice: run.attemptId }));
     },
   );
   const tap = (): void => {
@@ -46,7 +50,13 @@ export function PractiseButton({
     }
     action.go();
   };
-  if (context.examProfileVersionId === null) return <p role="note">This page was opened without an exam profile, so a practice run cannot be made from it.</p>;
+  if (exam === null) {
+    return (
+      <p role="note">
+        Choose your exam to practise. <a href={screenHref({ onboarding: true })}>Choose it now</a>
+      </p>
+    );
+  }
   return (
     <>
       <button type="button" onClick={tap} disabled={action.busy}>

@@ -1,11 +1,13 @@
 import { useEffect, type JSX } from 'react';
 import type { AssessmentApi } from '../api/assessment-api.js';
-import type { LearningApi } from '../api/learning-api.js';
+import type { LearningApi, ProfileApi } from '../api/learning-api.js';
 import type { DiagnosticReportDto, PaceAnalyticsDto } from '../api/learning-schemas.js';
+import { pinsOf, type ExamPins } from '../home/exam-pins.js';
+import { nameTopicsSoftly, topicName, type TopicNames } from '../names/topic-names.js';
 import { rescoreLabel, type RescoreLabel } from '../report/rescore-label.js';
 import { TOKENS } from '../tokens.js';
 import { PractiseButton } from './PractiseButton.js';
-import { conceptLabel, screenHref, type ScreenContext } from './screen-context.js';
+import { screenHref, type ScreenContext } from './screen-context.js';
 import { useRemote } from './use-remote.js';
 
 interface Loaded {
@@ -15,13 +17,23 @@ interface Loaded {
   readonly label: RescoreLabel;
   /** When the score the report is about was computed, if it could be read. */
   readonly resultAt: string | null;
+  /** The learner's exam, for a practice run to be made under; `null` where it could not be read or none is chosen. */
+  readonly exam: ExamPins | null;
+  readonly names: TopicNames;
 }
 
-/** The report, and beside it what can be read: the pace, and the score that stands. Only the report is required; the others fail soft and say so. */
-async function loadReport(learning: LearningApi, assessment: Pick<AssessmentApi, 'getResult'>, attemptId: string): Promise<Loaded> {
-  const [report, pace, result] = await Promise.all([learning.getReport(attemptId), learning.getPace(attemptId).catch(() => null), assessment.getResult(attemptId).catch(() => null)]);
+/** The report, and beside it what can be read: the pace, the score that stands, the learner's exam and what the topics are called. Only the report is required; the others fail soft and say so. */
+async function loadReport(learning: LearningApi, assessment: Pick<AssessmentApi, 'getResult'>, profiles: Pick<ProfileApi, 'getProfile'>, attemptId: string): Promise<Loaded> {
+  const [report, pace, result, profile] = await Promise.all([
+    learning.getReport(attemptId),
+    learning.getPace(attemptId).catch(() => null),
+    assessment.getResult(attemptId).catch(() => null),
+    profiles.getProfile().catch(() => null),
+  ]);
   const standing = result?.score === undefined ? null : { scoreRecordId: result.score.scoreRecordId, generation: result.score.generation };
-  return { report, pace, label: rescoreLabel(report, standing), resultAt: result?.score?.computedAt ?? null };
+  // the pace names its topics by the rows of its own table, which carry the syllabus version; a question's topic is one of them
+  const names = await nameTopicsSoftly(learning, [...report.findings, ...(pace?.concepts ?? [])]);
+  return { report, pace, label: rescoreLabel(report, standing), resultAt: result?.score?.computedAt ?? null, exam: pinsOf(profile), names };
 }
 
 function Rescored({ label }: { readonly label: RescoreLabel }): JSX.Element | null {
@@ -35,7 +47,7 @@ function Rescored({ label }: { readonly label: RescoreLabel }): JSX.Element | nu
 const seconds = (ms: number): string => `${Math.round(ms / 1000)} s`;
 
 /** Time against outcome per concept. A question the interval cap hid the time of is **not known**, and is shown as that and never folded into fast or slow. */
-function Pace({ pace }: { readonly pace: PaceAnalyticsDto }): JSX.Element {
+function Pace({ pace, names }: { readonly pace: PaceAnalyticsDto; readonly names: TopicNames }): JSX.Element {
   const unknown = pace.slots.filter((slot) => slot.pace === 'unknown');
   return (
     <section aria-label="Pace">
@@ -44,7 +56,7 @@ function Pace({ pace }: { readonly pace: PaceAnalyticsDto }): JSX.Element {
         <caption>Questions by how long you took and how they went</caption>
         <thead>
           <tr>
-            <th scope="col">Concept</th>
+            <th scope="col">Topic</th>
             <th scope="col">Slow and right</th>
             <th scope="col">Slow and wrong</th>
             <th scope="col">Fast and right</th>
@@ -55,7 +67,7 @@ function Pace({ pace }: { readonly pace: PaceAnalyticsDto }): JSX.Element {
         <tbody>
           {pace.concepts.map((concept) => (
             <tr key={concept.conceptIdentityId}>
-              <th scope="row">{conceptLabel(concept.conceptIdentityId)}</th>
+              <th scope="row">{topicName(names, concept.conceptIdentityId)}</th>
               <td>{concept.slowCorrect}</td>
               <td>{concept.slowWrong}</td>
               <td>{concept.fastCorrect}</td>
@@ -72,7 +84,7 @@ function Pace({ pace }: { readonly pace: PaceAnalyticsDto }): JSX.Element {
           <ul aria-label="Questions whose time is not known">
             {unknown.map((slot) => (
               <li key={slot.slotRef}>
-                {conceptLabel(slot.conceptIdentityId)}: at least {seconds(slot.atLeastMs)}, {slot.atMostMs === null ? 'no upper limit known' : `at most ${seconds(slot.atMostMs)}`}
+                {topicName(names, slot.conceptIdentityId)}: at least {seconds(slot.atLeastMs)}, {slot.atMostMs === null ? 'no upper limit known' : `at most ${seconds(slot.atMostMs)}`}
               </li>
             ))}
           </ul>
@@ -86,17 +98,20 @@ function Pace({ pace }: { readonly pace: PaceAnalyticsDto }): JSX.Element {
 export function ReportScreen({
   learning,
   assessment,
+  profiles,
   attemptId,
   context,
   onOpen,
 }: {
   readonly learning: LearningApi;
+  /** Where the learner's exam comes from, for the practice run each finding offers. */
+  readonly profiles: Pick<ProfileApi, 'getProfile'>;
   readonly assessment: Pick<AssessmentApi, 'getResult' | 'createPracticeAttempt' | 'startAttempt'>;
   readonly attemptId: string;
   readonly context: ScreenContext;
   readonly onOpen: (href: string) => void;
 }): JSX.Element {
-  const loaded = useRemote(() => loadReport(learning, assessment, attemptId));
+  const loaded = useRemote(() => loadReport(learning, assessment, profiles, attemptId));
   // `mock.diagnostic_viewed`: the report was shown. The screen has no drill-down, so the deepest level reached is the top one (0).
   useEffect(() => {
     if (loaded.status === 'loaded') context.analytics.emit('mock.diagnostic_viewed', { findings_shown: loaded.value.report.findings.length, deepest_drill_level: 0 }, { attempt_id: attemptId });
@@ -117,20 +132,20 @@ export function ReportScreen({
                 .sort((a, b) => a.rank - b.rank)
                 .map((finding) => (
                   <li key={finding.conceptIdentityId}>
-                    <h3>{conceptLabel(finding.conceptIdentityId)}</h3>
+                    <h3>{topicName(loaded.value.names, finding.conceptIdentityId)}</h3>
                     <p>
                       Lost {finding.marksLost} of {finding.marksAvailable} marks across {finding.slots} {finding.slots === 1 ? 'question' : 'questions'}
                       {finding.skipped > 0 ? `, ${finding.skipped} skipped` : ''}.
                     </p>
-                    <PractiseButton conceptIdentityId={finding.conceptIdentityId} label={`Practise ${conceptLabel(finding.conceptIdentityId)}`} source="remediation" finding={{ rank: finding.rank, resultAt: loaded.value.resultAt }} assessment={assessment} context={context} onOpen={onOpen} />
+                    <PractiseButton conceptIdentityId={finding.conceptIdentityId} label={`Practise ${topicName(loaded.value.names, finding.conceptIdentityId)}`} source="remediation" finding={{ rank: finding.rank, resultAt: loaded.value.resultAt }} exam={loaded.value.exam} assessment={assessment} context={context} onOpen={onOpen} />
                   </li>
                 ))}
             </ol>
           </section>
-          {loaded.value.pace === null ? <p role="note">The time analysis for this paper could not be read.</p> : <Pace pace={loaded.value.pace} />}
+          {loaded.value.pace === null ? <p role="note">The time analysis for this paper could not be read.</p> : <Pace pace={loaded.value.pace} names={loaded.value.names} />}
         </>
       ) : null}
-      <a href={screenHref({}, context)}>Back to what to do next</a>
+      <a href={screenHref({})}>Back to what to do next</a>
     </main>
   );
 }

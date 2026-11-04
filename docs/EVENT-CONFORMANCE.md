@@ -15,16 +15,16 @@ the whole catalog at M7 would report a figure that no amount of M7 work could mo
 ## The measurement
 
 `pnpm --filter @questionbank/api run event-conformance` runs the learner suite, the API's call-site specs and the built app in a real Chrome with a log marker made in the temp directory, so that every event they emit is
-appended to a file, then replays that file through a fresh edge. Last run, 2026-11-03:
+appended to a file, then replays that file through a fresh edge. Last run, 2026-11-04:
 
 | | |
 |---|---|
-| Events emitted by the run | 31 (24 from the learner app's screens, 4 from the server, 3 from the built app in a real Chrome) |
-| Admitted by the edge | 31 of 31 |
-| **Envelope conformance** | **31 / 31 = 100%** |
+| Events emitted by the run | 36 (29 from the learner app's screens, 4 from the server, 3 from the built app in a real Chrome) |
+| Admitted by the edge | 36 of 36 |
+| **Envelope conformance** | **36 / 36 = 100%** |
 | **Catalog coverage** | **4 of 14** M7-owned events wired |
 
-Fourteen of the 31 are M8's onboarding events (`onboarding.step_completed` and `onboarding.scope_declared`, from the learner's onboarding screen, M8-22). They are measured here, in the envelope figure, because the run emits them; they have no row in the table below, which is M7's, and they are not in the coverage figure, which is a fraction of M7's events. `onboarding.abandoned` is in the catalog and nothing emits it (D108).
+Nineteen of the 36 are M8's: fourteen onboarding events (`onboarding.step_completed` and `onboarding.scope_declared`, from the learner's onboarding screen, M8-22) and five `concept_map.viewed` (the map and a topic's answers, M8-29). They are measured here, in the envelope figure, because the run emits them, and each has a row in the table below, as an event that is emitted has whoever owns it. They are not in the coverage figure, which is a fraction of M7's events. `onboarding.abandoned` is in the catalog and nothing emits it (D108). Neither D91 nor D92 counted `concept_map.viewed`, which M8 owns and was never in either list, so neither is narrowed by emitting it.
 
 Events planted on purpose, to show the check refusing them, are not logged and are not in the denominator: they are test inputs made to fail, not something the app
 emitted. The tests that plant them are the second column of the table below.
@@ -34,7 +34,7 @@ emit them also validate them, not because the catalog is covered. The coverage f
 
 ## The table
 
-Every event M7 owns has a row. A wired row names the test that shows the event emitted with a conforming envelope at its real call site, and the test that shows the
+Every event M7 owns has a row, and so has every M8 event that shipped source emits (a row is what says an emitted event was proved at its call site, whoever owns it). A wired row names the test that shows the event emitted with a conforming envelope at its real call site, and the test that shows the
 conformance check able to fail (a planted bad envelope the same check catches). A row that is not wired says why, and who holds it. The table is read by
 `apps/api/src/fitness/event-conformance-rules.spec.ts`, which fails if a named test is renamed away or skipped, if an owned event has no row, and if the table disagrees with
 the shipped source about which events are emitted.
@@ -45,6 +45,9 @@ the shipped source about which events are emitted.
 | `mock.diagnostic_viewed` | wired | `apps/learn/src/ui/ReportScreen.spec.tsx` :: says the report was viewed, once, with how many findings it showed and that it has no drill-down | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for mock.diagnostic_viewed | — |
 | `mock.remediation_clicked` | wired | `apps/learn/src/ui/ReportScreen.spec.tsx` :: says the finding was tapped, with its rank and the hours since the score, and then that the run it made started, from a remediation | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for mock.remediation_clicked | — |
 | `practice.session_started` | wired | `apps/learn/src/ui/HomeScreen.spec.tsx` :: says a practice run started from the next action was a recommendation, and says nothing of a finding having been tapped | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for practice.session_started | — |
+| `onboarding.step_completed` | wired | `apps/learn/src/ui/OnboardingScreen.spec.tsx` :: says a step was completed, with how long the learner was on it, and conforms to the catalog | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for onboarding.step_completed | — |
+| `onboarding.scope_declared` | wired | `apps/learn/src/ui/OnboardingScreen.spec.tsx` :: says the scope was declared once the server has it, with the count and the fraction the server gave | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for onboarding.scope_declared | — |
+| `concept_map.viewed` | wired | `apps/learn/src/ui/ConceptMapScreen.spec.tsx` :: says the map was viewed, once, counting the weak and the strong that are stated and not the ones that are early | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for concept_map.viewed | — |
 | `practice.item_answered` | not wired | — | — | A learner can answer a practice item in the app now (D87 is closed); the screen does not say so to analytics yet (D112). M7. |
 | `practice.session_completed` | not wired | — | — | A practice submission is scored now (D77 is closed); nothing emits the completion yet (D112). M7. |
 | `practice.session_abandoned` | not wired | — | — | A run is put down and picked up with no deadline; nothing says it was abandoned (D92). M7. |

@@ -60,3 +60,48 @@ describe('Learning\'s port for Curriculum is filled from the seam, and asks as t
     }
   });
 });
+
+describe('naming concepts pages at the bound the seam advertises, and is all or nothing across the pages (M8-27, DEC-M7-28)', () => {
+  type Page = { readonly taxonomyVersionId: string; readonly conceptIdentityIds: readonly string[] };
+  /** A seam that names every concept it is asked for after the id, takes `bound` at a time, and can fail on the nth page. */
+  function naming(bound: number, failOnPage?: number) {
+    const pages: Page[] = [];
+    const nameConcepts = {
+      handle: async (query: Page) => {
+        pages.push(query);
+        if (failOnPage === pages.length) return { ok: false as const, error: { kind: 'NotFound', code: 'CONCEPTS_UNKNOWN', message: 'no concept c7' } };
+        return { ok: true as const, value: query.conceptIdentityIds.map((id) => ({ conceptIdentityId: id, name: `name of ${id}`, path: ['Physics'] })) };
+      },
+    };
+    return { pages, source: new CurriculumLearnerSource({ nameConcepts, batchBound: bound } as unknown as CurriculumForLearning) };
+  }
+
+  it('asks in pages of at most the bound, and gives the names in the order asked', async () => {
+    const { source, pages } = naming(3);
+    const answered = await source.conceptNames('t-1', ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'], context);
+    expect(pages.map((page) => page.conceptIdentityIds)).toEqual([['c1', 'c2', 'c3'], ['c4', 'c5', 'c6'], ['c7']]);
+    expect(answered.ok && answered.value.map((concept) => concept.conceptIdentityId)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']);
+    expect(answered.ok && answered.value[0]).toEqual({ conceptIdentityId: 'c1', name: 'name of c1', path: ['Physics'] });
+  });
+
+  it('asks for a concept once, and not at all when there is none', async () => {
+    const { source, pages } = naming(3);
+    const answered = await source.conceptNames('t-1', ['c1', 'c1', 'c2'], context);
+    expect(pages.map((page) => page.conceptIdentityIds)).toEqual([['c1', 'c2']]);
+    expect(answered.ok && answered.value).toHaveLength(2);
+    expect(await source.conceptNames('t-1', [], context)).toEqual({ ok: true, value: [] });
+    expect(pages).toHaveLength(1);
+  });
+
+  it('fails the whole read when a later page fails, and returns none of the earlier names', async () => {
+    const { source } = naming(2, 2);
+    expect(await source.conceptNames('t-1', ['c1', 'c2', 'c3'], context)).toEqual({ ok: false, error: { kind: 'NotFound', code: 'CONCEPTS_UNKNOWN', message: 'no concept c7' } });
+  });
+
+  it('asks as the system, for the version it was given', async () => {
+    const asked: unknown[] = [];
+    const nameConcepts = { handle: async (query: unknown, ctx: { principal: unknown }) => (asked.push({ query, principal: ctx.principal }), { ok: true as const, value: [] }) };
+    await new CurriculumLearnerSource({ nameConcepts, batchBound: 5 } as unknown as CurriculumForLearning).conceptNames('t-9', ['c1'], context);
+    expect(asked[0]).toMatchObject({ query: { taxonomyVersionId: 't-9' }, principal: { kind: 'system', roleContext: ['system'] } });
+  });
+});

@@ -15,7 +15,7 @@ function open(over: { profiles?: FakeProfileApi; drafts?: MemoryDrafts; rig?: Re
   const drafts = over.drafts ?? new MemoryDrafts();
   const rig = over.rig ?? analyticsRig();
   const onOpen = vi.fn();
-  const context: ScreenContext = { examProfileVersionId: null, taxonomyVersionId: null, lastAttemptId: null, pageKey: 'p', analytics: rig.analytics };
+  const context: ScreenContext = { lastAttemptId: null, pageKey: 'p', analytics: rig.analytics };
   const view = render(<OnboardingScreen profiles={profiles} drafts={over.drafting ?? drafts} edit={over.edit ?? null} context={context} onOpen={onOpen} />);
   return { profiles, drafts, rig, onOpen, view };
 }

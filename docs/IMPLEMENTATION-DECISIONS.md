@@ -724,3 +724,16 @@ The session, the response log's writer and the send-after-commit ordering are us
 timed attempt the server reports no deadline for is still resumed against the record's. A run can be put down and picked up, which a paper cannot.
 → `apps/learn/src/bootstrap.ts`
 
+### DEC-M8-16 — Curriculum names concepts through the seam it offers Learning, in a bounded batch
+`curriculumForLearning` carries `nameConcepts`: identities in one published taxonomy version to their names and the names above them, outermost first, read by walking up the version's own hierarchy. All or nothing, the system's alone, naming what it cannot resolve. Its bound is stated once on the seam
+(`batchBound`), the query refuses one identifier more, and the adapter pages at it (DEC-M7-28), so Learning holds no number and an unbounded id list never reaches a query. Learning's port speaks in Learning's shapes and the one place that names both contexts stays `platform/composition/learning-curriculum.ts`.
+→ `apps/api/src/contexts/curriculum/application/queries/learner-queries.ts` · `apps/api/src/platform/composition/learning-curriculum.ts`
+
+### DEC-M8-17 — The concept map is a read at the instant of the call, and a standing that is not sure of itself has no state to read
+The map is served as a union: `asserted` (a state and a confidence) or `tentative` (only what a few answers lean towards, with no state field), so a screen cannot render a low-confidence state as a fact by ignoring a flag. Decay is applied by `readConceptMap` at the call. The declared scope marks the map and never filters it (ADR-0062). The answers behind a state are their own route, paged,
+and the map carries only their count. Nothing here derives a state.
+→ `apps/api/src/contexts/learning/application/handlers/concept-map-handlers.ts`
+
+### DEC-M8-18 — A screen takes the exam from the learner's profile and a topic's name from the server, and the address carries neither
+`?profile=` and `?taxonomy=` are removed with the label built from an identifier; the screens read the exam profile version and the taxonomy version from the profile, say to choose an exam when there is none, and name a topic whose name could not be read "This topic". The vocabulary rule is held by a source scan and by the rendered screens, because each sees what the other cannot.
+→ `apps/learn/src/home/exam-pins.ts` · `apps/learn/src/names/topic-names.ts` · `apps/api/src/fitness/vocabulary-rules.ts`

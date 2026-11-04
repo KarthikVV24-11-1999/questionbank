@@ -270,6 +270,30 @@ export interface ConceptReader {
   weakest(learnerRef: string, taxonomyVersionId: string, limit: number, within?: ReadonlySet<string>): Promise<Result<readonly string[], ApplicationError>>;
 }
 
+/** One response behind a concept's state, as the learner can be shown it (M8-28): when, how it came out, and which attempt it was given in. No question and no answer: Learning does not hold them. */
+export interface ConceptResponse {
+  readonly evidenceId: string;
+  readonly attemptRef: string;
+  readonly occurredAt: string;
+  readonly outcome: import('../domain/mastery-evidence.js').EvidenceOutcome;
+  readonly difficultyEstimate: import('../domain/mastery-evidence.js').DifficultyEstimate;
+}
+
+/**
+ * The learner's concept map as it is stored, for the learner to read (M8-28): the states of one taxonomy version, a single state, and the responses behind one. Decay is not applied here
+ * (`readConceptMap` does that against the instant of the read); a response a re-score withdrew is not a response.
+ */
+export interface ConceptMapStore {
+  states(learnerRef: string, taxonomyVersionId: string): Promise<Result<import('../domain/concept-map.js').ConceptMap, ApplicationError>>;
+  /** The newest first, `limit` of them from `offset`, with how many there are in all. */
+  responses(
+    learnerRef: string,
+    taxonomyVersionId: string,
+    conceptIdentityId: string,
+    page: { readonly limit: number; readonly offset: number },
+  ): Promise<Result<{ readonly total: number; readonly responses: readonly ConceptResponse[] }, ApplicationError>>;
+}
+
 /** One scored attempt's slots as a report reads them: every slot, attributed to its concept, with marks as decimal text. */
 export interface ReportSlotSource {
   slotsForScoredAttempt(attempt: ScoredAttemptRef): Promise<
@@ -336,6 +360,13 @@ export interface ScopeOptions {
   readonly conceptTotal: number;
 }
 
+/** A concept as a learner is shown it (M8-27): what it is called and the names above it in the syllabus, outermost first. Never an identifier a learner reads. */
+export interface NamedConcept {
+  readonly conceptIdentityId: string;
+  readonly name: string;
+  readonly path: readonly string[];
+}
+
 export interface ResolvedScope {
   readonly conceptIdentityIds: readonly string[];
   readonly conceptTotal: number;
@@ -352,6 +383,8 @@ export interface CurriculumSource {
   scopeOptions(taxonomyVersionId: string, context: { readonly correlationId: string }): Promise<Result<ScopeOptions, ApplicationError>>;
   /** The chapters picked, to the concepts they stand for (each with everything under it). A chapter the version does not have is named, and nothing is returned. */
   resolveScope(taxonomyVersionId: string, nodeIds: readonly string[], context: { readonly correlationId: string }): Promise<Result<ResolvedScope, ApplicationError>>;
+  /** The names of the concepts, in the order asked and without repeats, each with its path. All or nothing: one the version does not have fails the whole read and is named. The size of the batch is the adapter's concern, not Learning's. */
+  conceptNames(taxonomyVersionId: string, conceptIdentityIds: readonly string[], context: { readonly correlationId: string }): Promise<Result<readonly NamedConcept[], ApplicationError>>;
 }
 
 /**

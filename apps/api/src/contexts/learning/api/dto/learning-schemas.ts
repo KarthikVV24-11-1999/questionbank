@@ -45,3 +45,17 @@ export const updateProfileSchema = z
     scopeNodeIds: z.array(uuid).max(2000).nullable().optional(),
   })
   .strict();
+
+const pageNumber = z.string().regex(/^\d+$/u).transform(Number);
+
+/** One concept's responses, a page at a time (M8-28). The handler judges the page's size; the boundary checks that what arrived is a number and a concept. */
+export const conceptEvidenceSchema = z
+  .object({ conceptIdentityId: uuid, limit: pageNumber.optional(), offset: pageNumber.optional() })
+  .strict()
+  .transform(({ conceptIdentityId, limit, offset }) => ({ conceptIdentityId, ...(limit === undefined ? {} : { limit }), ...(offset === undefined ? {} : { offset }) }));
+
+/** The names of concepts in one syllabus (M8-29): a comma-separated list, because a query carries no array. How many is the handler's to judge. */
+export const conceptNamesSchema = z
+  .object({ taxonomyVersionId: uuid, conceptIdentityIds: z.string().max(4_000) })
+  .strict()
+  .transform(({ taxonomyVersionId, conceptIdentityIds }) => ({ taxonomyVersionId, conceptIdentityIds: conceptIdentityIds === '' ? [] : conceptIdentityIds.split(',') }));

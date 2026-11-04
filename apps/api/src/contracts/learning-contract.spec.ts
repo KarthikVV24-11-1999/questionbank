@@ -22,6 +22,9 @@ const routed = Object.values(SPEC.paths).flatMap((item) => Object.values(item).m
 /** What the learner reads and writes about themself: each is scoped to the caller's own learner. */
 const LEARNER_HANDLERS = [
   'CreateBookmark',
+  'GetConceptEvidence',
+  'GetConceptMap',
+  'GetConceptNames',
   'GetDiagnosticReport',
   'GetLearnerProfile',
   'GetLearnerScope',
@@ -53,7 +56,7 @@ const UNROUTED: Record<string, string> = {
 };
 
 describe('every Learning handler is routed or says why not', () => {
-  it('has exactly these seventeen handlers, every policy readable', () => {
+  it('has exactly these twenty handlers, every policy readable', () => {
     expect(scan.unreadableDeclarations).toBe(0);
     expect([...POLICY_BY_NAME.keys()].sort()).toEqual([...LEARNER_HANDLERS, ...SYSTEM_HANDLERS, ...OPERATOR_HANDLERS].sort());
     expect(scan.declared).toHaveLength(POLICY_BY_NAME.size);
@@ -98,7 +101,7 @@ describe('INV-01 — who may reach what, for Learning', () => {
     }
   });
 
-  it('admits a learner, and only a learner, to exactly the fourteen learner handlers', () => {
+  it('admits a learner, and only a learner, to exactly the seventeen learner handlers', () => {
     for (const name of LEARNER_HANDLERS) expect(rolesOf(name), name).toEqual([ROLES.learner]);
     expect([...POLICY_BY_NAME.keys()].filter((name) => rolesOf(name).includes(ROLES.learner)).sort()).toEqual(LEARNER_HANDLERS);
   });

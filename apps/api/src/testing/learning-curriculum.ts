@@ -9,4 +9,5 @@ export const noCurriculum: CurriculumSource = {
   resolveExam: async () => unavailable(),
   scopeOptions: async () => unavailable(),
   resolveScope: async () => unavailable(),
+  conceptNames: async () => unavailable(),
 };

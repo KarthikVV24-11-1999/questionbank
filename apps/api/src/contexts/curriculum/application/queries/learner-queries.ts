@@ -8,7 +8,7 @@ import type { CurriculumQueryDependencies } from './curriculum-queries.js';
 
 /**
  * What Learning asks of Curriculum to build a learner's profile (M8-19, ADR-0060): the exams a learner may choose, the profile version and taxonomy a choice resolves to (INV-04),
- * the chapters of a taxonomy to pick from, and the concepts a pick stands for. Seam-only reads with no route, the system's alone: a learner reaches them through Learning, which
+ * the chapters of a taxonomy to pick from, the concepts a pick stands for, and what a concept is called and where it sits (M8-27). Seam-only reads with no route, the system's alone: a learner reaches them through Learning, which
  * holds the profile, and never through Curriculum's own routes, so what Curriculum offers a learner and what Learning does with the answer are two decisions.
  *
  * Only what is in force is offered. A profile version is active for a year only once it is published (activating one requires it), so "active for the year" is the whole test for a profile; a taxonomy version is checked for being published, since a profile can name one that has since been superseded and a learner is not built against that.
@@ -166,5 +166,61 @@ export class ResolveScopeNodesQuery implements Handler<ResolveScopeNodes, Resolv
       frontier.push(...taxonomy.childrenOf(node.conceptNodeId));
     }
     return ok(Object.freeze({ conceptIdentityIds: Object.freeze([...concepts].sort()), conceptTotal: taxonomy.nodes.length }));
+  }
+}
+
+/**
+ * The most concept identities one call to `NameConcepts` takes, stated once (M8-27, DEC-M7-28): the seam advertises it as `batchBound` and the adapter in the composition root pages at it. A learner's map
+ * is hundreds of concepts, so the caller pages; the query refuses one identifier more than this, so the number cannot be exceeded by a caller that did not read it.
+ */
+export const CONCEPT_NAME_BATCH_BOUND = 200;
+
+export interface NameConcepts {
+  readonly taxonomyVersionId: string;
+  readonly conceptIdentityIds: readonly string[];
+}
+
+/** A concept as a learner is shown it: its name, and the names above it, outermost first (subject, chapter, topic), as the version's own hierarchy has them. */
+export interface ConceptNameView {
+  readonly conceptIdentityId: string;
+  readonly name: string;
+  readonly path: readonly string[];
+}
+
+export class NameConceptsQuery implements Handler<NameConcepts, readonly ConceptNameView[]> {
+  readonly name = 'NameConcepts';
+  readonly policy = policy('NameConcepts', SYSTEM);
+
+  constructor(private readonly deps: CurriculumQueryDependencies) {}
+
+  /**
+   * The names of the concepts asked for and the path to each, read from the published version. All or nothing: a concept the version does not have fails the whole read and is named, because a map with one
+   * concept left unnamed would show a learner a hole where a topic should be. Asked for in a taxonomy version and answered from it; which version a learner is on is Learning's to say.
+   */
+  async handle(query: NameConcepts, context: ApplicationContext): Promise<Result<readonly ConceptNameView[], ApplicationError>> {
+    const permitted = authorize(this.policy, context);
+    if (!permitted.ok) return permitted;
+    const asked = [...new Set(query.conceptIdentityIds)];
+    if (asked.length > CONCEPT_NAME_BATCH_BOUND) {
+      return err({ kind: 'Validation', code: 'CONCEPT_BATCH_TOO_LARGE', message: `at most ${CONCEPT_NAME_BATCH_BOUND} concepts can be named in one call` });
+    }
+    const version = await publishedTaxonomy(this.deps, query.taxonomyVersionId);
+    if (!version.ok) return version;
+    const taxonomy = version.value;
+    const byIdentity = new Map(taxonomy.nodes.map((node) => [node.conceptIdentityId, node]));
+    const unknown = asked.filter((id) => !byIdentity.has(id));
+    if (unknown.length > 0) return err(notFound('CONCEPTS_UNKNOWN', `taxonomy version ${query.taxonomyVersionId} has no concept ${unknown.join(', ')}`));
+    return ok(
+      Object.freeze(
+        asked.map((conceptIdentityId) => {
+          const node = byIdentity.get(conceptIdentityId) as ConceptNode;
+          const path: string[] = [];
+          for (let parent = node.parentNodeId === undefined ? undefined : taxonomy.nodeById(node.parentNodeId); parent !== undefined; parent = parent.parentNodeId === undefined ? undefined : taxonomy.nodeById(parent.parentNodeId)) {
+            path.unshift(parent.displayName);
+          }
+          return Object.freeze({ conceptIdentityId, name: node.displayName, path: Object.freeze(path) });
+        }),
+      ),
+    );
   }
 }

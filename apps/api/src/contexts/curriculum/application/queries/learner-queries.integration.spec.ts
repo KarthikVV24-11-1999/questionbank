@@ -35,6 +35,10 @@ describe('what Learning may ask of Curriculum is the system\'s alone (M8-19)', (
     expect(await scopeNodes.handle({ taxonomyVersionId }, learner)).toMatchObject({ ok: false, error: { kind: 'Authorization' } });
     expect(await resolveScope.handle({ taxonomyVersionId, nodeIds: [] }, learner)).toMatchObject({ ok: false, error: { kind: 'Authorization' } });
   });
+
+  it('refuses a learner the naming of concepts as well', async () => {
+    expect(await seam().nameConcepts.handle({ taxonomyVersionId: syllabus.taxonomyVersionId, conceptIdentityIds: [syllabus.concepts.physics] }, learner)).toMatchObject({ ok: false, error: { kind: 'Authorization' } });
+  });
 });
 
 describe('the exams a learner may choose', () => {
@@ -123,5 +127,50 @@ describe('the concepts a pick stands for', () => {
     expect(answered).toMatchObject({ ok: false, error: { kind: 'NotFound', code: 'SCOPE_NODES_UNKNOWN' } });
     expect(!answered.ok && answered.error.message).toContain(stray);
     expect(!answered.ok && answered.error.message).not.toContain(syllabus.nodes.optics);
+  });
+});
+
+describe('what a concept is called, and where it sits (M8-27)', () => {
+  const name = (conceptIdentityIds: string[], taxonomyVersionId = syllabus.taxonomyVersionId) => seam().nameConcepts.handle({ taxonomyVersionId, conceptIdentityIds }, system);
+
+  it('gives each concept its name and the names above it, outermost first, in the order asked', async () => {
+    const answered = await name([syllabus.concepts.kinematics, syllabus.concepts.physics, syllabus.concepts.optics]);
+    expect(answered.ok && answered.value).toEqual([
+      { conceptIdentityId: syllabus.concepts.kinematics, name: 'Kinematics', path: ['Physics', 'Mechanics'] },
+      { conceptIdentityId: syllabus.concepts.physics, name: 'Physics', path: [] },
+      { conceptIdentityId: syllabus.concepts.optics, name: 'Optics', path: ['Physics'] },
+    ]);
+  });
+
+  it('names a concept once however many times it is asked for', async () => {
+    const answered = await name([syllabus.concepts.optics, syllabus.concepts.optics]);
+    expect(answered.ok && answered.value).toHaveLength(1);
+  });
+
+  it('answers an empty ask with nothing', async () => {
+    expect(await name([])).toEqual({ ok: true, value: [] });
+  });
+
+  it('is all or nothing: a concept the version does not have fails the whole read and is named, and nothing is returned', async () => {
+    const stray = randomUUID();
+    const answered = await name([syllabus.concepts.optics, stray]);
+    expect(answered).toMatchObject({ ok: false, error: { kind: 'NotFound', code: 'CONCEPTS_UNKNOWN' } });
+    expect(!answered.ok && answered.error.message).toContain(stray);
+    expect(!answered.ok && answered.error.message).not.toContain(syllabus.concepts.optics);
+  });
+
+  it('refuses a taxonomy version that is not published, and one that does not exist', async () => {
+    const draft = await seedPublishedSyllabus(database, { examCode: freshCode(), publishTaxonomy: false });
+    expect(await name([draft.concepts.physics], draft.taxonomyVersionId)).toMatchObject({ ok: false, error: { code: 'TAXONOMY_NOT_IN_FORCE' } });
+    expect(await name([syllabus.concepts.physics], randomUUID())).toMatchObject({ ok: false, error: { kind: 'NotFound' } });
+  });
+
+  it('takes the bound the seam advertises and not one identifier more', async () => {
+    const offered = seam();
+    const stray = (count: number): string[] => Array.from({ length: count }, () => randomUUID());
+    expect(offered.batchBound).toBe(200);
+    // within the bound the ask is judged on its contents: these are not in the version, which is a different refusal from being too many
+    expect(await offered.nameConcepts.handle({ taxonomyVersionId: syllabus.taxonomyVersionId, conceptIdentityIds: stray(offered.batchBound) }, system)).toMatchObject({ ok: false, error: { code: 'CONCEPTS_UNKNOWN' } });
+    expect(await offered.nameConcepts.handle({ taxonomyVersionId: syllabus.taxonomyVersionId, conceptIdentityIds: stray(offered.batchBound + 1) }, system)).toMatchObject({ ok: false, error: { kind: 'Validation', code: 'CONCEPT_BATCH_TOO_LARGE' } });
   });
 });

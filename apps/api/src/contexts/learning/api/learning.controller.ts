@@ -6,7 +6,7 @@ import type { ApplicationError } from '../application/authorization.js';
 import type { ApplicationContext } from '../application/ports.js';
 import type { LearningForLearner } from '../public/composition.js';
 import type { ProfileAdmission } from './admission.js';
-import { attemptIdSchema, createBookmarkSchema, errorEntriesSchema, remediationConceptsSchema, setErrorCauseSchema, updateProfileSchema } from './dto/learning-schemas.js';
+import { attemptIdSchema, conceptEvidenceSchema, conceptNamesSchema, createBookmarkSchema, errorEntriesSchema, remediationConceptsSchema, setErrorCauseSchema, updateProfileSchema } from './dto/learning-schemas.js';
 import { statusForKind, toProblemDetails, validationProblem } from './problem-details.js';
 
 export const LEARNING_HANDLERS = Symbol('LEARNING_HANDLERS');
@@ -67,6 +67,22 @@ export class LearningController {
   @Get('/v1/learning/remediation-concepts')
   async suggestRemediationConcepts(@Query() query: Record<string, unknown>, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
     await this.run(response, headers, 'SuggestRemediationConcepts', () => this.parse(remediationConceptsSchema, query));
+  }
+
+  /** The learner's concept map and what is behind each state (M8-28), and what the topics they are shown are called (M8-29). */
+  @Get('/v1/learning/concept-map')
+  async getConceptMap(@Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetConceptMap', () => ({ success: true, data: {} }));
+  }
+
+  @Get('/v1/learning/concept-map/:conceptIdentityId/evidence')
+  async getConceptEvidence(@Param('conceptIdentityId') conceptIdentityId: string, @Query() query: Record<string, unknown>, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetConceptEvidence', () => this.parse(conceptEvidenceSchema, { ...query, conceptIdentityId }));
+  }
+
+  @Get('/v1/learning/concept-names')
+  async getConceptNames(@Query() query: Record<string, unknown>, @Headers() headers: Record<string, string>, @Res() response: Response): Promise<void> {
+    await this.run(response, headers, 'GetConceptNames', () => this.parse(conceptNamesSchema, query));
   }
 
   @Get('/v1/learning/error-entries')

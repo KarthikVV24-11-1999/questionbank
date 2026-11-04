@@ -1,13 +1,10 @@
 import type { ScreenAnalytics } from '../analytics/emitter.js';
 
 /**
- * What the host tells a screen about where it was opened (D88): the exam profile a practice run is made under, the taxonomy "weakest" is asked about, the
- * attempt this device last sat, and a key that is the same for every try of one tap on this page. All of it arrives as identifiers; the screens name a
- * concept by its identifier because no route offers a learner the name.
+ * What the host tells a screen about where it was opened: the attempt this device last sat, a key that is the same for every try of one tap on this page, and where it says that something
+ * happened. The exam profile and the taxonomy used to be here as well, read off the address; they are the learner's own and come from their profile now (`home/exam-pins.ts`, D88).
  */
 export interface ScreenContext {
-  readonly examProfileVersionId: string | null;
-  readonly taxonomyVersionId: string | null;
   readonly lastAttemptId: string | null;
   /** Fixed for the life of the page, so a tap retried on it makes one run. */
   readonly pageKey: string;
@@ -15,17 +12,26 @@ export interface ScreenContext {
   readonly analytics: ScreenAnalytics;
 }
 
-/** The address of a screen, carrying the context on so the next screen is opened where this one was. */
-export function screenHref(screen: { readonly practice: string } | { readonly report: string } | { readonly onboarding: true | 'coverage' } | Record<string, never>, context: ScreenContext): string {
+/** Which screen an address opens, and what it needs to know to open it. */
+export type Screen =
+  | { readonly practice: string }
+  | { readonly report: string }
+  | { readonly onboarding: true | 'coverage' }
+  | { readonly map: true }
+  | { readonly topic: string; readonly from?: number }
+  | Record<string, never>;
+
+/** The address of a screen. It carries which screen and which thing, and nothing about the learner: who they are and what they chose are read from the server. */
+export function screenHref(screen: Screen): string {
   const params = new URLSearchParams();
   if ('practice' in screen) params.set('practice', screen.practice);
   if ('report' in screen) params.set('report', screen.report);
   if ('onboarding' in screen) params.set('onboarding', screen.onboarding === true ? '1' : screen.onboarding);
-  if (context.examProfileVersionId !== null) params.set('profile', context.examProfileVersionId);
-  if (context.taxonomyVersionId !== null) params.set('taxonomy', context.taxonomyVersionId);
+  if ('map' in screen) params.set('map', '1');
+  if ('topic' in screen) {
+    params.set('topic', screen.topic);
+    if (screen.from !== undefined && screen.from > 0) params.set('from', String(screen.from));
+  }
   const query = params.toString();
   return query === '' ? '?' : `?${query}`;
 }
-
-/** A concept as a person is shown it: by its identifier, shortened, until a route offers its name. */
-export const conceptLabel = (conceptIdentityId: string): string => `Concept ${conceptIdentityId.slice(0, 8)}`;

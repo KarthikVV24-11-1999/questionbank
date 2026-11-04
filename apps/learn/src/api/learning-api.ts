@@ -6,8 +6,14 @@ import {
   scopeOptionsSchema,
   paceAnalyticsSchema,
   remediationConceptsSchema,
+  conceptEvidenceSchema,
+  conceptMapSchema,
+  conceptNamesSchema,
   reviewPlanSchema,
+  type ConceptEvidenceDto,
+  type ConceptMapDto,
   type DiagnosticReportDto,
+  type NamedConceptDto,
   type ExamChoicesDto,
   type LearnerProfileDto,
   type ProfileChange,
@@ -23,7 +29,16 @@ export interface LearningApi {
   suggestRemediation(taxonomyVersionId: string): Promise<readonly string[]>;
   getReport(attemptId: string): Promise<DiagnosticReportDto>;
   getPace(attemptId: string): Promise<PaceAnalyticsDto>;
+  /** What the learner knows, topic by topic, read now (M8-29). */
+  getConceptMap(): Promise<ConceptMapDto>;
+  /** The answers behind one topic's standing, newest first, a page at a time. */
+  getConceptEvidence(conceptIdentityId: string, page: { readonly limit: number; readonly offset: number }): Promise<ConceptEvidenceDto>;
+  /** What topics are called, with the chapter and subject above them. At most {@link NAMES_PER_REQUEST} to a call. */
+  conceptNames(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<readonly NamedConceptDto[]>;
 }
+
+/** The most topics one `conceptNames` call asks for: the route's own limit, which `learning.yaml` states. The caller pages at it. */
+export const NAMES_PER_REQUEST = 100;
 
 /** The learner's profile and onboarding (M8-22). Every call is the learner's own; none is required to use the product. */
 export interface ProfileApi {
@@ -42,6 +57,11 @@ export function createLearningApi(client: ApiClient): LearningApi {
       (await client.request({ path: '/v1/learning/remediation-concepts', query: { taxonomyVersionId }, responseSchema: remediationConceptsSchema })).conceptIdentityIds,
     getReport: (attemptId) => client.request({ path: attempt(attemptId, 'report'), responseSchema: diagnosticReportSchema }),
     getPace: (attemptId) => client.request({ path: attempt(attemptId, 'pace'), responseSchema: paceAnalyticsSchema }),
+    getConceptMap: () => client.request({ path: '/v1/learning/concept-map', responseSchema: conceptMapSchema }),
+    getConceptEvidence: (conceptIdentityId, page) =>
+      client.request({ path: `/v1/learning/concept-map/${encodeURIComponent(conceptIdentityId)}/evidence`, query: { limit: String(page.limit), offset: String(page.offset) }, responseSchema: conceptEvidenceSchema }),
+    conceptNames: async (taxonomyVersionId, conceptIdentityIds) =>
+      (await client.request({ path: '/v1/learning/concept-names', query: { taxonomyVersionId, conceptIdentityIds: conceptIdentityIds.join(',') }, responseSchema: conceptNamesSchema })).concepts,
   };
 }
 

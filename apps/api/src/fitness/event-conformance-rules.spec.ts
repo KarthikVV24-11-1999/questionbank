@@ -9,8 +9,10 @@ import { readCatalog } from './event-catalog.js';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const DOCUMENT = readFileSync(resolve(ROOT, 'docs/EVENT-CONFORMANCE.md'), 'utf8');
 const CATALOG = readCatalog(resolve(ROOT, 'docs/EVENT-TAXONOMY.md'));
-const OWNED = CATALOG.filter((event) => event.owner === 'M7').map((event) => event.name);
 const EMITTED = emittedNamesIn([resolve(ROOT, 'apps/learn/src'), resolve(ROOT, 'apps/api/src')], CATALOG);
+/** M7's events, and M8's once shipped source emits them: an event that is emitted has a row, whoever owns it. M8's that nothing emits yet (D108, D91) have none, as M9's have none. */
+const OWNED = CATALOG.filter((event) => event.owner === 'M7' || (event.owner === 'M8' && EMITTED.includes(event.name))).map((event) => event.name);
+const M7_OWNED = CATALOG.filter((event) => event.owner === 'M7').map((event) => event.name);
 const FILE = 'apps/api/src/fitness/event-conformance-rules.spec.ts';
 const wired = (event: string, emitted: string, canFail: string) => `| \`${event}\` | wired | \`${FILE}\` :: ${emitted} | \`${FILE}\` :: ${canFail} | — |`;
 const notWired = (event: string, reason: string) => `| \`${event}\` | not wired | — | — | ${reason} |`;
@@ -22,6 +24,9 @@ const EMITTED_AS = {
   'mock.diagnostic_viewed': { payload: { findings_shown: 2, deepest_drill_level: 0 }, surface: 'web' as const },
   'mock.remediation_clicked': { payload: { finding_rank: 1, hours_after_result: 1.99 }, surface: 'web' as const },
   'practice.session_started': { payload: { selection_strategy: 'filtered', source: 'remediation', concept_ids: ['5b0d6a1e-3f4c-4d8b-9a2e-7c1f0e9d8b6a'], item_count: 10 }, surface: 'web' as const },
+  'onboarding.step_completed': { payload: { step: 'exam', seconds_on_step: 12 }, surface: 'web' as const },
+  'onboarding.scope_declared': { payload: { concept_count: 120, coverage_fraction: 0.4 }, surface: 'web' as const },
+  'concept_map.viewed': { payload: { weak_count: 2, strong_count: 1, drill_down: false }, surface: 'web' as const },
 };
 
 /** A good envelope for the event passes the check; the same envelope damaged in each way the edge refuses is counted as not conforming, with the reason. */
@@ -39,11 +44,12 @@ async function expectCheckCatches(event: keyof typeof EMITTED_AS): Promise<void>
 }
 
 describe('the conformance table (M7-63)', () => {
-  it('has a row for every event M7 owns, wired exactly where shipped source emits the name, with tests that exist and run', () => {
+  it('has a row for every event M7 owns and for every M8 event shipped source emits, wired exactly where it is emitted, with tests that exist and run', () => {
     expect(parseConformanceTable(DOCUMENT).map((row) => row.event).sort()).toEqual([...OWNED].sort());
-    expect(EMITTED.filter((event) => OWNED.includes(event))).toEqual(['mastery.gain_verified', 'mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.session_started']);
-    // Events another milestone owns, once shipped source emits them, are in the catalog (the scan reads it) and in the measured run, and have no row here: this table is M7's. M8's onboarding is the first.
-    expect(EMITTED.filter((event) => !OWNED.includes(event))).toEqual(['onboarding.scope_declared', 'onboarding.step_completed']);
+    expect(EMITTED.filter((event) => M7_OWNED.includes(event))).toEqual(['mastery.gain_verified', 'mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.session_started']);
+    // M8's first emitters are onboarding (M8-22) and the concept map (M8-29); every one has a row, and nothing is emitted that no one owns
+    expect(EMITTED.filter((event) => !M7_OWNED.includes(event))).toEqual(['concept_map.viewed', 'onboarding.scope_declared', 'onboarding.step_completed']);
+    expect(EMITTED.filter((event) => !OWNED.includes(event))).toEqual([]);
     expect(checkConformanceIndex(ROOT, DOCUMENT, OWNED, EMITTED)).toEqual([]);
   });
 
@@ -78,6 +84,9 @@ describe('the conformance check can fail', () => {
   it('catches a planted bad envelope for mock.diagnostic_viewed', async () => expectCheckCatches('mock.diagnostic_viewed'));
   it('catches a planted bad envelope for mock.remediation_clicked', async () => expectCheckCatches('mock.remediation_clicked'));
   it('catches a planted bad envelope for practice.session_started', async () => expectCheckCatches('practice.session_started'));
+  it('catches a planted bad envelope for onboarding.step_completed', async () => expectCheckCatches('onboarding.step_completed'));
+  it('catches a planted bad envelope for onboarding.scope_declared', async () => expectCheckCatches('onboarding.scope_declared'));
+  it('catches a planted bad envelope for concept_map.viewed', async () => expectCheckCatches('concept_map.viewed'));
 
   it('counts a replay of the same event as the same fact, and a log line back into events', async () => {
     const event = anEnvelope();

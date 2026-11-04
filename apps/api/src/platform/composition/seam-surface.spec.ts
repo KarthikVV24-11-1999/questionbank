@@ -128,10 +128,12 @@ describe('what curriculum offers assessment', () => {
 describe('what curriculum offers learning (M8-19)', () => {
   const offered = curriculumComposition.curriculumForLearning({ pool, clock, identifiers, audit, principals });
 
-  it('is exactly four reads, each the system\'s alone, and no command', () => {
-    expect(Object.keys(offered).sort()).toEqual(['examOptions', 'resolveExam', 'resolveScope', 'scopeNodes']);
-    expect([offered.examOptions.name, offered.resolveExam.name, offered.scopeNodes.name, offered.resolveScope.name]).toEqual(['ListExamOptions', 'ResolveExamChoice', 'ListScopeNodes', 'ResolveScopeNodes']);
-    for (const read of Object.values(offered)) expect(read.policy.allowedRoles, read.name).toEqual(['system']);
+  it('is exactly five reads and the bound on one of them, each read the system\'s alone, and no command', () => {
+    expect(Object.keys(offered).sort()).toEqual(['batchBound', 'examOptions', 'nameConcepts', 'resolveExam', 'resolveScope', 'scopeNodes']);
+    const reads = [offered.examOptions, offered.resolveExam, offered.scopeNodes, offered.resolveScope, offered.nameConcepts];
+    expect(reads.map((read) => read.name)).toEqual(['ListExamOptions', 'ResolveExamChoice', 'ListScopeNodes', 'ResolveScopeNodes', 'NameConcepts']);
+    for (const read of reads) expect(read.policy.allowedRoles, read.name).toEqual(['system']);
+    expect(offered.batchBound).toBe(200);
   });
 });
 
@@ -227,10 +229,10 @@ describe('learning’s own composition (M7-04, M7-16)', () => {
     expect(offered.learnerScope.policy.allowedRoles).toEqual(['learner']);
   });
 
-  it('offers exactly fourteen handlers to the learner, each theirs alone, and the routes are made of nothing else (M7-38, M7-42, M7-46, M7-47, M7-52, M8-20)', () => {
+  it('offers exactly seventeen handlers to the learner, each theirs alone, and the routes are made of nothing else (M7-38, M7-42, M7-46, M7-47, M7-52, M8-20, M8-28, M8-29)', () => {
     const offered = learningComposition.learningForLearner({ curriculum: noCurriculum, pool, clock, identifiers, standings: { standings: async () => ({ ok: true, value: [] }) }, paceSlots: { paceSlotsForAttempt: async () => ({ ok: true, value: [] }) } });
-    expect(Object.keys(offered).sort()).toEqual(['createBookmark', 'examChoices', 'getProfile', 'getReport', 'learnerScope', 'listBookmarks', 'listErrorEntries', 'paceAnalytics', 'remediationConcepts', 'reviewPlan', 'scopeOptions', 'setErrorCause', 'skipOnboarding', 'updateProfile']);
-    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetDiagnosticReport', 'GetLearnerProfile', 'GetLearnerScope', 'GetPaceAnalytics', 'GetReviewPlan', 'GetScopeOptions', 'ListBookmarks', 'ListErrorEntries', 'ListExamChoices', 'SetErrorCause', 'SkipOnboarding', 'SuggestRemediationConcepts', 'UpdateLearnerProfile']);
+    expect(Object.keys(offered).sort()).toEqual(['conceptEvidence', 'conceptMap', 'conceptNames', 'createBookmark', 'examChoices', 'getProfile', 'getReport', 'learnerScope', 'listBookmarks', 'listErrorEntries', 'paceAnalytics', 'remediationConcepts', 'reviewPlan', 'scopeOptions', 'setErrorCause', 'skipOnboarding', 'updateProfile']);
+    expect(Object.values(offered).map((handler) => handler.name).sort()).toEqual(['CreateBookmark', 'GetConceptEvidence', 'GetConceptMap', 'GetConceptNames', 'GetDiagnosticReport', 'GetLearnerProfile', 'GetLearnerScope', 'GetPaceAnalytics', 'GetReviewPlan', 'GetScopeOptions', 'ListBookmarks', 'ListErrorEntries', 'ListExamChoices', 'SetErrorCause', 'SkipOnboarding', 'SuggestRemediationConcepts', 'UpdateLearnerProfile']);
     for (const handler of Object.values(offered)) expect(handler.policy.allowedRoles, handler.name).toEqual(['learner']);
     expect(() => learningComposition.learningForLearner({ curriculum: noCurriculum, pool } as never)).toThrow(/missing required dependency/u);
     expect(() => learningComposition.register({ pool, clock, identifiers, standings: offered.listBookmarks as never, paceSlots: {} as never } as never)).toThrow(/missing required dependency: principals/u);

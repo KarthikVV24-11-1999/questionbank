@@ -8,17 +8,20 @@ import { HomeScreen } from './HomeScreen.js';
 import { NO_ANALYTICS } from '../analytics/emitter.js';
 import { analyticsRig, expectConforming } from '../testing/analytics-rig.js';
 import type { ScreenContext } from './screen-context.js';
-import { emptyProfile, FakeProfileApi } from '../testing/profile-fakes.js';
+import { chosenProfile, emptyProfile, FakeProfileApi } from '../testing/profile-fakes.js';
+import { expectNoDomainVocabulary } from '../testing/vocabulary.js';
 
 afterEach(cleanup);
 
-const context = (overrides: Partial<ScreenContext> = {}): ScreenContext => ({ examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: null, pageKey: 'page-1', analytics: NO_ANALYTICS, ...overrides });
+const context = (overrides: Partial<ScreenContext> = {}): ScreenContext => ({ lastAttemptId: null, pageKey: 'page-1', analytics: NO_ANALYTICS, ...overrides });
+/** A learner who has chosen their exam: where the exam profile and the taxonomy come from. */
+const chosen = (): FakeProfileApi => Object.assign(new FakeProfileApi(), { profile: chosenProfile() });
 const server = () => new FakeApi({} as never, new Error('no key'));
 
-function open(learning: FakeLearningApi, overrides: Partial<ScreenContext> = {}, assessment = server()) {
+function open(learning: FakeLearningApi, overrides: Partial<ScreenContext> = {}, assessment = server(), profiles: FakeProfileApi = chosen()) {
   const onOpen = vi.fn();
-  render(<HomeScreen learning={learning} assessment={assessment} context={context(overrides)} onOpen={onOpen} />);
-  return { onOpen, assessment };
+  const view = render(<HomeScreen learning={learning} assessment={assessment} profiles={profiles} context={context(overrides)} onOpen={onOpen} />);
+  return { onOpen, assessment, view };
 }
 
 describe('the home screen (M7-57)', () => {
@@ -26,23 +29,24 @@ describe('the home screen (M7-57)', () => {
     const learning = new FakeLearningApi();
     learning.plan = plan({ due: [scheduled(1)], escalated: [escalation(2)] });
     open(learning);
-    expect(await screen.findByRole('heading', { name: `Concept ${concept(2).slice(0, 8)}` })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Ray optics' })).toBeInTheDocument();
     expect(screen.getByText(/keeps slipping/u)).toBeInTheDocument();
+    expect(screen.getByLabelText('Where it sits in the syllabus')).toHaveTextContent('Physics › Optics');
     expect(screen.getAllByRole('button')).toHaveLength(1);
-    expect(screen.queryByText(`Concept ${concept(1).slice(0, 8)}`)).toBeNull();
+    expect(screen.queryByText('Kinematics')).toBeNull();
   });
 
-  it('says what is due when nothing is escalated, and the weakest concept when nothing is either', async () => {
+  it('says what is due when nothing is escalated, and the weakest topic when nothing is either', async () => {
     const due = new FakeLearningApi();
     due.plan = plan({ due: [scheduled(1)] });
     open(due);
-    expect(await screen.findByText('This concept is due for review.')).toBeInTheDocument();
+    expect(await screen.findByText('This topic is due for review.')).toBeInTheDocument();
     cleanup();
 
     const weakest = new FakeLearningApi();
     weakest.weakest = [concept(3)];
     open(weakest);
-    expect(await screen.findByText('This is the concept you are weakest on.')).toBeInTheDocument();
+    expect(await screen.findByText('This is the topic you are weakest on.')).toBeInTheDocument();
   });
 
   it('says a practice run started from the next action was a recommendation, and says nothing of a finding having been tapped', async () => {
@@ -71,7 +75,7 @@ describe('the home screen (M7-57)', () => {
     learning.reports.set('att-1', report());
     open(learning, { lastAttemptId: 'att-1' });
     const link = await screen.findByRole('link', { name: 'Read your report' });
-    expect(link).toHaveAttribute('href', `?report=att-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    expect(link).toHaveAttribute('href', '?report=att-1');
   });
 
   it('on one tap makes the run, starts it, and opens it', async () => {
@@ -82,7 +86,7 @@ describe('the home screen (M7-57)', () => {
     await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
     expect(assessment.calls).toEqual(['createPracticeAttempt', 'startAttempt']);
     expect(assessment.practiceRequests[0]).toEqual({ request: { examProfileVersionId: PROFILE, conceptIdentityIds: [concept(2)], count: 10 }, key: `page-1:${concept(2)}` });
-    expect(onOpen).toHaveBeenCalledWith(`?practice=att-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    expect(onOpen).toHaveBeenCalledWith('?practice=att-1');
     // the run is made; a tap before the page is left makes no second ask
     expect(screen.getByRole('button', { name: 'Starting…' })).toBeDisabled();
   });
@@ -138,11 +142,12 @@ describe('the home screen (M7-57)', () => {
     expect(assessment.practiceRequests).toHaveLength(1);
   });
 
-  it('says a run cannot be made, instead of trying, when the page was opened without an exam profile', async () => {
+  it('says to choose an exam, instead of trying a run, when the learner has not chosen one', async () => {
     const learning = new FakeLearningApi();
     learning.plan = plan({ escalated: [escalation(2)] });
-    open(learning, { examProfileVersionId: null });
-    expect(await screen.findByRole('note')).toHaveTextContent('without an exam profile');
+    open(learning, {}, server(), new FakeProfileApi());
+    expect(await screen.findByRole('note')).toHaveTextContent('Choose your exam to practise');
+    expect(screen.getByRole('link', { name: 'Choose it now' })).toHaveAttribute('href', '?onboarding=1');
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -182,7 +187,7 @@ describe('the home screen (M7-57)', () => {
     const learning = new FakeLearningApi();
     render(<HomeScreen learning={learning} assessment={server()} profiles={profiles} context={context()} onOpen={() => undefined} />);
     const link = await screen.findByRole('link', { name: 'Tell us about your exam' });
-    expect(link).toHaveAttribute('href', `?onboarding=1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    expect(link).toHaveAttribute('href', '?onboarding=1');
     cleanup();
 
     profiles.profile = { ...emptyProfile(), onboarding: { steps: [], next: 'class', skipped: true } };
@@ -201,11 +206,11 @@ describe('the home screen (M7-57)', () => {
     const learning = new FakeLearningApi();
     learning.plan = plan({ due: [scheduled(1)] });
     render(<HomeScreen learning={learning} assessment={server()} context={context()} onOpen={() => undefined} />);
-    expect(await screen.findByRole('button', { name: 'Practise this' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Kinematics' })).toBeInTheDocument();
     await act(async () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 20));
     });
-    expect(screen.getByRole('button', { name: 'Practise this' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Kinematics' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Tell us about your exam' })).toBeNull();
   });
 
@@ -215,7 +220,7 @@ describe('the home screen (M7-57)', () => {
     const learning = new FakeLearningApi();
     learning.plan = plan({ due: [scheduled(1)] });
     render(<HomeScreen learning={learning} assessment={server()} profiles={profiles} context={context()} onOpen={() => undefined} />);
-    expect(await screen.findByRole('button', { name: 'Practise this' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Kinematics' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Tell us about your exam' })).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -223,10 +228,81 @@ describe('the home screen (M7-57)', () => {
   it('has no accessibility violation in any state it shows', async () => {
     const learning = new FakeLearningApi();
     learning.plan = plan({ escalated: [escalation(2)] });
-    const view = render(<HomeScreen learning={learning} assessment={server()} context={context()} onOpen={() => undefined} />);
+    const view = render(<HomeScreen learning={learning} assessment={server()} profiles={chosen()} context={context()} onOpen={() => undefined} />);
     await screen.findByRole('button', { name: 'Practise this' });
     const result = await axe.run(view.container);
     expect(result.violations.map((violation) => violation.id)).toEqual([]);
     expect(attemptDto).toBeDefined();
+  });
+
+  it('asks what is weakest about the taxonomy of the learner\'s own exam, and does not ask when they have chosen none', async () => {
+    const learning = new FakeLearningApi();
+    learning.weakest = [concept(3)];
+    open(learning);
+    expect(await screen.findByRole('heading', { name: 'Gravitation' })).toBeInTheDocument();
+    expect(learning.calls).toContain(`suggestRemediation ${TAXONOMY}`);
+    cleanup();
+
+    const without = new FakeLearningApi();
+    without.weakest = [concept(3)];
+    open(without, {}, server(), new FakeProfileApi());
+    await screen.findByText(/nothing to do right now/u);
+    expect(without.calls.some((call) => call.startsWith('suggestRemediation'))).toBe(false);
+  });
+
+  it('names the topic in the syllabus version it came from, once, and never asks to name when there is no topic', async () => {
+    const learning = new FakeLearningApi();
+    learning.plan = plan({ escalated: [escalation(2)] });
+    open(learning);
+    await screen.findByRole('heading', { name: 'Ray optics' });
+    expect(learning.calls.filter((call) => call.startsWith('conceptNames'))).toEqual([`conceptNames ${TAXONOMY} ${concept(2)}`]);
+    cleanup();
+
+    const nothing = new FakeLearningApi();
+    open(nothing);
+    await screen.findByText(/nothing to do right now/u);
+    expect(nothing.calls.some((call) => call.startsWith('conceptNames'))).toBe(false);
+  });
+
+  it('calls a topic whose name could not be read "This topic", and never by what it is filed under', async () => {
+    const learning = new FakeLearningApi();
+    learning.plan = plan({ escalated: [escalation(2)] });
+    learning.namesFail = unreachable();
+    const { view } = open(learning);
+    expect(await screen.findByRole('heading', { name: 'This topic' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Where it sits in the syllabus')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Practise this' })).toBeInTheDocument();
+    expectNoDomainVocabulary(view.container);
+  });
+
+  it('links to where the learner stands', async () => {
+    const learning = new FakeLearningApi();
+    open(learning);
+    expect(await screen.findByRole('link', { name: 'See where you stand' })).toHaveAttribute('href', '?map=1');
+  });
+
+  it('shows a learner nothing in our vocabulary, in any state it has: an escalation, a due review, the weakest, a report, nothing, a failure, no exam', async () => {
+    const states: Array<(learning: FakeLearningApi) => void> = [
+      (l) => (l.plan = plan({ escalated: [escalation(2)] })),
+      (l) => (l.plan = plan({ due: [scheduled(1)] })),
+      (l) => (l.weakest = [concept(3)]),
+      (l) => l.reports.set('att-1', report()),
+      () => undefined,
+      (l) => (l.plan = unreachable()),
+      (l) => ((l.plan = plan({ escalated: [escalation(2)] })), (l.namesFail = unreachable())),
+    ];
+    for (const [index, arrange] of states.entries()) {
+      const learning = new FakeLearningApi();
+      arrange(learning);
+      const { view } = open(learning, { lastAttemptId: index === 3 ? 'att-1' : null });
+      await vi.waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+      expectNoDomainVocabulary(view.container);
+      cleanup();
+    }
+    const learning = new FakeLearningApi();
+    learning.plan = plan({ escalated: [escalation(2)] });
+    const { view } = open(learning, {}, server(), new FakeProfileApi());
+    await screen.findByRole('note');
+    expectNoDomainVocabulary(view.container);
   });
 });

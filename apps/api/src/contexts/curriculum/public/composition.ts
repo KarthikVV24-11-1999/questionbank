@@ -32,7 +32,7 @@ import {
   RunDryRunHandler,
   type MigrationExecutor,
 } from '../application/handlers/migration-handlers.js';
-import { ListExamOptionsQuery, ListScopeNodesQuery, ResolveExamChoiceQuery, ResolveScopeNodesQuery } from '../application/queries/learner-queries.js';
+import { CONCEPT_NAME_BATCH_BOUND, ListExamOptionsQuery, ListScopeNodesQuery, NameConceptsQuery, ResolveExamChoiceQuery, ResolveScopeNodesQuery } from '../application/queries/learner-queries.js';
 import type { TaxonomyMapping } from '../domain/taxonomy-mapping.js';
 import {
   GetConceptPrerequisitesQuery,
@@ -199,9 +199,13 @@ export interface CurriculumForLearning {
   readonly resolveExam: ResolveExamChoiceQuery;
   readonly scopeNodes: ListScopeNodesQuery;
   readonly resolveScope: ResolveScopeNodesQuery;
+  /** What a concept is called and where it sits in the syllabus (M8-27). */
+  readonly nameConcepts: NameConceptsQuery;
+  /** The most identifiers one `nameConcepts` call takes; a caller with more pages at it (DEC-M7-28). */
+  readonly batchBound: number;
 }
 
 export function curriculumForLearning(deps: CurriculumCompositionDeps): CurriculumForLearning {
   const bag = assemble(deps);
-  return { examOptions: new ListExamOptionsQuery(bag), resolveExam: new ResolveExamChoiceQuery(bag), scopeNodes: new ListScopeNodesQuery(bag), resolveScope: new ResolveScopeNodesQuery(bag) };
+  return { examOptions: new ListExamOptionsQuery(bag), resolveExam: new ResolveExamChoiceQuery(bag), scopeNodes: new ListScopeNodesQuery(bag), resolveScope: new ResolveScopeNodesQuery(bag), nameConcepts: new NameConceptsQuery(bag), batchBound: CONCEPT_NAME_BATCH_BOUND };
 }

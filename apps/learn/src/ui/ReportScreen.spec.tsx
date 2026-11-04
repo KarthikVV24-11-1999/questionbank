@@ -10,18 +10,21 @@ import { clientEnvelopeSchema, findPii } from '@questionbank/contracts/analytics
 import { NO_ANALYTICS, type ScreenAnalytics } from '../analytics/emitter.js';
 import { analyticsRig, expectConforming } from '../testing/analytics-rig.js';
 import type { ScreenContext } from './screen-context.js';
+import { chosenProfile, FakeProfileApi } from '../testing/profile-fakes.js';
+import { expectNoDomainVocabulary } from '../testing/vocabulary.js';
 
 afterEach(cleanup);
 
-const context: ScreenContext = { examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: 'att-1', pageKey: 'page-1', analytics: NO_ANALYTICS };
+const context: ScreenContext = { lastAttemptId: 'att-1', pageKey: 'page-1', analytics: NO_ANALYTICS };
 const scored = (scoreRecordId: string, generation: number): ResultDto => ({
   attemptId: 'att-1',
   status: 'scored',
   score: { scoreRecordId, attemptId: 'att-1', generation, totalRaw: '10', totalMaxAvailable: '24', computedAt: 't', sectionScores: [], itemOutcomes: [] },
 });
 
-function open(options: { report?: ReturnType<typeof report> | Error; pace?: ReturnType<typeof pace> | Error; result?: ResultDto | Error; analytics?: ScreenAnalytics } = {}) {
+function open(options: { report?: ReturnType<typeof report> | Error; pace?: ReturnType<typeof pace> | Error; result?: ResultDto | Error; analytics?: ScreenAnalytics; profile?: FakeProfileApi; namesFail?: boolean } = {}) {
   const learning = new FakeLearningApi();
+  if (options.namesFail === true) learning.namesFail = new TypeError('Failed to fetch');
   learning.reports.set('att-1', options.report ?? report());
   learning.paces.set('att-1', options.pace ?? pace());
   const assessment = new FakeApi({} as never, new Error('no key'));
@@ -31,7 +34,8 @@ function open(options: { report?: ReturnType<typeof report> | Error; pace?: Retu
     return answer;
   };
   const onOpen = vi.fn();
-  const element = () => <ReportScreen learning={learning} assessment={assessment} attemptId="att-1" context={{ ...context, analytics: options.analytics ?? NO_ANALYTICS }} onOpen={onOpen} />;
+  const profiles = options.profile ?? Object.assign(new FakeProfileApi(), { profile: chosenProfile() });
+  const element = () => <ReportScreen learning={learning} assessment={assessment} profiles={profiles} attemptId="att-1" context={{ ...context, analytics: options.analytics ?? NO_ANALYTICS }} onOpen={onOpen} />;
   const view = render(element());
   return { onOpen, assessment, learning, view, renderAgain: () => view.rerender(element()) };
 }
@@ -40,7 +44,7 @@ describe('the report screen (M7-59)', () => {
   it('lists the findings in the order the server ranked them, whatever order they arrive in, each with what it cost', async () => {
     open({ report: report({ findings: [finding(2, 2, '5'), finding(1, 1, '9')] }) });
     const items = within(await screen.findByRole('region', { name: 'Findings' })).getAllByRole('heading', { level: 3 });
-    expect(items.map((heading) => heading.textContent)).toEqual([`Concept ${concept(1).slice(0, 8)}`, `Concept ${concept(2).slice(0, 8)}`]);
+    expect(items.map((heading) => heading.textContent)).toEqual(['Kinematics', 'Ray optics']);
     expect(screen.getAllByText(/Lost 9 of 8 marks across 2 questions\./u)).toHaveLength(1);
   });
 
@@ -54,15 +58,16 @@ describe('the report screen (M7-59)', () => {
     expect(await screen.findByText('No marks were lost.')).toBeInTheDocument();
   });
 
-  it('puts the one tap beside each finding: it makes the run about that finding\'s concept, starts it, and opens it', async () => {
+  it('puts the one tap beside each finding: it makes the run about that finding\'s topic, starts it, and opens it', async () => {
     const { onOpen, assessment } = open();
-    const buttons = await screen.findAllByRole('button', { name: /^Practise Concept/u });
+    const buttons = await screen.findAllByRole('button', { name: /^Practise (Kinematics|Ray optics)$/u });
     expect(buttons).toHaveLength(2);
     await userEvent.click(buttons[1]!);
     await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
     expect(assessment.calls).toEqual(['createPracticeAttempt', 'startAttempt']);
     expect(assessment.practiceRequests[0]!.request.conceptIdentityIds).toEqual([concept(2)]);
-    expect(onOpen).toHaveBeenCalledWith(`?practice=att-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    expect(onOpen).toHaveBeenCalledWith('?practice=att-1');
+    expect(assessment.practiceRequests[0]!.request.examProfileVersionId).toBe(PROFILE);
   });
 
   describe('what it says happened (M7-62)', () => {
@@ -84,7 +89,7 @@ describe('the report screen (M7-59)', () => {
     it('says the finding was tapped, with its rank and the hours since the score, and then that the run it made started, from a remediation', async () => {
       const { analytics, sent } = analyticsRig();
       const { onOpen } = open({ analytics, result: computedTwoHoursAgo() });
-      const buttons = await screen.findAllByRole('button', { name: /^Practise Concept/u });
+      const buttons = await screen.findAllByRole('button', { name: /^Practise (Kinematics|Ray optics)$/u });
       await userEvent.click(buttons[1]!);
       await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
       await settle();
@@ -98,7 +103,7 @@ describe('the report screen (M7-59)', () => {
       // the payload as the screen built it, before the emitter writes it down as JSON (where a NaN would quietly become null)
       const built: Array<{ name: string; payload: Record<string, unknown> }> = [];
       open({ analytics: { emit: (name, payload) => void built.push({ name, payload }), nowMs: () => Date.parse('2026-10-29T08:00:00.000Z'), flush: () => undefined } });
-      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise Concept/u }))[0]!);
+      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise (Kinematics|Ray optics)$/u }))[0]!);
       await settle();
       expect(built.find((event) => event.name === 'mock.remediation_clicked')!.payload).toEqual({ finding_rank: 1, hours_after_result: null });
     });
@@ -106,7 +111,7 @@ describe('the report screen (M7-59)', () => {
     it('emits only events whose envelope the contract accepts, with no personal data in any of them', async () => {
       const { analytics, sent } = analyticsRig();
       const { onOpen } = open({ analytics, result: computedTwoHoursAgo() });
-      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise Concept/u }))[0]!);
+      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise (Kinematics|Ray optics)$/u }))[0]!);
       await vi.waitFor(() => expect(onOpen).toHaveBeenCalled());
       await settle();
       expect(sent.length).toBe(3);
@@ -119,7 +124,7 @@ describe('the report screen (M7-59)', () => {
     it('costs the learner nothing when the edge is down: the report is shown and the tap still opens the run', async () => {
       const { analytics } = analyticsRig({ send: async () => Promise.reject(new TypeError('Failed to fetch')) });
       const { onOpen, assessment } = open({ analytics });
-      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise Concept/u }))[0]!);
+      await userEvent.click((await screen.findAllByRole('button', { name: /^Practise (Kinematics|Ray optics)$/u }))[0]!);
       await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
       expect(assessment.calls).toEqual(['createPracticeAttempt', 'startAttempt']);
     });
@@ -136,12 +141,12 @@ describe('the report screen (M7-59)', () => {
       }),
     });
     const table = await screen.findByRole('table');
-    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Concept', 'Slow and right', 'Slow and wrong', 'Fast and right', 'Fast and wrong', 'Not known']);
+    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Topic', 'Slow and right', 'Slow and wrong', 'Fast and right', 'Fast and wrong', 'Not known']);
     expect(within(table).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['1', '2', '3', '4', '11']);
     const unknown = screen.getByRole('list', { name: 'Questions whose time is not known' });
     expect(within(unknown).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      `Concept ${concept(1).slice(0, 8)}: at least 120 s, at most 300 s`,
-      `Concept ${concept(1).slice(0, 8)}: at least 90 s, no upper limit known`,
+      'Kinematics: at least 120 s, at most 300 s',
+      'Kinematics: at least 90 s, no upper limit known',
     ]);
     expect(screen.getByText(/could not be told apart from a long pause/u)).toBeInTheDocument();
   });
@@ -187,6 +192,57 @@ describe('the report screen (M7-59)', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Opening your report');
     expect(await screen.findByRole('alert')).toHaveTextContent('there is no report');
     expect(screen.getByRole('link', { name: 'Back to what to do next' })).toBeInTheDocument();
+  });
+
+  it('names the topics in the syllabus version they came from: the findings\' and the pace\'s, once each', async () => {
+    const { learning } = open({ pace: pace({ slots: [{ slotRef: 's1', conceptIdentityId: concept(1), outcome: 'correct', pace: 'unknown', atLeastMs: 1000, atMostMs: null }] }) });
+    await screen.findByRole('table');
+    expect(learning.calls.filter((call) => call.startsWith('conceptNames'))).toEqual([`conceptNames ${TAXONOMY} ${concept(1)},${concept(2)}`]);
+  });
+
+  it('names a topic the pace has and no finding has, in the table and in the list of questions whose time is not known', async () => {
+    const row = { ...pace().concepts[0]!, conceptIdentityId: concept(3) };
+    open({ pace: pace({ concepts: [row], slots: [{ slotRef: 's9', conceptIdentityId: concept(3), outcome: 'incorrect', pace: 'unknown', atLeastMs: 5000, atMostMs: 9000 }] }) });
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('rowheader')).toHaveTextContent('Gravitation');
+    expect(within(screen.getByRole('list', { name: 'Questions whose time is not known' })).getByRole('listitem')).toHaveTextContent('Gravitation: at least 5 s, at most 9 s');
+    expect(screen.queryByText('This topic', { selector: 'th' })).toBeNull();
+  });
+
+  it('calls a topic whose name could not be read "This topic", and still shows the report', async () => {
+    const { view } = open({ namesFail: true });
+    expect(await screen.findAllByRole('heading', { level: 3, name: 'This topic' })).toHaveLength(2);
+    expectNoDomainVocabulary(view.container);
+  });
+
+  it('says to choose an exam, instead of trying a run, when the learner has none', async () => {
+    const { view } = open({ profile: new FakeProfileApi() });
+    expect((await screen.findAllByRole('note')).map((note) => note.textContent)).toEqual(['Choose your exam to practise. Choose it now', 'Choose your exam to practise. Choose it now']);
+    expect(screen.queryByRole('button', { name: /^Practise/u })).toBeNull();
+    expectNoDomainVocabulary(view.container);
+  });
+
+  it('does not guess an exam when the profile cannot be read: it says to choose one, and still shows the report', async () => {
+    const profile = new FakeProfileApi();
+    profile.offline = true;
+    open({ profile });
+    expect((await screen.findAllByRole('note')).length).toBe(2);
+    expect(screen.getByRole('heading', { level: 3, name: 'Kinematics' })).toBeInTheDocument();
+  });
+
+  it('shows a learner nothing in our vocabulary: findings, pace, the unknown list, a failure, and the screen while it loads', async () => {
+    const loading = open();
+    expectNoDomainVocabulary(loading.view.container);
+    await screen.findByRole('table');
+    expectNoDomainVocabulary(loading.view.container);
+    cleanup();
+    const unknown = open({ pace: pace({ slots: [{ slotRef: 's1', conceptIdentityId: concept(1), outcome: 'correct', pace: 'unknown', atLeastMs: 120_000, atMostMs: null }] }), result: scored('score-2', 2) });
+    await screen.findByRole('list', { name: 'Questions whose time is not known' });
+    expectNoDomainVocabulary(unknown.view.container);
+    cleanup();
+    const failed = open({ report: new Error('there is no report for that attempt') });
+    await screen.findByRole('alert');
+    expectNoDomainVocabulary(failed.view.container);
   });
 
   it('has no accessibility violation', async () => {

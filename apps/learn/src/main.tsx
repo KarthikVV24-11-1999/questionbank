@@ -15,6 +15,8 @@ import { createClockFacts } from './session/clock-facts.js';
 import { loadRecord, migrateLegacy } from './session/persistence.js';
 import { registerServiceWorker } from './sw/register.js';
 import { warmPackageCache } from './sw/warm-package.js';
+import { ConceptMapScreen } from './ui/ConceptMapScreen.js';
+import { TopicScreen } from './ui/TopicScreen.js';
 import { HomeScreen } from './ui/HomeScreen.js';
 import { OnboardingScreen } from './ui/OnboardingScreen.js';
 import { PracticeScreen } from './ui/PracticeScreen.js';
@@ -48,8 +50,8 @@ const profiles = createProfileApi(client);
 /** What the learner has said in onboarding and the server has not heard, on the same disk as the response log. A browser that will not give one keeps nothing, and the screen says so by failing to save. */
 const drafts = await openDraftStore(window.indexedDB).catch(() => NO_DRAFTS);
 /**
- * Where the page was opened (D88): the exam profile and taxonomy come in the address, as the form and the session do, until a route offers them; the last sitting
- * is the one this device wrote down; and one key stands for every try of a tap on this page.
+ * Where the page was opened: the last sitting is the one this device wrote down, and one key stands for every try of a tap on this page. Which exam the learner chose, and its syllabus, are the learner's profile and
+ * are read from the server (D88); the address says which screen, and which form and session for a paper.
  */
 /** The platform tenant (P7); one until there are others. */
 const PLATFORM_TENANT = '00000000-0000-0000-0000-000000000000';
@@ -95,8 +97,6 @@ window.addEventListener('online', () => {
 analytics.flush();
 
 const screenContext: ScreenContext = {
-  examProfileVersionId: params.get('profile'),
-  taxonomyVersionId: params.get('taxonomy'),
   lastAttemptId: activeId,
   pageKey: crypto.randomUUID(),
   analytics,
@@ -126,6 +126,7 @@ function App(): JSX.Element {
   const reportOf = params.get('report');
   const practiceOf = params.get('practice');
   const onboarding = params.get('onboarding');
+  const topicOf = params.get('topic');
   if (formId !== null && sessionRef !== null) {
     return (
       <Root
@@ -143,7 +144,7 @@ function App(): JSX.Element {
     );
   }
   if (formId !== null || sessionRef !== null) return <p role="alert">Open this page from your exam link.</p>;
-  if (reportOf !== null) return <ReportScreen learning={learning} assessment={api} attemptId={reportOf} context={screenContext} onOpen={open} />;
+  if (reportOf !== null) return <ReportScreen learning={learning} assessment={api} profiles={profiles} attemptId={reportOf} context={screenContext} onOpen={open} />;
   if (practiceOf !== null) {
     return (
       <PracticeScreen
@@ -157,10 +158,11 @@ function App(): JSX.Element {
           return () => window.removeEventListener('online', fn);
         }}
         onUpdateWanted={() => void registration?.update()}
-        context={screenContext}
       />
     );
   }
+  if (topicOf !== null) return <TopicScreen learning={learning} conceptIdentityId={topicOf} from={Number.parseInt(params.get('from') ?? '0', 10) || 0} context={screenContext} />;
+  if (params.get('map') !== null) return <ConceptMapScreen learning={learning} context={screenContext} />;
   if (onboarding !== null) return <OnboardingScreen profiles={profiles} drafts={drafts} edit={onboarding === 'coverage' ? 'coverage' : null} context={screenContext} onOpen={open} />;
   return <HomeScreen learning={learning} assessment={api} profiles={profiles} context={screenContext} onOpen={open} />;
 }

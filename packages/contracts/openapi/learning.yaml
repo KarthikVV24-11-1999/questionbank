@@ -21,6 +21,9 @@ x-learning-routes:
   - /v1/learning/attempts/{attemptId}/pace
   - /v1/learning/review-plan
   - /v1/learning/remediation-concepts
+  - /v1/learning/concept-map
+  - /v1/learning/concept-map/{conceptIdentityId}/evidence
+  - /v1/learning/concept-names
   - /v1/learning/error-entries
   - /v1/learning/error-entries/{errorEntryId}/cause
   - /v1/learning/bookmarks
@@ -126,6 +129,93 @@ paths:
         '403': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
         '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /v1/learning/concept-map:
+    get:
+      operationId: getConceptMap
+      x-handler: GetConceptMap
+      summary: What the learner knows, topic by topic, read at this instant
+      description: "Decay is applied at the instant of the read, so a state that has gone quiet reads as weaker with nothing scheduled. A state with too few answers behind it is `tentative` and carries no state, only what it leans towards. The declared scope does not filter the map; each topic says whether it is inside it. The answers behind a state are served by the evidence route."
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: "The learner's map."
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConceptMap' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/concept-map/{conceptIdentityId}/evidence:
+    get:
+      operationId: getConceptEvidence
+      x-handler: GetConceptEvidence
+      summary: The answers a topic's standing is made of, newest first, a page at a time
+      tags: [learner]
+      parameters:
+        - name: conceptIdentityId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: "The topic's standing and a page of the answers behind it."
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConceptEvidence' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /v1/learning/concept-names:
+    get:
+      operationId: getConceptNames
+      x-handler: GetConceptNames
+      summary: What topics are called, and the chapter and subject they sit under
+      tags: [learner]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: taxonomyVersionId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: conceptIdentityIds
+          in: query
+          required: true
+          description: "Comma-separated, at most one hundred."
+          schema: { type: string }
+      responses:
+        '200':
+          description: "The names, in the order asked and without repeats."
+          headers:
+            X-Correlation-Id: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConceptNames' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
         '503': { $ref: '#/components/responses/Problem' }
 
   /v1/learning/error-entries:
@@ -628,6 +718,98 @@ components:
         conceptIdentityIds:
           type: array
           items: { type: string, format: uuid }
+
+    NamedConcept:
+      type: object
+      required: [conceptIdentityId, name, path]
+      properties:
+        conceptIdentityId: { type: string, format: uuid }
+        name: { type: string }
+        path:
+          type: array
+          description: "The names above it, outermost first: subject, chapter, topic."
+          items: { type: string }
+
+    ConceptNames:
+      type: object
+      required: [concepts]
+      properties:
+        concepts:
+          type: array
+          items: { $ref: '#/components/schemas/NamedConcept' }
+
+    Standing:
+      description: "Asserted when enough answers stand behind it; tentative when they do not, and then it names what the answers lean towards and no state."
+      oneOf:
+        - type: object
+          required: [kind, state, confidence]
+          additionalProperties: false
+          properties:
+            kind: { type: string, enum: [asserted] }
+            state: { type: string, enum: [weak, developing, strong] }
+            confidence: { type: number, minimum: 0, maximum: 1 }
+        - type: object
+          required: [kind, leaning]
+          additionalProperties: false
+          properties:
+            kind: { type: string, enum: [tentative] }
+            leaning: { type: string, enum: [weak, developing, strong] }
+        - type: object
+          required: [kind]
+          additionalProperties: false
+          properties:
+            kind: { type: string, enum: [unassessed] }
+
+    MappedConcept:
+      type: object
+      required: [conceptIdentityId, name, path, standing, evidenceCount, lastEvidenceAt, inDeclaredScope]
+      properties:
+        conceptIdentityId: { type: string, format: uuid }
+        name: { type: string }
+        path:
+          type: array
+          items: { type: string }
+        standing: { $ref: '#/components/schemas/Standing' }
+        evidenceCount: { type: integer, minimum: 0 }
+        lastEvidenceAt: { type: [string, 'null'], format: date-time }
+        inDeclaredScope: { type: [boolean, 'null'] }
+
+    ConceptMap:
+      type: object
+      required: [asOf, concepts, assessedCount, unassessedCount]
+      properties:
+        asOf: { type: string, format: date-time }
+        concepts:
+          type: array
+          items: { $ref: '#/components/schemas/MappedConcept' }
+        assessedCount: { type: integer, minimum: 0 }
+        unassessedCount: { type: integer, minimum: 0 }
+
+    ConceptResponse:
+      type: object
+      required: [evidenceId, attemptRef, occurredAt, outcome, difficultyEstimate]
+      properties:
+        evidenceId: { type: string, format: uuid }
+        attemptRef: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+        outcome: { type: string, enum: [correct, incorrect] }
+        difficultyEstimate: { type: string, enum: [foundational, moderate, challenging, advanced] }
+
+    ConceptEvidence:
+      type: object
+      required: [concept, standing, evidenceCount, lastEvidenceAt, asOf, responses, total, limit, offset]
+      properties:
+        concept: { $ref: '#/components/schemas/NamedConcept' }
+        standing: { $ref: '#/components/schemas/Standing' }
+        evidenceCount: { type: integer, minimum: 0 }
+        lastEvidenceAt: { type: [string, 'null'], format: date-time }
+        asOf: { type: string, format: date-time }
+        responses:
+          type: array
+          items: { $ref: '#/components/schemas/ConceptResponse' }
+        total: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1 }
+        offset: { type: integer, minimum: 0 }
 
     ErrorEntry:
       type: object

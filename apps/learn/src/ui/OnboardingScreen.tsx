@@ -51,8 +51,8 @@ export function OnboardingScreen({ profiles, drafts, edit = null, context, onOpe
     return { profile, draft, standing, choices, options, reopened, openedAtMs };
   });
 
-  const home = screenHref({}, context);
-  const here = (): void => onOpen(screenHref({ onboarding: true }, context));
+  const home = screenHref({});
+  const here = (): void => onOpen(screenHref({ onboarding: true }));
 
   const save = useSubmit(
     async ({ step, form, read, opened }: { readonly step: OnboardingStep; readonly form: FormData; readonly read: (form: FormData) => ProfileChange; readonly opened: number }) => {
@@ -81,7 +81,7 @@ export function OnboardingScreen({ profiles, drafts, edit = null, context, onOpe
       <p>A few questions so we can start you in the right place. You can skip all of them and use everything.</p>
       {loaded.status === 'loading' ? <p role="status">One moment…</p> : null}
       {loaded.status === 'failed' ? <p role="alert">{loaded.message}</p> : null}
-      {loaded.status === 'loaded' ? <Step loaded={loaded.value} coverageHref={screenHref({ onboarding: 'coverage' }, context)} save={(step, form, read) => save.go({ step, form, read, opened: loaded.value.openedAtMs })} busy={save.busy} /> : null}
+      {loaded.status === 'loaded' ? <Step loaded={loaded.value} coverageHref={screenHref({ onboarding: 'coverage' })} save={(step, form, read) => save.go({ step, form, read, opened: loaded.value.openedAtMs })} busy={save.busy} /> : null}
       {save.failure === null ? null : <p role="alert">{save.failure}</p>}
       <p>
         <a href={home} onClick={(event) => (event.preventDefault(), skip.go(undefined))}>

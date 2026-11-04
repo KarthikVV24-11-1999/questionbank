@@ -1,6 +1,7 @@
 import type { AssessmentApi, PracticeRequest } from '../api/assessment-api.js';
 import type { LearningApi } from '../api/learning-api.js';
-import type { DiagnosticReportDto, PaceAnalyticsDto, ReviewPlanDto } from '../api/learning-schemas.js';
+import type { ConceptEvidenceDto, ConceptMapDto, DiagnosticReportDto, NamedConceptDto, PaceAnalyticsDto, ReviewPlanDto } from '../api/learning-schemas.js';
+import { TOPICS } from './learning-fixtures.js';
 import type { AttemptDto, AttemptWithLogDto, ResultDto } from '../api/schemas.js';
 import type { PackageResponse, SigningKey } from '../package/load.js';
 import { assembleRecord, saveRecord, type EventRow, type RecordChange, type RecordStore, type SessionRecord, type StoredAttempt } from '../session/persistence.js';
@@ -236,6 +237,11 @@ export class FakeLearningApi implements LearningApi {
   weakest: readonly string[] | Error = [];
   reports = new Map<string, DiagnosticReportDto | Error>();
   paces = new Map<string, PaceAnalyticsDto | Error>();
+  /** What the syllabus calls each topic; one the syllabus does not have is refused, as the server refuses it. */
+  topics = new Map<string, NamedConceptDto>(TOPICS.map((topic) => [topic.conceptIdentityId, topic]));
+  namesFail: Error | null = null;
+  map: ConceptMapDto | Error = { asOf: '2026-11-04T09:00:00.000Z', concepts: [], assessedCount: 0, unassessedCount: 0 };
+  evidenceOf = new Map<string, (offset: number, limit: number) => ConceptEvidenceDto | Error>();
 
   async getReviewPlan(): Promise<ReviewPlanDto> {
     this.calls.push('getReviewPlan');
@@ -252,6 +258,22 @@ export class FakeLearningApi implements LearningApi {
     const report = this.reports.get(attemptId) ?? new Error('REPORT_NOT_FOUND');
     if (report instanceof Error) throw report;
     return report;
+  }
+  async getConceptMap(): Promise<ConceptMapDto> {
+    this.calls.push('getConceptMap');
+    if (this.map instanceof Error) throw this.map;
+    return this.map;
+  }
+  async getConceptEvidence(conceptIdentityId: string, page: { limit: number; offset: number }): Promise<ConceptEvidenceDto> {
+    this.calls.push(`getConceptEvidence ${conceptIdentityId} ${page.limit} ${page.offset}`);
+    const answered = this.evidenceOf.get(conceptIdentityId)?.(page.offset, page.limit) ?? new Error('CONCEPT_NOT_ASSESSED');
+    if (answered instanceof Error) throw answered;
+    return answered;
+  }
+  async conceptNames(taxonomyVersionId: string, conceptIdentityIds: readonly string[]): Promise<readonly NamedConceptDto[]> {
+    this.calls.push(`conceptNames ${taxonomyVersionId} ${conceptIdentityIds.join(',')}`);
+    if (this.namesFail !== null) throw this.namesFail;
+    return conceptIdentityIds.map((id) => this.topics.get(id) ?? (() => { throw new Error('CONCEPTS_UNKNOWN'); })());
   }
   async getPace(attemptId: string): Promise<PaceAnalyticsDto> {
     this.calls.push(`getPace ${attemptId}`);

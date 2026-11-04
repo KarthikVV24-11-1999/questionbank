@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { createClient } from '@questionbank/contracts/client';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { createLearningApi, createProfileApi } from './learning-api.js';
-import { conceptPaceSchema, examChoicesSchema, examChoiceSchema, learnerProfileSchema, onboardingStateSchema, profileScopeSchema, scopeOptionsSchema, diagnosticReportSchema, escalationFindingSchema, paceAnalyticsSchema, remediationSchema, reportedFindingSchema, reviewPlanSchema, scheduledConceptSchema, slotPaceSchema } from './learning-schemas.js';
-import { concept, pace, plan, report, TAXONOMY } from '../testing/learning-fixtures.js';
+import { createLearningApi, createProfileApi, NAMES_PER_REQUEST } from './learning-api.js';
+import { conceptEvidenceSchema, conceptMapSchema, conceptNamesSchema, mappedConceptSchema, namedConceptSchema, conceptPaceSchema, examChoicesSchema, examChoiceSchema, learnerProfileSchema, onboardingStateSchema, profileScopeSchema, scopeOptionsSchema, diagnosticReportSchema, escalationFindingSchema, paceAnalyticsSchema, remediationSchema, reportedFindingSchema, reviewPlanSchema, scheduledConceptSchema, slotPaceSchema } from './learning-schemas.js';
+import { concept, conceptMap, evidence, mapped, pace, plan, report, TAXONOMY, TOPICS } from '../testing/learning-fixtures.js';
 
 function rig(respond: (url: string) => unknown) {
   const urls: string[] = [];
@@ -38,6 +38,37 @@ describe('the learner app\'s reads of Learning', () => {
   });
 });
 
+describe('the learner app\'s reads of the concept map and the names (M8-29)', () => {
+  it('reads the map from its route, and the learner is named in none', async () => {
+    const map = conceptMap([mapped(1, { kind: 'asserted', state: 'weak', confidence: 0.6 }), mapped(2, { kind: 'tentative', leaning: 'weak' })]);
+    const { api, urls } = rig(() => map);
+    expect(await api.getConceptMap()).toEqual(map);
+    expect(urls).toEqual(['http://api.test/v1/learning/concept-map']);
+  });
+
+  it('reads the answers behind a topic from the topic\'s own route, a page at a time', async () => {
+    const { api, urls } = rig(() => evidence(1, 3));
+    expect(await api.getConceptEvidence(concept(1), { limit: 20, offset: 40 })).toEqual(evidence(1, 3));
+    expect(urls).toEqual([`http://api.test/v1/learning/concept-map/${encodeURIComponent(concept(1))}/evidence?limit=20&offset=40`]);
+  });
+
+  it('asks for the names of topics in one syllabus version as a comma-separated list, and hands on the names in order', async () => {
+    const { api, urls } = rig(() => ({ concepts: TOPICS }));
+    expect(await api.conceptNames(TAXONOMY, [concept(1), concept(2)])).toEqual(TOPICS);
+    expect(urls).toEqual([`http://api.test/v1/learning/concept-names?taxonomyVersionId=${TAXONOMY}&conceptIdentityIds=${encodeURIComponent(`${concept(1)},${concept(2)}`)}`]);
+    expect(NAMES_PER_REQUEST).toBe(100);
+  });
+
+  it('refuses a standing that is not one of the three, and a tentative one that carries a state, rather than draw a guess as a fact', async () => {
+    const wrongKind = rig(() => conceptMap([mapped(1, { kind: 'known' } as never)]));
+    await expect(wrongKind.api.getConceptMap()).rejects.toThrow('schema validation');
+    const noConfidence = rig(() => conceptMap([mapped(1, { kind: 'asserted', state: 'weak' } as never)]));
+    await expect(noConfidence.api.getConceptMap()).rejects.toThrow('schema validation');
+    const noLean = rig(() => conceptMap([mapped(1, { kind: 'tentative', state: 'weak' } as never)]));
+    await expect(noLean.api.getConceptMap()).rejects.toThrow('schema validation');
+  });
+});
+
 describe('the mirrored schemas are held to the document', () => {
   const doc = parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../packages/contracts/openapi/learning.yaml'), 'utf8')) as {
     components: { schemas: Record<string, { required?: string[]; properties: Record<string, unknown> }> };
@@ -59,6 +90,11 @@ describe('the mirrored schemas are held to the document', () => {
     ['LearnerProfile', learnerProfileSchema],
     ['ExamChoices', examChoicesSchema],
     ['ScopeOptions', scopeOptionsSchema],
+    ['NamedConcept', namedConceptSchema],
+    ['MappedConcept', mappedConceptSchema],
+    ['ConceptMap', conceptMapSchema],
+    ['ConceptEvidence', conceptEvidenceSchema],
+    ['ConceptNames', conceptNamesSchema],
   ];
 
   it.each(held)('%s: every field the server requires is one the client reads, and the client reads no other', (name, schema) => {

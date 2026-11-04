@@ -2,17 +2,14 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NO_ANALYTICS } from '../analytics/emitter.js';
 import { bootPractice } from '../bootstrap.js';
 import { aRig, attemptWithLogDto, FakeApi } from '../testing/fakes.js';
-import { PROFILE, TAXONOMY } from '../testing/learning-fixtures.js';
 import { aRunDocument, aSigner, encode, slotIds } from '../testing/signed-package.js';
 import { PracticeScreen } from './PracticeScreen.js';
-import type { ScreenContext } from './screen-context.js';
+import { expectNoDomainVocabulary } from '../testing/vocabulary.js';
 
 afterEach(cleanup);
 
-const context: ScreenContext = { examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: null, pageKey: 'p', analytics: NO_ANALYTICS };
 const signer = aSigner();
 const key = { keyId: signer.keyId, publicKey: signer.publicKey };
 const signedRun = () => {
@@ -30,15 +27,14 @@ function sit(over: { api?: FakeApi } = {}) {
   }
   const ticks: Array<() => void> = [];
   let online: () => void = () => undefined;
-  render(
+  const view = render(
     <PracticeScreen
       boot={() => bootPractice({ api, ports: rig.ports, attemptId: 'run-1', deviceRef: 'phone' })}
       every={(_ms, fn) => (ticks.push(fn), () => undefined)}
       onOnline={(fn) => ((online = fn), () => undefined)}
-      context={context}
     />,
   );
-  return { rig, api, pump: () => act(async () => void (await Promise.all(ticks.map((tick) => tick())))), comeBack: () => act(async () => online()) };
+  return { view, rig, api, pump: () => act(async () => void (await Promise.all(ticks.map((tick) => tick())))), comeBack: () => act(async () => online()) };
 }
 
 describe('the practice run is sat (M8-24, D87)', () => {
@@ -46,7 +42,7 @@ describe('the practice run is sat (M8-24, D87)', () => {
     sit();
     expect(await screen.findByRole('region', { name: 'Question 1' })).toBeInTheDocument();
     expect(screen.queryByRole('timer')).toBeNull();
-    expect(screen.getByRole('link', { name: 'Put this run down' })).toHaveAttribute('href', `?profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    expect(screen.getByRole('link', { name: 'Put this run down' })).toHaveAttribute('href', '?');
     expect(screen.queryByText(/cannot be shown in the app yet/u)).toBeNull();
     expect(screen.getByRole('button', { name: 'Finish run' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /submit paper/iu })).toBeNull();
@@ -70,7 +66,7 @@ describe('the practice run is sat (M8-24, D87)', () => {
     expect(screen.getByRole('alertdialog')).toHaveTextContent('2 questions are not answered');
     await userEvent.click(screen.getByRole('button', { name: 'Yes, submit' }));
     await vi.waitFor(() => expect(rig.transport.submissions).toEqual([{ reason: 'manual', key: 'submission:run-1' }]));
-    expect(await screen.findByRole('link', { name: 'Back to what to do next' })).toHaveAttribute('href', `?profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+    expect(await screen.findByRole('link', { name: 'Back to what to do next' })).toHaveAttribute('href', '?');
   });
 
   it('loses no answer when the run is begun online and finished with the connection gone: the answers are on the device and the send waits', async () => {
@@ -115,5 +111,16 @@ describe('the practice run is sat (M8-24, D87)', () => {
     await screen.findByRole('region', { name: 'Question 1' });
     const result = await axe.run(document.body);
     expect(result.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  it('shows a learner nothing in our vocabulary: the question, the palette, the confirmation and the end', async () => {
+    const { view } = sit();
+    await screen.findByRole('region', { name: 'Question 1' });
+    expectNoDomainVocabulary(view.container);
+    await userEvent.click(screen.getByRole('button', { name: 'Finish run' }));
+    expectNoDomainVocabulary(view.container);
+    await userEvent.click(screen.getByRole('button', { name: 'Yes, submit' }));
+    await screen.findByRole('link', { name: 'Back to what to do next' });
+    expectNoDomainVocabulary(view.container);
   });
 });

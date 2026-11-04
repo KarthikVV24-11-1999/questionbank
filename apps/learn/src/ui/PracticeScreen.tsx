@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import type { BootResult } from '../bootstrap.js';
-import { screenHref, type ScreenContext } from './screen-context.js';
+import { screenHref } from './screen-context.js';
 import { Root } from './Root.js';
 
 /**
@@ -16,9 +16,8 @@ export interface PracticeScreenProps {
   readonly every: (ms: number, fn: () => void) => () => void;
   readonly onOnline: (fn: () => void) => () => void;
   readonly onUpdateWanted?: () => void;
-  readonly context: ScreenContext;
 }
 
-export function PracticeScreen({ boot, every, onOnline, onUpdateWanted, context }: PracticeScreenProps): JSX.Element {
-  return <Root boot={boot} every={every} onOnline={onOnline} {...(onUpdateWanted === undefined ? {} : { onUpdateWanted })} leaveHref={screenHref({}, context)} />;
+export function PracticeScreen({ boot, every, onOnline, onUpdateWanted }: PracticeScreenProps): JSX.Element {
+  return <Root boot={boot} every={every} onOnline={onOnline} {...(onUpdateWanted === undefined ? {} : { onUpdateWanted })} leaveHref={screenHref({})} />;
 }

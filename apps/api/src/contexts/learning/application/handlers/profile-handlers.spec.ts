@@ -65,6 +65,8 @@ function curriculum() {
       if (unknown.length > 0) return err(applicationError('NotFound', 'SCOPE_NODES_UNKNOWN', `no node ${unknown.join(', ')}`));
       return ok({ conceptIdentityIds: nodeIds.flatMap((id) => [`${id}-c1`, `${id}-c2`]), conceptTotal: 10 });
     },
+    // the profile does not name concepts; the concept map's specs script this read
+    conceptNames: async () => ok([]),
   };
   return { state, source };
 }

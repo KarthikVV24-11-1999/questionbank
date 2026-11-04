@@ -25,6 +25,14 @@ export const emptyProfile = (): LearnerProfileDto => ({
   onboarding: { steps: [], next: 'exam', skipped: false },
 });
 
+/** A learner who has chosen an exam: the profile a screen reads the exam profile version and the taxonomy version from. Onboarding has nothing more to ask, so nothing invites them back to it. */
+export const chosenProfile = (): LearnerProfileDto => ({
+  ...emptyProfile(),
+  exam: { examCode: 'JEE_MAIN', targetYear: '2027', examProfileVersionId: '00000000-0000-4000-8000-0000000000e1', taxonomyVersionId: '00000000-0000-4000-8000-0000000000d1' },
+  currentClass: 'class_12',
+  onboarding: { steps: [], next: null, skipped: false },
+});
+
 export const refusal = (status: number, detail: string): ApiProblemError =>
   new ApiProblemError({ type: 'https://questionbank.example/problems/validation', title: 'refused', status, detail, code: 'Validation', retryable: false, correlationId: 'c' } as never);
 

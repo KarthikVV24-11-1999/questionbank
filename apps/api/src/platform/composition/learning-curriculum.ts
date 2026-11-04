@@ -1,6 +1,6 @@
 import type { PrincipalRef } from '@questionbank/domain-types';
 import type { CurriculumForLearning } from '../../contexts/curriculum/public/composition.js';
-import type { CurriculumSource, ExamOption, ResolvedScope, ScopeOptions } from '../../contexts/learning/public/composition.js';
+import type { CurriculumSource, ExamOption, NamedConcept, ResolvedScope, ScopeOptions } from '../../contexts/learning/public/composition.js';
 import { ROLES } from '../auth/roles.js';
 
 /**
@@ -48,5 +48,22 @@ export class CurriculumLearnerSource implements CurriculumSource {
     if (!answered.ok) return failed(answered.error);
     const resolved: ResolvedScope = Object.freeze({ conceptIdentityIds: Object.freeze([...answered.value.conceptIdentityIds]), conceptTotal: answered.value.conceptTotal });
     return { ok: true as const, value: resolved };
+  }
+  /**
+   * The names of the concepts asked for, paged at the bound Curriculum advertises (DEC-M7-28): a learner's map is hundreds of concepts and Curriculum takes a bounded batch, so the adapter asks in pages and Learning
+   * learns no number. All or nothing across the pages as within one: a page that fails fails the read, and what the earlier pages answered is not returned.
+   */
+  async conceptNames(taxonomyVersionId: string, conceptIdentityIds: readonly string[], context: { readonly correlationId: string }) {
+    const distinct = [...new Set(conceptIdentityIds)];
+    const named: NamedConcept[] = [];
+    for (let from = 0; from < distinct.length; from += this.curriculum.batchBound) {
+      const answered = await this.curriculum.nameConcepts.handle(
+        { taxonomyVersionId, conceptIdentityIds: distinct.slice(from, from + this.curriculum.batchBound) },
+        { principal: SYSTEM, correlationId: context.correlationId },
+      );
+      if (!answered.ok) return failed(answered.error);
+      named.push(...answered.value.map((concept) => Object.freeze({ conceptIdentityId: concept.conceptIdentityId, name: concept.name, path: Object.freeze([...concept.path]) })));
+    }
+    return { ok: true as const, value: Object.freeze(named) as readonly NamedConcept[] };
   }
 }

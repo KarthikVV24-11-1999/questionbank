@@ -15,7 +15,7 @@ import { StubServer } from './stub-server.js';
 const environment: RunEnvironment = { distDir: resolve(import.meta.dirname, '../../../apps/learn/dist'), chrome: { current: null, profileDir: newProfileDir() } };
 /** A wait for something the app does at once; a mutation that stops it should fail in seconds, not in a minute. */
 const WAIT = 15_000;
-const REPORT = '/?report=att-1&profile=00000000-0000-4000-8000-0000000000e1&taxonomy=00000000-0000-4000-8000-0000000000d1';
+const REPORT = '/?report=att-1';
 
 beforeAll(async () => {
   await freshChrome(environment);
@@ -88,7 +88,7 @@ describe('the shipped app, in a real Chrome, opening the report screen', () => {
       const [left] = sentEvents(server, 503);
       server.analyticsDown = false;
       // a page that emits nothing of its own (the home screen says nothing when it is viewed), so that only the flush as the app starts can send it
-      await page.goto(`${server.origin}/?profile=00000000-0000-4000-8000-0000000000e1`);
+      await page.goto(`${server.origin}/`);
       await waitFor('the earlier event is accepted', () => sentEvents(server, 202).some((event) => event.event_id === left!.event_id), WAIT);
       logForConformance(sentEvents(server, 202));
     } finally {

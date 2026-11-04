@@ -602,16 +602,6 @@ it read, the source hands that on, and the report is labelled with it and not wi
 for the one that does.
 **Cited** `apps/api/src/contexts/learning/application/handlers/report-handlers.ts`
 
-### D88 — The learner screens are told their exam profile and taxonomy by the address, and name a concept by its identifier
-
-A practice run is made under an exam profile version, and "what is weakest" is asked about a taxonomy version; no route offers the learner either, and the attempt view does not name
-the profile. The screens take both from the address (`?profile=`, `?taxonomy=`), as the sitting takes its form and session, and carry them from screen to screen. A page opened without a profile
-says a run cannot be made from it instead of trying. No route offers the learner a concept's name, so a finding, a due concept and an escalation are named by the start of their identifier. Both are
-the development wiring D69 describes, and neither can reach a student's phone as it is.
-
-**Trigger** A route that gives a learner their exam profile and taxonomy version, and one that names concepts: the address parameters and the identifier labels are removed together.
-**Cited** `apps/learn/src/ui/screen-context.ts`
-
 ### D89 — Six events the taxonomy specifies are owned by no milestone
 
 `item.defect_reported`, `item.defect_resolved`, `ai.tutor_turn`, `client.error`, `performance.render_measured` and `accessibility.assistive_tech_detected` have an `Owner` of `none` in
@@ -802,7 +792,35 @@ the practice screen: a learner answers a run and finishes it, is told nothing un
 **Trigger** The track that makes practice a loop and not a quiz: the verdict shown after each answer, and one action that adds questions and fetches the package the run now has.
 **Cited** `apps/learn/src/ui/PracticeScreen.tsx`
 
+### D113 — The concept map and its drill-down are served to every learner, though free learners are meant to see only the map
+
+FR-STU-04 rule 4: the free tier sees the map; paid tiers see the full drill-down and the history. Both the map route and the route that serves the answers behind a topic answer any signed-in learner. Gating the second needs a learner's entitlement, which is M9; a gate built before it
+would be a guess at what a plan includes.
+
+**Trigger** The first entitlement a learner can hold (M9): the drill-down checks it, and says plainly when it is held back, as FR-STU-05 rule 2 asks of a recommendation.
+**Cited** `apps/api/src/contexts/learning/application/handlers/concept-map-handlers.ts`
+
+### D114 — The concept map is of the one syllabus version the learner chose, and lists only the topics they have answered on
+
+The map reads the states of the taxonomy version the learner's exam resolved to when they chose it. Answers recorded under another version (a mock sat after the syllabus moved on) are not on it, and nothing says so. It also lists the topics the learner has evidence on and
+counts the rest: FR-STU-04's output includes `unassessed` for a topic, and a learner is told how many they have not started, not which. Listing the whole syllabus would need every name of a version of hundreds of topics on each read.
+
+**Trigger** The first syllabus version published after a learner has chosen an exam, or the first learner who asks which topics they have not started: carry the map across versions the way a scope is carried (`needs_review`), and serve the unstarted topics as a page of the syllabus, not a list inside the map.
+**Cited** `apps/learn/src/ui/ConceptMapScreen.tsx`
+
 ## Closed
+
+### D88 — The learner screens were told their exam profile and taxonomy by the address, and named a concept by its identifier *(closed by M8 Track G, [ADR-0062](adr/ADR-0062-the-concept-map-is-the-learners-whole-history-and-topics-are-named-by-curriculum.md))*
+
+A practice run is made under an exam profile version, and "what is weakest" is asked about a taxonomy version; no route offered the learner either. The screens took both from the address (`?profile=`, `?taxonomy=`), and named a concept by the start of
+its identifier (`Concept 3f2a9c10`) because no route offered a learner the name. Both were development wiring, and neither could reach a student's phone.
+
+**What closed it (M8-27, M8-29, M8-30).** Curriculum names concepts through the seam it offers Learning (a name and the subject and chapter above it), and a route gives the learner those names; the screens read the exam profile and the taxonomy version from the learner's own profile and
+say to choose an exam when there is none, so the address parameters and `conceptLabel` are removed together. The home screen, the report and the pace table name a topic; a topic whose name could not be read is "This topic". The vocabulary rule that forbids the rest is held twice: a source
+scan refuses our words and any bare identifier in a string a learner could read, and each screen's spec reads the rendered screen and refuses the same words and any identifier in what is shown (`vocabulary-rules.spec.ts`, `vocabulary.spec.tsx`). No part of D88 survives: nothing
+reads a version from the address, and no label shows an identifier. What an address still carries is which screen and which thing (a run, a report, a topic), which is routing and not context.
+
+**Cited** `apps/learn/src/ui/screen-context.ts`
 
 ### D87 — A practice run's questions had no route, so the app started a run it could not show *(closed by M8 Track F, [ADR-0061](adr/ADR-0061-a-practice-run-is-delivered-as-a-package-and-scored-without-a-form.md))*
 

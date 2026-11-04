@@ -1,25 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { PROFILE, TAXONOMY } from '../testing/learning-fixtures.js';
-import { NO_ANALYTICS } from '../analytics/emitter.js';
-import { conceptLabel, screenHref, type ScreenContext } from './screen-context.js';
-
-const context = (overrides: Partial<ScreenContext> = {}): ScreenContext => ({ examProfileVersionId: PROFILE, taxonomyVersionId: TAXONOMY, lastAttemptId: 'att-9', pageKey: 'k', analytics: NO_ANALYTICS, ...overrides });
+import { screenHref } from './screen-context.js';
 
 describe('the address of a screen', () => {
-  it('names the screen and carries the profile and the taxonomy on, and not the last sitting or the page\'s key', () => {
-    expect(screenHref({ practice: 'run-1' }, context())).toBe(`?practice=run-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
-    expect(screenHref({ report: 'att-1' }, context())).toBe(`?report=att-1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
-    expect(screenHref({}, context())).toBe(`?profile=${PROFILE}&taxonomy=${TAXONOMY}`);
-    expect(screenHref({ onboarding: true }, context())).toBe(`?onboarding=1&profile=${PROFILE}&taxonomy=${TAXONOMY}`);
+  it('names the screen and the thing, and carries nothing about the learner: the exam they chose and its syllabus are read from the server, not from the address', () => {
+    expect(screenHref({ practice: 'run-1' })).toBe('?practice=run-1');
+    expect(screenHref({ report: 'att-1' })).toBe('?report=att-1');
+    expect(screenHref({ onboarding: true })).toBe('?onboarding=1');
+    expect(screenHref({ onboarding: 'coverage' })).toBe('?onboarding=coverage');
+    expect(screenHref({ map: true })).toBe('?map=1');
+    expect(screenHref({ topic: 'topic-1' })).toBe('?topic=topic-1');
   });
 
-  it('carries on only what the page was given, and is the bare home address where it was given nothing', () => {
-    expect(screenHref({}, context({ examProfileVersionId: null }))).toBe(`?taxonomy=${TAXONOMY}`);
-    expect(screenHref({}, context({ taxonomyVersionId: null }))).toBe(`?profile=${PROFILE}`);
-    expect(screenHref({}, context({ examProfileVersionId: null, taxonomyVersionId: null }))).toBe('?');
+  it('is the bare home address for home', () => {
+    expect(screenHref({})).toBe('?');
   });
 
-  it('shows a concept by the start of its identifier until a route gives its name', () => {
-    expect(conceptLabel('3f2a9c10-0000-4000-8000-000000000000')).toBe('Concept 3f2a9c10');
+  it('names the page of answers of a topic, and leaves out the first page, which is the topic', () => {
+    expect(screenHref({ topic: 'topic-1', from: 20 })).toBe('?topic=topic-1&from=20');
+    expect(screenHref({ topic: 'topic-1', from: 0 })).toBe('?topic=topic-1');
+  });
+
+  it('never carries the exam profile or the syllabus version, whichever screen it opens', () => {
+    for (const screen of [{ practice: 'a' }, { report: 'a' }, { onboarding: true as const }, { map: true as const }, { topic: 'a', from: 5 }, {}]) {
+      expect(screenHref(screen)).not.toMatch(/profile|taxonomy/u);
+    }
   });
 });

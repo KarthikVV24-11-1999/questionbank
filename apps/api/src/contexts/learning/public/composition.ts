@@ -17,6 +17,8 @@ import type { Clock, CurriculumSource, IdentifierFactory, RateLimiter, RouteLimi
 import { PostgresLearnerProfileStore } from '../infrastructure/learner-profile.repository.js';
 import { CreateBookmarkHandler, ListBookmarksHandler, ListErrorEntriesHandler, SetErrorCauseHandler } from '../application/handlers/notebook-handlers.js';
 import type { ItemStandingSource, PaceSlotSource } from '../application/ports.js';
+import { GetConceptEvidenceHandler, GetConceptMapHandler, GetConceptNamesHandler } from '../application/handlers/concept-map-handlers.js';
+import { PostgresConceptMapStore } from '../infrastructure/concept-map.repository.js';
 import { GetReviewPlanHandler } from '../application/handlers/review-plan-handler.js';
 import { PostgresReviewStore } from '../infrastructure/review.repository.js';
 import { GetPaceAnalyticsHandler } from '../application/handlers/pace-handler.js';
@@ -36,7 +38,7 @@ export type { PaceSlot } from '../domain/pace-analytics.js';
 export type { PaceAnalyticsView } from '../application/handlers/pace-handler.js';
 export type { ReportSlot, Finding } from '../domain/diagnostic-report.js';
 export type { DiagnosticReportView, ReportedFinding, Remediation } from '../application/handlers/report-handlers.js';
-export type { CurriculumSource, ExamOption, RateLimiter, ResolvedScope, RouteLimits, ScopeNode, ScopeOptions } from '../application/ports.js';
+export type { CurriculumSource, ExamOption, NamedConcept, RateLimiter, ResolvedScope, RouteLimits, ScopeNode, ScopeOptions } from '../application/ports.js';
 export type { RefusalLog } from '../api/admission.js';
 export type { DeclaredScope, ExamChoice } from '../domain/learner-profile.js';
 export type {
@@ -112,6 +114,10 @@ export interface LearningForLearner {
   readonly paceAnalytics: GetPaceAnalyticsHandler;
   /** What the learner has due for review: concepts, never items (M7-47). */
   readonly reviewPlan: GetReviewPlanHandler;
+  /** What the learner knows concept by concept, read at this instant (M8-28), the responses behind one state, and the names of the topics they are shown (M8-29). */
+  readonly conceptMap: GetConceptMapHandler;
+  readonly conceptEvidence: GetConceptEvidenceHandler;
+  readonly conceptNames: GetConceptNamesHandler;
   /** The concepts the learner would practise next, weakest first (M7-28). */
   readonly remediationConcepts: SuggestRemediationConceptsHandler;
   /** The learner's profile, and the steps of onboarding that fill it (M8-18, M8-20). */
@@ -133,6 +139,7 @@ export function learningForLearner(deps: { readonly pool: Pool; readonly clock: 
   const entries = new PostgresErrorEntryStore(deps.pool);
   const bookmarks = new PostgresBookmarkStore(deps.pool);
   const profiles = new PostgresLearnerProfileStore(deps.pool);
+  const mapDeps = { profiles, concepts: new PostgresConceptMapStore(deps.pool), ruleSets: new PostgresMasteryRuleSetRepository(deps.pool), curriculum: deps.curriculum, clock: deps.clock };
   return {
     setErrorCause: new SetErrorCauseHandler({ entries }),
     listErrorEntries: new ListErrorEntriesHandler({ entries }),
@@ -142,6 +149,9 @@ export function learningForLearner(deps: { readonly pool: Pool; readonly clock: 
     paceAnalytics: new GetPaceAnalyticsHandler({ slots: deps.paceSlots, ruleSets: new PostgresMasteryRuleSetRepository(deps.pool) }),
     reviewPlan: new GetReviewPlanHandler({ reviews: new PostgresReviewStore(deps.pool), concepts: new PostgresConceptReader(deps.pool), clock: deps.clock, profiles }),
     remediationConcepts: new SuggestRemediationConceptsHandler({ concepts: new PostgresConceptReader(deps.pool), profiles }),
+    conceptMap: new GetConceptMapHandler(mapDeps),
+    conceptEvidence: new GetConceptEvidenceHandler(mapDeps),
+    conceptNames: new GetConceptNamesHandler(mapDeps),
     getProfile: new GetLearnerProfileHandler({ profiles, curriculum: deps.curriculum, clock: deps.clock }),
     updateProfile: new UpdateLearnerProfileHandler({ profiles, curriculum: deps.curriculum, clock: deps.clock }),
     skipOnboarding: new SkipOnboardingHandler({ profiles, curriculum: deps.curriculum, clock: deps.clock }),

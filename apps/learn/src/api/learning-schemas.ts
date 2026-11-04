@@ -86,6 +86,54 @@ export const reviewPlanSchema = z.object({
 });
 export type ReviewPlanDto = z.infer<typeof reviewPlanSchema>;
 
+/** A topic as the learner is shown it: its name, and the names above it, outermost first. */
+export const namedConceptSchema = z.object({ conceptIdentityId: z.string(), name: z.string(), path: z.array(z.string()) });
+export type NamedConceptDto = z.infer<typeof namedConceptSchema>;
+export const conceptNamesSchema = z.object({ concepts: z.array(namedConceptSchema) });
+
+/**
+ * How a topic stands. **Asserted** carries a state; **tentative** (too few answers) carries only what the answers lean towards, so a screen that reads `state` has to have looked at `kind`
+ * first, and a topic the server was not sure of cannot be drawn as a fact by accident.
+ */
+export const standingSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('asserted'), state: z.enum(['weak', 'developing', 'strong']), confidence: z.number().min(0).max(1) }),
+  z.object({ kind: z.literal('tentative'), leaning: z.enum(['weak', 'developing', 'strong']) }),
+  z.object({ kind: z.literal('unassessed') }),
+]);
+export type StandingDto = z.infer<typeof standingSchema>;
+
+export const mappedConceptSchema = z.object({
+  conceptIdentityId: z.string(),
+  name: z.string(),
+  path: z.array(z.string()),
+  standing: standingSchema,
+  evidenceCount: z.number().int().min(0),
+  lastEvidenceAt: z.string().nullable(),
+  inDeclaredScope: z.boolean().nullable(),
+});
+export type MappedConceptDto = z.infer<typeof mappedConceptSchema>;
+
+export const conceptMapSchema = z.object({
+  asOf: z.string(),
+  concepts: z.array(mappedConceptSchema),
+  assessedCount: z.number().int().min(0),
+  unassessedCount: z.number().int().min(0),
+});
+export type ConceptMapDto = z.infer<typeof conceptMapSchema>;
+
+export const conceptEvidenceSchema = z.object({
+  concept: namedConceptSchema,
+  standing: standingSchema,
+  evidenceCount: z.number().int().min(0),
+  lastEvidenceAt: z.string().nullable(),
+  asOf: z.string(),
+  responses: z.array(z.object({ evidenceId: z.string(), attemptRef: z.string(), occurredAt: z.string(), outcome: z.enum(['correct', 'incorrect']), difficultyEstimate: z.string() })),
+  total: z.number().int().min(0),
+  limit: z.number().int().min(1),
+  offset: z.number().int().min(0),
+});
+export type ConceptEvidenceDto = z.infer<typeof conceptEvidenceSchema>;
+
 export const remediationConceptsSchema = z.object({ conceptIdentityIds: z.array(z.string()) });
 
 export const examChoiceSchema = z.object({ examCode: z.string(), targetYear: z.string(), examProfileVersionId: z.string(), taxonomyVersionId: z.string() });
