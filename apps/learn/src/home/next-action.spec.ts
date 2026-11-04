@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { FakeLearningApi } from '../testing/fakes.js';
-import { concept, escalation, notFound, plan, report, scheduled, TAXONOMY, unreachable } from '../testing/learning-fixtures.js';
+import { concept, conceptMap, escalation, mapped, notFound, plan, report, scheduled, TAXONOMY, unreachable } from '../testing/learning-fixtures.js';
 import { chooseNextAction, isNotFound } from './next-action.js';
 
-const sources = (learning: FakeLearningApi, overrides: { taxonomyVersionId?: string | null; lastAttemptId?: string | null } = {}) => ({ learning, taxonomyVersionId: TAXONOMY, lastAttemptId: null, ...overrides });
+const sources = (learning: FakeLearningApi, overrides: { taxonomyVersionId?: string | null; lastAttemptId?: string | null; declaredScope?: boolean } = {}) => ({ learning, taxonomyVersionId: TAXONOMY, lastAttemptId: null, ...overrides });
 
 describe('the one next action (M7-57)', () => {
   it('puts an escalated concept first, before anything that is due', async () => {
@@ -71,6 +71,56 @@ describe('the one next action (M7-57)', () => {
     const noReport = new FakeLearningApi();
     noReport.reports.set('att-1', unreachable());
     await expect(chooseNextAction(sources(noReport, { lastAttemptId: 'att-1' }))).rejects.toThrow('Failed to fetch');
+  });
+
+  describe('the diagnostic (M8-32, FR-STU-03)', () => {
+    const answered = conceptMap([mapped(1, { kind: 'tentative', leaning: 'weak' })]);
+
+    it('is offered to a learner who has declared what they have studied and has answered nothing', async () => {
+      const learning = new FakeLearningApi();
+      expect(await chooseNextAction(sources(learning, { declaredScope: true }))).toEqual({ kind: 'diagnostic' });
+      expect(learning.calls).toEqual(['getReviewPlan', `suggestRemediation ${TAXONOMY}`, 'getConceptMap']);
+    });
+
+    it('is not offered without a declared scope, which is what a short run is taken across, and the map is not read for it', async () => {
+      const learning = new FakeLearningApi();
+      expect(await chooseNextAction(sources(learning))).toEqual({ kind: 'nothing' });
+      expect(await chooseNextAction(sources(learning, { declaredScope: false }))).toEqual({ kind: 'nothing' });
+      expect(learning.calls.includes('getConceptMap')).toBe(false);
+    });
+
+    it('is not offered to a learner with any answer on the map, who has begun, and is not offered when the exam\'s syllabus is not known', async () => {
+      const learning = new FakeLearningApi();
+      learning.map = answered;
+      expect(await chooseNextAction(sources(learning, { declaredScope: true }))).toEqual({ kind: 'nothing' });
+      const unknown = new FakeLearningApi();
+      expect(await chooseNextAction(sources(unknown, { declaredScope: true, taxonomyVersionId: null }))).toEqual({ kind: 'nothing' });
+      expect(unknown.calls.includes('getConceptMap')).toBe(false);
+    });
+
+    it('comes after what the evidence says to do: an escalated topic, one that is due, the weakest', async () => {
+      const learning = new FakeLearningApi();
+      learning.plan = plan({ escalated: [escalation(2)] });
+      expect(await chooseNextAction(sources(learning, { declaredScope: true }))).toMatchObject({ kind: 'practise', why: 'escalated' });
+      expect(learning.calls.includes('getConceptMap')).toBe(false);
+      const weak = new FakeLearningApi();
+      weak.weakest = [concept(3)];
+      expect(await chooseNextAction(sources(weak, { declaredScope: true }))).toMatchObject({ kind: 'practise', why: 'weakest' });
+    });
+
+    it('comes before the report of a sitting', async () => {
+      const learning = new FakeLearningApi();
+      learning.reports.set('att-1', report());
+      expect(await chooseNextAction(sources(learning, { declaredScope: true, lastAttemptId: 'att-1' }))).toEqual({ kind: 'diagnostic' });
+      learning.map = answered;
+      expect(await chooseNextAction(sources(learning, { declaredScope: true, lastAttemptId: 'att-1' }))).toEqual({ kind: 'read-report', attemptId: 'att-1' });
+    });
+
+    it('is left out, and not an error, when the map cannot be read: the invitation is never why home does not open', async () => {
+      const learning = new FakeLearningApi();
+      learning.map = unreachable();
+      expect(await chooseNextAction(sources(learning, { declaredScope: true }))).toEqual({ kind: 'nothing' });
+    });
   });
 
   it('knows a not-found by the problem the server gave, and by nothing a message happens to say', () => {

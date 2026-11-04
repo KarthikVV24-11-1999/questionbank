@@ -19,3 +19,17 @@ export function practiceRunBody(input: PracticeRunInput) {
     count: input.count,
   };
 }
+
+/**
+ * The body of the request that starts the diagnostic (M8-32, FR-STU-03): the same practice-run route, with the `breadth` strategy and no concept named, because the concepts are the ones the
+ * learner declared they have studied and the server already holds them. There is no second way to make an attempt, and no word in the request that says "diagnostic": the server knows a strategy,
+ * and which learner is offered it is the app's decision (`apps/learn/src/home/next-action.ts`).
+ */
+export interface DiagnosticRunInput {
+  readonly examProfileVersionId: string;
+  readonly count: number;
+}
+
+export function diagnosticRunBody(input: DiagnosticRunInput) {
+  return { examProfileVersionId: input.examProfileVersionId, selectionStrategy: 'breadth' as const, count: input.count };
+}

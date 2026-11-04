@@ -25,3 +25,22 @@ export async function startPracticeOn(
   );
   return assessment.startAttempt(created.attemptId);
 }
+
+/**
+ * How many questions the diagnostic is (M8-32, FR-STU-03 rule 1: fixed length). Ten, because a learner reads and answers a question of this exam in about 45 to 60 seconds, so ten is at most eight to ten
+ * minutes at the slowest and leaves room in the ten-minute journey (M8's first criterion) for the steps before it; fewer would name too few topics to say anything of where they stand, and more would spend the
+ * time the criterion gives on the questions. It is a product judgement and the first one to revisit when the journey is measured with people.
+ */
+export const DIAGNOSTIC_LENGTH = 10;
+
+/**
+ * The one tap that starts the diagnostic: a short run taken breadth-first across what the learner declared they have studied, started the way any run is. It is the practice-run route with the `breadth`
+ * strategy; the server makes no distinction between a diagnostic and any other breadth run, and which learner is offered one is `chooseNextAction`'s decision alone.
+ */
+export async function startDiagnosticOn(
+  assessment: Pick<AssessmentApi, 'createDiagnosticAttempt' | 'startAttempt'>,
+  request: { readonly examProfileVersionId: string; readonly idempotencyKey: string },
+): Promise<AttemptDto> {
+  const created = await assessment.createDiagnosticAttempt({ examProfileVersionId: request.examProfileVersionId, count: DIAGNOSTIC_LENGTH }, request.idempotencyKey);
+  return assessment.startAttempt(created.attemptId);
+}

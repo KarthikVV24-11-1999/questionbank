@@ -132,4 +132,42 @@ describe('bringing a practice run up to be sat (M8-24)', () => {
     const result = await bootPractice(params(server(), aRig()));
     expect(result.kind === 'ready' && result.session).toBeInstanceOf(AttemptSession);
   });
+
+  describe('a run that has grown (M8-33)', () => {
+    const grown = () => {
+      const document = aRunDocument();
+      const more = { ...document.slots[2]!, slotId: '00000000-0000-4000-8000-0000000000a9' };
+      return { ...document, slots: [...document.slots, more] };
+    };
+
+    it('is brought up on the package the run now has: more questions, the first three where they were', async () => {
+      const rig = aRig();
+      const api = server();
+      api.practicePackageResponse = signedRun(grown());
+      const result = await bootPractice(params(api, rig));
+      expect(result.kind).toBe('ready');
+      if (result.kind !== 'ready') return;
+      expect(result.form.sections[0]!.slots.map((slot) => slot.slotId)).toEqual([...slotIds, '00000000-0000-4000-8000-0000000000a9']);
+    });
+
+    it('verifies the new package as it verified the first: one that does not pass its check is not opened', async () => {
+      const rig = aRig();
+      const api = server();
+      const response = signedRun(grown());
+      const tampered = Uint8Array.from(response.bytes);
+      tampered[30] = tampered[30]! ^ 0x01;
+      api.practicePackageResponse = { ...response, bytes: tampered, digest: aSigner().sign(tampered).digest };
+      const result = await bootPractice(params(api, rig));
+      expect(result).toMatchObject({ kind: 'package-refused', refusal: 'SIGNATURE_DOES_NOT_VERIFY' });
+    });
+
+    it('refuses a package whose bytes are signed by another key', async () => {
+      const rig = aRig();
+      const api = server();
+      const other = aSigner(9);
+      const bytes = encode(grown());
+      api.practicePackageResponse = { bytes, ...other.sign(bytes), keyId: signer.keyId };
+      expect((await bootPractice(params(api, rig))).kind).toBe('package-refused');
+    });
+  });
 });

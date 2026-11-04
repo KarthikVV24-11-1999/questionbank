@@ -15,6 +15,8 @@ import { createClockFacts } from './session/clock-facts.js';
 import { loadRecord, migrateLegacy } from './session/persistence.js';
 import { registerServiceWorker } from './sw/register.js';
 import { warmPackageCache } from './sw/warm-package.js';
+import { withinTime } from './api/within-time.js';
+import { createVerdictReporter } from './practice/verdict-events.js';
 import { ConceptMapScreen } from './ui/ConceptMapScreen.js';
 import { TopicScreen } from './ui/TopicScreen.js';
 import { HomeScreen } from './ui/HomeScreen.js';
@@ -102,6 +104,19 @@ const screenContext: ScreenContext = {
   analytics,
 };
 const open = (href: string): void => window.location.assign(href);
+/** How long the screen waits for the server's word on an answer before it says the answer is saved and will be marked: a run is sat with a poor connection, and a verdict is never worth a wait. */
+const VERDICT_WAIT_MS = 6_000;
+const waitFor = (fn: () => void, ms: number): (() => void) => {
+  const handle = window.setTimeout(fn, ms);
+  return () => window.clearTimeout(handle);
+};
+/** The two calls a practice run makes while it is open, each given up on if the server is slow. */
+const runApi = {
+  getPracticeFeedback: (attemptId: string, slotId: string) => withinTime(api.getPracticeFeedback(attemptId, slotId), VERDICT_WAIT_MS, waitFor),
+  growPracticeAttempt: (attemptId: string, count: number) => withinTime(api.growPracticeAttempt(attemptId, count), VERDICT_WAIT_MS * 2, waitFor),
+};
+/** Made once for the page, so a question visited twice is told once. */
+const verdictsTold = params.get('practice') === null ? null : createVerdictReporter(analytics, params.get('practice') as string);
 const ports: SessionPorts = {
   clock: { now: () => performance.now() },
   wall: { now: () => Date.now() },
@@ -158,6 +173,10 @@ function App(): JSX.Element {
           return () => window.removeEventListener('online', fn);
         }}
         onUpdateWanted={() => void registration?.update()}
+        assessment={runApi}
+        attemptId={practiceOf}
+        told={verdictsTold as NonNullable<typeof verdictsTold>}
+        onOpen={open}
       />
     );
   }

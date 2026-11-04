@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { attemptDto, FakeApi } from '../testing/fakes.js';
 import { PROFILE, concept } from '../testing/learning-fixtures.js';
-import { PRACTICE_RUN_SIZE, startPracticeOn } from './start-practice.js';
+import { DIAGNOSTIC_LENGTH, PRACTICE_RUN_SIZE, startDiagnosticOn, startPracticeOn } from './start-practice.js';
 
 const api = () => new FakeApi({} as never, new Error('no key'));
 
@@ -40,5 +40,24 @@ describe('the one tap (M7-58)', () => {
     await expect(tap()).rejects.toThrow('Failed to fetch');
     await expect(tap()).rejects.toThrow('Failed to fetch');
     expect(server.practiceRequests.map((sent) => sent.key)).toEqual(['page:c1', 'page:c1']);
+  });
+});
+
+describe('the diagnostic (M8-32)', () => {
+  it('makes a short run of the fixed length under the profile, with the tap\'s key, and starts it', async () => {
+    const server = api();
+    await startDiagnosticOn(server, { examProfileVersionId: PROFILE, idempotencyKey: 'page:diagnostic' });
+    expect(server.diagnosticRequests).toEqual([{ request: { examProfileVersionId: PROFILE, count: DIAGNOSTIC_LENGTH }, key: 'page:diagnostic' }]);
+    expect(server.calls).toEqual(['createDiagnosticAttempt', 'startAttempt']);
+    expect(DIAGNOSTIC_LENGTH).toBe(10);
+  });
+
+  it('starts nothing when the run could not be made', async () => {
+    const server = api();
+    server.createDiagnosticAttempt = async () => {
+      throw new Error('NO_ITEMS_MATCH');
+    };
+    await expect(startDiagnosticOn(server, { examProfileVersionId: PROFILE, idempotencyKey: 'k' })).rejects.toThrow('NO_ITEMS_MATCH');
+    expect(server.calls).toEqual([]);
   });
 });

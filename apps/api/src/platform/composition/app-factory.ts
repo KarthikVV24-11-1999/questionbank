@@ -218,6 +218,8 @@ export async function createApplication(
     curriculum: curriculumForAssessment(curriculumDeps),
     scoring: scoringForAssessment({ pool, clock, identifiers, audit, principals }),
     learning: learningForAssessment({ pool }),
+    // a scored practice run is announced as completed (M8-34)
+    runEvents: analytics,
     intervalCapMs: config.timeOnItemIntervalCapMs,
     ...(config.formPackageSigningKey === undefined ? {} : { packageSigningKey: config.formPackageSigningKey }),
   };

@@ -737,3 +737,19 @@ and the map carries only their count. Nothing here derives a state.
 ### DEC-M8-18 — A screen takes the exam from the learner's profile and a topic's name from the server, and the address carries neither
 `?profile=` and `?taxonomy=` are removed with the label built from an identifier; the screens read the exam profile version and the taxonomy version from the profile, say to choose an exam when there is none, and name a topic whose name could not be read "This topic". The vocabulary rule is held by a source scan and by the rendered screens, because each sees what the other cannot.
 → `apps/learn/src/home/exam-pins.ts` · `apps/learn/src/names/topic-names.ts` · `apps/api/src/fitness/vocabulary-rules.ts`
+
+### DEC-M8-19 — The diagnostic is the `breadth` strategy, and the app, not the server, decides who is offered it
+`breadth` is a fourth selection strategy and its order lives in `selectPracticeItems`, which already decides eligibility: one function, so what a diagnostic may be given and what any run may be given cannot part. The server knows a strategy and nothing called a diagnostic, and makes its runs by the one practice-run route. The alternative was a server rule that a learner's first run is a diagnostic; it
+would have put a product decision beside the data that cannot see the learner's declared scope and the map together, and a learner who had answered a mock would have been refused the choice. So `chooseNextAction` decides: a declared scope and no answer on the map of the exam's syllabus. The length is ten (`practice/start-practice.ts`, with the reason). FR-STU-03's other rules need no new machinery: results are provisional because evidence accumulates, an abandoned run gives a partial map only
+when it is finished (D116), and nothing gates it.
+→ `apps/api/src/contexts/assessment/domain/practice-selection.ts` · `apps/learn/src/home/next-action.ts`
+
+### DEC-M8-20 — A verdict is asked for only about an answer the server has, and adding questions reopens the run
+The verdict route reads the answer the server holds, so asking before an answer is sent would be answered "unattempted", which is the wrong word for an answer that was given. The screen asks once nothing is waiting to be sent, and until then says the answer is saved on the device. A verdict that cannot be had (no connection, or six seconds without an answer)
+is never replaced by a guess: the screen says the answer is saved and will be marked. Adding questions asks the server and then opens the run again by address, because the package changes and must be fetched and verified as the first was; patching the open session with new slots would have been a second way to load a run.
+→ `apps/learn/src/ui/PracticeScreen.tsx` · `apps/learn/src/ui/LearnApp.tsx`
+
+### DEC-M8-21 — A completed run is said by the server once it is scored; an answered item is said by the device when it is told the outcome
+`practice.session_completed` needs accuracy and the span from the run's start to its submission, which the server has when the run is scored and the device does not; it is emitted by the consumer that scores a run, with the run as its fact so a redelivery or a re-score says it once. `practice.item_answered` needs the outcome, which only the server gives; it is emitted when the learner is told, so a run sat offline emits none for those answers rather than
+invent an outcome. `remediation.set_completed` is not emitted: a run is not stored with its purpose (D112). Analytics carry identifiers by design; the vocabulary rule is about what is rendered, and none of these envelopes is shown to anyone.
+→ `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.ts` · `apps/learn/src/practice/verdict-events.ts`

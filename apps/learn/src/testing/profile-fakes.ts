@@ -33,6 +33,12 @@ export const chosenProfile = (): LearnerProfileDto => ({
   onboarding: { steps: [], next: null, skipped: false },
 });
 
+/** A learner who has chosen an exam and said which chapters they have studied: the profile the diagnostic is offered to. */
+export const scopedProfile = (): LearnerProfileDto => ({
+  ...chosenProfile(),
+  scope: { status: 'in_force', taxonomyVersionId: '00000000-0000-4000-8000-0000000000d1', nodeIds: ['n1'], conceptCount: 12, conceptTotal: 40, coverageFraction: 0.3 },
+});
+
 export const refusal = (status: number, detail: string): ApiProblemError =>
   new ApiProblemError({ type: 'https://questionbank.example/problems/validation', title: 'refused', status, detail, code: 'Validation', retryable: false, correlationId: 'c' } as never);
 

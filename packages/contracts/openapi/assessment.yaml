@@ -288,7 +288,7 @@ paths:
       description: |
         The same attempt, in the practice mode: no form, no window and no deadline. It is started, answered and submitted through the attempt routes.
         Needs `Idempotency-Key`: the same key again returns the run it already made (`200`). A run starts with the items the policy selects from the
-        published catalogue; the `targeted` strategy asks Learning which concepts. Nothing here names a form, and a body that sends a deadline has it ignored.
+        published catalogue; the `targeted` strategy asks Learning which concepts; the `breadth` strategy (the diagnostic) takes one item for each concept the learner has declared they have studied before a second for any. Nothing here names a form, and a body that sends a deadline has it ignored.
       tags: [attempts]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'

@@ -3,12 +3,12 @@ import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { attemptDto, FakeApi, FakeLearningApi } from '../testing/fakes.js';
-import { concept, escalation, notFound, plan, PROFILE, report, scheduled, TAXONOMY, unreachable } from '../testing/learning-fixtures.js';
+import { concept, conceptMap, mapped, escalation, notFound, plan, PROFILE, report, scheduled, TAXONOMY, unreachable } from '../testing/learning-fixtures.js';
 import { HomeScreen } from './HomeScreen.js';
 import { NO_ANALYTICS } from '../analytics/emitter.js';
 import { analyticsRig, expectConforming } from '../testing/analytics-rig.js';
 import type { ScreenContext } from './screen-context.js';
-import { chosenProfile, emptyProfile, FakeProfileApi } from '../testing/profile-fakes.js';
+import { chosenProfile, emptyProfile, FakeProfileApi, scopedProfile } from '../testing/profile-fakes.js';
 import { expectNoDomainVocabulary } from '../testing/vocabulary.js';
 
 afterEach(cleanup);
@@ -304,5 +304,64 @@ describe('the home screen (M7-57)', () => {
     const { view } = open(learning, {}, server(), new FakeProfileApi());
     await screen.findByRole('note');
     expectNoDomainVocabulary(view.container);
+  });
+
+  describe('the diagnostic (M8-32)', () => {
+    const scoped = (): FakeProfileApi => Object.assign(new FakeProfileApi(), { profile: scopedProfile() });
+
+    it('is offered to a learner who has said what they have studied and answered nothing, in their words', async () => {
+      open(new FakeLearningApi(), {}, server(), scoped());
+      expect(await screen.findByRole('heading', { name: 'See where you stand' })).toBeInTheDocument();
+      expect(screen.getByText(/Answer 10 short questions across the chapters you have studied/u)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
+    });
+
+    it('on one tap makes the short run, starts it, says it started, and opens it', async () => {
+      const { analytics, sent } = analyticsRig();
+      const { onOpen, assessment } = open(new FakeLearningApi(), { analytics }, server(), scoped());
+      await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+      await vi.waitFor(() => expect(onOpen).toHaveBeenCalledWith('?practice=att-1'));
+      expect(assessment.calls).toEqual(['createDiagnosticAttempt', 'startAttempt']);
+      expect(assessment.diagnosticRequests).toEqual([{ request: { examProfileVersionId: PROFILE, count: 10 }, key: 'page-1:diagnostic' }]);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(sent.map((event) => event.event_name)).toEqual(['practice.session_started']);
+      expectConforming(sent);
+      expect(sent[0]!.payload).toMatchObject({ selection_strategy: 'breadth', source: 'recommendation', concept_ids: [] });
+    });
+
+    it('says what went wrong when it could not be made, and lets the learner try again', async () => {
+      const assessment = server();
+      const create = assessment.createDiagnosticAttempt.bind(assessment);
+      let failing = true;
+      assessment.createDiagnosticAttempt = async (...args) => {
+        if (failing) throw new Error('no published item matches what was asked for');
+        return create(...args);
+      };
+      const { onOpen } = open(new FakeLearningApi(), {}, assessment, scoped());
+      await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('no published item matches');
+      failing = false;
+      await userEvent.click(screen.getByRole('button', { name: 'Start' }));
+      await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
+    });
+
+    it('is not offered without a declared scope, nor to a learner whose map already holds an answer', async () => {
+      open(new FakeLearningApi(), {}, server());
+      await screen.findByText(/nothing to do right now/u);
+      expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+      cleanup();
+      const answered = new FakeLearningApi();
+      answered.map = conceptMap([mapped(1, { kind: 'tentative', leaning: 'weak' })]);
+      open(answered, {}, server(), scoped());
+      await screen.findByText(/nothing to do right now/u);
+      expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+    });
+
+    it('shows a learner nothing in our vocabulary, and has no accessibility violation', async () => {
+      const { view } = open(new FakeLearningApi(), {}, server(), scoped());
+      await screen.findByRole('button', { name: 'Start' });
+      expectNoDomainVocabulary(view.container);
+      expect((await axe.run(view.container)).violations.map((violation) => violation.id)).toEqual([]);
+    });
   });
 });

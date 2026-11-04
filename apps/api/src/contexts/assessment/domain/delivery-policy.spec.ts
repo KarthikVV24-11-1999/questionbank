@@ -8,14 +8,14 @@ const PROFILE = { totalDurationMinutes: 180, sectionLocking: false, autoSubmitOn
 const filtered = (over: Partial<PracticePolicyProps> = {}): PracticePolicyProps => ({ selectionStrategy: 'filtered', scopeFilter: { subject: 'physics' }, ...over });
 
 describe('PracticePolicy', () => {
-  it('offers three strategies, and adaptive is not one of them', () => {
-    expect([...SELECTION_STRATEGIES]).toEqual(['filtered', 'targeted', 'spaced_review']);
+  it('offers four strategies, and adaptive is not one of them', () => {
+    expect([...SELECTION_STRATEGIES]).toEqual(['filtered', 'targeted', 'spaced_review', 'breadth']);
     expect(expectError(createPracticePolicy({ selectionStrategy: 'adaptive' })).code).toBe('PRACTICE_ADAPTIVE_NOT_AVAILABLE');
     expect(expectError(createPracticePolicy({ selectionStrategy: 'roulette' })).code).toBe('PRACTICE_STRATEGY_INVALID');
   });
 
   it('builds each strategy, with immediate feedback and pausable fixed, and excludes the recently seen by default', () => {
-    for (const strategy of ['targeted', 'spaced_review']) {
+    for (const strategy of ['targeted', 'spaced_review', 'breadth']) {
       const policy = expectValue(createPracticePolicy({ selectionStrategy: strategy }));
       expect([policy.selectionStrategy, policy.feedbackMode, policy.pausable, policy.excludeRecentlySeen]).toEqual([strategy, 'immediate', true, true]);
     }

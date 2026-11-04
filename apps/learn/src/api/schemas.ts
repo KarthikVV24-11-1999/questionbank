@@ -73,3 +73,7 @@ export const resultSchema = z.object({
 export type ResultDto = z.infer<typeof resultSchema>;
 
 export const signingKeySchema = z.object({ algorithm: z.literal('Ed25519'), keyId: z.string(), publicKey: z.string() });
+
+/** The one word a practice run is told of an answer it gave (ADR-0050): no key, no marks, no rule, no solution. */
+export const practiceFeedbackSchema = z.object({ attemptId: z.string(), slotId: z.string(), outcome: z.enum(['correct', 'incorrect', 'unattempted', 'indeterminate']) });
+export type Verdict = z.infer<typeof practiceFeedbackSchema>['outcome'];

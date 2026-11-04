@@ -1,0 +1,25 @@
+# M8 — acceptance, as far as it can be earned now
+
+Five criteria were fixed when M8 began ([ROADMAP.md](ROADMAP.md), M8). This is each one's verdict today, on the pattern of [M7-ACCEPTANCE.md](M7-ACCEPTANCE.md): the verdict the evidence earned and not the one the wording reads as, a `Partial` saying what part, and a
+criterion that rests on a mechanism credited as a mechanism. M8 is not closed: its other deliverables (search, notifications, the support console, production observability, the load test) are not built, and this table is about its acceptance line only.
+
+| # | Criterion | Verdict | What the verdict rests on | What was not, and what would unblock it |
+|---|---|---|---|---|
+| 1 | Signup → first named weakness ≤ 10 min for ≥ 70% of beta users | **Mechanism built and timed; the criterion is not earned** | The whole path exists and is one integration test against real Postgres, the real session resolver and the real relay (`first-weakness-journey.integration.spec.ts`): register, verify the address, sign in, choose an exam, say which chapters are studied, be offered the diagnostic, sit it, submit it, open the map, read what the weakest topic is called. The server's own time, step by step, on one run: **443 ms in all**, of which 160 ms is registering and 133 ms signing in (the password hash), and the rest, from choosing an exam to naming the weakness, about 150 ms. The run reaches every topic before it takes a second from any, a diagnostic finished with questions left gives a partial map of the topics answered, and the topic is named, not an identifier. | **The number is a floor on the machine's share of the ten minutes and not the criterion.** The criterion is a population statistic over beta users; the test is one path, on one machine, with no person reading, thinking, typing or waiting on a network, and with a corpus of four topics. The time that matters is the learner's: ten questions at about a minute each. Unblocked by: real beta users on a deployed environment, and the journey measured in the browser. Two things the test found that bear on it: with ten answers over four topics every standing is "too early to say", and the first named weakness is a recommendation from those standings (D117); and a learner who leaves the diagnostic without finishing it leaves no map at all (D116). |
+| 2 | Mock completion rate ≥ 85% | **Blocked** | The funnel it is measured on has its start and its submit, `mock.attempt_started` against `mock.attempt_submitted`, among the events the past surfaces never emitted (D91). Nothing counts a rate yet. | Real beta users sitting real mocks on a deployed environment, and the two events emitted before they do. |
+| 3 | Zero Sev-1 incidents over the beta period | **Blocked** | There is no beta period: nothing is deployed to people. | A deployed environment with 200 invited students, the incident record that goes with it, and the on-call arrangement. |
+| 4 | p95 latencies within NFR §6 | **Blocked** | A latency percentile needs a load and a deployment; the nearest thing measured is one scoring path at 1.13 s on an idle local database (M7-ACCEPTANCE row 3), which says what one request costs and not what the p95 is under load. | The deployed environment, the load test at three times projected peak (an M8 deliverable not yet built), and a percentile taken over it. |
+| 5 | On-call pages ≤ 2/week/person | **Blocked** | There is no on-call rotation and no paging, because there is nothing deployed to page about. | The deployed environment, production observability with burn-rate alerts (an M8 deliverable not yet built), and a rotation to count pages against. |
+
+**One is built and timed and four are blocked.** All four blocked lines carry the blocker every milestone since M6 has carried: nothing runs where real people are, so nothing that is a statement about real people can be earned ([ADR-0013](adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md); D36 in [DEBT.md](DEBT.md)).
+They are marked blocked rather than partial because no part of any of them is true yet.
+
+## What this table found
+
+The brief for the track that built row 1 assumed three things that were not so, and the table records them rather than build around them. Evidence is not recorded per response: it is recorded when a submitted run is scored, so a run answered and never submitted leaves nothing
+(D116). A diagnostic of one item for each topic cannot state any standing, so the map it produces says "too early to say" for every topic while the home screen names a weakest one (D117). And "high-leverage" in FR-STU-03's first rule has no data to honour it (D115).
+
+## What the first row's measurement is, and is not
+
+It is a measurement, in the sense that the numbers are the server's own clock over a real path; it is not evidence about users. What would make it evidence is the same path timed in a real browser by people who are not us. That is the first thing to do with the first beta learner, and the
+steps are already named in the test so the two can be set side by side.

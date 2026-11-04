@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@questionbank/contracts/client';
-import { practiceRunBody } from '@questionbank/contracts/practice-request';
+import { diagnosticRunBody, practiceRunBody } from '@questionbank/contracts/practice-request';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { createAssessmentApi } from './assessment-api.js';
@@ -57,6 +57,31 @@ describe('the learner app\'s conversation with the server', () => {
     expect(made).toEqual(run);
     expect(calls[0]).toMatchObject({ method: 'POST', url: 'http://api.test/v1/assessment/practice-attempts', body: practiceRunBody({ examProfileVersionId: 'p', conceptIdentityIds: ['c1'], count: 10 }) });
     expect(calls[0]!.headers['Idempotency-Key']).toBe('page:c1');
+  });
+
+  it('starts the diagnostic with the body the one function builds, on the practice-run route, under the tap\'s key', async () => {
+    const run = attemptDto({ attemptId: 'run-1', mode: 'practice', formId: null, sessionRef: null, shiftId: null, durationMs: null, windowClosesAt: null, state: 'created', slotCount: 10 });
+    const { api, calls } = rig(() => json({ attempt: run, replayed: false }, 201));
+    expect(await api.createDiagnosticAttempt({ examProfileVersionId: 'p', count: 10 }, 'page:diagnostic')).toEqual(run);
+    expect(calls[0]).toMatchObject({ method: 'POST', url: 'http://api.test/v1/assessment/practice-attempts', body: diagnosticRunBody({ examProfileVersionId: 'p', count: 10 }) });
+    expect(calls[0]!.headers['Idempotency-Key']).toBe('page:diagnostic');
+  });
+
+  it('asks the server how one answer came out and hands on the word, and only the word', async () => {
+    const { api, calls } = rig(() => json({ attemptId: 'a/b', slotId: 's1', outcome: 'incorrect' }));
+    expect(await api.getPracticeFeedback('a/b', 's1')).toBe('incorrect');
+    expect(calls[0]).toMatchObject({ url: 'http://api.test/v1/assessment/attempts/a%2Fb/slots/s1/feedback' });
+  });
+
+  it('refuses a word that is not one of the four, rather than show a guess', async () => {
+    const { api } = rig(() => json({ attemptId: 'a', slotId: 's1', outcome: 'partially_right' }));
+    await expect(api.getPracticeFeedback('a', 's1')).rejects.toThrow('schema validation');
+  });
+
+  it('adds questions to a run with the count, on the run\'s own route', async () => {
+    const { api, calls } = rig(() => json(attemptDto({ slotCount: 8 })));
+    expect((await api.growPracticeAttempt('run-1', 5)).slotCount).toBe(8);
+    expect(calls[0]).toMatchObject({ method: 'POST', url: 'http://api.test/v1/assessment/attempts/run-1/practice-items', body: { count: 5 } });
   });
 
   it('sends events and reports the acknowledged ids and only the rejected ones', async () => {

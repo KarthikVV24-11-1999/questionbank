@@ -15,21 +15,21 @@ the whole catalog at M7 would report a figure that no amount of M7 work could mo
 ## The measurement
 
 `pnpm --filter @questionbank/api run event-conformance` runs the learner suite, the API's call-site specs and the built app in a real Chrome with a log marker made in the temp directory, so that every event they emit is
-appended to a file, then replays that file through a fresh edge. Last run, 2026-11-04:
+appended to a file, then replays that file through a fresh edge. Last run, 2026-11-04 (after M8 Track H):
 
 | | |
 |---|---|
-| Events emitted by the run | 36 (29 from the learner app's screens, 4 from the server, 3 from the built app in a real Chrome) |
-| Admitted by the edge | 36 of 36 |
-| **Envelope conformance** | **36 / 36 = 100%** |
-| **Catalog coverage** | **4 of 14** M7-owned events wired |
+| Events emitted by the run | 50 (40 from the learner app's screens, 7 from the server, 3 from the built app in a real Chrome) |
+| Admitted by the edge | 50 of 50 |
+| **Envelope conformance** | **50 / 50 = 100%** |
+| **Catalog coverage** | **6 of 14** M7-owned events wired |
 
-Nineteen of the 36 are M8's: fourteen onboarding events (`onboarding.step_completed` and `onboarding.scope_declared`, from the learner's onboarding screen, M8-22) and five `concept_map.viewed` (the map and a topic's answers, M8-29). They are measured here, in the envelope figure, because the run emits them, and each has a row in the table below, as an event that is emitted has whoever owns it. They are not in the coverage figure, which is a fraction of M7's events. `onboarding.abandoned` is in the catalog and nothing emits it (D108). Neither D91 nor D92 counted `concept_map.viewed`, which M8 owns and was never in either list, so neither is narrowed by emitting it.
+Nineteen of the 50 are M8's: fourteen onboarding events (`onboarding.step_completed` and `onboarding.scope_declared`, from the learner's onboarding screen, M8-22) and five `concept_map.viewed` (the map and a topic's answers, M8-29). They are measured here, in the envelope figure, because the run emits them, and each has a row in the table below, as an event that is emitted has whoever owns it. They are not in the coverage figure, which is a fraction of M7's events. `onboarding.abandoned` is in the catalog and nothing emits it (D108). Neither D91 nor D92 counted `concept_map.viewed`, which M8 owns and was never in either list, so neither is narrowed by emitting it.
 
 Events planted on purpose, to show the check refusing them, are not logged and are not in the denominator: they are test inputs made to fail, not something the app
 emitted. The tests that plant them are the second column of the table below.
 
-The conformance figure is a property of the emitters that exist: it is 100% because the four emitters build their envelopes through one shared type and the tests that
+The conformance figure is a property of the emitters that exist: it is 100% because the emitters build their envelopes through one shared type and the tests that
 emit them also validate them, not because the catalog is covered. The coverage figure is the one that says how much of the taxonomy is captured, and it is small.
 
 ## The table
@@ -48,12 +48,12 @@ the shipped source about which events are emitted.
 | `onboarding.step_completed` | wired | `apps/learn/src/ui/OnboardingScreen.spec.tsx` :: says a step was completed, with how long the learner was on it, and conforms to the catalog | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for onboarding.step_completed | — |
 | `onboarding.scope_declared` | wired | `apps/learn/src/ui/OnboardingScreen.spec.tsx` :: says the scope was declared once the server has it, with the count and the fraction the server gave | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for onboarding.scope_declared | — |
 | `concept_map.viewed` | wired | `apps/learn/src/ui/ConceptMapScreen.spec.tsx` :: says the map was viewed, once, counting the weak and the strong that are stated and not the ones that are early | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for concept_map.viewed | — |
-| `practice.item_answered` | not wired | — | — | A learner can answer a practice item in the app now (D87 is closed); the screen does not say so to analytics yet (D112). M7. |
-| `practice.session_completed` | not wired | — | — | A practice submission is scored now (D77 is closed); nothing emits the completion yet (D112). M7. |
+| `practice.item_answered` | wired | `apps/learn/src/ui/PracticeScreen.spec.tsx` :: says an item was answered when the learner is told how it came out, with the outcome and what the session knows of the answer | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for practice.item_answered | — |
+| `practice.session_completed` | wired | `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.spec.ts` :: emits practice.session_completed as a valid server envelope for the learner, with no personal data in it | `apps/api/src/fitness/event-conformance-rules.spec.ts` :: catches a planted bad envelope for practice.session_completed | — |
 | `practice.session_abandoned` | not wired | — | — | A run is put down and picked up with no deadline; nothing says it was abandoned (D92). M7. |
 | `solution.viewed` | not wired | — | — | No screen shows a solution; the route serves one, and a served response is not a view (D92). M7. |
 | `remediation.set_generated` | not wired | — | — | What to practise next is computed on each read and no set is stored, so there is no moment of generation (D92). M7. |
-| `remediation.set_completed` | not wired | — | — | Needs a practice run completed and scored against a baseline; a run is scored now (D77 is closed) and nothing compares it with a baseline or emits it (D112). M7. |
+| `remediation.set_completed` | not wired | — | — | Needs a scored run to be a remediation for a concept and the concept's standing when the run began. A run is not stored with its purpose: `source` (recommendation, self, remediation) is said by the app when the run starts and kept nowhere, and a single-concept run from a report finding and one from the home screen are the same run on the server; and the baseline would be the concept's accuracy before this run, which the evidence rows can give but only for a run known to be a remediation. Emitting it for every single-concept run would state a purpose that is a guess (D112). M7. |
 | `mastery.regressed` | not wired | — | — | `days_since_gain` needs the instant of the gain the concept held, which the recorder's read of a concept does not return (D92). M7. |
 | `review.due_completed` | not wired | — | — | The review schedule is derived from evidence; no action of the learner completes a due review (D92). M7. |
 | `review.due_skipped` | not wired | — | — | No action lets a learner skip a due review (D92). M7. |

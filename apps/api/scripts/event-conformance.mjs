@@ -19,7 +19,7 @@ const run = (cwd, args, env = {}) => {
   }
 };
 run('apps/learn', ['src/ui', 'src/analytics']);
-run('apps/api', ['--project', 'unit', 'src/platform/composition/learning-consumer.spec.ts']);
+run('apps/api', ['--project', 'unit', 'src/platform/composition/learning-consumer.spec.ts', 'src/contexts/assessment/application/consumers/practice-scoring-consumer.spec.ts']);
 // the shipped app in a real Chrome: what leaves the page, replayed through the edge with the rest
 run('tools/adversarial', ['src/analytics.spec.ts'], { CI: '1' });
 run('apps/api', ['--project', 'unit', 'src/fitness/event-conformance-run.spec.ts'], { QB_EVENT_LOG_REPLAY: log });

@@ -24,6 +24,8 @@ const EMITTED_AS = {
   'mock.diagnostic_viewed': { payload: { findings_shown: 2, deepest_drill_level: 0 }, surface: 'web' as const },
   'mock.remediation_clicked': { payload: { finding_rank: 1, hours_after_result: 1.99 }, surface: 'web' as const },
   'practice.session_started': { payload: { selection_strategy: 'filtered', source: 'remediation', concept_ids: ['5b0d6a1e-3f4c-4d8b-9a2e-7c1f0e9d8b6a'], item_count: 10 }, surface: 'web' as const },
+  'practice.item_answered': { payload: { outcome: 'correct', time_on_item_ms: 41_000, answer_changes: 0, was_flagged: false }, surface: 'web' as const },
+  'practice.session_completed': { payload: { items_attempted: 3, accuracy: 0.6667, duration_ms: 1_740_000 }, surface: 'server' as const },
   'onboarding.step_completed': { payload: { step: 'exam', seconds_on_step: 12 }, surface: 'web' as const },
   'onboarding.scope_declared': { payload: { concept_count: 120, coverage_fraction: 0.4 }, surface: 'web' as const },
   'concept_map.viewed': { payload: { weak_count: 2, strong_count: 1, drill_down: false }, surface: 'web' as const },
@@ -46,7 +48,7 @@ async function expectCheckCatches(event: keyof typeof EMITTED_AS): Promise<void>
 describe('the conformance table (M7-63)', () => {
   it('has a row for every event M7 owns and for every M8 event shipped source emits, wired exactly where it is emitted, with tests that exist and run', () => {
     expect(parseConformanceTable(DOCUMENT).map((row) => row.event).sort()).toEqual([...OWNED].sort());
-    expect(EMITTED.filter((event) => M7_OWNED.includes(event))).toEqual(['mastery.gain_verified', 'mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.session_started']);
+    expect(EMITTED.filter((event) => M7_OWNED.includes(event))).toEqual(['mastery.gain_verified', 'mock.diagnostic_viewed', 'mock.remediation_clicked', 'practice.item_answered', 'practice.session_completed', 'practice.session_started']);
     // M8's first emitters are onboarding (M8-22) and the concept map (M8-29); every one has a row, and nothing is emitted that no one owns
     expect(EMITTED.filter((event) => !M7_OWNED.includes(event))).toEqual(['concept_map.viewed', 'onboarding.scope_declared', 'onboarding.step_completed']);
     expect(EMITTED.filter((event) => !OWNED.includes(event))).toEqual([]);
@@ -84,6 +86,8 @@ describe('the conformance check can fail', () => {
   it('catches a planted bad envelope for mock.diagnostic_viewed', async () => expectCheckCatches('mock.diagnostic_viewed'));
   it('catches a planted bad envelope for mock.remediation_clicked', async () => expectCheckCatches('mock.remediation_clicked'));
   it('catches a planted bad envelope for practice.session_started', async () => expectCheckCatches('practice.session_started'));
+  it('catches a planted bad envelope for practice.item_answered', async () => expectCheckCatches('practice.item_answered'));
+  it('catches a planted bad envelope for practice.session_completed', async () => expectCheckCatches('practice.session_completed'));
   it('catches a planted bad envelope for onboarding.step_completed', async () => expectCheckCatches('onboarding.step_completed'));
   it('catches a planted bad envelope for onboarding.scope_declared', async () => expectCheckCatches('onboarding.scope_declared'));
   it('catches a planted bad envelope for concept_map.viewed', async () => expectCheckCatches('concept_map.viewed'));

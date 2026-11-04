@@ -34,6 +34,16 @@ describe('the sitting is chrome-less (§7, M6-46)', () => {
     expect(screen.getAllByRole('navigation').map((nav) => nav.getAttribute('aria-label'))).toEqual(['Questions']);
   });
 
+  it('judges nothing and adds nothing to a paper: a paper is given no verdict while it is open and cannot be grown (M8-33)', async () => {
+    const { session } = sitting();
+    render(<LearnApp session={session} form={form} />);
+    await userEvent.click(screen.getByRole('radio', { name: /option b/iu }));
+    expect(screen.queryByText('Right')).toBeNull();
+    expect(screen.queryByText('Wrong')).toBeNull();
+    expect(screen.queryByText(/saved on this device|Checking your answer/u)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add more questions' })).toBeNull();
+  });
+
   it('opens on the first question, by visiting it — an event in the log like any other', async () => {
     const rig = sitting();
     const { session } = rig;

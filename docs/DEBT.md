@@ -633,9 +633,9 @@ Some are the cheapest to add: `mock.attempt_submitted`, `item.published` and `it
 domain event carries the fact, before it does.
 **Cited** `apps/api/src/fitness/event-conformance.ts`
 
-### D92 — Ten events M7 owns have no call site, and the one it emits from the server is at-most-once
+### D92 — Eight events M7 owns have no call site, and the one it emits from the server is at-most-once
 
-Ten of the fourteen events M7 owns are not emitted, each for a fact that does not exist where it would be emitted:
+Eight of the fourteen events M7 owns are not emitted (ten before M8 Track H), each for a fact that does not exist where it would be emitted:
 
 - `practice.session_abandoned` — a run is put down and picked up with no deadline; nothing ever says it was abandoned.
 - `solution.viewed` — no screen shows a solution; the route serves one, and a served response is not a view.
@@ -643,9 +643,9 @@ Ten of the fourteen events M7 owns are not emitted, each for a fact that does no
 - `mastery.regressed` — `days_since_gain` needs the instant of the gain the concept held, which the recorder's read of a concept does not return.
 - `review.due_completed`, `review.due_skipped` — the schedule is derived from evidence; no action of the learner completes or skips a due review.
 - `error_notebook.entry_reviewed` — no route or screen marks an entry reviewed.
-- `practice.item_answered`, `practice.session_completed`, `remediation.set_completed` — were held by D87 and D77, which M8 Track F closed; they have a surface now and are held by D112.
+- `practice.item_answered`, `practice.session_completed` — were held by D87 and D77 and are emitted since M8 Track H. `remediation.set_completed` is the one still held, by D112.
 
-And `mastery.gain_verified` is emitted by the relay's consumer after the recorder has committed. If the process dies between the two, the redelivery finds the evidence stored and the gain is
+And `mastery.gain_verified` (and, since M8 Track H, `practice.session_completed`) is emitted by the relay's consumer after the work it reports has committed. If the process dies between the two, the redelivery finds the evidence stored and the gain is
 not announced again. An outbox row for the gain, written in the recorder's transaction, would make it at-least-once.
 
 **Trigger** Each event when the surface that can know it exists (D87's route, a solution screen, a review action); the gain's outbox row with the sink of D90, since an event that cannot be
@@ -776,21 +776,17 @@ evidence from them. It is loud, not a zero, and it is still a run that does noth
 **Trigger** The first exam profile whose sections pay different marks per item: decide what an item that is in no section is worth for it (the lowest, the section of its subject, or a value the profile states for practice), and publish it as data on the profile.
 **Cited** `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.ts`
 
-### D112 — Three practice events have a surface now and nothing emits them
+### D112 — `remediation.set_completed` has no emitter, because a run is not stored with its purpose
 
-`practice.item_answered`, `practice.session_completed` and `remediation.set_completed` were not wired because a learner could not answer a practice item (D87) and a practice submission was not scored (D77). Both are closed (M8 Track F). The screen
-the learner sits a run on is a paper's, which emits nothing for an answer, and the practice screen's finish is a submission like a paper's. The events are in the catalog and owned by M7, and none is emitted.
+Two of the three practice events that waited on a surface are wired (M8 Track H): `practice.item_answered`, said when the learner is told how an answer came out, and `practice.session_completed`, said by the server once a run is scored.
+What is left is `remediation.set_completed` (`accuracy_delta_vs_baseline`). It needs a scored run to be a remediation for a concept, and that concept's standing when the run began. A run is not stored with its purpose:
+`source` (recommendation, self, remediation) is said by the app when a run starts and kept nowhere, and a one-concept run started from a report's finding and one started from the home screen are the same run to the server. The baseline
+could be read from the evidence rows (the concept's accuracy before the run), but only for a run known to be a remediation; emitting the event for every one-concept run would state a purpose that is a guess.
+Two narrower limits of the wired two: an answer given with no connection has no verdict, so `practice.item_answered` is not said for it (inventing the outcome was the alternative), and `difficulty_band` is not sent because the question's
+band is not on the device.
 
-**Trigger** The next change to the practice screen or its session: emit the three from the call sites that now know the fact (the answer, the finish of a run, a scored run set against the baseline of the concept it was started for), each with the row in the conformance table.
+**Trigger** The first analysis that needs the accuracy gained on a remediated concept: store a run's purpose with the run (the app already knows it when it starts one) and read the baseline from the evidence rows before it.
 **Cited** `docs/EVENT-CONFORMANCE.md`
-
-### D111 — The practice screen does not show a verdict, and a run cannot be grown from the app
-
-`GET …/slots/{slotId}/feedback` serves the word correct, incorrect or unattempted for an answered slot of a run (M7-29, and it works against the real judge), and `POST …/practice-items` adds slots to a run and changes its package. Neither has a place on
-the practice screen: a learner answers a run and finishes it, is told nothing until it is scored, and cannot ask for more questions in the same run. Both are what a practice run is for beyond being answered at all.
-
-**Trigger** The track that makes practice a loop and not a quiz: the verdict shown after each answer, and one action that adds questions and fetches the package the run now has.
-**Cited** `apps/learn/src/ui/PracticeScreen.tsx`
 
 ### D113 — The concept map and its drill-down are served to every learner, though free learners are meant to see only the map
 
@@ -807,6 +803,32 @@ counts the rest: FR-STU-04's output includes `unassessed` for a topic, and a lea
 
 **Trigger** The first syllabus version published after a learner has chosen an exam, or the first learner who asks which topics they have not started: carry the map across versions the way a scope is carried (`needs_review`), and serve the unstarted topics as a page of the syllabus, not a list inside the map.
 **Cited** `apps/learn/src/ui/ConceptMapScreen.tsx`
+
+### D115 — The diagnostic is breadth within scope, and "high-leverage" has no data to honour it
+
+FR-STU-03 rule 1 asks for selection that is breadth-first across high-leverage concepts within declared scope. Breadth within scope is implemented exactly: one item for each concept in force before a second for any. "High-leverage" is not: the word appears once in the FRS and nowhere in the
+code, blueprint weights are section-level, and no per-concept weight exists. A proxy (the number of items a concept has, or a blueprint weight spread down to concepts) would be a guess that reads as the fact. A consequence worth knowing: with more concepts in scope than the run has places,
+the concepts it reaches are those first in identifier order, which is arbitrary and not representative; a learner's ten-question diagnostic over forty topics asks about the ten lowest identifiers.
+
+**Trigger** The first per-concept weighting the curriculum carries (an exam weight on a concept, or a measured one): order the round by it, so a short run reaches the topics that matter before the ones that happen to sort first.
+**Cited** `apps/api/src/contexts/assessment/domain/practice-selection.ts`
+
+### D116 — A practice run that is left without being finished records nothing
+
+FR-STU-03 rule 4 says abandoning the diagnostic gives a partial map. It does when the run is finished with questions left: only the answered ones are evidence, and the map has those topics and not the rest (`first-weakness-journey.integration.spec.ts`). It does not when the run is never
+finished. Evidence is made when a submitted run is scored, not when an answer is given; a run has no deadline, so nothing submits it, and answers given in a run that is put down and not picked up are in the response log and in no one's map. The brief for this
+track assumed evidence is recorded per response; it is recorded per scored run.
+
+**Trigger** The first beta learner who answers part of a run and does not come back to it, which the closed beta will produce at once: decide whether a run left alone for some time is submitted for the learner, or its answers are scored without a submission.
+**Cited** `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.ts`
+
+### D117 — The home screen says "the topic you are weakest on" from standings the map calls too early to say
+
+After the diagnostic every topic has two or three answers behind it, so the map shows every standing as too early to say (FR-STU-04 rule 2). The home screen's next action then names a weakest topic, from the remediation route, which reads the stored state whatever its confidence, and its
+sentence states it as fact. The two screens disagree about how sure the product is of the same topic, for the learner's first minutes with it.
+
+**Trigger** The next change to the home screen's wording or to the remediation reader: say the weakest topic *so far* when its standing is tentative, or have the reader prefer topics that are stated.
+**Cited** `apps/learn/src/ui/HomeScreen.tsx`
 
 ## Closed
 
@@ -832,6 +854,17 @@ be shown; a learner could not answer them, and the feedback route had nothing to
 It is private to the run's owner (another learner's is a 404 with no bytes), changes with the run when it grows, and counts nothing when it is read. It has a row of its own in the key-free argument (`practice-package`). The
 practice screen is now the sitting: one question at a time on the screen a paper is sat on, through the same session, response log and writer, with the answers held on the device and sent after the commit that holds them, and
 finished through the attempt routes. Feedback on an answered slot works (`practice-loop.integration.spec.ts`); the screen does not show it yet (D111).
+
+**Cited** `apps/learn/src/ui/PracticeScreen.tsx`
+
+### D111 — The practice screen did not show a verdict, and a run could not be grown from the app *(closed by M8 Track H, [ADR-0063](adr/ADR-0063-the-diagnostic-is-a-strategy-and-a-run-tells-the-learner-how-an-answer-came-out.md))*
+
+`GET …/slots/{slotId}/feedback` served the word correct, incorrect or unattempted for an answered slot of a run, and `POST …/practice-items` added slots to a run and changed its package. Neither had a place on the practice screen: a learner answered a run
+and finished it, was told nothing until it was scored, and could not ask for more questions in the same run.
+
+**What closed it (M8-33, DEC-M8-20).** After an answer has reached the server the screen shows the one word the route serves, as right or wrong; an answer the server could not judge is marked when the run is scored; and no marks, key or solution are shown or
+implied. One action adds five questions and brings the run up again, which fetches the package the run now has and verifies it as the first was. What is true and stays true: a run can be sat with no connection, and then there is no verdict to show. The screen says the answer is saved and will be marked, never a guessed
+word and never a wait (a request is given up on after six seconds). That is the design and not a debt; the cost is registered with the events that depend on a verdict (D112).
 
 **Cited** `apps/learn/src/ui/PracticeScreen.tsx`
 

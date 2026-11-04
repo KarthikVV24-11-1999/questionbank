@@ -2,10 +2,12 @@ import type { JSX } from 'react';
 import type { AssessmentApi } from '../api/assessment-api.js';
 import type { LearningApi, ProfileApi } from '../api/learning-api.js';
 import type { LearnerProfileDto } from '../api/learning-schemas.js';
+import { DIAGNOSTIC_LENGTH } from '../practice/start-practice.js';
 import { pinsOf, type ExamPins } from '../home/exam-pins.js';
 import { chooseNextAction, type NextAction } from '../home/next-action.js';
 import { NO_NAMES, nameTopicsSoftly, topicName, topicPlace, type TopicNames } from '../names/topic-names.js';
 import { TOKENS } from '../tokens.js';
+import { DiagnosticButton } from './DiagnosticButton.js';
 import { PractiseButton } from './PractiseButton.js';
 import { screenHref, type ScreenContext } from './screen-context.js';
 import { useRemote } from './use-remote.js';
@@ -28,12 +30,12 @@ interface Home {
 async function loadHome(learning: LearningApi, profiles: Pick<ProfileApi, 'getProfile'> | undefined, lastAttemptId: string | null): Promise<Home> {
   const profile = profiles === undefined ? null : await profiles.getProfile().catch(() => null);
   const pins = pinsOf(profile);
-  const action = await chooseNextAction({ learning, taxonomyVersionId: pins?.taxonomyVersionId ?? null, lastAttemptId });
+  const action = await chooseNextAction({ learning, taxonomyVersionId: pins?.taxonomyVersionId ?? null, declaredScope: profile?.scope != null, lastAttemptId });
   const names = action.kind === 'practise' ? await nameTopicsSoftly(learning, [{ taxonomyVersionId: action.taxonomyVersionId, conceptIdentityId: action.conceptIdentityId }]) : NO_NAMES;
   return { profile, pins, action, names };
 }
 
-function Action({ home, assessment, context, onOpen }: { readonly home: Home; readonly assessment: Pick<AssessmentApi, 'createPracticeAttempt' | 'startAttempt'>; readonly context: ScreenContext; readonly onOpen: (href: string) => void }): JSX.Element {
+function Action({ home, assessment, context, onOpen }: { readonly home: Home; readonly assessment: Pick<AssessmentApi, 'createPracticeAttempt' | 'createDiagnosticAttempt' | 'startAttempt'>; readonly context: ScreenContext; readonly onOpen: (href: string) => void }): JSX.Element {
   const { action, names } = home;
   if (action.kind === 'practise') {
     const place = topicPlace(names, action.conceptIdentityId);
@@ -43,6 +45,15 @@ function Action({ home, assessment, context, onOpen }: { readonly home: Home; re
         {place === '' ? null : <p aria-label="Where it sits in the syllabus">{place}</p>}
         <p>{WHY[action.why]}</p>
         <PractiseButton conceptIdentityId={action.conceptIdentityId} label="Practise this" source="recommendation" exam={home.pins} assessment={assessment} context={context} onOpen={onOpen} />
+      </>
+    );
+  }
+  if (action.kind === 'diagnostic') {
+    return (
+      <>
+        <h2>See where you stand</h2>
+        <p>Answer {DIAGNOSTIC_LENGTH} short questions across the chapters you have studied, and we will show you which topics need work.</p>
+        <DiagnosticButton exam={home.pins} assessment={assessment} context={context} onOpen={onOpen} />
       </>
     );
   }
@@ -67,7 +78,7 @@ export function HomeScreen({
   onOpen,
 }: {
   readonly learning: LearningApi;
-  readonly assessment: Pick<AssessmentApi, 'createPracticeAttempt' | 'startAttempt'>;
+  readonly assessment: Pick<AssessmentApi, 'createPracticeAttempt' | 'createDiagnosticAttempt' | 'startAttempt'>;
   /** Where the learner's exam and the invitation to say who you are come from. Absent, or unreachable, and the screen is as it was. */
   readonly profiles?: Pick<ProfileApi, 'getProfile'>;
   readonly context: ScreenContext;

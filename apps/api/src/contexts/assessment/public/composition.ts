@@ -19,7 +19,7 @@ import { Ed25519PackageSigner } from '../infrastructure/package-signer.js';
 import { PostgresSolutionReleases } from '../infrastructure/solution-release.repository.js';
 import { ContentSolutionReader } from '../infrastructure/content-solution-reader.js';
 import { PostgresResponseLog } from '../infrastructure/response-log.repository.js';
-import { ScorePracticeAttemptConsumer } from '../application/consumers/practice-scoring-consumer.js';
+import { ScorePracticeAttemptConsumer, type RunEvents } from '../application/consumers/practice-scoring-consumer.js';
 import { ScoreSubmittedAttemptConsumer, type ScoringKeyReader, type ScoringSpecReader, type Scorer } from '../application/consumers/scoring-consumer.js';
 import type { ScoreRecordReader } from '../application/handlers/attempt-handlers.js';
 import { SubmitExpiredAttemptsHandler } from '../application/handlers/expiry-handler.js';
@@ -53,6 +53,8 @@ export interface AssessmentCompositionDeps {
   readonly packageSigningKey?: string;
   /** Curriculum's one read assessment makes — `curriculumForAssessment`, passed through. */
   readonly curriculum: { readonly examProfilePins: ProfilePinsHandler; readonly scoringSpec: ScoringSpecReader };
+  /** Where a scored practice run is announced as completed (M8-34); the root passes the analytics emitter. Absent, and nothing is said. */
+  readonly runEvents?: RunEvents;
   /** Scoring's two handlers assessment uses — scoring's `scoringForAssessment`, passed through (M6-40). */
   readonly scoring: { readonly scoreAttempt: Scorer; readonly scoreRecord: ScoreRecordReader; readonly judge: SlotJudge };
   /**
@@ -126,7 +128,7 @@ export function assessmentConsumers(deps: AssessmentCompositionDeps): ReadonlyMa
     spec: deps.curriculum.scoringSpec,
     scorer: deps.scoring.scoreAttempt,
   });
-  const practice = new ScorePracticeAttemptConsumer({ attempts: bag.attempts, responses: bag.responses, keys: deps.content.answerKeys, spec: deps.curriculum.scoringSpec, scorer: deps.scoring.scoreAttempt });
+  const practice = new ScorePracticeAttemptConsumer({ attempts: bag.attempts, responses: bag.responses, keys: deps.content.answerKeys, spec: deps.curriculum.scoringSpec, scorer: deps.scoring.scoreAttempt, ...(deps.runEvents === undefined ? {} : { events: deps.runEvents }) });
   return new Map([
     ['AttemptSubmitted', [scoring]],
     ['PracticeAttemptSubmitted', [practice]],

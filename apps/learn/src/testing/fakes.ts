@@ -1,8 +1,8 @@
-import type { AssessmentApi, PracticeRequest } from '../api/assessment-api.js';
+import type { AssessmentApi, DiagnosticRequest, PracticeRequest } from '../api/assessment-api.js';
 import type { LearningApi } from '../api/learning-api.js';
 import type { ConceptEvidenceDto, ConceptMapDto, DiagnosticReportDto, NamedConceptDto, PaceAnalyticsDto, ReviewPlanDto } from '../api/learning-schemas.js';
 import { TOPICS } from './learning-fixtures.js';
-import type { AttemptDto, AttemptWithLogDto, ResultDto } from '../api/schemas.js';
+import type { AttemptDto, AttemptWithLogDto, ResultDto, Verdict } from '../api/schemas.js';
 import type { PackageResponse, SigningKey } from '../package/load.js';
 import { assembleRecord, saveRecord, type EventRow, type RecordChange, type RecordStore, type SessionRecord, type StoredAttempt } from '../session/persistence.js';
 import type { AttemptTransport, KeyValueStore, MonotonicClock, SessionPorts, WallClock } from '../session/ports.js';
@@ -215,6 +215,32 @@ export class FakeApi implements AssessmentApi {
     this.calls.push('createPracticeAttempt');
     this.practiceRequests.push({ request, key });
     return attemptDto({ attemptId: 'run-1', mode: 'practice', formId: null, sessionRef: null, shiftId: null, durationMs: null, windowClosesAt: null, state: 'created', slotCount: request.count });
+  }
+  readonly diagnosticRequests: { request: DiagnosticRequest; key: string }[] = [];
+  async createDiagnosticAttempt(request: DiagnosticRequest, key: string): Promise<AttemptDto> {
+    this.calls.push('createDiagnosticAttempt');
+    this.diagnosticRequests.push({ request, key });
+    return attemptDto({ attemptId: 'run-1', mode: 'practice', formId: null, sessionRef: null, shiftId: null, durationMs: null, windowClosesAt: null, state: 'created', slotCount: request.count });
+  }
+  /** What the server says of each answered slot, by slot; a slot not named is `correct`. */
+  readonly verdicts = new Map<string, Verdict>();
+  /** When set, the feedback route is out of reach with this failure. */
+  feedbackFailure: Error | null = null;
+  readonly feedbackAsked: string[] = [];
+  async getPracticeFeedback(attemptId: string, slotId: string): Promise<Verdict> {
+    this.calls.push('getPracticeFeedback');
+    this.feedbackAsked.push(`${attemptId}:${slotId}`);
+    if (this.feedbackFailure !== null) throw this.feedbackFailure;
+    return this.verdicts.get(slotId) ?? 'correct';
+  }
+  readonly grown: { attemptId: string; count: number }[] = [];
+  /** When set, adding questions fails with this. */
+  growFailure: Error | null = null;
+  async growPracticeAttempt(attemptId: string, count: number): Promise<AttemptDto> {
+    this.calls.push('growPracticeAttempt');
+    this.grown.push({ attemptId, count });
+    if (this.growFailure !== null) throw this.growFailure;
+    return attemptDto({ attemptId, mode: 'practice', formId: null, sessionRef: null, shiftId: null, durationMs: null, windowClosesAt: null, state: 'in_progress', slotCount: count });
   }
   /** When set, the server is out of reach for `getAttempt` with this failure; the package and the key are still served (as the service worker's copy would be). */
   attemptFailure: Error | null = null;

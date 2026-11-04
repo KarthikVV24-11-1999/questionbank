@@ -13,8 +13,11 @@ import { isNonBlank, isUuid } from './uuid.js';
  * **`adaptive` is not offered.** The domain model marks it H1: it needs item statistics to choose by, and Psychometrics (context 6) does not
  * exist. A selection strategy joins the list the day something can honour it. Asking for it is refused under its own code, so a client built
  * ahead of it learns why rather than meeting "invalid" (DEC-M7-13).
+ *
+ * **`breadth` is the diagnostic's order** (M8-31, FR-STU-03 rule 1): one item for each concept in force before a second for any. It changes the order items are taken in and nothing about which are eligible,
+ * so it is a strategy and not a second selector (`practice-selection.ts`).
  */
-export const SELECTION_STRATEGIES = ['filtered', 'targeted', 'spaced_review'] as const;
+export const SELECTION_STRATEGIES = ['filtered', 'targeted', 'spaced_review', 'breadth'] as const;
 export type SelectionStrategy = (typeof SELECTION_STRATEGIES)[number];
 
 /**

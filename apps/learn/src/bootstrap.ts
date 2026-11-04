@@ -1,3 +1,4 @@
+import { GaveUpWaiting } from './api/within-time.js';
 import type { AssessmentApi } from './api/assessment-api.js';
 import { loadPackage, loadRunPackage, type PackageRefusal } from './package/load.js';
 import type { Paper } from './package/types.js';
@@ -45,8 +46,9 @@ export interface BootParams {
 }
 
 /** Whether a failure is the server being out of reach, as opposed to the server answering. `fetch` rejects with a `TypeError` when it cannot connect; a 5xx is a server that is down or failing. */
-function unreachable(error: unknown): boolean {
-  if (error instanceof TypeError) return true;
+/** The server could not be reached or is failing, as against it having answered and refused: the connection is the reason, and the thing may be tried again. */
+export function unreachable(error: unknown): boolean {
+  if (error instanceof TypeError || error instanceof GaveUpWaiting) return true;
   const problem = error as { status?: unknown; problem?: { status?: unknown } };
   const status = problem.status ?? problem.problem?.status;
   return typeof status === 'number' && status >= 500;

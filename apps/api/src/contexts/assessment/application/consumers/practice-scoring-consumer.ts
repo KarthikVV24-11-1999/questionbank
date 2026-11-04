@@ -22,12 +22,29 @@ import { SCORING_CONSUMER_PRINCIPAL_ID, ScoringFailure, toResponseSnapshot, type
  * idempotency key is the submission's, a lost race asks again, and any failure throws, so the relay retries and then dead-letters it where an operator can see it. A run on a form arriving here, or a
  * mock arriving at the other consumer, is a fault to see and not a delivery to skip.
  */
+/**
+ * Where the fact that a run was completed is said (M8-34, D112): a port this context declares and the root fills with the analytics emitter, because a context reaches `platform/` for the role vocabulary and
+ * nothing else. The event's id is derived from `factKey`, so a delivery that comes twice, or a re-score, says it once.
+ */
+export interface RunEvents {
+  emit(event: {
+    readonly name: 'practice.session_completed';
+    readonly factKey: string;
+    readonly occurredAt: string;
+    readonly actor: string;
+    readonly context: { readonly attempt_id: string };
+    readonly payload: { readonly items_attempted: number; readonly accuracy: number; readonly duration_ms: number };
+  }): Promise<void>;
+}
+
 export interface PracticeScoringConsumerDependencies {
   readonly attempts: Pick<AttemptRepository, 'findById'>;
   readonly responses: Pick<ResponseLog, 'findByAttempt'>;
   readonly keys: ScoringKeyReader;
   readonly spec: ScoringSpecReader;
   readonly scorer: Scorer;
+  /** Absent where nothing listens; then a run is scored and nothing is said of it. */
+  readonly events?: RunEvents;
 }
 
 export class ScorePracticeAttemptConsumer {
@@ -105,12 +122,32 @@ export class ScorePracticeAttemptConsumer {
       idempotencyKey: `submission:${attemptId}`,
     };
     const scored = await this.deps.scorer.handle(command, context);
-    if (scored.ok) return;
+    if (scored.ok) return this.announce(attemptId, attempt.value, scored.value);
     if (scored.error.code === 'CONFLICT') {
       const again = await this.deps.scorer.handle(command, context);
-      if (again.ok) return;
+      if (again.ok) return this.announce(attemptId, attempt.value, again.value);
       throw new ScoringFailure(again.error.code, again.error.message);
     }
     throw new ScoringFailure(scored.error.code, scored.error.message);
+  }
+
+  /**
+   * `practice.session_completed` (D112, DEC-M8-21 in docs/IMPLEMENTATION-DECISIONS.md): said once the run is scored, because accuracy is a fact scoring has and the device does not. The run is *attempted* by the answers that were given and came out right or wrong;
+   * accuracy is the share of those that were right. A run with none given has no accuracy to state and says nothing, and so does one with no start or no submission to measure the time between. `duration_ms` is the
+   * wall time from the run's start to its submission, a run being put down and picked up in between: it is not time spent answering, and the catalog's field is named for the span.
+   */
+  private async announce(attemptId: string, attempt: { readonly studentId: string; readonly startedAt: string | null; readonly submission: { readonly submittedAt: string } | null }, record: unknown): Promise<void> {
+    const outcomes = (record as { readonly itemOutcomes?: readonly { readonly correctness: string }[] }).itemOutcomes ?? [];
+    const attempted = outcomes.filter((outcome) => outcome.correctness === 'correct' || outcome.correctness === 'incorrect');
+    if (this.deps.events === undefined || attempted.length === 0 || attempt.startedAt === null || attempt.submission === null) return;
+    const correct = attempted.filter((outcome) => outcome.correctness === 'correct').length;
+    await this.deps.events.emit({
+      name: 'practice.session_completed',
+      factKey: attemptId,
+      occurredAt: attempt.submission.submittedAt,
+      actor: attempt.studentId,
+      context: { attempt_id: attemptId },
+      payload: { items_attempted: attempted.length, accuracy: Math.round((correct / attempted.length) * 10_000) / 10_000, duration_ms: Math.max(0, Date.parse(attempt.submission.submittedAt) - Date.parse(attempt.startedAt)) },
+    });
   }
 }

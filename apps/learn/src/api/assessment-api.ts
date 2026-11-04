@@ -1,6 +1,6 @@
 import { createClient, type ApiClient } from '@questionbank/contracts/client';
-import { practiceRunBody } from '@questionbank/contracts/practice-request';
-import { attemptSchema, attemptWithLogSchema, createdAttemptSchema, ingestReportSchema, resultSchema, signingKeySchema, type AttemptDto, type ResultDto } from './schemas.js';
+import { diagnosticRunBody, practiceRunBody } from '@questionbank/contracts/practice-request';
+import { attemptSchema, attemptWithLogSchema, createdAttemptSchema, ingestReportSchema, practiceFeedbackSchema, resultSchema, signingKeySchema, type AttemptDto, type ResultDto, type Verdict } from './schemas.js';
 import type { AttemptTransport } from '../session/ports.js';
 import type { PackageResponse, SigningKey } from '../package/load.js';
 
@@ -13,6 +13,12 @@ export interface AssessmentApi extends AttemptTransport {
   startAttempt(attemptId: string): Promise<AttemptDto>;
   /** A practice run about the given concepts (M7-58). The key makes a retried tap return the run it already made. */
   createPracticeAttempt(request: PracticeRequest, idempotencyKey: string): Promise<AttemptDto>;
+  /** The diagnostic (M8-32): the same practice-run route, with the breadth strategy and the learner's declared scope. */
+  createDiagnosticAttempt(request: DiagnosticRequest, idempotencyKey: string): Promise<AttemptDto>;
+  /** What the server says of one answered slot of a practice run: a word and nothing more (M8-33). */
+  getPracticeFeedback(attemptId: string, slotId: string): Promise<Verdict>;
+  /** Adds questions to a practice run in progress (M8-33); the run's package changes, and the caller fetches the new one. */
+  growPracticeAttempt(attemptId: string, count: number): Promise<AttemptDto>;
   getPackage(formId: string): Promise<PackageResponse>;
   /** The package of one practice run: the caller's own, signed (M8-23). */
   getPracticePackage(attemptId: string): Promise<PackageResponse>;
@@ -22,6 +28,11 @@ export interface AssessmentApi extends AttemptTransport {
 export interface PracticeRequest {
   readonly examProfileVersionId: string;
   readonly conceptIdentityIds: readonly string[];
+  readonly count: number;
+}
+
+export interface DiagnosticRequest {
+  readonly examProfileVersionId: string;
   readonly count: number;
 }
 
@@ -40,6 +51,19 @@ export function createAssessmentApi(client: ApiClient): AssessmentApi {
           responseSchema: createdAttemptSchema,
         })
       ).attempt,
+    createDiagnosticAttempt: async (request, idempotencyKey) =>
+      (
+        await client.request({
+          method: 'POST',
+          path: '/v1/assessment/practice-attempts',
+          body: diagnosticRunBody(request),
+          headers: { 'Idempotency-Key': idempotencyKey },
+          responseSchema: createdAttemptSchema,
+        })
+      ).attempt,
+    getPracticeFeedback: async (attemptId, slotId) =>
+      (await client.request({ path: attempt(attemptId, `/slots/${encodeURIComponent(slotId)}/feedback`), responseSchema: practiceFeedbackSchema })).outcome,
+    growPracticeAttempt: (attemptId, count) => client.request({ method: 'POST', path: attempt(attemptId, '/practice-items'), body: { count }, responseSchema: attemptSchema }),
     startAttempt: (attemptId) => client.request({ method: 'POST', path: attempt(attemptId, '/start'), responseSchema: attemptSchema }),
     getAttempt: (attemptId) => client.request({ path: attempt(attemptId), responseSchema: attemptWithLogSchema }),
     sendEvents: async (attemptId, deviceRef, events) => {

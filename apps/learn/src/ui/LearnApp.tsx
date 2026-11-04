@@ -3,11 +3,14 @@ import type { AttemptSession } from '../session/attempt-session.js';
 import type { Paper, SittableSlot } from '../package/types.js';
 import { TOKENS } from '../tokens.js';
 import { Palette } from './Palette.js';
+import type { PracticeLinks } from './practice-links.js';
 import { QuestionPane } from './QuestionPane.js';
 import { ResultPane } from './ResultPane.js';
 import { SyncIndicator } from './SyncIndicator.js';
 import { TimerBadge } from './TimerBadge.js';
 import { useSession } from './use-session.js';
+import { Verdict } from './Verdict.js';
+import { useAction } from './use-remote.js';
 
 /**
  * The sitting (ASSESSMENT-ENGINE §7): chrome-less. There is no site navigation and no link out — the only way off this screen is to submit.
@@ -21,11 +24,13 @@ export interface LearnAppProps {
   readonly form: Paper;
   /** Where a practice run is put down: given, the screen offers the way off it and back (a paper has none, and the only way off it is to submit). */
   readonly leaveHref?: string;
+  /** Given for a practice run, whose answers are judged while it is open and which can be added to; a paper has none of it. */
+  readonly practice?: PracticeLinks;
   /** Called on a timer by the host to say time has passed; the app only asks for it. */
   readonly onPump?: () => void;
 }
 
-export function LearnApp({ session, form, leaveHref }: LearnAppProps): JSX.Element {
+export function LearnApp({ session, form, leaveHref, practice }: LearnAppProps): JSX.Element {
   const snapshot = useSession(session);
   const slots: SittableSlot[] = form.sections.flatMap((section) => section.slots);
   const stimuli = new Map(form.stimuli.map((entry) => [entry.stimulusVersionId, entry.view.body]));
@@ -83,6 +88,7 @@ export function LearnApp({ session, form, leaveHref }: LearnAppProps): JSX.Eleme
               onClear={() => session.clear(current.slotId)}
             />
           )}
+          {practice === undefined || current === null ? null : <Judged practice={practice} slotId={current.slotId} answered={answers.get(current.slotId)} saved={snapshot.pending === 0 && snapshot.unsaved === 0} />}
           <div style={{ padding: TOKENS.spaceSmall }}>
             {current === null ? null : (
               <button type="button" onClick={() => session.flag(current.slotId, !session.isFlagged(current.slotId))}>
@@ -99,6 +105,7 @@ export function LearnApp({ session, form, leaveHref }: LearnAppProps): JSX.Eleme
             }))}
             onGo={(slotId) => session.goTo(slotId)}
           />
+          {practice === undefined ? null : <GrowControl grow={practice.grow} />}
           <SubmitControl label={snapshot.remainingMs === null ? 'Finish run' : 'Submit paper'} onSubmit={() => void session.submit('manual')} unanswered={slots.filter((slot) => answers.get(slot.slotId)?.answer == null).length} />
         </main>
       )}
@@ -127,6 +134,47 @@ function SubmitControl({ label, onSubmit, unanswered }: { readonly label: string
       <button type="button" onClick={() => setConfirming(false)}>
         Keep working
       </button>
+    </div>
+  );
+}
+
+/**
+ * The verdict on the answer in front of the learner, when there is an answer and the server has it. An answer still on this device (not yet sent, or not yet on the disk) has nothing to be judged by, so it is not
+ * asked about and the screen says it is saved; asking early would be answered "unattempted", which is a wrong word for an answer that was given. The verdict is asked for again when the answer changes, and not
+ * otherwise: a changed answer is an event not yet sent, which unmounts this until it has been, and then the verdict is asked for afresh. Nothing here remembers the old one.
+ */
+function Judged({
+  practice,
+  slotId,
+  answered,
+  saved,
+}: {
+  readonly practice: PracticeLinks;
+  readonly slotId: string;
+  readonly answered: { readonly answer: unknown; readonly timeOnItemMs: number; readonly answerChanges: number; readonly flagged: boolean } | undefined;
+  readonly saved: boolean;
+}): JSX.Element | null {
+  if (answered === undefined || answered.answer == null) return null;
+  if (!saved) return <p role="note">Your answer is saved on this device. It is marked once it has been sent.</p>;
+  const answerKey = JSON.stringify(answered.answer);
+  return (
+    <Verdict
+      key={slotId}
+      ask={() => practice.feedback(slotId)}
+      onTold={(verdict) => practice.told(slotId, answerKey, verdict, { timeOnItemMs: answered.timeOnItemMs, answerChanges: answered.answerChanges, flagged: answered.flagged })}
+    />
+  );
+}
+
+/** One action that adds questions to the run. It succeeds by bringing the run up again with the questions it now has; it fails in words, and the run goes on as it was. */
+function GrowControl({ grow }: { readonly grow: () => Promise<void> }): JSX.Element {
+  const action = useAction(grow, () => undefined);
+  return (
+    <div style={{ padding: TOKENS.spaceSmall }}>
+      <button type="button" onClick={action.go} disabled={action.busy}>
+        {action.busy ? 'Adding questions…' : 'Add more questions'}
+      </button>
+      {action.failure === null ? null : <p role="alert">{action.failure}</p>}
     </div>
   );
 }

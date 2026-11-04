@@ -1,4 +1,9 @@
+import { clientEnvelopeSchema, findPii } from '@questionbank/contracts/analytics';
 import { describe, expect, it } from 'vitest';
+import { AnalyticsEdge } from '../../../../platform/analytics/edge.js';
+import { ServerEmitter } from '../../../../platform/analytics/server-emitter.js';
+import { MemorySink } from '../../../../platform/analytics/sink.js';
+import { logEmission } from '../../../../testing/event-log.js';
 import type { AnswerKeyData } from '../../../scoring/public/index.js';
 import { DEFAULT_TIME_ON_ITEM_INTERVAL_CAP_MS } from '../../../../platform/config/config.js';
 import { InMemoryAttempts, StubCorpus, StubPins } from '../../../../testing/assessment-fakes.js';
@@ -9,7 +14,7 @@ import { startAttempt, submitAttempt, type Attempt } from '../../domain/attempt.
 import { err, ok } from '../../domain/result.js';
 import type { ResponseEvent } from '../../domain/response-event.js';
 import { CreatePracticeAttemptHandler } from '../handlers/practice-handlers.js';
-import { ScorePracticeAttemptConsumer, type PracticeScoringConsumerDependencies } from './practice-scoring-consumer.js';
+import { ScorePracticeAttemptConsumer, type PracticeScoringConsumerDependencies, type RunEvents } from './practice-scoring-consumer.js';
 import { SCORING_CONSUMER_PRINCIPAL_ID, ScoringFailure } from './scoring-consumer.js';
 
 /** The practice consumer's decisions, branch by branch, against doubles. The whole path, through the relay and the real rules, is `practice-loop.integration.spec.ts`. */
@@ -130,6 +135,128 @@ describe('scoring a submitted practice run (M8-25, D77)', () => {
     expect(won.count()).toBe(2);
     const lost = make([conflict, conflict]);
     await expect(lost.consumer.handle({ messageId: 'm', correlationId: 'c', payload: { attemptId: attempt.attemptId } })).rejects.toThrow('CONFLICT');
+  });
+
+  describe('says that a run was completed once it is scored (M8-34, D112)', () => {
+    const outcomes = (...correctness: string[]) => ({ itemOutcomes: correctness.map((c) => ({ correctness: c })) });
+    const SPEC = (attempt: Attempt) => ({ markingRuleSet: { schemaVersion: 1, rules: [] }, markingRuleSetHash: attempt.markingRuleSetHash, aggregation: { sectionAggregation: 'SUM', totalAggregation: 'SUM_OF_SECTIONS', rounding: { mode: 'NONE', decimalPlaces: 0 }, floorAtZero: false }, marksPerItem: 4 });
+    function scoredWith(attempt: Attempt, scores: unknown[], events?: RunEvents) {
+      let calls = 0;
+      return new ScorePracticeAttemptConsumer({
+        attempts: { findById: async () => ok(attempt) },
+        responses: { findByAttempt: async () => ok([]) },
+        keys: { handle: async () => ok(attempt.slots.map((slot) => ({ itemVersionId: slot.itemVersionId, itemType: 'SINGLE_CORRECT_MCQ', answerKey: SINGLE }))) },
+        spec: { handle: async () => ok(SPEC(attempt)) },
+        scorer: { handle: async () => scores[calls++] },
+        ...(events === undefined ? {} : { events }),
+      } as unknown as PracticeScoringConsumerDependencies);
+    }
+    const said = () => {
+      const sent: Parameters<RunEvents['emit']>[0][] = [];
+      return { sent, events: { emit: async (event) => void sent.push(event) } satisfies RunEvents };
+    };
+    const deliver = (consumer: ScorePracticeAttemptConsumer, attempt: Attempt) => consumer.handle({ messageId: 'm', correlationId: 'c', payload: { attemptId: attempt.attemptId } });
+
+    it('with how many were attempted, the share of those that were right, and the time from the start to the submission', async () => {
+      const attempt = await submittedRun();
+      const { sent, events } = said();
+      await deliver(scoredWith(attempt, [ok(outcomes('correct', 'correct', 'incorrect', 'unattempted', 'dropped'))], events), attempt);
+      expect(sent).toEqual([
+        {
+          name: 'practice.session_completed',
+          factKey: attempt.attemptId,
+          occurredAt: '2026-11-04T09:30:00.000Z',
+          actor: attempt.studentId,
+          context: { attempt_id: attempt.attemptId },
+          payload: { items_attempted: 3, accuracy: 0.6667, duration_ms: 29 * 60_000 },
+        },
+      ]);
+    });
+
+    it('also when the first ask to score lost a race and the second won', async () => {
+      const attempt = await submittedRun();
+      const { sent, events } = said();
+      const conflict = err({ kind: 'Conflict', code: 'CONFLICT', message: 'a current score record already exists' });
+      await deliver(scoredWith(attempt, [conflict, ok(outcomes('correct'))], events), attempt);
+      expect(sent.map((event) => event.payload)).toEqual([{ items_attempted: 1, accuracy: 1, duration_ms: 29 * 60_000 }]);
+    });
+
+    it('says nothing of a run in which nothing was answered: there is no accuracy to state', async () => {
+      const attempt = await submittedRun();
+      const { sent, events } = said();
+      await deliver(scoredWith(attempt, [ok(outcomes('unattempted', 'unattempted')), ok({})], events), attempt);
+      await deliver(scoredWith(attempt, [ok({})], events), attempt);
+      expect(sent).toEqual([]);
+    });
+
+    it('says nothing of a run that has no start or no submission to measure between, and does not fail the delivery for it', async () => {
+      const attempt = await submittedRun();
+      const { sent, events } = said();
+      await deliver(scoredWith({ ...attempt, startedAt: null } as Attempt, [ok(outcomes('correct'))], events), attempt);
+      await deliver(scoredWith({ ...attempt, submission: null } as Attempt, [ok(outcomes('correct'))], events), attempt);
+      expect(sent).toEqual([]);
+    });
+
+    it('scores the run all the same where nothing listens', async () => {
+      const attempt = await submittedRun();
+      await expect(deliver(scoredWith(attempt, [ok(outcomes('correct'))]), attempt)).resolves.toBeUndefined();
+    });
+
+    it('says nothing when scoring failed, so an event is never ahead of the score', async () => {
+      const attempt = await submittedRun();
+      const { sent, events } = said();
+      await expect(deliver(scoredWith(attempt, [err({ kind: 'Unavailable', code: 'DOWN', message: 'down' })], events), attempt)).rejects.toThrow('DOWN');
+      expect(sent).toEqual([]);
+    });
+  });
+
+  describe('through the real emitter and edge (M8-34)', () => {
+    const rig = (observe: typeof logEmission | null = logEmission) => {
+      const sink = new MemorySink();
+      const edge = new AnalyticsEdge(sink, () => new Date('2026-11-04T10:00:00.000Z'));
+      return { sink, edge, emitter: new ServerEmitter({ edge, appVersion: 'api', ...(observe === null ? {} : { observe }) }) };
+    };
+    const consumerOver = (attempt: Attempt, emitter: ServerEmitter) =>
+      new ScorePracticeAttemptConsumer({
+        attempts: { findById: async () => ok(attempt) },
+        responses: { findByAttempt: async () => ok([]) },
+        keys: { handle: async () => ok(attempt.slots.map((slot) => ({ itemVersionId: slot.itemVersionId, itemType: 'SINGLE_CORRECT_MCQ', answerKey: SINGLE }))) },
+        spec: { handle: async () => ok({ markingRuleSet: { schemaVersion: 1, rules: [] }, markingRuleSetHash: attempt.markingRuleSetHash, aggregation: { sectionAggregation: 'SUM', totalAggregation: 'SUM_OF_SECTIONS', rounding: { mode: 'NONE', decimalPlaces: 0 }, floorAtZero: false }, marksPerItem: 4 }) },
+        scorer: { handle: async () => ok({ itemOutcomes: [{ correctness: 'correct' }, { correctness: 'incorrect' }] }) },
+        events: emitter,
+      } as unknown as PracticeScoringConsumerDependencies);
+    const deliver = (consumer: ScorePracticeAttemptConsumer, attempt: Attempt) => consumer.handle({ messageId: 'm', correlationId: 'c', payload: { attemptId: attempt.attemptId } });
+
+    it('emits practice.session_completed as a valid server envelope for the learner, with no personal data in it', async () => {
+      const attempt = await submittedRun();
+      const { sink, edge, emitter } = rig();
+      await deliver(consumerOver(attempt, emitter), attempt);
+      expect(sink.events).toHaveLength(1);
+      const { received_at: _stamp, ...built } = sink.events[0]!;
+      expect(clientEnvelopeSchema.safeParse(built).success).toBe(true);
+      expect(sink.events[0]).toMatchObject({ event_name: 'practice.session_completed', surface: 'server', actor: { kind: 'human', pseudonymous_id: attempt.studentId }, payload: { items_attempted: 2, accuracy: 0.5, duration_ms: 29 * 60_000 }, context: { attempt_id: attempt.attemptId } });
+      expect(findPii(sink.events)).toEqual([]);
+      expect(edge.stats()).toMatchObject({ accepted: 1, quarantined: { UNKNOWN_EVENT_NAME: 0, INVALID_ENVELOPE: 0, PII: 0 } });
+    });
+
+    it('counts a run once when the relay delivers it twice, or when it is scored again: the event\'s id is the run\'s', async () => {
+      const attempt = await submittedRun();
+      const { sink, edge, emitter } = rig();
+      const consumer = consumerOver(attempt, emitter);
+      await deliver(consumer, attempt);
+      await deliver(consumer, attempt);
+      expect(sink.events).toHaveLength(1);
+      expect(edge.stats()).toMatchObject({ accepted: 1, duplicates: 1 });
+    });
+
+    it('refuses the same event with an email for its actor, so the scan sees it', async () => {
+      // planted on purpose, and so not logged as an emission
+      const attempt = await submittedRun();
+      const { sink, edge, emitter } = rig(null);
+      await deliver(consumerOver({ ...attempt, studentId: 'asha.verma@example.com' } as Attempt, emitter), attempt);
+      expect(sink.events).toEqual([]);
+      expect(edge.stats().quarantined.PII + edge.stats().quarantined.INVALID_ENVELOPE).toBe(1);
+    });
   });
 
   it('is named, for the relay\'s report and an operator\'s log', () => {

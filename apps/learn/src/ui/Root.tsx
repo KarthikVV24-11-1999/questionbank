@@ -2,6 +2,7 @@ import { useEffect, useState, type JSX } from 'react';
 import type { BootResult } from '../bootstrap.js';
 import type { PackageRefusal } from '../package/load.js';
 import { LearnApp } from './LearnApp.js';
+import type { PracticeLinks } from './practice-links.js';
 
 /**
  * The root: brings the sitting up and keeps it moving. It holds one thing of its own — how booting went — and none of it is the attempt.
@@ -19,6 +20,8 @@ export interface RootProps {
   readonly onUpdateWanted?: () => void;
   /** Given for a practice run, which can be put down: where "back" goes. */
   readonly leaveHref?: string;
+  /** Given for a practice run: the server's word on an answer, and the means of adding questions. */
+  readonly practice?: PracticeLinks;
 }
 
 const PUMP_EVERY_MS = 1_000;
@@ -31,7 +34,7 @@ const REFUSALS: Readonly<Record<PackageRefusal, string>> = {
   NOT_A_PACKAGE_THIS_BUILD_UNDERSTANDS: 'This paper needs a newer version of this app. Reload the page to update.',
 };
 
-export function Root({ boot, every, onOnline, onUpdateWanted, leaveHref }: RootProps): JSX.Element {
+export function Root({ boot, every, onOnline, onUpdateWanted, leaveHref, practice }: RootProps): JSX.Element {
   const [booted, setBooted] = useState<BootResult | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
 
@@ -67,12 +70,12 @@ export function Root({ boot, every, onOnline, onUpdateWanted, leaveHref }: RootP
   if (booted === null) return <p role="status">Opening your paper…</p>;
   if (booted.kind === 'package-refused') return <p role="alert">{REFUSALS[booted.refusal]}</p>;
   if (booted.kind === 'cannot-start') return <p role="alert">The attempt could not be started: {booted.reason}.</p>;
-  if (booted.discarded === undefined) return <LearnApp session={booted.session} form={booted.form} {...(leaveHref === undefined ? {} : { leaveHref })} />;
+  if (booted.discarded === undefined) return <LearnApp session={booted.session} form={booted.form} {...(leaveHref === undefined ? {} : { leaveHref })} {...(practice === undefined ? {} : { practice })} />;
   // Said once, above the paper (DEC-M7-34): the device held answers the server never had and could not be reconciled with it.
   return (
     <>
       <p role="note">Some of your earlier answers could not be found on the server, so this paper has started again from the beginning.</p>
-      <LearnApp session={booted.session} form={booted.form} {...(leaveHref === undefined ? {} : { leaveHref })} />
+      <LearnApp session={booted.session} form={booted.form} {...(leaveHref === undefined ? {} : { leaveHref })} {...(practice === undefined ? {} : { practice })} />
     </>
   );
 }

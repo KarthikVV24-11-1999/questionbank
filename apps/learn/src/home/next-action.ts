@@ -8,10 +8,15 @@ import type { LearningApi } from '../api/learning-api.js';
  * due, most overdue first as the plan gives it; then the weakest concept, if the screen has been told which taxonomy to ask about; then the report of
  * the last sitting, if there is one. A concept whose escalation was resolved is not in the plan (D85), so it is not here.
  *
+ * **A learner who has answered nothing is offered the diagnostic** (M8-32, FR-STU-03, DEC-M8-19 in docs/IMPLEMENTATION-DECISIONS.md): after those three, which all come from evidence and so are empty for such a learner, and before the report of a sitting. They are offered
+ * it when they have declared what they have studied and the map of their exam's syllabus holds no answer yet; with no scope declared there is nothing to take a short run across, and with any answer on the map
+ * they have already begun. The decision is made here and nowhere else: the server knows a breadth strategy and not a diagnostic. If the map cannot be read the invitation is left out, because it must never be why home does not open.
+ *
  * The sources are asked in that order and the asking stops at the first that has an answer: a learner with an escalation has no use for the others.
  */
 export type NextAction =
   | { readonly kind: 'practise'; readonly why: 'escalated' | 'due' | 'weakest'; readonly conceptIdentityId: string; readonly taxonomyVersionId: string }
+  | { readonly kind: 'diagnostic' }
   | { readonly kind: 'read-report'; readonly attemptId: string }
   | { readonly kind: 'nothing' };
 
@@ -19,6 +24,8 @@ export interface NextActionSources {
   readonly learning: LearningApi;
   /** Which taxonomy to ask the remediation route about; absent, "weakest" cannot be asked and is skipped. */
   readonly taxonomyVersionId: string | null;
+  /** Whether the learner has declared what they have studied: without it a diagnostic has nothing to be taken across. */
+  readonly declaredScope?: boolean;
   /** The attempt this device last sat, whose report is looked for last. */
   readonly lastAttemptId: string | null;
 }
@@ -38,6 +45,11 @@ export async function chooseNextAction(sources: NextActionSources): Promise<Next
   if (sources.taxonomyVersionId !== null) {
     const weakest = (await sources.learning.suggestRemediation(sources.taxonomyVersionId))[0];
     if (weakest !== undefined) return { kind: 'practise', why: 'weakest', conceptIdentityId: weakest, taxonomyVersionId: sources.taxonomyVersionId };
+  }
+
+  if (sources.declaredScope === true && sources.taxonomyVersionId !== null) {
+    const map = await sources.learning.getConceptMap().catch(() => null);
+    if (map !== null && map.assessedCount === 0) return { kind: 'diagnostic' };
   }
 
   if (sources.lastAttemptId !== null) {
