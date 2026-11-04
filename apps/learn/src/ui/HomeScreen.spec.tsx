@@ -45,6 +45,7 @@ describe('the home screen (M7-57)', () => {
 
     const weakest = new FakeLearningApi();
     weakest.weakest = [concept(3)];
+    weakest.map = conceptMap([mapped(3, { kind: 'asserted', state: 'weak', confidence: 0.7 })]);
     open(weakest);
     expect(await screen.findByText('This is the topic you are weakest on.')).toBeInTheDocument();
   });
@@ -304,6 +305,52 @@ describe('the home screen (M7-57)', () => {
     const { view } = open(learning, {}, server(), new FakeProfileApi());
     await screen.findByRole('note');
     expectNoDomainVocabulary(view.container);
+  });
+
+  describe('how sure the weakest topic is said to be (M8-37, D117)', () => {
+    const HEDGED = 'This is the topic you are weakest on so far. You have not answered enough on it yet for us to be sure.';
+    const weakestWith = (standing: Parameters<typeof mapped>[1] | null) => {
+      const learning = new FakeLearningApi();
+      learning.weakest = [concept(3)];
+      if (standing !== null) learning.map = conceptMap([mapped(3, standing)]);
+      return learning;
+    };
+
+    it('states it plainly when the standing is asserted', async () => {
+      open(weakestWith({ kind: 'asserted', state: 'weak', confidence: 0.8 }));
+      expect(await screen.findByText('This is the topic you are weakest on.')).toBeInTheDocument();
+      expect(screen.queryByText(HEDGED)).toBeNull();
+    });
+
+    it('says "so far" when the standing is tentative: the same sentence the map would not call a fact', async () => {
+      open(weakestWith({ kind: 'tentative', leaning: 'weak' }));
+      expect(await screen.findByText(HEDGED)).toBeInTheDocument();
+      expect(screen.queryByText('This is the topic you are weakest on.')).toBeNull();
+    });
+
+    it('says "so far" when the topic is not on the map, or the map could not be read: not knowing is not a reason to sound sure', async () => {
+      open(weakestWith(null));
+      expect(await screen.findByText(HEDGED)).toBeInTheDocument();
+      cleanup();
+      const unreadable = weakestWith(null);
+      unreadable.map = unreachable();
+      open(unreadable);
+      expect(await screen.findByText(HEDGED)).toBeInTheDocument();
+    });
+
+    it('asks how the topic stands only for the weakest topic: an escalation or a review that is due needs no map', async () => {
+      const learning = new FakeLearningApi();
+      learning.plan = plan({ due: [scheduled(1)] });
+      open(learning);
+      await screen.findByText('This topic is due for review.');
+      expect(learning.calls).not.toContain('getConceptMap');
+    });
+
+    it('says a standing that was not stated in words that do not leave the home screen\'s vocabulary', async () => {
+      const { view } = open(weakestWith({ kind: 'tentative', leaning: 'weak' }));
+      await screen.findByText(HEDGED);
+      expectNoDomainVocabulary(view.container);
+    });
   });
 
   describe('the diagnostic (M8-32)', () => {

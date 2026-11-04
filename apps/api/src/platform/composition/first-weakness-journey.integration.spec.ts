@@ -40,6 +40,7 @@ let background: Background;
 let syllabus: PublishedSyllabus;
 const mail = new MemoryMail();
 const sink = new MemorySink();
+let clockAt = NOW;
 const http = () => request(app.getHttpServer());
 
 beforeAll(async () => {
@@ -53,7 +54,7 @@ beforeAll(async () => {
       await publishItem(database.pool, { ...content, taxonomyTags: [{ conceptIdentityId: concept, taxonomyVersionId: syllabus.taxonomyVersionId, weight: 1, isPrimary: true }] });
     }
   }
-  app = await createApplication(CONFIG, { pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => new Date(NOW) }, identifiers: uuidFactory, mail, limiter: unlimited, analyticsSink: sink });
+  app = await createApplication(CONFIG, { pool: database.pool, telemetry: createRecordingTelemetry(), clock: { now: () => new Date(clockAt) }, identifiers: uuidFactory, mail, limiter: unlimited, analyticsSink: sink });
   await serveOnLoopback(app);
   background = app.get<Background>(BACKGROUND);
 }, 120_000);
@@ -85,7 +86,7 @@ function answersFor(slotIds: readonly string[], choices: readonly (string | null
 
 async function settle(): Promise<void> {
   for (let round = 0; round < 4; round += 1) {
-    if ((await background.relay.drain(new Date(NOW))).delivered === 0) return;
+    if ((await background.relay.drain(new Date(clockAt))).delivered === 0) return;
   }
 }
 
@@ -246,15 +247,33 @@ describe('an abandoned diagnostic (FR-STU-03 rule 4)', () => {
     expect(map.unassessedCount).toBe(2);
   });
 
-  it('gives no map at all when it is left without being finished: answers given and never submitted are not evidence (D116)', async () => {
+  it('gives no map while it is left unfinished: answers given and not yet submitted are not evidence, until the sweep finishes the run for the learner (D116)', async () => {
     const who = await signUp(async (_step, run) => run());
     await onboard(who, async (_step, run) => run());
     const run = await startDiagnostic(who);
     const choices = run.slotIds.map((_, index) => (index < 5 ? 'b' : null));
     expect((await send(who, run.attemptId, answersFor(run.slotIds, choices, run.attemptId))).status).toBe(200);
     await settle();
+    expect((await mapOf(who)).concepts).toEqual([]);
+
+    // a day later nothing has happened to the run: within the time it is left alone
+    clockAt = '2026-11-05T09:00:00.000Z';
+    await background.scheduler.tick(new Date(clockAt));
+    await settle();
+    expect((await mapOf(who)).concepts).toEqual([]);
+
+    // three days on, the sweep finishes it for the learner, by the same path their own finishing takes, and their answers are in the map
+    clockAt = '2026-11-08T09:00:00.000Z';
+    await background.scheduler.tick(new Date(clockAt));
+    await settle();
     const map = await mapOf(who);
-    expect(map.concepts).toEqual([]);
-    expect(map.unassessedCount).toBe(4);
+    expect(map.concepts.length).toBeGreaterThanOrEqual(4);
+    expect(map.assessedCount).toBe(4);
+    const said = sink.events.filter((event) => event.context['attempt_id'] === run.attemptId).map((event) => event.event_name);
+    expect(said).toEqual(['practice.session_abandoned']);
+    const abandoned = sink.events.find((event) => event.event_name === 'practice.session_abandoned' && event.context['attempt_id'] === run.attemptId)!;
+    // five attempted, all right; the event is the sweep's reading of how the run ended, and the run is not also said to be completed
+    expect(abandoned.payload).toMatchObject({ items_attempted: 5, accuracy: 1 });
+    clockAt = NOW;
   });
 });

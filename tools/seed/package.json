@@ -5,7 +5,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "seed": "vite-node seed.ts"
+    "seed": "vite-node seed.ts",
+    "seed:items": "vite-node demo-items.run.ts"
   },
   "dependencies": {
     "@questionbank/domain-types": "workspace:*",

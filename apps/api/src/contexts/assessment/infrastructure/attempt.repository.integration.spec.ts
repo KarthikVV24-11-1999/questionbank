@@ -396,6 +396,76 @@ describe('finding attempts whose deadline has passed (M6-42)', () => {
   });
 });
 
+describe('finding the practice runs left alone (M8-36, D116)', () => {
+  const run = (n: number) => anAttempt({ attemptId: id(TAG.attempt, n), studentId: id(TAG.student, n), mode: 'practice', formId: null, sessionRef: null, shiftId: null, windowClosesAt: null, durationMs: null, deliveryPolicy: { timing: 'untimed', navigation: 'free', pausable: true }, slots: slots(1).map((slot) => ({ ...slot, slotId: id(TAG.slot, 50 + n), itemId: id(TAG.item, 50 + n), itemVersionId: id(TAG.itemVersion, 50 + n) })) });
+  async function started(n: number, at: string) {
+    const created = run(n);
+    expectValue(await attempts.create(created));
+    const begun = expectValue(startAttempt(created, at));
+    expectValue(await attempts.save(begun, 'created'));
+    return begun;
+  }
+  const heardFrom = (attemptId: string, n: number, at: string) =>
+    database.pool.query(
+      `INSERT INTO assessment.response_event (event_id, attempt_id, slot_id, item_version_id, sequence, kind, client_monotonic_ms, server_received_at, device_ref)
+       VALUES ($1, $2, $3, $4, 1, 'visit', 1000, $5, 'phone')`,
+      [id(TAG.event, n), attemptId, id(TAG.slot, 50 + n), id(TAG.itemVersion, 50 + n), at],
+    );
+  const idle = async (before: string, limit = 10) => expectValue(await attempts.findIdlePracticeRuns(before, limit)).map((a) => a.attemptId);
+
+  it('finds a run by the last time the server heard from it, and a run it never heard from by its start', async () => {
+    const silent = await started(2, '2026-11-01T09:00:00.000Z');
+    const spoke = await started(3, '2026-11-01T09:00:00.000Z');
+    await heardFrom(spoke.attemptId, 3, '2026-11-03T20:00:00.000Z');
+    expect(await idle('2026-11-01T08:59:59.999Z')).toEqual([]);
+    expect(await idle('2026-11-01T09:00:00.000Z')).toEqual([silent.attemptId]);
+    // the run that spoke is as old as its last word and not its start
+    expect(await idle('2026-11-03T19:59:59.999Z')).toEqual([silent.attemptId]);
+    expect(await idle('2026-11-03T20:00:00.000Z')).toEqual([silent.attemptId, spoke.attemptId].sort());
+  });
+
+  it('counts the latest event of any kind, not the first, and honours a limit', async () => {
+    const first = await started(2, '2026-11-01T09:00:00.000Z');
+    await heardFrom(first.attemptId, 2, '2026-11-01T10:00:00.000Z');
+    await database.pool.query(`INSERT INTO assessment.response_event (event_id, attempt_id, slot_id, item_version_id, sequence, kind, client_monotonic_ms, server_received_at, device_ref) VALUES ($1, $2, $3, $4, 2, 'leave', 2000, '2026-11-02T10:00:00Z', 'phone')`, [id(TAG.event, 90), first.attemptId, id(TAG.slot, 52), id(TAG.itemVersion, 52)]);
+    expect(await idle('2026-11-01T12:00:00.000Z')).toEqual([]);
+    expect(await idle('2026-11-02T10:00:00.000Z')).toEqual([first.attemptId]);
+    const second = await started(3, '2026-11-01T09:00:00.000Z');
+    expect(await idle('2026-11-02T10:00:00.000Z', 1)).toHaveLength(1);
+    expect(await idle('2026-11-02T10:00:00.000Z')).toEqual([first.attemptId, second.attemptId].sort());
+  });
+
+  it('does not find a mock, a run that is not in progress, or a run not yet started', async () => {
+    expectValue(await attempts.create(run(2)));
+    const done = await started(3, '2026-11-01T09:00:00.000Z');
+    expectValue(await attempts.save(expectValue(submitAttempt(done, { reason: 'manual', idempotencyKey: 'k' }, '2026-11-01T10:00:00.000Z')), 'in_progress'));
+    const mock = anAttempt({ attemptId: id(TAG.attempt, 4), studentId: id(TAG.student, 4) });
+    expectValue(await attempts.create(mock));
+    expectValue(await attempts.save(expectValue(startAttempt(mock, '2026-10-21T09:00:00.000Z')), 'created'));
+    expect(await idle('2027-01-01T00:00:00.000Z')).toEqual([]);
+  });
+
+  it('refuses to load a stored run that no longer satisfies the domain, and says the store is unavailable when it cannot be asked', async () => {
+    expectValue(await attempts.create(run(2)));
+    // the database would never let this row exist (a run with a deadline), so its guards are lifted for one statement and put back
+    await database.pool.query('ALTER TABLE assessment.attempt DISABLE TRIGGER attempt_guarded_update');
+    await database.pool.query('ALTER TABLE assessment.attempt DROP CONSTRAINT attempt_state_shape');
+    try {
+      await database.pool.query(`UPDATE assessment.attempt SET state = 'in_progress', started_at = '2026-11-01T09:00:00Z', deadline_at = '2026-11-01T10:00:00Z'`);
+      expect(expectError(await attempts.findIdlePracticeRuns('2027-01-01T00:00:00.000Z', 10)).code).toBe('PERSISTENCE_REJECTED');
+    } finally {
+      await database.pool.query(`UPDATE assessment.attempt SET state = 'created', started_at = NULL, deadline_at = NULL`);
+      await database.pool.query(SHAPE_CHECK);
+      await database.pool.query('ALTER TABLE assessment.attempt ENABLE TRIGGER attempt_guarded_update');
+    }
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: 'postgres://postgres@127.0.0.1:1/none', connectionTimeoutMillis: 200 });
+    pool.on('error', () => undefined);
+    expect(expectError(await new PostgresAttemptRepository(pool).findIdlePracticeRuns('2027-01-01T00:00:00.000Z', 1)).code).toBe('STORE_UNAVAILABLE');
+    await pool.end().catch(() => undefined);
+  });
+});
+
 describe('finding the attempt a creation key already made (M7-19)', () => {
   it('finds nothing for a key that made nothing, and the attempt for the key that made it, and only for that student', async () => {
     expect(expectValue(await attempts.findByCreationKey(id(TAG.student), 'key-1'))).toBeUndefined();
@@ -446,8 +516,9 @@ describe('what the store refuses', () => {
   });
 });
 
+/** The constraint as the latest migration leaves it (a deadline follows timing, not the start alone), so that putting it back does not change what the tests after it run against. */
 const SHAPE_CHECK = `ALTER TABLE assessment.attempt ADD CONSTRAINT attempt_state_shape CHECK (
-  (started_at IS NULL) = (deadline_at IS NULL) AND CASE state
+  (deadline_at IS NOT NULL) = (is_timed AND started_at IS NOT NULL) AND CASE state
     WHEN 'created' THEN started_at IS NULL AND submitted_at IS NULL AND submission_reason IS NULL AND idempotency_key IS NULL AND abandoned_at IS NULL
     WHEN 'in_progress' THEN started_at IS NOT NULL AND submitted_at IS NULL AND submission_reason IS NULL AND idempotency_key IS NULL AND abandoned_at IS NULL
     WHEN 'submitted' THEN started_at IS NOT NULL AND submitted_at IS NOT NULL AND submission_reason IS NOT NULL AND idempotency_key IS NOT NULL AND abandoned_at IS NULL

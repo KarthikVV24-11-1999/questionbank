@@ -1,0 +1,11 @@
+# What an image build does not need to be sent (M8-38): dependencies are installed inside the image, and build output, reports and local state are not source.
+**/node_modules
+**/dist
+**/coverage
+.git
+.github
+.DS_Store
+.env
+.env.*
+tools/adversarial/failures
+apps/api/var

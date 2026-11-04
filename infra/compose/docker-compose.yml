@@ -1,15 +1,27 @@
 name: questionbank
 
-# Local Compose parity for TECH-STACK §14 (M0-20). Tier 2 (ADR-0013): this
-# file is authored and asserted by parsing it — compose-rules.spec.ts checks
-# every property named below. Nothing here has been booted on this machine;
-# F8 stays Fail — blocked until it has. The verification to run when a
-# machine with Docker exists:
+# Local and staging Compose for TECH-STACK §14 (M0-20, M8-38, M8-39).
 #
-#   docker compose -f infra/compose/docker-compose.yml up --wait
+# Tier 1 (ADR-0013, ADR-0023) since M8 Track I, and no longer Tier 2: the `compose` job in .github/workflows/ci.yml builds the images, brings this stack up with `--wait`, applies the migrations,
+# loads the seed, and runs the journey from sign-up to a first named weakness against it over HTTP. That job's exit code is the claim, and F8 in docs/ARCHITECTURE.md
+# carries the time it measured and the run it came from. `compose-rules.spec.ts` still asserts the properties of this file by parsing it, which is a different and weaker thing.
+# No boot time is claimed anywhere in this repository that a run of that job did not measure.
 #
-# No boot time is claimed anywhere in this repository until that command has
-# actually been run once and timed.
+#   docker compose -f infra/compose/docker-compose.yml build
+#   docker compose -f infra/compose/docker-compose.yml up -d --wait postgres
+#   docker compose -f infra/compose/docker-compose.yml run --rm --no-deps api node migrate.js
+#   docker compose -f infra/compose/docker-compose.yml up -d --wait
+#   DATABASE_URL=postgres://postgres@localhost:5432/questionbank pnpm seed && pnpm --filter @questionbank/seed run seed:items
+#
+# The secrets are references and are supplied by whoever runs the stack: AUTH_SIGNING_KEY, AUDIT_ANCHOR_KEY and FORM_PACKAGE_SIGNING_KEY, each 32 random bytes, base64 (`openssl rand -base64 32`),
+# and the three different. Nothing here holds one.
+#
+# NODE_ENV is `development` on purpose. A production process has no mail provider (it is a decision not yet taken) and refuses to send, so nobody can register; a development one writes
+# each message to a file (QB_MAIL_DIR, a directory or, by default, a volume). The stack is for a person on a machine or a staging VM, not for the public.
+#
+# There is no `ai-fixture` service. It was a local stand-in for an AI provider and nothing in the application or the beta path calls one (the generation pipeline runs against its own
+# fixtures in tests), so the service, its build context and the API's dependency on it were removed rather than a fixture written for a dependency nobody has. `valkey` and `minio` are
+# the same: the application uses neither (no cache or queue; media is a directory), so they are kept for parity with TECH-STACK §14 under the `parity` profile and are not started by default.
 
 services:
   postgres:
@@ -29,6 +41,7 @@ services:
 
   valkey:
     image: valkey/valkey:8.0
+    profiles: ['parity']
     healthcheck:
       test: ['CMD', 'valkey-cli', 'ping']
       interval: 5s
@@ -38,6 +51,7 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+    profiles: ['parity']
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: questionbank
@@ -46,25 +60,11 @@ services:
       - '9000:9000'
       - '9001:9001'
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
-
-  ai-fixture:
-    build:
-      context: ./ai-fixture
-    ports:
-      - '4100:4100'
-    environment:
-      PORT: '4100'
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:4100/health']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
 
   api:
     build:
@@ -74,28 +74,44 @@ services:
       - '3000:3000'
     environment:
       DATABASE_URL: postgres://postgres@postgres:5432/questionbank
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: '3000'
       AUTH_SIGNING_KEY: ${AUTH_SIGNING_KEY}
+      AUDIT_ANCHOR_KEY: ${AUDIT_ANCHOR_KEY}
+      FORM_PACKAGE_SIGNING_KEY: ${FORM_PACKAGE_SIGNING_KEY}
       AUTH_ISSUER: questionbank
       AUTH_TOKEN_TTL_SECONDS: '3600'
-      MEDIA_STORAGE_ROOT: /var/media
+      MEDIA_STORAGE_ROOT: /var/media/files
       LOG_LEVEL: info
+      # the learner app and Studio reach this process through a proxy that sets X-Forwarded-For, so the rate limits count the learner's address and not the proxy's
+      TRUST_PROXY_HOPS: '1'
+    volumes:
+      - ${QB_MAIL_DIR:-qb-mail}:/var/media/mail
     depends_on:
       postgres:
         condition: service_healthy
-      valkey:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      ai-fixture:
-        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3000/healthz']
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:3000/healthz']
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 15s
+
+  learn:
+    build:
+      context: ../..
+      dockerfile: apps/learn/Dockerfile
+    ports:
+      - '8080:8080'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:8080/']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   studio:
     build:
@@ -107,8 +123,11 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:4173/']
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:4173/']
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
+
+volumes:
+  qb-mail:

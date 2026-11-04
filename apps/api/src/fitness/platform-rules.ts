@@ -27,7 +27,8 @@ export interface EnvReadViolation {
  * the marker every vitest runner sets and nothing else this file's callers
  * use — to decide whether importing this module should also boot it; a
  * config-shaped value never reaches that check; `bootstrap-admin.ts` (M8-12) makes the same check for the same reason, and takes its database address from
- * the typed configuration. A file added to this list is
+ * the typed configuration. `migrate.ts` (M8-39) reads `DATABASE_URL` and `MIGRATIONS_DIR` itself and nothing else: the migrator runs before the server, in a container that
+ * is given the database address, and loading the typed configuration would make it require the three signing keys it never uses. A file added to this list is
  * a reviewed diff; a file reading `process.env` without being added here
  * fails the check instead.
  */
@@ -36,6 +37,7 @@ export const ENV_READ_ALLOWLIST = [
   'src/testing/database.ts',
   'src/main.ts',
   'src/bootstrap-admin.ts',
+  'src/migrate.ts',
 ] as const;
 
 const ENV_READ_PATTERN = /\bprocess\s*\.\s*env\b/u;

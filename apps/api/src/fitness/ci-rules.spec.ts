@@ -83,6 +83,18 @@ describe('planted violations — one per assertion', () => {
     expect(checkWorkflow(mutated).filter((v) => v.rule === 'CONDITIONAL_STEP')).toHaveLength(2);
   });
 
+  it('the stack\'s job is required, and runs the boot script by name, which holds the budget and the checks', () => {
+    expect(REQUIRED_JOBS).toContain('compose');
+    const dropped = JSON.parse(JSON.stringify(real));
+    delete dropped.jobs!['compose'];
+    expect(checkWorkflow(dropped).some((v) => v.rule === 'MISSING_JOB' && v.detail === 'compose')).toBe(true);
+    const renamed = JSON.parse(JSON.stringify(real));
+    (renamed.jobs!['compose']!.steps as unknown as { run?: string }[]).push({ run: 'docker compose up --wait' });
+    renamed.jobs!['compose']!.steps = (renamed.jobs!['compose']!.steps as unknown as { run?: string }[]).filter((step) => !(step.run ?? '').includes('boot.mjs'));
+    expect(checkWorkflow(renamed).some((v) => v.rule === 'COMPOSE_NOT_INVOKED_BY_NAME')).toBe(true);
+    expect(checkWorkflow(real).filter((v) => v.rule === 'COMPOSE_NOT_INVOKED_BY_NAME')).toEqual([]);
+  });
+
   it('a dropped required job is a violation', () => {
     const mutated = structuredClone(real) as typeof real;
     delete mutated.jobs!['integration'];

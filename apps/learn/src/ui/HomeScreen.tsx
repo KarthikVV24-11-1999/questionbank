@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import type { AssessmentApi } from '../api/assessment-api.js';
 import type { LearningApi, ProfileApi } from '../api/learning-api.js';
-import type { LearnerProfileDto } from '../api/learning-schemas.js';
+import type { LearnerProfileDto, StandingDto } from '../api/learning-schemas.js';
 import { DIAGNOSTIC_LENGTH } from '../practice/start-practice.js';
 import { pinsOf, type ExamPins } from '../home/exam-pins.js';
 import { chooseNextAction, type NextAction } from '../home/next-action.js';
@@ -12,17 +12,34 @@ import { PractiseButton } from './PractiseButton.js';
 import { screenHref, type ScreenContext } from './screen-context.js';
 import { useRemote } from './use-remote.js';
 
-const WHY: Record<'escalated' | 'due' | 'weakest', string> = {
+const WHY = {
   escalated: 'This topic keeps slipping, so more of the same will not fix it. Work on it directly.',
   due: 'This topic is due for review.',
-  weakest: 'This is the topic you are weakest on.',
-};
+} as const;
+
+/**
+ * Why the weakest topic is the one to work on, said as sure as the map is (M8-37, D117). The map says a standing with too few answers is *too early to say*; this screen used to call the same topic "the topic you are weakest on",
+ * so the two disagreed about how sure the product was. The sentence is chosen by the standing's own kind: stated plainly only when the standing is asserted, and otherwise as what it is, a starting point from the answers so far. A topic whose
+ * standing could not be read is hedged the same way, because not knowing is not a reason to sound sure.
+ */
+function weakestBecause(standing: StandingDto | null): string {
+  switch (standing?.kind) {
+    case 'asserted':
+      return 'This is the topic you are weakest on.';
+    case 'tentative':
+    case 'unassessed':
+    case undefined:
+      return 'This is the topic you are weakest on so far. You have not answered enough on it yet for us to be sure.';
+  }
+}
 
 interface Home {
   /** `null` where the profile could not be read: the invitation to say who you are is never why a learner cannot get on. */
   readonly profile: LearnerProfileDto | null;
   readonly pins: ExamPins | null;
   readonly action: NextAction;
+  /** How the topic the action is about stands now, where the action is the weakest topic; `null` where it is another action, or the map could not be read. */
+  readonly standing: StandingDto | null;
   readonly names: TopicNames;
 }
 
@@ -32,7 +49,10 @@ async function loadHome(learning: LearningApi, profiles: Pick<ProfileApi, 'getPr
   const pins = pinsOf(profile);
   const action = await chooseNextAction({ learning, taxonomyVersionId: pins?.taxonomyVersionId ?? null, declaredScope: profile?.scope != null, lastAttemptId });
   const names = action.kind === 'practise' ? await nameTopicsSoftly(learning, [{ taxonomyVersionId: action.taxonomyVersionId, conceptIdentityId: action.conceptIdentityId }]) : NO_NAMES;
-  return { profile, pins, action, names };
+  // the weakest topic is said as sure as the map is, so the map is asked how it stands; the invitation and every other action need no more than they have
+  const map = action.kind === 'practise' && action.why === 'weakest' ? await learning.getConceptMap().catch(() => null) : null;
+  const standing = map?.concepts.find((topic) => action.kind === 'practise' && topic.conceptIdentityId === action.conceptIdentityId)?.standing ?? null;
+  return { profile, pins, action, standing, names };
 }
 
 function Action({ home, assessment, context, onOpen }: { readonly home: Home; readonly assessment: Pick<AssessmentApi, 'createPracticeAttempt' | 'createDiagnosticAttempt' | 'startAttempt'>; readonly context: ScreenContext; readonly onOpen: (href: string) => void }): JSX.Element {
@@ -43,7 +63,7 @@ function Action({ home, assessment, context, onOpen }: { readonly home: Home; re
       <>
         <h2>{topicName(names, action.conceptIdentityId)}</h2>
         {place === '' ? null : <p aria-label="Where it sits in the syllabus">{place}</p>}
-        <p>{WHY[action.why]}</p>
+        <p>{action.why === 'weakest' ? weakestBecause(home.standing) : WHY[action.why]}</p>
         <PractiseButton conceptIdentityId={action.conceptIdentityId} label="Practise this" source="recommendation" exam={home.pins} assessment={assessment} context={context} onOpen={onOpen} />
       </>
     );

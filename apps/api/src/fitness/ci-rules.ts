@@ -32,7 +32,7 @@ interface Workflow {
   jobs?: Record<string, WorkflowJob>;
 }
 
-export const REQUIRED_JOBS = ['typecheck', 'unit', 'integration', 'fitness', 'build'] as const;
+export const REQUIRED_JOBS = ['typecheck', 'unit', 'integration', 'fitness', 'build', 'compose'] as const;
 
 /** A `run:` step containing an inline assertion — the shape DEC-M0-3 forbids. */
 const INLINE_ASSERTION_PATTERN = /\bgrep\b.*&&\s*exit\s*1|\btest\s+-[a-z]\s|\[\[.*\]\]\s*\|\|\s*exit/u;
@@ -85,6 +85,12 @@ export function checkWorkflow(workflow: Workflow): CiViolation[] {
   const fitnessSteps = (jobs['fitness']?.steps ?? []).map((step) => step.run ?? '').join('\n');
   if (fitnessSteps.length > 0 && !fitnessSteps.includes('pnpm --filter @questionbank/api fitness')) {
     violations.push({ rule: 'FITNESS_NOT_INVOKED_BY_NAME', detail: 'fitness' });
+  }
+
+  // The same for the stack: the script holds the budget and the checks, and the job runs it by name, so the workflow asserts nothing of its own.
+  const composeSteps = (jobs['compose']?.steps ?? []).map((step) => step.run ?? '').join('\n');
+  if (composeSteps.length > 0 && !composeSteps.includes('node infra/compose/boot.mjs')) {
+    violations.push({ rule: 'COMPOSE_NOT_INVOKED_BY_NAME', detail: 'compose' });
   }
 
   const installSteps = Object.values(jobs).flatMap((job) => job.steps ?? []).map((step) => step.run ?? '');

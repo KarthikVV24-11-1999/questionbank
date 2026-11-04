@@ -173,6 +173,32 @@ describe('scoring a submitted practice run (M8-25, D77)', () => {
       ]);
     });
 
+    it('says the run was abandoned, not completed, when the sweep finished it for the learner: one event for a run, by how it ended', async () => {
+      const attempt = await submittedRun();
+      const left = { ...attempt, submission: { ...attempt.submission!, reason: 'expiry' as const, submittedAt: '2026-11-07T09:00:00.000Z' } } as Attempt;
+      const { sent, events } = said();
+      const consumer = new ScorePracticeAttemptConsumer({
+        attempts: { findById: async () => ok(left) },
+        responses: { findByAttempt: async () => ok([event(left, 1, 'b', 0), { ...event(left, 2, 'a', 1), serverReceivedAt: '2026-11-04T09:20:00.000Z' }, { ...event(left, 3, 'a', 1), serverReceivedAt: '2026-11-04T09:12:00.000Z' }]) },
+        keys: { handle: async () => ok(left.slots.map((slot) => ({ itemVersionId: slot.itemVersionId, itemType: 'SINGLE_CORRECT_MCQ', answerKey: SINGLE }))) },
+        spec: { handle: async () => ok(SPEC(left)) },
+        scorer: { handle: async () => ok(outcomes('correct', 'incorrect', 'unattempted')) },
+        events,
+      } as unknown as PracticeScoringConsumerDependencies);
+      await deliver(consumer, left);
+      expect(sent.map((e) => e.name)).toEqual(['practice.session_abandoned']);
+      // the span is the learner's: from the start to the last time the server heard from the run, and not to the sweep two days later
+      expect(sent[0]).toMatchObject({ factKey: left.attemptId, occurredAt: '2026-11-07T09:00:00.000Z', payload: { items_attempted: 2, accuracy: 0.5, duration_ms: 19 * 60_000 } });
+    });
+
+    it('measures an abandoned run to its submission only where the server heard nothing of it', async () => {
+      const attempt = await submittedRun();
+      const left = { ...attempt, submission: { ...attempt.submission!, reason: 'expiry' as const, submittedAt: '2026-11-07T09:00:00.000Z' } } as Attempt;
+      const { sent, events } = said();
+      await deliver(scoredWith(left, [ok(outcomes('correct'))], events), left);
+      expect(sent[0]!.payload.duration_ms).toBe(Date.parse('2026-11-07T09:00:00.000Z') - Date.parse(left.startedAt!));
+    });
+
     it('also when the first ask to score lost a race and the second won', async () => {
       const attempt = await submittedRun();
       const { sent, events } = said();
@@ -235,6 +261,19 @@ describe('scoring a submitted practice run (M8-25, D77)', () => {
       const { received_at: _stamp, ...built } = sink.events[0]!;
       expect(clientEnvelopeSchema.safeParse(built).success).toBe(true);
       expect(sink.events[0]).toMatchObject({ event_name: 'practice.session_completed', surface: 'server', actor: { kind: 'human', pseudonymous_id: attempt.studentId }, payload: { items_attempted: 2, accuracy: 0.5, duration_ms: 29 * 60_000 }, context: { attempt_id: attempt.attemptId } });
+      expect(findPii(sink.events)).toEqual([]);
+      expect(edge.stats()).toMatchObject({ accepted: 1, quarantined: { UNKNOWN_EVENT_NAME: 0, INVALID_ENVELOPE: 0, PII: 0 } });
+    });
+
+    it('emits practice.session_abandoned as a valid server envelope when the sweep finished the run, and not session_completed', async () => {
+      const attempt = await submittedRun();
+      const left = { ...attempt, submission: { ...attempt.submission!, reason: 'expiry' as const, submittedAt: '2026-11-07T09:00:00.000Z' } } as Attempt;
+      const { sink, edge, emitter } = rig();
+      await deliver(consumerOver(left, emitter), left);
+      expect(sink.events.map((e) => e.event_name)).toEqual(['practice.session_abandoned']);
+      const { received_at: _stamp, ...built } = sink.events[0]!;
+      expect(clientEnvelopeSchema.safeParse(built).success).toBe(true);
+      expect(sink.events[0]).toMatchObject({ surface: 'server', actor: { kind: 'human', pseudonymous_id: left.studentId }, payload: { items_attempted: 2, accuracy: 0.5 }, context: { attempt_id: left.attemptId } });
       expect(findPii(sink.events)).toEqual([]);
       expect(edge.stats()).toMatchObject({ accepted: 1, quarantined: { UNKNOWN_EVENT_NAME: 0, INVALID_ENVELOPE: 0, PII: 0 } });
     });

@@ -17,16 +17,16 @@
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-express": "^11.1.28",
     "@questionbank/attempt-engine": "workspace:*",
+    "@questionbank/content-renderer": "workspace:*",
     "@questionbank/contracts": "workspace:^",
     "@questionbank/domain-types": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.22.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^4.4.3",
-    "@questionbank/content-renderer": "workspace:*",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.28",
@@ -39,6 +39,7 @@
     "@vitest/coverage-v8": "^3.2.7",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "esbuild": "0.28.1",
     "supertest": "^7.2.2",
     "typescript": "^5.7.3",
     "vite-node": "^3.2.4",

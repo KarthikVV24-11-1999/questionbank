@@ -128,6 +128,12 @@ export interface AttemptRepository {
 
   /** In-progress attempts whose server-anchored deadline has passed as of `now`, earliest deadline first: the ones nothing but a sweep will submit if their device never comes back. */
   findExpired(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>>;
+
+  /**
+   * The practice runs in progress whose last activity is at or before `idleBefore` (M8-36, D116): activity is the latest response event of any kind the server holds for the run, or its start where it holds none.
+   * A run has no deadline, so `findExpired` never finds one; this is how a run put down and not picked up comes to a moment that has passed.
+   */
+  findIdlePracticeRuns(idleBefore: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>>;
 }
 
 export interface ResponseLog {

@@ -1,25 +1,19 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { parse } from 'yaml';
 
 /**
- * Tier 2 (ADR-0013): every assertion here is over the **parsed** Compose
- * file, never a runtime property. Nothing in this module claims a boot
- * time or that any container started — F8 stays `Fail — blocked` until
- * `docker compose -f infra/compose/docker-compose.yml up --wait` has
- * actually been run on a machine with Docker, which no assertion here can
- * substitute for.
+ * What can be asserted of the Compose file without running it (ADR-0013). Everything here is over the **parsed** file and the disk it names, never a runtime property: that the
+ * build contexts and Dockerfiles it names exist, that the three secrets are references and not values, that a service that starts by default does not depend on one that does not. Whether
+ * the stack boots is not asserted here and is not claimed by this module: the `compose` job in `.github/workflows/ci.yml` brings it up, and F8 in docs/ARCHITECTURE.md carries what that measured.
+ *
+ * Until M8 Track I this module checked the properties of three services whose build contexts did not exist (debt D38), because a parse sees a `build:` key and never whether it resolves.
+ * The disk is read now; `ai-fixture`, which nothing called, is gone from the file and from this list.
  */
+export const REQUIRED_SERVICES = ['postgres', 'valkey', 'minio', 'api', 'learn', 'studio'] as const;
 
-/**
- * **This list agrees with the file, not with the disk (debt D38).** Three of
- * these services name a build context that does not exist — `./ai-fixture`,
- * `apps/api/Dockerfile`, `apps/studio/Dockerfile`. Nothing here can know that:
- * a parse sees a `build:` key, never whether it resolves, which is the Tier-1
- * property ADR-0013 forbids this module from claiming. The day the stack is
- * actually brought up, either the contexts get built or `ai-fixture` leaves
- * both this list and the file.
- */
-export const REQUIRED_SERVICES = ['postgres', 'valkey', 'minio', 'ai-fixture', 'api', 'studio'] as const;
+/** The secrets the API reads: each is named in the file and its value is the runner's to supply, so each must be a `${NAME}` reference. */
+export const SECRET_ENV = ['AUTH_SIGNING_KEY', 'AUDIT_ANCHOR_KEY', 'FORM_PACKAGE_SIGNING_KEY'] as const;
 
 const HEALTHCHECK_KEYS = ['test', 'interval', 'timeout', 'retries', 'start_period'] as const;
 const KEY_SHAPED_ENV_PATTERN = /_?(API_?KEY|SECRET|TOKEN)$/iu;
@@ -31,7 +25,8 @@ export interface ComposeViolation {
 
 interface ComposeService {
   image?: string;
-  build?: unknown;
+  build?: { context?: string; dockerfile?: string } | string;
+  profiles?: string[];
   ports?: string[];
   healthcheck?: Record<string, unknown>;
   depends_on?: unknown;
@@ -41,6 +36,9 @@ interface ComposeService {
 interface ComposeFile {
   services?: Record<string, ComposeService>;
 }
+
+/** The directory a Compose file's relative paths are read from. */
+export const baseDirOf = (path: string): string => dirname(path);
 
 export function parseCompose(path: string): ComposeFile {
   return parse(readFileSync(path, 'utf8')) as ComposeFile;
@@ -57,8 +55,8 @@ function serviceEnvEntries(service: ComposeService): readonly [string, string][]
   return Object.entries(service.environment as Record<string, string>);
 }
 
-/** The full check set, run over an already-parsed Compose file. */
-export function checkCompose(compose: ComposeFile): ComposeViolation[] {
+/** The full check set, run over an already-parsed Compose file. `baseDir` is the directory the file is in; given, the build contexts and Dockerfiles it names are looked for on disk. */
+export function checkCompose(compose: ComposeFile, baseDir?: string): ComposeViolation[] {
   const violations: ComposeViolation[] = [];
   const services = compose.services ?? {};
   const names = Object.keys(services);
@@ -110,6 +108,14 @@ export function checkCompose(compose: ComposeFile): ComposeViolation[] {
       }
     }
 
+    // A build that names a context or a Dockerfile that is not there cannot be built (D38 was exactly this, for three services, for eight milestones).
+    if (baseDir !== undefined && service.build !== undefined) {
+      const build = typeof service.build === 'string' ? { context: service.build } : service.build;
+      const context = resolve(baseDir, build.context ?? '.');
+      if (!existsSync(context)) violations.push({ rule: 'BUILD_CONTEXT_MISSING', detail: `${name}: ${build.context ?? '.'}` });
+      else if (!existsSync(resolve(context, build.dockerfile ?? 'Dockerfile'))) violations.push({ rule: 'DOCKERFILE_MISSING', detail: `${name}: ${build.dockerfile ?? 'Dockerfile'}` });
+    }
+
     // Port collisions.
     for (const mapping of service.ports ?? []) {
       const hostPort = mapping.split(':')[0] ?? mapping;
@@ -123,7 +129,19 @@ export function checkCompose(compose: ComposeFile): ComposeViolation[] {
       if (KEY_SHAPED_ENV_PATTERN.test(key)) {
         violations.push({ rule: 'KEY_SHAPED_ENV_VAR', detail: `${name}: ${key}` });
       }
-      void value;
+      // a secret is whoever runs the stack's to supply: a reference to the environment, never a value written into the file
+      if ((SECRET_ENV as readonly string[]).includes(key) && !/^\$\{[A-Z0-9_]+\}$/u.test(value)) {
+        violations.push({ rule: 'SECRET_NOT_A_REFERENCE', detail: `${name}: ${key}` });
+      }
+    }
+  }
+
+  // A service that starts by default must not wait on one that does not (a profile keeps a service out of `up`), or `up --wait` would wait on something that is never started.
+  for (const [name, service] of Object.entries(services)) {
+    if (service.profiles !== undefined && service.profiles.length > 0) continue;
+    const deps = service.depends_on === undefined || Array.isArray(service.depends_on) ? [] : Object.keys(service.depends_on as Record<string, unknown>);
+    for (const dep of deps) {
+      if ((services[dep]?.profiles ?? []).length > 0) violations.push({ rule: 'DEPENDS_ON_OPTIONAL_SERVICE', detail: `${name} -> ${dep}` });
     }
   }
 

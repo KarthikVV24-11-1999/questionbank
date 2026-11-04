@@ -112,3 +112,17 @@ jobs:
       - run: corepack pnpm install --frozen-lockfile
       - run: corepack pnpm --filter @questionbank/studio build
       - run: corepack pnpm --filter @questionbank/learn build
+
+  compose:
+    # F8 (docs/ARCHITECTURE.md): the stack is built, started with --wait, migrated and seeded, and the journey from sign-up to a first named weakness is run against it. The script holds the checks; this job runs it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
+      - run: docker --version && docker compose version
+      - run: node infra/compose/boot.mjs

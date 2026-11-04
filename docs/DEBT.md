@@ -166,20 +166,6 @@ not hold. Named in the model rather than faked with an empty body.
 **Cited** `apps/studio/src/features/review-workspace/review-workspace-model.ts`,
 `review-workspace-api.ts`
 
-### D38 — The Compose file builds three contexts that do not exist
-
-`docker-compose.yml` declares `build: context: ./ai-fixture`, `dockerfile: apps/api/Dockerfile` and
-a studio build — and none of `infra/compose/ai-fixture/`, `apps/api/Dockerfile` or
-`apps/studio/Dockerfile` is in the repository. `compose-rules.ts` agrees with the file rather than
-the disk, because it parses structure and cannot know whether a build context resolves; that is
-precisely the Tier-1 property [ADR-0013](adr/ADR-0013-unrunnable-infrastructure-is-proven-by-parsing.md)
-forbids it from claiming. The stack has never been run, so nothing has ever surfaced it.
-
-**Trigger** The first real `docker compose up`. At that point either the three contexts get built,
-or `ai-fixture` comes out of the file and out of `REQUIRED_SERVICES` — the file and the disk must
-agree, and today they do not.
-**Cited** `apps/api/src/fitness/compose-rules.ts`
-
 ### D39 — No symbolic verification runtime
 
 [AI-ARCHITECTURE](AI-ARCHITECTURE.md) §11 check 3 reads "CAS where symbolic; otherwise 2 independent
@@ -633,17 +619,16 @@ Some are the cheapest to add: `mock.attempt_submitted`, `item.published` and `it
 domain event carries the fact, before it does.
 **Cited** `apps/api/src/fitness/event-conformance.ts`
 
-### D92 — Eight events M7 owns have no call site, and the one it emits from the server is at-most-once
+### D92 — Seven events M7 owns have no call site, and the one it emits from the server is at-most-once
 
-Eight of the fourteen events M7 owns are not emitted (ten before M8 Track H), each for a fact that does not exist where it would be emitted:
+Seven of the fourteen events M7 owns are not emitted (ten before M8 Track H, eight before Track I), each for a fact that does not exist where it would be emitted:
 
-- `practice.session_abandoned` — a run is put down and picked up with no deadline; nothing ever says it was abandoned.
 - `solution.viewed` — no screen shows a solution; the route serves one, and a served response is not a view.
 - `remediation.set_generated` — what to practise next is computed on each read; no set is stored, so there is no moment of generation.
 - `mastery.regressed` — `days_since_gain` needs the instant of the gain the concept held, which the recorder's read of a concept does not return.
 - `review.due_completed`, `review.due_skipped` — the schedule is derived from evidence; no action of the learner completes or skips a due review.
 - `error_notebook.entry_reviewed` — no route or screen marks an entry reviewed.
-- `practice.item_answered`, `practice.session_completed` — were held by D87 and D77 and are emitted since M8 Track H. `remediation.set_completed` is the one still held, by D112.
+- `practice.session_abandoned` — emitted since M8 Track I, when the sweep finishes a run left alone. `practice.item_answered`, `practice.session_completed` — were held by D87 and D77 and are emitted since M8 Track H. `remediation.set_completed` is the one still held, by D112.
 
 And `mastery.gain_verified` (and, since M8 Track H, `practice.session_completed`) is emitted by the relay's consumer after the work it reports has committed. If the process dies between the two, the redelivery finds the evidence stored and the gain is
 not announced again. An outbox row for the gain, written in the recorder's transaction, would make it at-least-once.
@@ -813,22 +798,21 @@ the concepts it reaches are those first in identifier order, which is arbitrary 
 **Trigger** The first per-concept weighting the curriculum carries (an exam weight on a concept, or a measured one): order the round by it, so a short run reaches the topics that matter before the ones that happen to sort first.
 **Cited** `apps/api/src/contexts/assessment/domain/practice-selection.ts`
 
-### D116 — A practice run that is left without being finished records nothing
+### D118 — Terraform targets a deployment other than the one being built, and is left as it stands
 
-FR-STU-03 rule 4 says abandoning the diagnostic gives a partial map. It does when the run is finished with questions left: only the answered ones are evidence, and the map has those topics and not the rest (`first-weakness-journey.integration.spec.ts`). It does not when the run is never
-finished. Evidence is made when a submitted run is scored, not when an answer is given; a run has no deadline, so nothing submits it, and answers given in a run that is put down and not picked up are in the response log and in no one's map. The brief for this
-track assumed evidence is recorded per response; it is recorded per scored run.
+`infra/terraform/` describes ECS Fargate, RDS and an S3 state backend. The stack being built and booted is Compose, with a VM and TLS in front of it as the next step, which needs a machine and a domain only the owner can supply. Growing the Terraform now would be work thrown away if the deployment is not Fargate, and nothing validates that it matches
+what the Compose file runs. It is not the plan; the Compose file is.
 
-**Trigger** The first beta learner who answers part of a run and does not come back to it, which the closed beta will produce at once: decide whether a run left alone for some time is submitted for the learner, or its answers are scored without a submission.
-**Cited** `apps/api/src/contexts/assessment/application/consumers/practice-scoring-consumer.ts`
+**Trigger** The decision where the beta runs. Then either the Terraform is brought to that target and validated against the images this track builds, or it is removed.
+**Cited** `infra/terraform/staging/main.tf`
 
-### D117 — The home screen says "the topic you are weakest on" from standings the map calls too early to say
+### D119 — A production process has no mail provider, so nobody can register against it
 
-After the diagnostic every topic has two or three answers behind it, so the map shows every standing as too early to say (FR-STU-04 rule 2). The home screen's next action then names a weakest topic, from the remediation route, which reads the stored state whatever its confidence, and its
-sentence states it as fact. The two screens disagree about how sure the product is of the same topic, for the learner's first minutes with it.
+`defaultMail` gives a development process a directory to write messages to, a test a list, and every other process a mail port that refuses to send, because a message carries a secret that must not be written to a disk by default and the provider is a decision not yet taken. The Compose stack therefore runs in development mode, and a stack in front of the public could not take a registration. The learner app also has no sign-in screen (it takes its bearer token
+from `localStorage`, D69), so nothing a person does in a browser reaches the journey; it is run over HTTP.
 
-**Trigger** The next change to the home screen's wording or to the remediation reader: say the weakest topic *so far* when its standing is tentative, or have the reader prefer topics that are stated.
-**Cited** `apps/learn/src/ui/HomeScreen.tsx`
+**Trigger** The decision of a mail provider, and the first stack a person who is not a developer is to register on: an adapter for it, and a sign-in screen in the learner app.
+**Cited** `apps/api/src/contexts/identity/public/composition.ts`
 
 ## Closed
 
@@ -856,6 +840,32 @@ practice screen is now the sitting: one question at a time on the screen a paper
 finished through the attempt routes. Feedback on an answered slot works (`practice-loop.integration.spec.ts`); the screen does not show it yet (D111).
 
 **Cited** `apps/learn/src/ui/PracticeScreen.tsx`
+
+### D117 — The home screen said "the topic you are weakest on" from standings the map calls too early to say *(closed by M8 Track I, [ADR-0064](adr/ADR-0064-a-run-left-alone-is-finished-for-the-learner-and-the-promise-matches-the-evidence.md))*
+
+After the diagnostic every topic has two or three answers behind it, so the map shows every standing as too early to say (FR-STU-04 rule 2), while the home screen's next action named a weakest topic, from the remediation route, which reads the stored state whatever its confidence,
+and stated it as fact. **What closed it (M8-37, DEC-M8-23).** The home screen asks the map how the topic stands and chooses its sentence by the standing's own kind: stated plainly when the standing is asserted, "so far" when it is tentative, and "so far" when the map cannot say, because not knowing is not a reason to sound sure. The criterion it served was reworded for the same reason (row 1 of `docs/M8-ACCEPTANCE.md`).
+
+**Cited** `apps/learn/src/ui/HomeScreen.tsx`
+
+### D38 — The Compose file built three contexts that did not exist *(closed by M8 Track I)*
+
+`docker-compose.yml` declared `build: context: ./ai-fixture`, `dockerfile: apps/api/Dockerfile` and a studio build, and none of `infra/compose/ai-fixture/`, `apps/api/Dockerfile` or `apps/studio/Dockerfile` was in the repository. `compose-rules.ts` agreed with the file rather than the disk.
+
+**What closed it (M8-38, M8-39, DEC-M8-24).** The API, learner and Studio images exist; `ai-fixture` is gone, because nothing calls an AI provider on the beta path; `compose-rules.ts` now reads the disk (a build context or Dockerfile that is not there is a violation) and requires the three secrets to be references; and the `compose` CI job builds the images and boots the stack, which is what a parse could never show.
+
+**Cited** `infra/compose/docker-compose.yml`
+
+### D116 — A practice run that is left without being finished recorded nothing *(closed by M8 Track I, [ADR-0064](adr/ADR-0064-a-run-left-alone-is-finished-for-the-learner-and-the-promise-matches-the-evidence.md))*
+
+FR-STU-03's fourth rule says abandoning the diagnostic gives a partial map. It did when the run was finished with questions left. It did not when the run was never finished: evidence is made when a submitted run is scored, a run has no deadline, and
+nothing submitted it, so answers given in a run that was put down and not picked up were in the response log and in no one's map. The brief for Track H assumed evidence is recorded per response; it is recorded per scored run.
+
+**What closed it (M8-36, DEC-M8-22).** The sweep that submits a mock whose deadline passed also submits a practice run whose last activity is more than forty-eight hours old, by the path a learner's own finishing takes, so there is one way for a run to be finished
+and it already produced a score record, evidence and the events. The run's event is the practice one, so it reaches the consumer for runs. Answers given and left are scored when the sweep finds the run, and the learner's map has them
+(`first-weakness-journey.integration.spec.ts`). Two limits that stand: the sweep is the in-process scheduler, with the coordination D36 describes, and a learner who comes back after the cutoff finds the run finished and cannot add to it.
+
+**Cited** `apps/api/src/contexts/assessment/application/handlers/expiry-handler.ts`
 
 ### D111 — The practice screen did not show a verdict, and a run could not be grown from the app *(closed by M8 Track H, [ADR-0063](adr/ADR-0063-the-diagnostic-is-a-strategy-and-a-run-tells-the-learner-how-an-answer-came-out.md))*
 

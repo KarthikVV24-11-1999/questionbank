@@ -389,11 +389,7 @@ booted; ADR-0004 names exactly what verifying it requires.
 
 If step 3 does not work, that is the first bug and it outranks whatever you were assigned.
 
-### The Compose path — authored, unverified (Tier 2, ADR-0013)
+### The Compose path — built and booted in CI (Tier 1, ADR-0013, ADR-0023)
 
-`git clone && pnpm install && docker compose -f infra/compose/docker-compose.yml up --wait`, then `pnpm
-seed` and `pnpm test` with `DATABASE_URL` unset (Compose publishes 5432, the documented default). **Nobody
-in this repository's history has run this.** `infra/compose/docker-compose.yml` is authored and its service
-graph, health checks and dependency order are asserted by parsing it (M0-20); none of that is a boot time,
-and F8 (`full stack healthy in ≤ 10 min`) stays `Fail — blocked` until this path has actually been taken
-once, on a machine with a container runtime (ADR-0004's own outstanding verification).
+`git clone && pnpm install && node infra/compose/boot.mjs`: build the images, start the database, apply the migrations, start the rest with `--wait`, load the seed and the demonstration questions, and run the journey from sign-up to a first named recommendation over HTTP. The `compose` job in `.github/workflows/ci.yml` runs
+exactly that, and F8 (`full stack healthy in ≤ 10 min`) carries the time it measured and the run it came from; the script's exit code is the claim. It has been run on a CI runner and nowhere else.

@@ -140,6 +140,18 @@ export class InMemoryAttempts implements AttemptRepository {
     return ok([...this.stored.values()].filter((a) => a.state === 'in_progress' && a.deadline !== null && a.deadline <= now).slice(0, limit));
   }
 
+  /** The instant of the latest response event the server holds for an attempt, as a test sets it; absent means none, and the run's start stands for it. */
+  readonly lastActivity = new Map<string, string>();
+
+  async findIdlePracticeRuns(idleBefore: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>> {
+    if (this.failFindWith !== null) return err(this.failFindWith);
+    return ok(
+      [...this.stored.values()]
+        .filter((a) => a.mode === 'practice' && a.state === 'in_progress' && (this.lastActivity.get(a.attemptId) ?? a.startedAt ?? '') <= idleBefore)
+        .slice(0, limit),
+    );
+  }
+
   async findAbandonable(now: string, limit: number): Promise<Result<readonly Attempt[], RepositoryError>> {
     if (this.failFindWith !== null) return err(this.failFindWith);
     return ok(

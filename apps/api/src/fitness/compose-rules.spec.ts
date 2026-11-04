@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkCompose, parseCompose, REQUIRED_SERVICES } from './compose-rules.js';
+import { baseDirOf, checkCompose, parseCompose, REQUIRED_SERVICES, SECRET_ENV } from './compose-rules.js';
 
 const COMPOSE_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -21,7 +21,7 @@ describe('the real Compose file', () => {
   });
 
   it('passes every check', () => {
-    expect(checkCompose(compose)).toEqual([]);
+    expect(checkCompose(compose, baseDirOf(COMPOSE_PATH))).toEqual([]);
   });
 
   it('names exactly the required service set', () => {
@@ -86,6 +86,49 @@ describe('planted mutations — one per assertion', () => {
     expect(checkCompose(mutated).some((v) => v.rule === 'DEPENDENCY_CYCLE')).toBe(true);
   });
 
+  it('a build context that is not on disk is a violation, and so is a Dockerfile that is not in it', () => {
+    const base = baseDirOf(COMPOSE_PATH);
+    const noContext = clone(real);
+    noContext.services!['api']!.build = { context: '../nowhere', dockerfile: 'apps/api/Dockerfile' };
+    expect(checkCompose(noContext, base).some((v) => v.rule === 'BUILD_CONTEXT_MISSING')).toBe(true);
+    const noFile = clone(real);
+    noFile.services!['learn']!.build = { context: '../..', dockerfile: 'apps/learn/Dockerfile.missing' };
+    expect(checkCompose(noFile, base).some((v) => v.rule === 'DOCKERFILE_MISSING' && v.detail.startsWith('learn'))).toBe(true);
+    // a shorthand build names a context only, and its Dockerfile is the one called Dockerfile in it
+    const shorthand = clone(real);
+    shorthand.services!['studio']!.build = '../..';
+    expect(checkCompose(shorthand, base).some((v) => v.rule === 'DOCKERFILE_MISSING' && v.detail.startsWith('studio'))).toBe(true);
+    // and without the directory to read from, the disk is not looked at: the parse alone is Tier 2
+    expect(checkCompose(noContext).some((v) => v.rule === 'BUILD_CONTEXT_MISSING')).toBe(false);
+  });
+
+  it('a secret written into the file as a value is a violation, for each of the three', () => {
+    for (const key of SECRET_ENV) {
+      const mutated = clone(real);
+      (mutated.services!['api']!.environment as Record<string, string>)[key] = 'written-here';
+      expect(checkCompose(mutated).some((v) => v.rule === 'SECRET_NOT_A_REFERENCE' && v.detail.endsWith(key)), key).toBe(true);
+    }
+    const real_ = clone(real);
+    expect(checkCompose(real_).filter((v) => v.rule === 'SECRET_NOT_A_REFERENCE')).toEqual([]);
+  });
+
+  it('a service that starts by default waiting on one that does not is a violation', () => {
+    const mutated = clone(real);
+    mutated.services!['api']!.depends_on = { postgres: { condition: 'service_healthy' }, minio: { condition: 'service_healthy' } };
+    expect(checkCompose(mutated).some((v) => v.rule === 'DEPENDS_ON_OPTIONAL_SERVICE' && v.detail === 'api -> minio')).toBe(true);
+    // two services outside the default set waiting on one another is not that
+    const optional = clone(real);
+    optional.services!['valkey']!.depends_on = { minio: { condition: 'service_healthy' } };
+    expect(checkCompose(optional).some((v) => v.rule === 'DEPENDS_ON_OPTIONAL_SERVICE')).toBe(false);
+  });
+
+  it('the learner app is in the stack, behind the API, with its own healthcheck', () => {
+    const learn = real.services!['learn']!;
+    expect(learn.depends_on).toEqual({ api: { condition: 'service_healthy' } });
+    expect(learn.healthcheck).toBeDefined();
+    expect(Object.keys(real.services!)).not.toContain('ai-fixture');
+  });
+
   it('a depends_on entry with no service_healthy condition is a violation', () => {
     const mutated = clone(real);
     mutated.services!['api']!.depends_on = { postgres: { condition: 'service_started' } };
@@ -93,9 +136,11 @@ describe('planted mutations — one per assertion', () => {
   });
 });
 
-describe("the successor command this Tier-2 spec cannot run itself", () => {
-  it('is named verbatim in the compose file', () => {
+describe('the commands to boot it', () => {
+  it('are named in the file, in the order the stack is brought up: build, the database, the migrations, the rest', () => {
     const source = readFileSync(COMPOSE_PATH, 'utf8');
-    expect(source).toContain('docker compose -f infra/compose/docker-compose.yml up --wait');
+    const order = ['compose -f infra/compose/docker-compose.yml build', 'up -d --wait postgres', 'run --rm --no-deps api node migrate.js', 'up -d --wait\n'].map((command) => source.indexOf(command));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 });

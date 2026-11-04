@@ -28,7 +28,7 @@ import { SCORING_CONSUMER_PRINCIPAL_ID, ScoringFailure, toResponseSnapshot, type
  */
 export interface RunEvents {
   emit(event: {
-    readonly name: 'practice.session_completed';
+    readonly name: 'practice.session_completed' | 'practice.session_abandoned';
     readonly factKey: string;
     readonly occurredAt: string;
     readonly actor: string;
@@ -122,32 +122,48 @@ export class ScorePracticeAttemptConsumer {
       idempotencyKey: `submission:${attemptId}`,
     };
     const scored = await this.deps.scorer.handle(command, context);
-    if (scored.ok) return this.announce(attemptId, attempt.value, scored.value);
+    if (scored.ok) return this.announce(attemptId, attempt.value, scored.value, lastHeardFrom(events.value));
     if (scored.error.code === 'CONFLICT') {
       const again = await this.deps.scorer.handle(command, context);
-      if (again.ok) return this.announce(attemptId, attempt.value, again.value);
+      if (again.ok) return this.announce(attemptId, attempt.value, again.value, lastHeardFrom(events.value));
       throw new ScoringFailure(again.error.code, again.error.message);
     }
     throw new ScoringFailure(scored.error.code, scored.error.message);
   }
 
   /**
-   * `practice.session_completed` (D112, DEC-M8-21 in docs/IMPLEMENTATION-DECISIONS.md): said once the run is scored, because accuracy is a fact scoring has and the device does not. The run is *attempted* by the answers that were given and came out right or wrong;
-   * accuracy is the share of those that were right. A run with none given has no accuracy to state and says nothing, and so does one with no start or no submission to measure the time between. `duration_ms` is the
-   * wall time from the run's start to its submission, a run being put down and picked up in between: it is not time spent answering, and the catalog's field is named for the span.
+   * `practice.session_completed` or `practice.session_abandoned` (D112, M8-36; DEC-M8-21 and DEC-M8-22 in docs/IMPLEMENTATION-DECISIONS.md): **one event for a run, by how it ended.** A run the learner finished is completed; a run the sweep finished
+   * for them after it was left alone (a submission with reason `expiry`, which only the sweep makes for a run) is abandoned. They are different facts about how a run ended and are not both said: a completion rate that counted a swept run would
+   * flatter itself. Said once the run is scored, because accuracy is a fact scoring has and the device does not. The run is *attempted* by the answers that were given and came out right or wrong; accuracy is the share of those that were right.
+   * A run with none given has no accuracy to state and says nothing, and so does one with no start or no submission to measure between.
+   *
+   * `duration_ms` is a span, and which one depends on the event. For a completed run it is the wall time from the start to the submission, a run being put down and picked up in between. For an abandoned run it is from the start to the last time the server
+   * heard from the run, because the submission came days after the learner left and that wait is not time they spent.
    */
-  private async announce(attemptId: string, attempt: { readonly studentId: string; readonly startedAt: string | null; readonly submission: { readonly submittedAt: string } | null }, record: unknown): Promise<void> {
+  private async announce(
+    attemptId: string,
+    attempt: { readonly studentId: string; readonly startedAt: string | null; readonly submission: { readonly submittedAt: string; readonly reason: string } | null },
+    record: unknown,
+    lastHeardAt: string | null,
+  ): Promise<void> {
     const outcomes = (record as { readonly itemOutcomes?: readonly { readonly correctness: string }[] }).itemOutcomes ?? [];
     const attempted = outcomes.filter((outcome) => outcome.correctness === 'correct' || outcome.correctness === 'incorrect');
     if (this.deps.events === undefined || attempted.length === 0 || attempt.startedAt === null || attempt.submission === null) return;
+    const left = attempt.submission.reason === 'expiry';
+    const ended = left ? (lastHeardAt ?? attempt.submission.submittedAt) : attempt.submission.submittedAt;
     const correct = attempted.filter((outcome) => outcome.correctness === 'correct').length;
-    await this.deps.events.emit({
-      name: 'practice.session_completed',
+    const fact = {
       factKey: attemptId,
       occurredAt: attempt.submission.submittedAt,
       actor: attempt.studentId,
       context: { attempt_id: attemptId },
-      payload: { items_attempted: attempted.length, accuracy: Math.round((correct / attempted.length) * 10_000) / 10_000, duration_ms: Math.max(0, Date.parse(attempt.submission.submittedAt) - Date.parse(attempt.startedAt)) },
-    });
+      payload: { items_attempted: attempted.length, accuracy: Math.round((correct / attempted.length) * 10_000) / 10_000, duration_ms: Math.max(0, Date.parse(ended) - Date.parse(attempt.startedAt)) },
+    };
+    await this.deps.events.emit(left ? { name: 'practice.session_abandoned', ...fact } : { name: 'practice.session_completed', ...fact });
   }
+}
+
+/** The latest instant the server received anything for the run, or `null` where it received nothing. */
+function lastHeardFrom(events: readonly { readonly serverReceivedAt: string }[]): string | null {
+  return events.reduce<string | null>((latest, event) => (latest === null || event.serverReceivedAt > latest ? event.serverReceivedAt : latest), null);
 }
