@@ -41,7 +41,7 @@ const DATABASE_URL = `postgres://postgres:${env.QB_DB_PASSWORD}@127.0.0.1:5432/q
 
 const learnerFile = join(mailDir, 'learner.json');
 const phases = [];
-/** A line a GitHub Actions runner turns into an annotation on the run, readable without the job's log: the failure's cause, and each phase's time. */
+/** (GitHub shows ten notices a step and drops the rest without a word, so a step's results are few annotations of many lines and not many of one: the boot phases are one.) A line a GitHub Actions runner turns into an annotation on the run, readable without the job's log: the failure's cause, and each phase's time. */
 const annotate = (level, title, message) => process.stdout.write(`::${level} title=${title}::${message.slice(-3500).replace(/%/gu, '%25').replace(/\r/gu, '%0D').replace(/\n/gu, '%0A')}\n`);
 function run(command, args, extraEnv = {}) {
   const result = spawnSync(command, args, { cwd: root, env: { ...env, ...extraEnv }, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
@@ -60,7 +60,6 @@ function phase(name, fn) {
   const seconds = Math.round((performance.now() - began) / 100) / 10;
   phases.push({ name, seconds });
   process.stdout.write(`=== ${name}: ${seconds} s\n`);
-  annotate('notice', 'boot phase', `${name}: ${seconds} s`);
 }
 const docker = (...args) => run('docker', [...compose, ...args]);
 
@@ -80,6 +79,7 @@ try {
   const boot = phases.reduce((sum, entry) => sum + entry.seconds, 0);
   process.stdout.write(`\nF8: the stack booted, migrated and seeded in ${Math.round(boot * 10) / 10} s (budget ${BUDGET_SECONDS} s)\n`);
   annotate('notice', 'F8', `the stack booted, migrated and seeded in ${Math.round(boot * 10) / 10} s (budget ${BUDGET_SECONDS} s)`);
+  annotate('notice', 'boot phases', phases.map((entry) => `${entry.name}: ${entry.seconds} s`).join('\n'));
 
   const began = performance.now();
   const steps = run('node', [join(root, 'tools/stack-journey/journey.mjs')], { STACK_URL: 'http://localhost:8080', MAIL_DIR: mailDir, JOURNEY_LEARNER_FILE: learnerFile });
