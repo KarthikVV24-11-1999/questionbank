@@ -143,8 +143,14 @@ describe('the soak', () => {
     assert.deepEqual(failing(verdict(series((i) => ({ oldest: i === 7 ? 10 : 1 })))), []);
   });
 
-  it('fails a relay that goes more than five seconds without a drain', () => {
-    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 5.5 : 0.5 })))), ['the relay keeps draining']);
+  it('fails a relay that goes more than five seconds without a drain while a message older than two seconds waits', () => {
+    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 5.5 : 0.5, oldest: i === 3 ? 2.5 : 1 })))), ['the relay does not stall with work waiting']);
+    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 5 : 0.5, oldest: i === 3 ? 9 : 1 })))), []);
+    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 5.5 : 0.5, oldest: i === 3 ? 2 : 1 })))), []);
+  });
+
+  it('does not fail a long drain that is delivering: a long wait between drains with nothing old waiting', () => {
+    assert.deepEqual(failing(verdict(series((i) => ({ lag: 15, oldest: 1.8 })))), []);
   });
 
   it('fails a backlog that is still there thirty seconds after the load stopped', () => {
@@ -159,7 +165,7 @@ describe('the soak', () => {
   });
 
   it('has the thresholds the header states', () => {
-    assert.deepEqual({ ...SOAK }, { rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30, lagSeconds: 5 });
+    assert.deepEqual({ ...SOAK }, { rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30, lagSeconds: 5, stalledOldestSeconds: 2 });
   });
 });
 
