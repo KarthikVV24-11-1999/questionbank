@@ -120,8 +120,8 @@ try {
   process.stdout.write(`\nFAILED: ${message}\n`);
   const logs = spawnSync('docker', [...compose, 'logs', '--no-color', '--tail', '40'], { cwd: root, env, encoding: 'utf8' });
   process.stdout.write(`${logs.stdout ?? ''}${logs.stderr ?? ''}`);
-  // the failure first and the containers' last lines after it, because an annotation keeps the end of what it is given and what failed is in the middle
-  annotate('error', 'compose boot failed', `${message.slice(0, 2900)}\n--- container logs ---\n${`${logs.stdout ?? ''}${logs.stderr ?? ''}`.trim().split('\n').slice(-6).join('\n').slice(-500)}`);
+  // the failure first and the containers' last lines after it, because an annotation keeps the end of what it is given and what failed is in the middle; a long failure keeps its start (the command and the table) and its end (the verdict, which a soak prints last)
+  annotate('error', 'compose boot failed', `${message.length > 2900 ? `${message.slice(0, 1200)}\n...\n${message.slice(-1700)}` : message}\n--- container logs ---\n${`${logs.stdout ?? ''}${logs.stderr ?? ''}`.trim().split('\n').slice(-6).join('\n').slice(-500)}`);
 } finally {
   if (process.env.KEEP_STACK !== '1') spawnSync('docker', [...compose, 'down', '-v', '--remove-orphans'], { cwd: root, env, stdio: 'inherit' });
 }
