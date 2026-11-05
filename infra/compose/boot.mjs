@@ -48,7 +48,7 @@ function run(command, args, extraEnv = {}) {
   process.stdout.write(result.stdout ?? '');
   process.stderr.write(result.stderr ?? '');
   if (result.status !== 0) {
-    const tail = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim().split('\n').slice(-30).join('\n');
+    const tail = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim().split('\n').slice(-60).join('\n');
     throw new Error(`${command} ${args.join(' ')} exited ${result.status}\n${tail}`);
   }
   return result.stdout ?? '';
@@ -120,7 +120,8 @@ try {
   process.stdout.write(`\nFAILED: ${message}\n`);
   const logs = spawnSync('docker', [...compose, 'logs', '--no-color', '--tail', '40'], { cwd: root, env, encoding: 'utf8' });
   process.stdout.write(`${logs.stdout ?? ''}${logs.stderr ?? ''}`);
-  annotate('error', 'compose boot failed', `${message}\n--- container logs ---\n${`${logs.stdout ?? ''}${logs.stderr ?? ''}`.trim().split('\n').slice(-25).join('\n')}`);
+  // the failure first and the containers' last lines after it, because an annotation keeps the end of what it is given and what failed is in the middle
+  annotate('error', 'compose boot failed', `${message.slice(0, 2900)}\n--- container logs ---\n${`${logs.stdout ?? ''}${logs.stderr ?? ''}`.trim().split('\n').slice(-6).join('\n').slice(-500)}`);
 } finally {
   if (process.env.KEEP_STACK !== '1') spawnSync('docker', [...compose, 'down', '-v', '--remove-orphans'], { cwd: root, env, stdio: 'inherit' });
 }
