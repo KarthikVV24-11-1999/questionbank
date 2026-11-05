@@ -5,6 +5,9 @@ import { HandlerRegistry } from '../application/handler-registry.js';
 import { policy } from '../application/authorization.js';
 import { AssessmentController, type PrincipalResolver } from './assessment.controller.js';
 import { AssessmentModule } from './assessment.module.js';
+import { RouteAdmission } from './admission.js';
+const OPEN = { events: new RouteAdmission({ hit: async () => ({ allowed: true }) }, { source: { tiers: [] }, subject: null }, 'events'), attempts: new RouteAdmission({ hit: async () => ({ allowed: true }) }, { source: { tiers: [] }, subject: null }, 'attempts') };
+
 
 /**
  * The controller's own behaviour, against a registry of stubs: what it does
@@ -56,7 +59,7 @@ function rig(handle: (input: unknown, context: unknown) => Promise<unknown>, pri
     })) as never,
   );
   const principals: PrincipalResolver = { resolve: () => principal };
-  return { controller: new AssessmentController(registry, principals), calls };
+  return { controller: new AssessmentController(registry, principals, OPEN), calls };
 }
 
 const ok = (value: unknown) => async () => ({ ok: true, value });
@@ -149,10 +152,10 @@ describe('the controller', () => {
 });
 
 describe('the module', () => {
-  it('carries the controller and both providers', () => {
-    const module = AssessmentModule.register({ registry: HandlerRegistry.of([]), principals: { resolve: () => null } });
+  it('carries the controller and its three providers', () => {
+    const module = AssessmentModule.register({ registry: HandlerRegistry.of([]), principals: { resolve: () => null }, admission: OPEN });
     expect(module.controllers).toEqual([AssessmentController]);
-    expect(module.providers).toHaveLength(2);
+    expect(module.providers).toHaveLength(3);
   });
 });
 

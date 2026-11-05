@@ -100,6 +100,12 @@ services:
       RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-}
       RATE_LIMIT_REGISTER: ${RATE_LIMIT_REGISTER:-}
       RATE_LIMIT_PROFILE: ${RATE_LIMIT_PROFILE:-}
+      # the learner routes' allowances (M8-58), blank so the code's defaults: docs/DEPLOYMENT.md says what each is derived from
+      RATE_LIMIT_LEARNING: ${RATE_LIMIT_LEARNING:-}
+      RATE_LIMIT_EVENTS: ${RATE_LIMIT_EVENTS:-}
+      RATE_LIMIT_ATTEMPTS: ${RATE_LIMIT_ATTEMPTS:-}
+      # how many passwords are hashed at once: blank is the code's default (2). Set it to the host's cores (docs/DEPLOYMENT.md, "Sign-in under load").
+      PASSWORD_HASH_CONCURRENCY: ${PASSWORD_HASH_CONCURRENCY:-}
       # mail through SES when all four are set, and none otherwise (the process refuses to start on some). References, never values: blank here means not set.
       MAIL_SES_REGION: ${MAIL_SES_REGION:-}
       MAIL_SENDER: ${MAIL_SENDER:-}

@@ -2,7 +2,7 @@ import type { JSX, ReactNode } from 'react';
 import type { IdentityApi } from '../api/identity-api.js';
 import { TOKENS } from '../tokens.js';
 import { authHref, type AuthFlags, type AuthScreen, type MessageLink } from './auth-links.js';
-import { CheckMailScreen, RecoverScreen, RegisterScreen, ResetScreen, SignInScreen, VerifyScreen } from './AuthScreens.js';
+import { CheckMailScreen, RecoverScreen, RegisterScreen, ResetScreen, SignInScreen, VerifyScreen, type WaitFor } from './AuthScreens.js';
 import { useAction, useRemote } from './use-remote.js';
 
 /**
@@ -23,23 +23,25 @@ export interface AuthGateProps {
   /** Whether the sign-out control is offered: not while a paper is being sat. */
   readonly offerSignOut: boolean;
   readonly onOpen: (href: string) => void;
+  /** The host's timer, for saying that a sign-in is taking a moment. */
+  readonly waitFor: WaitFor;
   readonly children: ReactNode;
 }
 
 export function AuthGate(props: AuthGateProps): JSX.Element {
-  const { identity, link, auth, returnTo, onOpen } = props;
-  if (link !== null) return link.kind === 'verify' ? <VerifyScreen identity={identity} code={link.code} /> : <ResetScreen identity={identity} code={link.code} onOpen={onOpen} />;
+  const { identity, link, auth, returnTo, onOpen, waitFor } = props;
+  if (link !== null) return link.kind === 'verify' ? <VerifyScreen identity={identity} code={link.code} /> : <ResetScreen identity={identity} code={link.code} waitFor={waitFor} onOpen={onOpen} />;
   if (auth.screen === 'sent') return <CheckMailScreen identity={identity} again={auth.flags.again === true} onOpen={onOpen} />;
   return <Checked {...props} returnTo={returnTo} />;
 }
 
-function Checked({ identity, auth, returnTo, offerSignOut, onOpen, children }: AuthGateProps): JSX.Element {
+function Checked({ identity, auth, returnTo, offerSignOut, onOpen, waitFor, children }: AuthGateProps): JSX.Element {
   const signedIn = useRemote(() => identity.signedIn());
   if (signedIn.status === 'loading') return <p role="status" style={{ padding: TOKENS.spaceMedium }}>Opening…</p>;
   if (signedIn.status === 'loaded' && !signedIn.value.signedIn) {
-    if (auth.screen === 'register') return <RegisterScreen identity={identity} onOpen={onOpen} />;
+    if (auth.screen === 'register') return <RegisterScreen identity={identity} waitFor={waitFor} onOpen={onOpen} />;
     if (auth.screen === 'recover') return <RecoverScreen identity={identity} asked={auth.flags.asked === true} onOpen={onOpen} />;
-    return <SignInScreen identity={identity} returnTo={returnTo} changed={auth.flags.changed === true} ended={signedIn.value.endedBy === 'another_sign_in'} onOpen={onOpen} />;
+    return <SignInScreen identity={identity} returnTo={returnTo} changed={auth.flags.changed === true} ended={signedIn.value.endedBy === 'another_sign_in'} waitFor={waitFor} onOpen={onOpen} />;
   }
   return (
     <>

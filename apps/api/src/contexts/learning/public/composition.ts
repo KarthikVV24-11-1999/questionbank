@@ -173,6 +173,8 @@ export interface LearningCompositionDeps {
   /** Where the profile routes count (M8-20): the platform's limiter, so the limit is the same from every instance. */
   readonly limiter: RateLimiter;
   readonly limits: RouteLimits;
+  /** What every other learner route of Learning is limited by (M8-58): `RATE_LIMIT_LEARNING`. */
+  readonly learningLimits: RouteLimits;
   readonly refusals?: RefusalLog;
 }
 
@@ -181,8 +183,8 @@ export function register(deps: LearningCompositionDeps): DynamicModule {
   if (deps.principals === undefined) {
     throw new Error('learning composition is missing required dependency: principals');
   }
-  for (const key of ['limiter', 'limits'] as const) {
+  for (const key of ['limiter', 'limits', 'learningLimits'] as const) {
     if (deps[key] === undefined) throw new Error(`learning composition is missing required dependency: ${key}`);
   }
-  return LearningModule.register({ handlers: learningForLearner(deps), principals: deps.principals, admission: new ProfileAdmission(deps.limiter, deps.limits, deps.refusals) });
+  return LearningModule.register({ handlers: learningForLearner(deps), principals: deps.principals, admission: new ProfileAdmission(deps.limiter, deps.limits, deps.refusals), reads: new ProfileAdmission(deps.limiter, deps.learningLimits, deps.refusals, 'learning') });
 }

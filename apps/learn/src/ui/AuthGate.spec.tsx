@@ -14,7 +14,7 @@ function open(over: { identity?: FakeIdentityApi; link?: MessageLink | null; scr
   const identity = over.identity ?? new FakeIdentityApi();
   const onOpen = vi.fn();
   const view = render(
-    <AuthGate identity={identity} link={over.link ?? null} auth={{ screen: over.screen ?? null, flags: over.flags ?? {} }} returnTo={over.returnTo ?? '?'} offerSignOut={over.offerSignOut ?? true} onOpen={onOpen}>
+    <AuthGate identity={identity} link={over.link ?? null} auth={{ screen: over.screen ?? null, flags: over.flags ?? {} }} returnTo={over.returnTo ?? '?'} offerSignOut={over.offerSignOut ?? true} onOpen={onOpen} waitFor={() => () => undefined}>
       <p>The app</p>
     </AuthGate>,
   );

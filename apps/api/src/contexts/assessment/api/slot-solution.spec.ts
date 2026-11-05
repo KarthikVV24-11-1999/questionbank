@@ -7,6 +7,9 @@ import { HandlerRegistry } from '../application/handler-registry.js';
 import { CreateAttemptHandler, StartAttemptHandler } from '../application/handlers/attempt-handlers.js';
 import { GetSlotSolutionHandler } from '../application/handlers/slot-solution-handler.js';
 import { AssessmentController, type PrincipalResolver } from './assessment.controller.js';
+import { RouteAdmission } from './admission.js';
+const OPEN = { events: new RouteAdmission({ hit: async () => ({ allowed: true }) }, { source: { tiers: [] }, subject: null }, 'events'), attempts: new RouteAdmission({ hit: async () => ({ allowed: true }) }, { source: { tiers: [] }, subject: null }, 'attempts') };
+
 
 /**
  * Solutions are served behind the effort gate, and only there (FRS 277, M7-37). The route is the real one over the real handler; the gate is the database's view, which these
@@ -68,7 +71,7 @@ async function rig(principal: PrincipalResolver['resolve'] extends (...a: never[
   const registry = HandlerRegistry.of([new CreateAttemptHandler(deps), new StartAttemptHandler(deps), new GetSlotSolutionHandler(deps)] as never);
   let current = principal;
   const principals: PrincipalResolver = { resolve: () => current };
-  const controller = new AssessmentController(registry, principals);
+  const controller = new AssessmentController(registry, principals, OPEN);
   const call = async (go: (response: Response) => Promise<void>): Promise<Written> => {
     const { response, written } = fakeResponse();
     await go(response);

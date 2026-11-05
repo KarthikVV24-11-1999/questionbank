@@ -4,7 +4,15 @@ import type { IdentityApi } from '../api/identity-api.js';
 import { TOKENS } from '../tokens.js';
 import { authHref } from './auth-links.js';
 import { screenHref } from './screen-context.js';
-import { useAction, useRemote, useSubmit } from './use-remote.js';
+import { useAction, useRemote, useSlow, useSubmit } from './use-remote.js';
+
+/** How long a sign-in or registration may take before it is said to be taking a moment (D129): a derive is a fifth of a second, so a wait this long is a queue. */
+export const SLOW_AFTER_MS = 3_000;
+export type WaitFor = (fn: () => void, ms: number) => () => void;
+
+function Slow({ busy, waitFor }: { readonly busy: boolean; readonly waitFor: WaitFor }): JSX.Element | null {
+  return useSlow(busy, SLOW_AFTER_MS, waitFor) ? <p role="status">This is taking a moment: a lot of people are signing in at once. Please wait, it will go through.</p> : null;
+}
 
 /**
  * The screens that let a stranger in (M8-43): sign in, create an account, check your mail, confirm an address from the link in it, ask for a recovery message, choose a new password.
@@ -57,7 +65,7 @@ const sent = (go: (entry: Entry) => void) => (event: FormEvent<HTMLFormElement>)
   go({ form: new FormData(event.currentTarget) });
 };
 
-export function SignInScreen({ identity, returnTo, changed, ended = false, onOpen }: { readonly identity: IdentityApi; readonly returnTo: string; readonly changed: boolean; readonly ended?: boolean; readonly onOpen: (href: string) => void }): JSX.Element {
+export function SignInScreen({ identity, returnTo, changed, ended = false, waitFor, onOpen }: { readonly identity: IdentityApi; readonly returnTo: string; readonly changed: boolean; readonly ended?: boolean; readonly waitFor: WaitFor; readonly onOpen: (href: string) => void }): JSX.Element {
   const signIn = useSubmit(({ form }: Entry) => identity.login(text(form, 'email'), text(form, 'password')), () => onOpen(returnTo));
   return (
     <main aria-label="Sign in" style={page}>
@@ -68,6 +76,7 @@ export function SignInScreen({ identity, returnTo, changed, ended = false, onOpe
         <Email autoComplete="username" />
         <Password label="Password" autoComplete="current-password" />
         <Problem failure={signIn.failure} />
+        <Slow busy={signIn.busy} waitFor={waitFor} />
         <button type="submit" disabled={signIn.busy}>
           Sign in
         </button>
@@ -82,7 +91,7 @@ export function SignInScreen({ identity, returnTo, changed, ended = false, onOpe
   );
 }
 
-export function RegisterScreen({ identity, onOpen }: { readonly identity: IdentityApi; readonly onOpen: (href: string) => void }): JSX.Element {
+export function RegisterScreen({ identity, waitFor, onOpen }: { readonly identity: IdentityApi; readonly waitFor: WaitFor; readonly onOpen: (href: string) => void }): JSX.Element {
   const create = useSubmit(
     async ({ form }: Entry) => {
       const email = text(form, 'email');
@@ -100,6 +109,7 @@ export function RegisterScreen({ identity, onOpen }: { readonly identity: Identi
         <Email autoComplete="email" />
         <Password label="Choose a password" autoComplete="new-password" hint="At least 12 characters. Three or four ordinary words in a row are easier to remember than a short mix." />
         <Problem failure={create.failure} />
+        <Slow busy={create.busy} waitFor={waitFor} />
         <button type="submit" disabled={create.busy}>
           Create account
         </button>
@@ -183,7 +193,7 @@ export function RecoverScreen({ identity, asked, onOpen }: { readonly identity: 
   );
 }
 
-export function ResetScreen({ identity, code, onOpen }: { readonly identity: IdentityApi; readonly code: string; readonly onOpen: (href: string) => void }): JSX.Element {
+export function ResetScreen({ identity, code, waitFor, onOpen }: { readonly identity: IdentityApi; readonly code: string; readonly waitFor: WaitFor; readonly onOpen: (href: string) => void }): JSX.Element {
   const choose = useSubmit(({ form }: Entry) => identity.reset(code, text(form, 'password')), () => onOpen(authHref('signin', { changed: true })));
   return (
     <main aria-label="Choose a new password" style={page}>
@@ -191,6 +201,7 @@ export function ResetScreen({ identity, code, onOpen }: { readonly identity: Ide
       <form aria-label="Choose a new password" onSubmit={sent(choose.go)}>
         <Password label="New password" autoComplete="new-password" hint="At least 12 characters." />
         <Problem failure={choose.failure} />
+        <Slow busy={choose.busy} waitFor={waitFor} />
         <button type="submit" disabled={choose.busy}>
           Save the new password
         </button>

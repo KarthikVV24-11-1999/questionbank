@@ -81,23 +81,54 @@ export function summarise(samples) {
 }
 
 /**
- * The verdict: for each measured stream, a breach if its p95 is over its target, if nothing succeeded, or if any operation failed. A breach that is registered in `known` (stream name to the debt that carries it
- * and why) is reported and does not fail the run; a registered breach that did not happen is said so, so that a fixed one is seen to be fixed. A stream with no samples is a failure of the run, not a pass.
+ * THE RUNNER'S BUDGETS (M8-56). The NFR table's targets are statements about production. Whether this stack meets them cannot be answered by a two-vCPU runner that also runs the load generator
+ * (the header of load.mjs says so), and a gate on that number is a gate on the runner's noise: sign-in, at two-thirds of its target and bound by the CPU the generator competes for, failed one CI run
+ * in four. So the exit code depends on a different number, a budget for each stream on *this* runner, and the NFR comparison is a reported figure beside it.
+ *
+ * A budget is set from the runs this repository has produced, with a stated margin of at least twice the worst p95 seen. Observed p95 over the CI runs of M8 Track L (and a laptop), in ms:
+ *   signIn 191 to 215 (laptop 171)   package 35 to 47   events 35 to 89   submission 10 to 13   conceptMap 31 to 39   profile 22 to 23 (p99 105)   resultAvailable 1,584 to 1,890
+ * A budget that is **met is not evidence about production**, and one that is **breached is evidence that something changed here**: a regression, or a runner so much worse that the figure means
+ * nothing, which is also a thing to look at. Never read a green gate as the NFR being met.
  */
-export function judge(results, known = {}, targets = TARGETS) {
+export const BUDGETS = Object.freeze({
+  signIn: Object.freeze({ ms: 450 }),
+  package: Object.freeze({ ms: 150 }),
+  events: Object.freeze({ ms: 250 }),
+  submission: Object.freeze({ ms: 100 }),
+  conceptMap: Object.freeze({ ms: 200 }),
+  profile: Object.freeze({ ms: 150 }),
+  resultAvailable: Object.freeze({ ms: 10_000 }),
+});
+
+/** The fewest successful samples a stream must have before its 95th percentile is gated: a p95 of 50 observations rests on its slowest two. Below it the figure is reported and the run does not fail on it. */
+export const MIN_SAMPLES = 100;
+
+/**
+ * The verdict. For each measured stream: a **breach** (which fails the run) if nothing was measured, nothing succeeded, any operation failed, or (with at least MIN_SAMPLES successes) the p95 is over
+ * the stream's budget. The comparison with the NFR table's target is `nfr`: 'within' or 'over', reported and never failing. A stream under MIN_SAMPLES is `under`, said so, with its sample count.
+ * A breach that is registered in `known` (stream name to the debt that carries it) is reported and does not fail; a registered breach that did not happen is said so.
+ */
+export function judge(results, known = {}, targets = TARGETS, budgets = BUDGETS, minSamples = MIN_SAMPLES) {
   const rows = [];
   for (const [name, target] of Object.entries(targets)) {
     const r = results[name];
+    const budget = budgets[name];
     const breaches = [];
+    let nfr = 'unmeasured';
+    let under = false;
     if (r === undefined || r.count === 0) breaches.push('nothing was measured');
     else {
       if (r.ok === 0) breaches.push('nothing succeeded');
-      else if (!(r.p95 <= target.ms)) breaches.push(`p95 ${Math.round(r.p95)} ms is over ${target.ms} ms`);
+      else {
+        nfr = r.p95 <= target.ms ? 'within' : 'over';
+        under = r.ok < minSamples;
+        if (!under && !(r.p95 <= budget.ms)) breaches.push(`p95 ${Math.round(r.p95)} ms is over the runner's budget of ${budget.ms} ms`);
+      }
       const failed = r.count - r.ok;
       if (failed > 0) breaches.push(`${failed} of ${r.count} failed (${Object.entries(r.failures).map(([status, n]) => `${n} x ${status}`).join(', ')})`);
     }
     const registered = known[name];
-    rows.push({ name, target, result: r, breaches, registered, fails: breaches.length > 0 && registered === undefined, healed: breaches.length === 0 && registered !== undefined });
+    rows.push({ name, target, budget, result: r, nfr, under, breaches, registered, fails: breaches.length > 0 && registered === undefined, healed: breaches.length === 0 && registered !== undefined });
   }
   return { rows, failed: rows.some((row) => row.fails) };
 }

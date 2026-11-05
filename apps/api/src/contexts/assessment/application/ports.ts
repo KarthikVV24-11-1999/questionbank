@@ -173,3 +173,28 @@ export interface SolutionContent {
 export interface SolutionSource {
   solutionFor(slot: ReleasedSlot, depth: 'basic' | 'full', context: ApplicationContext): Promise<Result<SolutionContent, ApplicationError>>;
 }
+
+/**
+ * The rate limiter, as Assessment asks for it (M8-58): the shapes of the platform's, declared here because a context reaches `platform/` for the role vocabulary and nothing else
+ * (ADR-0026). The composition root hands in the platform's limiter, which satisfies them structurally.
+ */
+export interface RateTier {
+  readonly max: number;
+  readonly windowMs: number;
+}
+
+export interface RatePolicy {
+  readonly tiers: readonly RateTier[];
+}
+
+export type RateDecision = { readonly allowed: true } | { readonly allowed: false; readonly retryAfterSeconds: number; readonly tier: 'burst' | 'sustained' };
+
+export interface RateLimiter {
+  hit(key: string, policy: RatePolicy): Promise<RateDecision>;
+}
+
+/** What a class of learner route is limited by: where a request came from, and who it is for. */
+export interface RouteLimits {
+  readonly source: RatePolicy;
+  readonly subject: RatePolicy | null;
+}

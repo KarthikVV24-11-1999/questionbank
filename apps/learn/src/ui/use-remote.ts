@@ -20,6 +20,22 @@ export function useRemote<T>(load: () => Promise<T>): Remote<T> {
   return remote;
 }
 
+/**
+ * Whether something is taking longer than it should (M8-57, D129): true once `busy` has been true for `ms`, false again when it stops. The timer is the host's (`schedule` is `setTimeout`
+ * shape, as `within-time.ts` takes it), so a screen can say "this is taking a moment" for a wait that is a wait and not an error.
+ */
+export function useSlow(busy: boolean, ms: number, schedule: (fn: () => void, ms: number) => () => void): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      setSlow(false);
+      return undefined;
+    }
+    return schedule(() => setSlow(true), ms);
+  }, [busy]);
+  return slow;
+}
+
 /** One action a person takes, run once at a time and not again once it has succeeded, with what went wrong if it did not. */
 export function useAction<T>(run: () => Promise<T>, done: (value: T) => void): { readonly busy: boolean; readonly failure: string | null; readonly go: () => void } {
   const [busy, setBusy] = useState(false);

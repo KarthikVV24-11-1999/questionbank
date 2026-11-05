@@ -54,6 +54,9 @@ export const CONFIG_KEYS = [
   'rateLimitVerification',
   'rateLimitPasswordChange',
   'rateLimitProfile',
+  'rateLimitLearning',
+  'rateLimitEvents',
+  'rateLimitAttempts',
   'passwordHashConcurrency',
   'passwordHashQueue',
   'passwordHashWaitMs',
@@ -140,6 +143,9 @@ export interface AppConfig {
   readonly rateLimitPasswordChange: RouteLimits;
   /** The profile and onboarding routes (M8-20), by source and by learner: every step of onboarding, reads and writes alike. */
   readonly rateLimitProfile: RouteLimits;
+  readonly rateLimitLearning: RouteLimits;
+  readonly rateLimitEvents: RouteLimits;
+  readonly rateLimitAttempts: RouteLimits;
   /** How many password derives may run at once, how many may wait, and how long one waits for a slot (M8-08). */
   readonly passwordHashConcurrency: number;
   readonly passwordHashQueue: number;
@@ -206,6 +212,9 @@ const DEFAULTS = {
   rateLimitPasswordChange: 'source=20/1m,200/1h;subject=5/1m,20/15m',
   // Onboarding is a handful of calls a minute for a person, and a class sitting down together is a hundred people behind one address doing that at once.
   rateLimitProfile: 'source=300/1m,3000/1h;subject=30/1m,300/1h',
+  rateLimitLearning: 'source=1800/1m,20000/1h;subject=60/1m,600/1h',
+  rateLimitEvents: 'source=1000/1m,30000/1h;subject=60/1m,1200/1h',
+  rateLimitAttempts: 'source=1800/1m,30000/1h;subject=60/1m,600/1h',
   passwordHashConcurrency: '2',
   passwordHashQueue: '256',
   passwordHashWaitMs: '15000',
@@ -248,11 +257,14 @@ export const DEFAULT_ABUSE_LIMITS = {
   rateLimitVerification: parseRouteLimitsOrThrow(DEFAULTS.rateLimitVerification, true),
   rateLimitPasswordChange: parseRouteLimitsOrThrow(DEFAULTS.rateLimitPasswordChange, true),
   rateLimitProfile: parseRouteLimitsOrThrow(DEFAULTS.rateLimitProfile, true),
+  rateLimitLearning: parseRouteLimitsOrThrow(DEFAULTS.rateLimitLearning, true),
+  rateLimitEvents: parseRouteLimitsOrThrow(DEFAULTS.rateLimitEvents, true),
+  rateLimitAttempts: parseRouteLimitsOrThrow(DEFAULTS.rateLimitAttempts, true),
   passwordHashConcurrency: Number(DEFAULTS.passwordHashConcurrency),
   passwordHashQueue: Number(DEFAULTS.passwordHashQueue),
   passwordHashWaitMs: Number(DEFAULTS.passwordHashWaitMs),
   trustProxyHops: Number(DEFAULTS.trustProxyHops),
-} as const satisfies Pick<AppConfig, 'rateLimitLogin' | 'rateLimitRegister' | 'rateLimitRecovery' | 'rateLimitReset' | 'rateLimitVerification' | 'rateLimitPasswordChange' | 'rateLimitProfile' | 'passwordHashConcurrency' | 'passwordHashQueue' | 'passwordHashWaitMs' | 'trustProxyHops'>;
+} as const satisfies Pick<AppConfig, 'rateLimitLogin' | 'rateLimitRegister' | 'rateLimitRecovery' | 'rateLimitReset' | 'rateLimitVerification' | 'rateLimitPasswordChange' | 'rateLimitProfile' | 'rateLimitLearning' | 'rateLimitEvents' | 'rateLimitAttempts' | 'passwordHashConcurrency' | 'passwordHashQueue' | 'passwordHashWaitMs' | 'trustProxyHops'>;
 
 
 /** Environment variable name for each config key — the only mapping this module needs. */
@@ -283,6 +295,9 @@ export const ENV_VAR_NAMES: Record<ConfigKey, string> = {
   rateLimitVerification: 'RATE_LIMIT_VERIFICATION',
   rateLimitPasswordChange: 'RATE_LIMIT_PASSWORD_CHANGE',
   rateLimitProfile: 'RATE_LIMIT_PROFILE',
+  rateLimitLearning: 'RATE_LIMIT_LEARNING',
+  rateLimitEvents: 'RATE_LIMIT_EVENTS',
+  rateLimitAttempts: 'RATE_LIMIT_ATTEMPTS',
   passwordHashConcurrency: 'PASSWORD_HASH_CONCURRENCY',
   passwordHashQueue: 'PASSWORD_HASH_QUEUE',
   passwordHashWaitMs: 'PASSWORD_HASH_WAIT_MS',
@@ -646,6 +661,12 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
   if (!rateLimitPasswordChange.ok) return rateLimitPasswordChange;
   const rateLimitProfile = parseRouteLimitKey(env, 'rateLimitProfile', true);
   if (!rateLimitProfile.ok) return rateLimitProfile;
+  const rateLimitLearning = parseRouteLimitKey(env, 'rateLimitLearning', true);
+  if (!rateLimitLearning.ok) return rateLimitLearning;
+  const rateLimitEvents = parseRouteLimitKey(env, 'rateLimitEvents', true);
+  if (!rateLimitEvents.ok) return rateLimitEvents;
+  const rateLimitAttempts = parseRouteLimitKey(env, 'rateLimitAttempts', true);
+  if (!rateLimitAttempts.ok) return rateLimitAttempts;
   const passwordHashConcurrency = parseBoundedInteger(env, 'passwordHashConcurrency', 1, 16, 'a whole number from 1 to 16');
   if (!passwordHashConcurrency.ok) return passwordHashConcurrency;
   const passwordHashQueue = parseBoundedInteger(env, 'passwordHashQueue', 0, 10_000, 'a whole number from 0 to 10000');
@@ -688,6 +709,9 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
       rateLimitVerification: rateLimitVerification.value,
       rateLimitPasswordChange: rateLimitPasswordChange.value,
       rateLimitProfile: rateLimitProfile.value,
+      rateLimitLearning: rateLimitLearning.value,
+      rateLimitEvents: rateLimitEvents.value,
+      rateLimitAttempts: rateLimitAttempts.value,
       passwordHashConcurrency: passwordHashConcurrency.value,
       passwordHashQueue: passwordHashQueue.value,
       passwordHashWaitMs: passwordHashWaitMs.value,

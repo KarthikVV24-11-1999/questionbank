@@ -474,6 +474,9 @@ describe('loadConfig — what the authentication routes allow, and how much hash
     ['RATE_LIMIT_VERIFICATION', 'rateLimitVerification', true],
     ['RATE_LIMIT_PASSWORD_CHANGE', 'rateLimitPasswordChange', true],
     ['RATE_LIMIT_PROFILE', 'rateLimitProfile', true],
+    ['RATE_LIMIT_LEARNING', 'rateLimitLearning', true],
+    ['RATE_LIMIT_EVENTS', 'rateLimitEvents', true],
+    ['RATE_LIMIT_ATTEMPTS', 'rateLimitAttempts', true],
   ] as const;
 
   it('has a default for every one of them, the ones tests are built from', () => {

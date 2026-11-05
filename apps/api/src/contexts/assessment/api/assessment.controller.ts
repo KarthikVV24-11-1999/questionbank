@@ -6,6 +6,7 @@ import type { ApplicationError } from '../application/authorization.js';
 import type { Handler, HandlerRegistry } from '../application/handler-registry.js';
 import type { ApplicationContext } from '../application/ports.js';
 import { assembleDraftFormSchema, attemptIdSchema, createAttemptSchema, createPracticeAttemptSchema, formIdSchema, growPracticeAttemptSchema, practiceFeedbackSchema, ingestEventsSchema, scheduleFormSchema, slotSolutionSchema, submitAttemptSchema } from './dto/assessment-schemas.js';
+import type { RouteAdmission } from './admission.js';
 import { statusForKind, toProblemDetails, validationProblem } from './problem-details.js';
 
 /** What a package is served as: its own type, so nothing mistakes it for an API response. */
@@ -14,6 +15,17 @@ export const PRACTICE_PACKAGE_MEDIA_TYPE = 'application/vnd.questionbank.practic
 
 export const ASSESSMENT_REGISTRY = Symbol('ASSESSMENT_REGISTRY');
 export const ASSESSMENT_PRINCIPAL_RESOLVER = Symbol('ASSESSMENT_PRINCIPAL_RESOLVER');
+export const ASSESSMENT_ADMISSION = Symbol('ASSESSMENT_ADMISSION');
+
+/** What each class of learner route is limited by (M8-58). An operator's routes (forms) and the public key are in neither: an operator is a handful of people, and the key is one constant read. */
+export interface AssessmentAdmission {
+  /** The answers a run sends: the only unlimited write before this. */
+  readonly events: RouteAdmission;
+  /** Everything else a learner does with a run: make it, start it, its package, feedback, solution, result, submission. */
+  readonly attempts: RouteAdmission;
+}
+const EVENT_ROUTES: ReadonlySet<string> = new Set(['IngestResponseEvents']);
+const ATTEMPT_ROUTES: ReadonlySet<string> = new Set(['CreateAttempt', 'CreatePracticeAttempt', 'GrowPracticeAttempt', 'GetPracticePackage', 'GetPracticeFeedback', 'GetAttempt', 'GetAttemptResult', 'GetSlotSolution', 'StartAttempt', 'SubmitAttempt', 'GetFormPackage']);
 
 export interface PrincipalResolver {
   resolve(headers: Record<string, string | string[] | undefined>): ApplicationContext['principal'] | null;
@@ -46,6 +58,7 @@ export class AssessmentController {
   constructor(
     @Inject(ASSESSMENT_REGISTRY) private readonly registry: HandlerRegistry,
     @Inject(ASSESSMENT_PRINCIPAL_RESOLVER) private readonly principals: PrincipalResolver,
+    @Inject(ASSESSMENT_ADMISSION) private readonly admission: AssessmentAdmission,
   ) {}
 
   @Post('/v1/assessment/forms')
@@ -222,6 +235,22 @@ export class AssessmentController {
     if (principal === null) {
       this.fail(response, { kind: 'Authentication', code: 'Authentication', message: 'Authentication is required.' }, correlationId);
       return;
+    }
+
+    // before the body is read or the handler is reached, so a limited request has cost a counter and nothing else; the address is the one the application resolved through the proxies it believes
+    const admission = EVENT_ROUTES.has(handlerName) ? this.admission.events : ATTEMPT_ROUTES.has(handlerName) ? this.admission.attempts : undefined;
+    if (admission !== undefined) {
+      const admitted = await admission.check({ ip: (response as { req?: { ip?: string } }).req?.ip ?? 'unknown', subject: principal.id }, handlerName, correlationId);
+      if (!admitted.allowed) {
+        if (admitted.kind === 'limited') {
+          response.setHeader('Retry-After', String(admitted.retryAfterSeconds));
+          this.fail(response, { kind: 'RateLimited', code: 'RATE_LIMITED', message: 'Too many requests. Try again later.' }, correlationId);
+        } else {
+          // the name every student route gives a store that cannot be read, which the device's queue tells from a verdict on its events
+          this.fail(response, { kind: 'Unavailable', code: 'STORE_UNAVAILABLE', message: 'The service is unavailable. Try again shortly.' }, correlationId);
+        }
+        return;
+      }
     }
 
     const parsed = build();

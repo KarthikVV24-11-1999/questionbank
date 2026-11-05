@@ -28,18 +28,20 @@ export type Admitted =
 const digest = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
 export class ProfileAdmission {
+  /** `name` is the class of route a counter belongs to, so the reads of the map and the profile's questions do not spend each other's allowance (M8-58). */
   constructor(
     private readonly limiter: RateLimiter,
     private readonly limits: RouteLimits,
     private readonly log?: RefusalLog,
+    private readonly name: string = 'profile',
   ) {}
 
   async check(request: { readonly ip: string; readonly subject: string }, route: string, correlationId: string): Promise<Admitted> {
     let source: RateDecision;
     let subject: RateDecision = { allowed: true };
     try {
-      source = await this.limiter.hit(`profile:source:${digest(request.ip)}`, this.limits.source);
-      if (this.limits.subject !== null) subject = await this.limiter.hit(`profile:subject:${digest(request.subject)}`, this.limits.subject);
+      source = await this.limiter.hit(`${this.name}:source:${digest(request.ip)}`, this.limits.source);
+      if (this.limits.subject !== null) subject = await this.limiter.hit(`${this.name}:subject:${digest(request.subject)}`, this.limits.subject);
     } catch {
       this.record('RATE_LIMIT_UNAVAILABLE', 'store', route, correlationId);
       return { allowed: false, kind: 'unavailable' };

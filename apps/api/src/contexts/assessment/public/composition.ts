@@ -1,3 +1,5 @@
+import { RouteAdmission, type RefusalLog } from '../api/admission.js';
+import type { RateLimiter, RouteLimits } from '../application/ports.js';
 import type { Pool } from 'pg';
 import { ROLES } from '../../../platform/auth/roles.js';
 import type { DynamicModule } from '@nestjs/common';
@@ -53,6 +55,11 @@ export interface AssessmentCompositionDeps {
    * package routes answer as unavailable rather than serving bytes nothing vouches for.
    */
   readonly packageSigningKey?: string;
+  /** Where the learner routes count (M8-58): the platform's limiter, so a limit is the same from every instance. Needed by `register` only; the relay and the jobs do not serve routes. */
+  readonly limiter?: RateLimiter;
+  /** What the answers a run sends, and every other learner route of a run, are limited by (`RATE_LIMIT_EVENTS`, `RATE_LIMIT_ATTEMPTS`). Needed by `register` only. */
+  readonly limits?: { readonly events: RouteLimits; readonly attempts: RouteLimits };
+  readonly refusals?: RefusalLog;
   /** Curriculum's one read assessment makes — `curriculumForAssessment`, passed through. */
   readonly curriculum: { readonly examProfilePins: ProfilePinsHandler; readonly scoringSpec: ScoringSpecReader };
   /** Where a scored practice run is announced as completed (M8-34); the root passes the analytics emitter. Absent, and nothing is said. */
@@ -199,10 +206,16 @@ export function assessmentJobs(deps: AssessmentCompositionDeps): readonly Backgr
 
 export function register(deps: AssessmentCompositionDeps): DynamicModule {
   checkDeps(deps);
+  const { limiter, limits } = deps;
+  if (limiter === undefined || limits === undefined) throw new Error('assessment composition is missing required dependency: limiter and limits (a learner route that cannot be limited is not served)');
 
   const registry = composeAssessmentHandlers(assemble(deps));
 
-  return AssessmentModule.register({ registry, principals: deps.principals });
+  return AssessmentModule.register({
+    registry,
+    principals: deps.principals,
+    admission: { events: new RouteAdmission(limiter, limits.events, 'events', deps.refusals), attempts: new RouteAdmission(limiter, limits.attempts, 'attempts', deps.refusals) },
+  });
 }
 
 /**

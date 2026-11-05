@@ -17,6 +17,9 @@ import {
 import { GetPracticeFeedbackHandler } from '../application/handlers/practice-feedback-handler.js';
 import { CreatePracticeAttemptHandler, GrowPracticeAttemptHandler } from '../application/handlers/practice-handlers.js';
 import { AssessmentController, type PrincipalResolver } from './assessment.controller.js';
+import { RouteAdmission } from './admission.js';
+const OPEN = { events: new RouteAdmission({ hit: async () => ({ allowed: true }) }, { source: { tiers: [] }, subject: null }, 'events'), attempts: new RouteAdmission({ hit: async () => ({ allowed: true }) }, { source: { tiers: [] }, subject: null }, 'attempts') };
+
 
 /**
  * The key-free argument for the attempt responses (M6-59, F6/F35), proved where it does not depend on the composed application's attempt lifecycle (M7-18).
@@ -93,7 +96,7 @@ function rig() {
     new GetPracticeFeedbackHandler(deps),
   ] as never);
   const principals: PrincipalResolver = { resolve: () => PRINCIPAL };
-  return { controller: new AssessmentController(registry, principals), scoreRecord, attempts };
+  return { controller: new AssessmentController(registry, principals, OPEN), scoreRecord, attempts };
 }
 
 describe('what the attempt routes write to a response', () => {
@@ -164,7 +167,7 @@ describe('what the attempt routes write to a response', () => {
       policy: { name: 'GetAttempt', allowedRoles: ['learner'], requiresStepUp: false },
       handle: async () => ({ ok: true, value: { attemptId: id(TAG.attempt), state: 'in_progress', answerKey: { kind: 'SINGLE_CORRECT', optionId: 'B' } } }),
     };
-    const controller = new AssessmentController(HandlerRegistry.of([leaking] as never), { resolve: () => PRINCIPAL });
+    const controller = new AssessmentController(HandlerRegistry.of([leaking] as never), { resolve: () => PRINCIPAL }, OPEN);
     const { response, written } = fakeResponse();
     await controller.getAttempt(id(TAG.attempt), {}, response);
     expect(keyFieldsIn(written.body)).toEqual(['answerKey']);

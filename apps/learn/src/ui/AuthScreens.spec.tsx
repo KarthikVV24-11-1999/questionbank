@@ -1,13 +1,35 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FakeIdentityApi } from '../testing/identity-fakes.js';
 import { refusal } from '../testing/profile-fakes.js';
 import { expectNoDomainVocabulary } from '../testing/vocabulary.js';
-import { CheckMailScreen, RecoverScreen, RegisterScreen, ResetScreen, SignInScreen, VerifyScreen } from './AuthScreens.js';
+import { CheckMailScreen, RecoverScreen, RegisterScreen, ResetScreen, SignInScreen, SLOW_AFTER_MS, VerifyScreen, type WaitFor } from './AuthScreens.js';
 
 afterEach(cleanup);
+
+/** A timer the test turns by hand: `turn(ms)` fires what has waited that long. */
+function clock(): { waitFor: WaitFor; turn: (ms: number) => void; pending: () => number } {
+  let now = 0;
+  const due: { at: number; fn: () => void }[] = [];
+  return {
+    waitFor: (fn, ms) => {
+      const entry = { at: now + ms, fn };
+      due.push(entry);
+      return () => void due.splice(due.indexOf(entry) >>> 0, due.includes(entry) ? 1 : 0);
+    },
+    turn: (ms) => {
+      now += ms;
+      for (const entry of due.filter((d) => d.at <= now)) {
+        due.splice(due.indexOf(entry), 1);
+        entry.fn();
+      }
+    },
+    pending: () => due.length,
+  };
+}
+const idle: WaitFor = () => () => undefined;
 
 const EMAIL = 'asha@example.com';
 const PASSWORD = 'three ordinary words together';
@@ -20,7 +42,7 @@ describe('signing in', () => {
   function open(over: { returnTo?: string; changed?: boolean; identity?: FakeIdentityApi } = {}) {
     const identity = over.identity ?? new FakeIdentityApi();
     const onOpen = vi.fn();
-    const view = render(<SignInScreen identity={identity} returnTo={over.returnTo ?? '?'} changed={over.changed ?? false} onOpen={onOpen} />);
+    const view = render(<SignInScreen identity={identity} returnTo={over.returnTo ?? '?'} changed={over.changed ?? false} waitFor={idle} onOpen={onOpen} />);
     return { identity, onOpen, view };
   }
 
@@ -50,7 +72,7 @@ describe('signing in', () => {
     open();
     expect(screen.queryByText(/another device/u)).toBeNull();
     cleanup();
-    render(<SignInScreen identity={new FakeIdentityApi()} returnTo="?" changed={false} ended onOpen={vi.fn()} />);
+    render(<SignInScreen identity={new FakeIdentityApi()} returnTo="?" changed={false} ended waitFor={idle} onOpen={vi.fn()} />);
     expect(screen.getByRole('status')).toHaveTextContent('You were signed out because your account was signed in on another device. Sign in again to carry on here.');
   });
 
@@ -86,7 +108,7 @@ describe('signing in', () => {
 describe('creating an account', () => {
   function open(identity = new FakeIdentityApi()) {
     const onOpen = vi.fn();
-    const view = render(<RegisterScreen identity={identity} onOpen={onOpen} />);
+    const view = render(<RegisterScreen identity={identity} waitFor={idle} onOpen={onOpen} />);
     return { identity, onOpen, view };
   }
 
@@ -250,7 +272,7 @@ describe('asking for a recovery message', () => {
 describe('choosing a new password', () => {
   function open(identity = new FakeIdentityApi()) {
     const onOpen = vi.fn();
-    const view = render(<ResetScreen identity={identity} code="CODE-123456" onOpen={onOpen} />);
+    const view = render(<ResetScreen identity={identity} code="CODE-123456" waitFor={idle} onOpen={onOpen} />);
     return { identity, onOpen, view };
   }
 
@@ -279,5 +301,33 @@ describe('choosing a new password', () => {
     expect(screen.getByLabelText('New password')).toHaveAttribute('minlength', '12');
     expectNoDomainVocabulary(view.container);
     expect((await axe.run(view.container)).violations).toEqual([]);
+  });
+});
+
+describe('a wait is said to be a wait (M8-57, D129)', () => {
+  /** A sign-in that stays pending until the test lets it go. */
+  function held() {
+    const identity = new FakeIdentityApi();
+    let release: () => void = () => undefined;
+    const login = identity.login.bind(identity);
+    identity.login = (email, password) => new Promise((resolve, reject) => (release = () => login(email, password).then(resolve, reject)));
+    return { identity, release: () => release() };
+  }
+
+  it('says nothing while the answer is quick, says it is taking a moment once it is not, and then lets the person on when it is done', async () => {
+    const time = clock();
+    const { identity, release } = held();
+    const onOpen = vi.fn();
+    render(<SignInScreen identity={identity} returnTo="?" changed={false} waitFor={time.waitFor} onOpen={onOpen} />);
+    await fill('Email address', EMAIL);
+    await fill('Password', PASSWORD);
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    act(() => time.turn(SLOW_AFTER_MS - 1));
+    expect(screen.queryByText(/taking a moment/u)).toBeNull();
+    act(() => time.turn(1));
+    expect(screen.getByRole('status')).toHaveTextContent('This is taking a moment');
+    expect(screen.queryByRole('alert')).toBeNull();
+    release();
+    await vi.waitFor(() => expect(onOpen).toHaveBeenCalled());
   });
 });

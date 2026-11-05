@@ -229,7 +229,14 @@ export async function createApplication(
     intervalCapMs: config.timeOnItemIntervalCapMs,
     ...(config.formPackageSigningKey === undefined ? {} : { packageSigningKey: config.formPackageSigningKey }),
   };
-  const assessmentModule = assessmentRegister(assessmentDeps);
+  // the authentication routes and the profile routes count in the same table, so a limit means the same from every instance
+  const rateCounters = new PostgresRateLimiter(pool, clock.now.bind(clock));
+  const assessmentModule = assessmentRegister({
+    ...assessmentDeps,
+    limiter: overrides.limiter ?? rateCounters,
+    limits: { events: config.rateLimitEvents, attempts: config.rateLimitAttempts },
+    refusals: refusalLog,
+  });
 
   // What runs beside the server: the relay that hands outbox messages to their consumers, and the scheduler that drives it and the
   // sweeps. Built here, started by the process (background.ts).
@@ -241,8 +248,6 @@ export async function createApplication(
     assessment: assessmentForLearning({ pool }),
   });
   // The learner's routes read what the same evidence source reads, for the pace of an attempt, and ask content for the standing of a bookmarked item.
-  // the authentication routes and the profile routes count in the same table, so a limit means the same from every instance
-  const rateCounters = new PostgresRateLimiter(pool, clock.now.bind(clock));
   const learningModule = registerLearning({
     pool,
     clock,
@@ -253,6 +258,7 @@ export async function createApplication(
     curriculum: new CurriculumLearnerSource(curriculumForLearning(curriculumDeps)),
     limiter: overrides.limiter ?? rateCounters,
     limits: config.rateLimitProfile,
+    learningLimits: config.rateLimitLearning,
     refusals: refusalLog,
   });
   const learningForConsumers = learningForRelay({ pool, clock, identifiers });

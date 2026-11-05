@@ -93,3 +93,32 @@ describe('planted: each rule can fail', () => {
     expect(violations).toContainEqual({ rule: 'OBJECTIVE_HAS_NO_BURN_ALERTS', detail: 'probe over 6h' });
   });
 });
+
+describe('the runbook (M8-59): planted, each rule can fail; whether the words are right cannot be tested', () => {
+  const DEPLOYMENT = read('docs/DEPLOYMENT.md');
+  const withDeployment = async (text: string): Promise<string[]> => rules({ deployment: text });
+
+  it('has an entry for every objective, complete, naming only metrics that exist, and defines Sev-1', async () => {
+    expect(await withDeployment(DEPLOYMENT)).toEqual([]);
+  });
+
+  it('an objective with no entry', async () => {
+    expect(await withDeployment(DEPLOYMENT.replace('#### Runbook: relay-freshness', '#### Runbook: relay-freshnes'))).toContain('RUNBOOK_MISSING_FOR_OBJECTIVE');
+  });
+
+  it('an entry missing any of its three parts, or with fewer than three things to look at', async () => {
+    expect(await withDeployment(DEPLOYMENT.replace('**What a page means.** More than 0.5%', 'More than 0.5%'))).toContain('RUNBOOK_ENTRY_INCOMPLETE');
+    expect(await withDeployment(DEPLOYMENT.replace('**A false alarm when** the host has just', 'The host has just'))).toContain('RUNBOOK_ENTRY_INCOMPLETE');
+    expect(await withDeployment(DEPLOYMENT.replace('(3) `qb_db_pool_connections` by `state`', '`qb_db_pool_connections` by `state`'))).toContain('RUNBOOK_ENTRY_INCOMPLETE');
+  });
+
+  it('a metric named that the page does not publish', async () => {
+    expect(await withDeployment(DEPLOYMENT.replace('`qb_outbox_dead`: dead letters', '`qb_outbox_deadd`: dead letters'))).toContain('RUNBOOK_NAMES_A_METRIC_THAT_DOES_NOT_EXIST');
+  });
+
+  it('a Sev-1 that is not defined, or an incident with nowhere to be written', async () => {
+    expect(await withDeployment(DEPLOYMENT.replace('A **Sev-1** for this product is', 'A bad thing is'))).toContain('SEV1_OR_INCIDENT_PLACE_NOT_DEFINED');
+    expect(await withDeployment(DEPLOYMENT.replace('**Where an incident is written.**', '**Elsewhere.**'))).toContain('SEV1_OR_INCIDENT_PLACE_NOT_DEFINED');
+  });
+});
+

@@ -12,6 +12,7 @@ import { statusForKind, toProblemDetails, validationProblem } from './problem-de
 export const LEARNING_HANDLERS = Symbol('LEARNING_HANDLERS');
 export const LEARNING_PRINCIPAL_RESOLVER = Symbol('LEARNING_PRINCIPAL_RESOLVER');
 export const LEARNING_ADMISSION = Symbol('LEARNING_ADMISSION');
+export const LEARNING_READS_ADMISSION = Symbol('LEARNING_READS_ADMISSION');
 
 export interface PrincipalResolver {
   resolve(headers: Record<string, string | string[] | undefined>): ApplicationContext['principal'] | null;
@@ -45,6 +46,7 @@ export class LearningController {
     @Inject(LEARNING_HANDLERS) offered: LearningForLearner,
     @Inject(LEARNING_PRINCIPAL_RESOLVER) private readonly principals: PrincipalResolver,
     @Inject(LEARNING_ADMISSION) private readonly admission: ProfileAdmission,
+    @Inject(LEARNING_READS_ADMISSION) private readonly reads: ProfileAdmission,
   ) {
     this.handlers = new Map((Object.values(offered) as unknown as Routed[]).map((handler) => [handler.name, handler]));
   }
@@ -156,18 +158,17 @@ export class LearningController {
       return;
     }
 
-    if (limitedFrom !== undefined) {
-      // before the handler: a limited request has made no read of the learner's profile and no call to Curriculum
-      const admitted = await this.admission.check({ ip: limitedFrom, subject: principal.id }, handlerName, correlationId);
-      if (!admitted.allowed) {
-        if (admitted.kind === 'limited') {
-          response.setHeader('Retry-After', String(admitted.retryAfterSeconds));
-          this.fail(response, { kind: 'RateLimited', code: 'RATE_LIMITED', message: 'Too many requests. Try again later.' }, correlationId);
-        } else {
-          this.fail(response, { kind: 'Unavailable', code: 'UNAVAILABLE', message: 'The service is unavailable. Try again shortly.' }, correlationId);
-        }
-        return;
+    // Every route is limited (M8-58): the profile's by its own allowance, the rest by the learner routes'. Before the handler, so a limited request has made no read of anything.
+    // The address is the one the application resolved through the proxies it was told to believe.
+    const admitted = await (limitedFrom !== undefined ? this.admission : this.reads).check({ ip: limitedFrom ?? (response as { req?: { ip?: string } }).req?.ip ?? 'unknown', subject: principal.id }, handlerName, correlationId);
+    if (!admitted.allowed) {
+      if (admitted.kind === 'limited') {
+        response.setHeader('Retry-After', String(admitted.retryAfterSeconds));
+        this.fail(response, { kind: 'RateLimited', code: 'RATE_LIMITED', message: 'Too many requests. Try again later.' }, correlationId);
+      } else {
+        this.fail(response, { kind: 'Unavailable', code: 'UNAVAILABLE', message: 'The service is unavailable. Try again shortly.' }, correlationId);
       }
+      return;
     }
 
     const parsed = build();

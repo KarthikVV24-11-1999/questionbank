@@ -114,9 +114,15 @@ Set in the environment file. *Secret* means: never written to a file in the repo
 | `AWS_SECRET_ACCESS_KEY` | The SES key's secret. | **yes** | as above |
 | `QB_MAIL_DIR` | Where a process without the SES settings writes its messages. Unused when they are set. | no | a volume |
 | `PORT`, `AUTH_ISSUER`, `AUTH_TOKEN_TTL_SECONDS`, `MEDIA_STORAGE_ROOT`, `LOG_LEVEL` | Set by the Compose file; change them only with a reason. | no | see `.env.example` |
-| `MAX_SESSIONS_PER_USER`, `RATE_LIMIT_*`, `PASSWORD_HASH_*`, `REVIEW_*`, `TIME_ON_ITEM_INTERVAL_CAP_MS`, `BACKGROUND_JOBS_ENABLED`, `GENERATION_PRECHECK_CONFIG` | Tuning. The defaults are the ones the tests run under. | no | see `.env.example`, which also says what each does |
+| `MAX_SESSIONS_PER_USER`, `RATE_LIMIT_*` (including `RATE_LIMIT_LEARNING`, `RATE_LIMIT_EVENTS` and `RATE_LIMIT_ATTEMPTS`, the learner routes' allowances, DEC-M8-35: raise the source tier if a school behind one address is refused, and read `qb_refusals_total{code="RATE_LIMITED"}`), `PASSWORD_HASH_*`, `REVIEW_*`, `TIME_ON_ITEM_INTERVAL_CAP_MS`, `BACKGROUND_JOBS_ENABLED`, `GENERATION_PRECHECK_CONFIG` | Tuning. The defaults are the ones the tests run under. | no | see `.env.example`, which also says what each does |
 
 A process with **none** of the mail settings writes each message to a file inside the container: nobody outside could read it, so nobody could confirm an address. With **some** it does not start and says which are missing. Check the mail settings before inviting anyone (step 8).
+
+### Sign-in under load
+
+`PASSWORD_HASH_CONCURRENCY` is how many passwords the process hashes at the same moment (1 to 16, default 2). Hashing is CPU work of 160 to 220 ms, so **set it to the host's cores** (leave one for the rest of the API on a small host) and the sign-in rate follows: about two sign-ins per core-second. A class of 200 signing in together on 2 cores clears in about 100 seconds of derive, on 8 cores about 25.
+
+The queue behind it holds 256 and waits at most 15 seconds. Past either, the API answers 503 `Unavailable`, marked retryable. The learner app tries once more, after 1 to 3 s (2 s, jittered so a crowd does not return together), before it tells the person to try again in a minute, and says "this is taking a moment" after 3 s; the worst case is the 15 s hold, the pause and a second 15 s hold, about 33 s, so a refusal that reaches a person means the host is under-provisioned for the moment, not that anything is broken. Watch `qb_refusals_total` for the refusals and raise the setting, or the host, if they recur (D129).
 
 ## Metrics
 
@@ -137,7 +143,55 @@ PROBE_URL=https://learn.example.org PROBE_EMAIL=probe@example.org PROBE_PASSWORD
 
 On a schedule with cron: `*/5 * * * * <the line above>`, or a systemd timer. `PROBE_TEXTFILE` is in the text exposition format (`qb_probe_success`, `qb_probe_duration_seconds{step}`, `qb_probe_last_run_timestamp_seconds`), for a node exporter's textfile collector to pick up, and is what the `probe` objective and the `ProbeAbsent` alert read. The probe's account is a learner like any other: it counts in the learner totals, and its password should not be a person's.
 
-**What a page should make you do** is not written, because no one has been paged: the first time one is, write it here.
+### What a page means
+
+**Tier 3 for the words, and they cannot be tested by behaviour: nobody has been paged, no alert has fired, and what follows is what the metrics and commands say, written before the first time, not learned from one.** What a test can say (`apps/api/src/fitness/observability-rules.spec.ts`) is that every objective in `infra/observability/slo.json` has an entry below with its three parts, and that every `qb_` metric named below is on the `/metrics` page. Whether the first three things are the right three is for the first real page to correct: write what it taught you into the entry.
+
+Commands below run on the host, from the repository, with the Compose prefix of "The steps" (`docker compose --env-file /etc/questionbank/stack.env -f infra/compose/docker-compose.yml`, written `$COMPOSE`). `curl -s localhost:3000/metrics | grep <name>` reads a metric.
+
+**A `ticket` is not a page**: it is the budget being spent at the rate that exhausts it in 28 days, and is read in working hours. A `page` is the first two burn windows of an objective (14.4x over an hour, 6x over six).
+
+#### Runbook: availability
+
+**What a page means.** More than 0.5% of requests are being answered with a server error, fast enough to spend the beta's 3.4 hours of error in days.
+**Look at first.** (1) `qb_http_requests_total{status_class="5xx"}` by `route`: one route is a bug, every route is the process or the database. (2) `curl -s localhost:3000/readyz` (it asks the database) and `/healthz`. (3) `qb_db_pool_connections` by `state` (many `waiting` means the pool is exhausted) and `$COMPOSE logs --tail 200 api`, searching for a `correlationId` of a 5xx.
+**A false alarm when** the host has just been restarted or deployed (the errors are the minute the process was down and the page clears by itself), or traffic is so low that three errors are a large share (`rate(qb_http_requests_total[1h])` is near zero).
+
+#### Runbook: read-latency
+
+**What a page means.** More than 5% of reads (any `GET`) took longer than 200 ms over the last hour or six.
+**Look at first.** (1) `qb_http_request_duration_seconds_bucket` by `route` for `GET` routes: which one is slow. (2) `qb_db_pool_connections{state="waiting"}` and `qb_outbox_depth` (a relay catching up competes for the database). (3) `$COMPOSE exec -T postgres psql -U postgres -d questionbank -c "select pid, state, now() - query_start as age, left(query, 80) from pg_stat_activity where state <> 'idle' order by age desc limit 10"` for the query that is holding things.
+**A false alarm when** a class has just signed in together (sign-ins are writes, but their CPU slows reads for the minute they last: `qb_refusals_total` and the hash queue, "Sign-in under load"), or traffic is near zero.
+
+#### Runbook: write-latency
+
+**What a page means.** More than 5% of writes (`POST`, `PATCH`, `PUT`, `DELETE`) took longer than 300 ms.
+**Look at first.** (1) `qb_http_request_duration_seconds_bucket` by `route` for the writes: sign-in and registration are writes and hash a password in 160 to 220 ms by design. (2) `qb_refusals_total` by `code`: `RATE_LIMITED` is a limit being hit, and 503 `Unavailable` with the hash queue is the stampede of D129. (3) `qb_db_pool_connections{state="waiting"}`.
+**A false alarm when** it is a class signing in together: the writes are slow for about as long as the sign-ins take to drain (about two a second per core, "Sign-in under load"), and the page clears. It is not one when the slow route is not sign-in or registration.
+
+#### Runbook: concept-map-latency
+
+**What a page means.** More than 5% of reads of a learner's concept map took longer than 500 ms: the screen a learner opens to see where they stand is slow.
+**Look at first.** (1) `qb_http_request_duration_seconds_bucket{route="GET /v1/learning/concept-map"}`. (2) `qb_outbox_depth` and `qb_outbox_oldest_unrelayed_age_seconds`: the relay writes what the map reads, and a backlog is contention. (3) `qb_db_pool_connections` and the slow-query command under read-latency.
+**A false alarm when** the process has just started (cold caches and a cold pool for the first requests) or very few maps have been read in the window.
+
+#### Runbook: relay-freshness
+
+**What a page means.** A message has waited more than a minute for the relay: a submitted run's score, or what a learner's home names next, is not being updated.
+**Look at first.** (1) `qb_outbox_relay_seconds_since_drain`: growing means the relay has stopped (the process, a stuck drain), steady near 1 means it is running and behind. (2) `qb_outbox_oldest_unrelayed_age_seconds` and `qb_outbox_depth`: how old and how many. (3) `qb_outbox_dead`: dead letters are messages the relay gave up on, kept for a person, and need reading in `platform.outbox_message` (`dead_at is not null`) before anything is retried.
+**A false alarm when** `qb_outbox_unconsumed` is what is growing and nothing else: those are messages of a type nothing consumes (D130), they are not counted in the age above and they are not a delay.
+
+#### Runbook: probe
+
+**What a page means.** The check made from outside, through the proxy, which signs in and reads what a learner's home reads, has failed on more than 1% of its runs: from where a learner is, the app does not work, or the probe cannot tell.
+**Look at first.** (1) `qb_probe_success` and `qb_probe_duration_seconds` by `step`: which step failed. (2) Run it by hand, from somewhere that is not the host (the command under "Run the probe"): its exit code names the step. (3) `curl -s localhost:3000/readyz` on the host, then the learner app on 8080 (`curl -sI localhost:8080/`): if the host answers and the outside does not, it is the proxy, the certificate or the network, not the API.
+**A false alarm when** the probe's own account has been signed out by another sign-in (an account holds one session: one probe, one place) or the probe host has lost the network; `ProbeAbsent` is the alert for a probe that is not running at all.
+
+### Sev-1
+
+A **Sev-1** for this product is one of three things, and nothing slower or smaller is: (1) **an answer is lost**: a learner was told their answers were saved or their run was submitted and they are not in the database, or a submitted run is never scored; (2) **someone sees what is not theirs**: another learner's standing, answers or account, or a question's key or solution before it is released; (3) **nobody can use it**: no learner can sign in or open a run for 30 minutes inside a scheduled mock's window, or for 2 hours at any other time. A slow screen, one learner's trouble, a `ticket` and a failed probe that the host answers are not Sev-1; the third kind is the one an alert on `availability` or `probe` is most likely to be, the first two are found by a person or by `qb_outbox_dead`. Acceptance criterion 3 counts these and only these.
+
+**Where an incident is written.** In the repository, as `docs/incidents/<date>-<what>.md`, one file for each Sev-1 and for any page that taught something: what was seen, the times, what was done, what the entry above should now say. The directory does not exist yet because nothing is deployed to people; the first incident creates it, and adds the file to `docs/README.md`'s index.
 
 ## Health
 

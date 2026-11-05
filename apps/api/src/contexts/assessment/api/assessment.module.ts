@@ -1,10 +1,11 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import type { HandlerRegistry } from '../application/handler-registry.js';
-import { ASSESSMENT_PRINCIPAL_RESOLVER, ASSESSMENT_REGISTRY, AssessmentController, type PrincipalResolver } from './assessment.controller.js';
+import { ASSESSMENT_ADMISSION, ASSESSMENT_PRINCIPAL_RESOLVER, ASSESSMENT_REGISTRY, AssessmentController, type AssessmentAdmission, type PrincipalResolver } from './assessment.controller.js';
 
 export interface AssessmentModuleOptions {
   readonly registry: HandlerRegistry;
   readonly principals: PrincipalResolver;
+  readonly admission: AssessmentAdmission;
 }
 
 /**
@@ -21,6 +22,7 @@ export class AssessmentModule {
       providers: [
         { provide: ASSESSMENT_REGISTRY, useValue: options.registry },
         { provide: ASSESSMENT_PRINCIPAL_RESOLVER, useValue: options.principals },
+        { provide: ASSESSMENT_ADMISSION, useValue: options.admission },
       ],
     };
   }

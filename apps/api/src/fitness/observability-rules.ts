@@ -21,7 +21,11 @@ export interface ObservabilityViolation {
     | 'ALERT_THRESHOLD_NOT_BURN_TIMES_BUDGET'
     | 'ALERT_NAMES_A_METRIC_THAT_DOES_NOT_EXIST'
     | 'ALERT_RUNBOOK_DOES_NOT_EXIST'
-    | 'OBJECTIVE_HAS_NO_BURN_ALERTS';
+    | 'OBJECTIVE_HAS_NO_BURN_ALERTS'
+    | 'RUNBOOK_MISSING_FOR_OBJECTIVE'
+    | 'RUNBOOK_ENTRY_INCOMPLETE'
+    | 'RUNBOOK_NAMES_A_METRIC_THAT_DOES_NOT_EXIST'
+    | 'SEV1_OR_INCIDENT_PLACE_NOT_DEFINED';
   readonly detail: string;
 }
 
@@ -94,6 +98,24 @@ export async function checkObservability(
     const anchor = /^docs\/DEPLOYMENT\.md#(.+)$/u.exec(runbook)?.[1];
     if (anchor === undefined || !anchors.has(anchor)) violations.push({ rule: 'ALERT_RUNBOOK_DOES_NOT_EXIST', detail: `${name}: ${runbook}` });
   }
+  // The runbook (M8-59): each objective has an entry with its three parts, and every metric the words name is on the page. Whether the words are right cannot be tested; that they are there, complete and name real things can.
+  const section = /^### What a page means$([\s\S]*?)(?=^## )/mu.exec(deployment)?.[1] ?? '';
+  const entries = new Map([...section.matchAll(/^#### Runbook: (\S+)$([\s\S]*?)(?=^#{1,4} |(?![\s\S]))/gmu)].map((m) => [m[1]!, m[2]!]));
+  for (const objective of slo.objectives ?? []) {
+    const entry = entries.get(objective.id);
+    if (entry === undefined) {
+      violations.push({ rule: 'RUNBOOK_MISSING_FOR_OBJECTIVE', detail: objective.id });
+      continue;
+    }
+    const look = /\*\*Look at first\.\*\*([^\n]*)/u.exec(entry)?.[1] ?? '';
+    const complete = entry.includes('**What a page means.**') && entry.includes('**A false alarm when**') && look !== '' && [1, 2, 3].every((n) => look.includes(`(${n})`));
+    if (!complete) violations.push({ rule: 'RUNBOOK_ENTRY_INCOMPLETE', detail: objective.id });
+  }
+  for (const used of new Set(section.match(/\bqb_[a-z0-9_]+/gu) ?? [])) {
+    if (!metrics.has(used)) violations.push({ rule: 'RUNBOOK_NAMES_A_METRIC_THAT_DOES_NOT_EXIST', detail: used });
+  }
+  const sev1 = /^### Sev-1$([\s\S]*?)(?=^## |(?![\s\S]))/mu.exec(deployment)?.[1] ?? '';
+  if (!sev1.includes('A **Sev-1** for this product is') || !sev1.includes('Where an incident is written')) violations.push({ rule: 'SEV1_OR_INCIDENT_PLACE_NOT_DEFINED', detail: 'the "Sev-1" section must define it and say where an incident is written' });
   for (const objective of slo.objectives ?? []) {
     for (const window of windows) {
       const rule = rules.find((r) => r.alert === `SloBurn_${objective.id.replaceAll('-', '_')}_${window.long}`);

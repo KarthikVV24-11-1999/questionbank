@@ -29,11 +29,23 @@ const deps = (): AssessmentCompositionDeps => ({
   },
 });
 
+const withLimits = (base: ReturnType<typeof deps>) => ({
+  ...base,
+  limiter: { hit: async () => ({ allowed: true as const }) },
+  limits: { events: { source: { tiers: [] }, subject: null }, attempts: { source: { tiers: [] }, subject: null } },
+});
+
 describe('assessment composition', () => {
   it('builds a module carrying the controller from a complete set of dependencies', () => {
-    const module = register(deps());
+    const module = register(withLimits(deps()));
     expect(module.controllers).toHaveLength(1);
-    expect(module.providers).toHaveLength(2);
+    expect(module.providers).toHaveLength(3);
+  });
+
+  it('refuses to serve routes it cannot limit: no limiter, or no limits, is a boot error', () => {
+    const { limiter, limits } = withLimits(deps());
+    expect(() => register({ ...deps(), limits })).toThrow(/limiter and limits/u);
+    expect(() => register({ ...deps(), limiter })).toThrow(/limiter and limits/u);
   });
 
   it('refuses at runtime for each required key, one at a time, even reached through a cast', () => {

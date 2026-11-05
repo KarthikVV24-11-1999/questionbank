@@ -6,7 +6,9 @@
 // last has finished), with the interval between them jittered by up to 30% so they do not march.
 //
 // WHAT IS MEASURED, AND AGAINST WHAT. Each operation's time as the client sees it (this process, through the learner app's nginx), at the 95th percentile, against the NFR table's target for its
-// kind (model.mjs TARGETS). A breach, a failed operation or a stream with nothing measured exits non-zero, unless the breach is registered in KNOWN below with the debt that carries it. The paths the
+// kind (model.mjs TARGETS), as a REPORTED comparison. The exit code depends on something else: a budget for each stream on this runner (model.mjs BUDGETS, M8-56), because whether the stack meets the NFR cannot
+// be answered here and a gate on it fails on the runner's noise. A budget that is met is not evidence about production; one that is breached is evidence that something changed here. A stream with fewer than
+// MIN_SAMPLES successes is reported and not gated on its percentile. A failed operation or a stream with nothing measured exits non-zero, unless the breach is registered in KNOWN below with the debt that carries it. The paths the
 // stack cannot serve (a 75-item form's submission, its scoring) are printed as BLOCKED with what they need, and are never simulated: a ten-question practice run is a different object and its numbers
 // are labelled as its own.
 //
@@ -23,7 +25,7 @@
 // printed with its result: the number of requests it made, and so the size of a per-request leak it could have seen.
 import { webcrypto } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { BETA, BLOCKED, SOAK, derive, judge, operationsIn, seeableLeakBytes, soakVerdict, stampedeVerdict, summarise } from './model.mjs';
+import { BETA, BLOCKED, MIN_SAMPLES, SOAK, derive, judge, operationsIn, seeableLeakBytes, soakVerdict, stampedeVerdict, summarise } from './model.mjs';
 
 const BASE = (process.env.STACK_URL ?? 'http://localhost:8080').replace(/\/$/u, '');
 const METRICS = process.env.METRICS_URL ?? 'http://127.0.0.1:3000/metrics';
@@ -227,12 +229,14 @@ async function runLoad(seconds, onTick) {
 function report(results) {
   const verdict = judge(results, KNOWN);
   log('\nRESULTS (client time through the learner app\'s proxy; one runner, two vCPUs, generator on the same box: pessimistic latency, a ceiling on throughput, not the host\'s numbers)');
-  log('  operation                                   target            n    ok     p50     p95     p99     max   verdict');
+  log('  THE EXIT CODE depends on the runner\'s budget, not on the NFR: a budget that is met is not evidence about production, and one that is breached is evidence that something changed here.');
+  log('  The NFR column is the comparison with the table, reported.');
+  log('  operation                                  samples    p50     p95     p99     max   NFR target          budget          gate');
   for (const row of verdict.rows) {
     const r = row.result ?? { count: 0, ok: 0 };
     const f = (v) => (Number.isFinite(v) ? String(Math.round(v)).padStart(6) : '     -');
-    const word = row.breaches.length === 0 ? (row.healed ? 'ok (registered breach has healed)' : 'ok') : row.registered === undefined ? `BREACH: ${row.breaches.join('; ')}` : `known breach (${row.registered}): ${row.breaches.join('; ')}`;
-    log(`  ${row.target.what.slice(0, 40).padEnd(40)} ${row.target.id} p95 <= ${String(row.target.ms).padStart(5)} ms ${String(r.count).padStart(4)} ${String(r.ok).padStart(5)} ${f(r.p50)}  ${f(r.p95)}  ${f(r.p99)}  ${f(r.max)}   ${word}`);
+    const gate = row.breaches.length === 0 ? (row.healed ? 'ok (a registered breach has healed)' : row.under ? `not gated: ${r.ok} samples, under ${MIN_SAMPLES}` : 'ok') : row.registered === undefined ? `BREACH: ${row.breaches.join('; ')}` : `known breach (${row.registered}): ${row.breaches.join('; ')}`;
+    log(`  ${row.target.what.slice(0, 40).padEnd(40)} ${String(r.ok).padStart(4)}/${String(r.count).padEnd(4)} ${f(r.p50)}  ${f(r.p95)}  ${f(r.p99)}  ${f(r.max)}   ${row.target.id} <= ${String(row.target.ms).padStart(5)} ${row.nfr.padEnd(6)}  <= ${String(row.budget.ms).padStart(6)} ms   ${gate}`);
   }
   log('\nBLOCKED here, and what each needs:');
   for (const b of BLOCKED) log(`  ${b.id} ${b.what}: ${b.needs}`);

@@ -55,7 +55,11 @@ const csrfEcho = (): Record<string, string> => {
   return kept === undefined ? {} : { 'X-CSRF-Token': decodeURIComponent(kept.slice('qb_csrf='.length)) };
 };
 const client = createClient({ baseUrl: window.location.origin, getToken: () => null, credentials: 'include', extraHeaders: csrfEcho });
-const identity = createIdentityApi(client);
+const waitFor = (fn: () => void, ms: number): (() => void) => {
+  const handle = window.setTimeout(fn, ms);
+  return () => window.clearTimeout(handle);
+};
+const identity = createIdentityApi(client, (ms) => new Promise<void>((resolve) => void waitFor(resolve, ms)));
 /** The link in a message carries its code after `#`; it is taken from the address at once, so it is not left in the history or the page. */
 const messageLink = messageLinkOf(window.location.hash);
 if (messageLink !== null) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
@@ -122,10 +126,6 @@ const screenContext: ScreenContext = {
 const open = (href: string): void => window.location.assign(href);
 /** How long the screen waits for the server's word on an answer before it says the answer is saved and will be marked: a run is sat with a poor connection, and a verdict is never worth a wait. */
 const VERDICT_WAIT_MS = 6_000;
-const waitFor = (fn: () => void, ms: number): (() => void) => {
-  const handle = window.setTimeout(fn, ms);
-  return () => window.clearTimeout(handle);
-};
 /** The two calls a practice run makes while it is open, each given up on if the server is slow. */
 const runApi = {
   getPracticeFeedback: (attemptId: string, slotId: string) => withinTime(api.getPracticeFeedback(attemptId, slotId), VERDICT_WAIT_MS, waitFor),
@@ -208,7 +208,7 @@ if (rootElement === null) throw new Error('main.tsx: #root element is missing fr
 const sitting = (formId !== null && sessionRef !== null) || params.get('practice') !== null;
 createRoot(rootElement).render(
   <StrictMode>
-    <AuthGate identity={identity} link={messageLink} auth={{ screen: authScreen, flags: authFlags }} returnTo={returnAddress(window.location.search)} offerSignOut={!sitting} onOpen={open}>
+    <AuthGate identity={identity} link={messageLink} auth={{ screen: authScreen, flags: authFlags }} returnTo={returnAddress(window.location.search)} offerSignOut={!sitting} onOpen={open} waitFor={waitFor}>
       <App />
     </AuthGate>
   </StrictMode>,
