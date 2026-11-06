@@ -149,13 +149,13 @@ describe('the verdict: the runner\'s budget gates, the NFR table is reported (M8
 
 describe('the soak', () => {
   const series = (over = {}) =>
-    Array.from({ length: 40 }, (_, i) => ({ t: i * 2, rss: 100 * 1_048_576, pool: 8, depth: 2, oldest: 1, lag: 0.5, ...(typeof over === 'function' ? over(i) : over) }));
+    Array.from({ length: 40 }, (_, i) => ({ t: i * 2, rss: 100 * 1_048_576, pool: 8, waiting: 0, depth: 2, oldest: 1, lag: 0.5, ...(typeof over === 'function' ? over(i) : over) }));
   const verdict = (samples, depth = 0) => soakVerdict(samples, { depth });
   const failing = (v) => v.checks.filter((c) => !c.ok).map((c) => c.what);
 
   it('passes a run in which nothing drifts', () => {
     assert.deepEqual(failing(verdict(series())), []);
-    assert.equal(verdict(series()).checks.length, 5);
+    assert.equal(verdict(series()).checks.length, 4);
   });
 
   it('fails resident memory that keeps rising, and not memory that settled after the first quarter', () => {
@@ -165,10 +165,23 @@ describe('the soak', () => {
     assert.deepEqual(failing(verdict(series((i) => ({ rss: (i < 20 ? 100 : 131) * 1_048_576 })))), ['resident memory settles']);
   });
 
-  it('fails a pool over its cap, and a pool that creeps up between the second quarter and the last', () => {
-    assert.deepEqual(failing(verdict(series((i) => ({ pool: i === 20 ? 11 : 8 })))), ['the pool stays inside its cap']);
-    assert.deepEqual(failing(verdict(series((i) => ({ pool: i > 30 ? 9 : 8 })))), ['the pool does not creep']);
-    assert.deepEqual(failing(verdict(series({ pool: 10 }))), []);
+  it('fails a pool pinned at its cap with clients queued through the last quarter, and not one pinned at its cap with nothing queued', () => {
+    const queued = series((i) => ({ pool: 10, waiting: i >= 30 ? 3 : 0 }));
+    assert.deepEqual(failing(verdict(queued)), ['no clients are queued for the pool at the end']);
+    assert.deepEqual(failing(verdict(series((i) => ({ pool: 10, waiting: i >= 30 ? 1 : 0 })))), ['no clients are queued for the pool at the end']);
+    assert.deepEqual(failing(verdict(series({ pool: 10, waiting: 0 }))), []);
+    // the shape of run 42169716805: the pool at its cap more of the last quarter than of the second, and nothing queued
+    assert.deepEqual(failing(verdict(series((i) => ({ pool: i >= 30 ? 10 : 9, waiting: 0 })))), []);
+  });
+
+  it('does not fail a queue that formed while the stampede ran and was gone by the last quarter, nor a spike inside the last quarter', () => {
+    assert.deepEqual(failing(verdict(series((i) => ({ pool: 10, waiting: i < 20 ? 40 : 0 })))), []);
+    assert.deepEqual(failing(verdict(series((i) => ({ pool: 10, waiting: i >= 30 && i < 34 ? 6 : 0 })))), []);
+    assert.deepEqual(failing(verdict(series((i) => ({ pool: 10, waiting: i >= 34 ? 6 : 0 })))), ['no clients are queued for the pool at the end']);
+  });
+
+  it('fails a run whose waiting clients were not read: a missing metric is not a zero', () => {
+    assert.deepEqual(failing(verdict(series({ waiting: Number.NaN }))), ['no clients are queued for the pool at the end']);
   });
 
   it('fails a message that waits longer than ten seconds for the relay, at any sample', () => {
@@ -176,7 +189,7 @@ describe('the soak', () => {
     assert.deepEqual(failing(verdict(series((i) => ({ oldest: i === 7 ? 10 : 1 })))), []);
   });
 
-  it('does not fail a long gap between drains with nothing old waiting: a drain that is busy delivering (runs 42098744164 and 42103811295, 7.8 s, and 14.9 s on the first)', () => {
+  it('does not fail a long gap between drains with nothing old waiting: a drain that is busy delivering (7.8 s in run 42103811295, 16.6 s in 42159293087, 15.7 s in 42169716805, 14.9 s on the first soak)', () => {
     assert.deepEqual(failing(verdict(series((i) => ({ lag: 15, oldest: 1.8 })))), []);
     assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 7.8 : 0.5, oldest: i === 3 ? 2.5 : 1 })))), []);
     assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 7.8 : 0.5, oldest: i === 3 ? 9 : 1 })))), []);
@@ -213,7 +226,7 @@ describe('the soak', () => {
   });
 
   it('has the thresholds the header states', () => {
-    assert.deepEqual({ ...SOAK }, { rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30 });
+    assert.deepEqual({ ...SOAK }, { rssGrowth: 1.3, oldestSeconds: 10, drainedBySeconds: 30 });
   });
 });
 

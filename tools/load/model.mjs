@@ -137,19 +137,22 @@ export function judge(results, known = {}, targets = TARGETS, budgets = BUDGETS,
 export const median = (values) => percentile(values, 50);
 
 /**
- * The soak's thresholds, each a number with a reason, each checked against the samples the run took of `GET /metrics`. A sample is `{ t, rss, pool, depth, oldest, lag }`: seconds since the start,
- * resident bytes, the pool's total clients, the outbox's waiting messages, the age of the oldest in seconds, and seconds since the relay last drained.
+ * The soak's thresholds, each a number with a reason, each checked against the samples the run took of `GET /metrics`. A sample is `{ t, rss, pool, waiting, depth, oldest, lag }`: seconds since the start,
+ * resident bytes, the pool's total clients, the clients queued for one, the outbox's waiting messages, the age of the oldest in seconds, and seconds since the relay last drained.
  *
  *   rss: the median of the last quarter of the run may not be more than 30% above the median of the second quarter. The first quarter is warm-up (the heap grows to its working size) and is not
  *        counted either way. A per-request leak shows as a slope; a working set that has settled does not.
- *   pool: the most clients the pool ever held may not exceed MAX_POOL (the pool's own cap, 10 in `pool.ts`), and the last quarter's median may not be above the second quarter's.
+ *   waiting (DEC-M8-37): the median number of clients queued for a connection across the last quarter of the run must be 0. A pool at its cap with nothing queued is a busy pool working; a pool at
+ *        its cap with clients queued, and still queued at the end, is exhausted, which is what the runbook (docs/DEPLOYMENT.md) tells a person to look at. A queue while the stampede runs is
+ *        expected and happens early, so the last quarter is the window. The pool's total is not judged: it is capped by the pool's own `max`, so a limit on it cannot fail, and a comparison of
+ *        two medians of an integer held at that cap turns on one client.
  *   depth and oldest: during the run the oldest unrelayed message may not be older than 10 s (the relay ticks every second), and when the load has stopped and the relay has had 30 s the backlog
  *        must be 0. A queue that forms under load and drains is the finding; one that does not drain is the failure.
  *   lag (reported, not judged; DEC-M8-36): seconds since the relay last finished a drain. A gap between drains is a proxy for "the relay is making no progress", and a noisy one on a two-vCPU
  *        runner, because a drain that is busy delivering is long by design (14.9 s with the oldest message never older than 1.8 s, 7.8 s in the green run). The facts are the two rules above: a
  *        relay with work waiting and no progress fails the 10-second rule, and one that never recovers fails the drain rule. The longest gap is printed with the age of the oldest message then.
  */
-export const SOAK = Object.freeze({ rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30 });
+export const SOAK = Object.freeze({ rssGrowth: 1.3, oldestSeconds: 10, drainedBySeconds: 30 });
 
 export function soakVerdict(samples, tail, limits = SOAK) {
   const checks = [];
@@ -165,10 +168,8 @@ export function soakVerdict(samples, tail, limits = SOAK) {
   const rss2 = median(second.map((s) => s.rss));
   const rss4 = median(last.map((s) => s.rss));
   need('resident memory settles', rss4 <= rss2 * limits.rssGrowth, `median of the last quarter ${mib(rss4)} MiB against ${mib(rss2)} MiB in the second (limit x${limits.rssGrowth})`);
-  const pool2 = median(second.map((s) => s.pool));
-  const pool4 = median(last.map((s) => s.pool));
-  need('the pool stays inside its cap', Math.max(...samples.map((s) => s.pool)) <= limits.maxPool, `most clients held ${Math.max(...samples.map((s) => s.pool))}, cap ${limits.maxPool}`);
-  need('the pool does not creep', pool4 <= pool2, `median ${pool4} in the last quarter against ${pool2} in the second`);
+  const queued = median(last.map((s) => s.waiting));
+  need('no clients are queued for the pool at the end', queued === 0, `median of ${queued} clients waiting for a connection in the last quarter (limit 0), the most at any sample ${Math.max(...samples.map((s) => s.waiting))}, the pool at most ${Math.max(...samples.map((s) => s.pool))} clients`);
   need('no message waits long for the relay', Math.max(...samples.map((s) => s.oldest)) <= limits.oldestSeconds, `oldest unrelayed message was ${Math.round(Math.max(...samples.map((s) => s.oldest)) * 10) / 10} s old at its worst, limit ${limits.oldestSeconds} s`);
   need('the backlog drains once the load stops', tail.depth === 0, `${tail.depth} messages waiting ${limits.drainedBySeconds} s after the load stopped`);
   return { checks, failed: checks.some((check) => !check.ok) };
