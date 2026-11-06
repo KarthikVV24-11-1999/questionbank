@@ -490,6 +490,30 @@ describe('loadConfig — what the authentication routes allow, and how much hash
     expect([result.value.passwordHashConcurrency, result.value.passwordHashQueue, result.value.passwordHashWaitMs, result.value.trustProxyHops]).toEqual([2, 256, 15_000, 0]);
   });
 
+  // DEC-M8-35's classroom: 100 learners behind one address. A learner reads about 6 times a minute (opening home is about 5 reads, browsing about 6 a minute) and the app sends the answers of an
+  // open run about 3 batches a minute. An address is an aggregate of a hundred people whose idle gaps interleave, so its sustained rate is the classroom's own, not one person's duty cycle.
+  const CLASSROOM_LEARNERS = 100;
+  const READS_PER_LEARNER_PER_MINUTE = 6;
+  const EVENT_BATCHES_PER_LEARNER_PER_MINUTE = 3;
+  const CLASSROOM_PER_MINUTE = {
+    rateLimitLearning: CLASSROOM_LEARNERS * READS_PER_LEARNER_PER_MINUTE,
+    rateLimitAttempts: CLASSROOM_LEARNERS * READS_PER_LEARNER_PER_MINUTE,
+    rateLimitEvents: CLASSROOM_LEARNERS * EVENT_BATCHES_PER_LEARNER_PER_MINUTE,
+  } as const;
+
+  it("holds a source's sustained tier to the classroom rate the entry states, and below what the burst tier would allow for an hour (DEC-M8-35)", () => {
+    for (const key of Object.keys(CLASSROOM_PER_MINUTE) as (keyof typeof CLASSROOM_PER_MINUTE)[]) {
+      const tiers = [...DEFAULT_ABUSE_LIMITS[key].source.tiers].sort((a, b) => a.windowMs - b.windowMs);
+      const burst = tiers[0]!;
+      const sustained = tiers.at(-1)!;
+      expect(sustained.windowMs, `${key} has an hourly source tier`).toBe(3_600_000);
+      const sustainedPerMinute = sustained.max / (sustained.windowMs / 60_000);
+      const burstPerMinute = burst.max / (burst.windowMs / 60_000);
+      expect(sustainedPerMinute, `${key}: the sustained source tier, a minute at a time`).toBeGreaterThanOrEqual(CLASSROOM_PER_MINUTE[key]);
+      expect(sustainedPerMinute, `${key}: still a constraint under the burst tier`).toBeLessThan(burstPerMinute);
+    }
+  });
+
   it('takes a policy from the environment, and a blank variable is the default', () => {
     for (const [variable, key] of ROUTES) {
       const taken = loadConfig(validEnv({ [variable]: 'source=7/1m' }));

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readMetrics } from './load.mjs';
-import { BETA, BLOCKED, BUDGETS, MIN_SAMPLES, SOAK, seeableLeakBytes, TARGETS, derive, judge, median, operationsIn, percentile, soakVerdict, stampedeVerdict, summarise } from './model.mjs';
+import { BETA, BLOCKED, BUDGETS, MIN_SAMPLES, SOAK, seeableLeakBytes, TARGETS, derive, judge, median, operationsIn, percentile, relayGap, soakVerdict, stampedeVerdict, summarise } from './model.mjs';
 
 const ok = (ms) => ({ status: 200, ms });
 const stream = (name, ms, count = 120) => [name, summarise(Array.from({ length: count }, () => ok(ms)))];
@@ -155,7 +155,7 @@ describe('the soak', () => {
 
   it('passes a run in which nothing drifts', () => {
     assert.deepEqual(failing(verdict(series())), []);
-    assert.equal(verdict(series()).checks.length, 6);
+    assert.equal(verdict(series()).checks.length, 5);
   });
 
   it('fails resident memory that keeps rising, and not memory that settled after the first quarter', () => {
@@ -176,14 +176,21 @@ describe('the soak', () => {
     assert.deepEqual(failing(verdict(series((i) => ({ oldest: i === 7 ? 10 : 1 })))), []);
   });
 
-  it('fails a relay that goes more than five seconds without a drain while a message older than two seconds waits', () => {
-    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 5.5 : 0.5, oldest: i === 3 ? 2.5 : 1 })))), ['the relay does not stall with work waiting']);
-    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 5 : 0.5, oldest: i === 3 ? 9 : 1 })))), []);
-    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 5.5 : 0.5, oldest: i === 3 ? 2 : 1 })))), []);
+  it('does not fail a long gap between drains with nothing old waiting: a drain that is busy delivering (runs 42098744164 and 42103811295, 7.8 s, and 14.9 s on the first)', () => {
+    assert.deepEqual(failing(verdict(series((i) => ({ lag: 15, oldest: 1.8 })))), []);
+    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 7.8 : 0.5, oldest: i === 3 ? 2.5 : 1 })))), []);
+    assert.deepEqual(failing(verdict(series((i) => ({ lag: i === 3 ? 7.8 : 0.5, oldest: i === 3 ? 9 : 1 })))), []);
   });
 
-  it('does not fail a long drain that is delivering: a long wait between drains with nothing old waiting', () => {
-    assert.deepEqual(failing(verdict(series((i) => ({ lag: 15, oldest: 1.8 })))), []);
+  it('still fails a relay that has stopped with work waiting: the oldest message climbs past ten seconds while the gap between drains grows with it', () => {
+    const stopped = series((i) => (i < 10 ? {} : { lag: (i - 9) * 2, depth: 2 + i * 50, oldest: (i - 9) * 2 }));
+    assert.deepEqual(failing(verdict(stopped)), ['no message waits long for the relay']);
+    assert.equal(verdict(stopped).failed, true);
+  });
+
+  it('still fails a relay that stopped and left its backlog: nothing has drained thirty seconds after the load ended', () => {
+    const stoppedLate = series((i) => (i < 36 ? {} : { lag: (i - 35) * 2, oldest: 3 }));
+    assert.deepEqual(failing(verdict(stoppedLate, 40)), ['the backlog drains once the load stops']);
   });
 
   it('fails a backlog that is still there thirty seconds after the load stopped', () => {
@@ -197,8 +204,16 @@ describe('the soak', () => {
     assert.equal(verdict([]).failed, true);
   });
 
+  it('reports the longest gap between drains and the age of the oldest message then, and judges neither', () => {
+    const run = series((i) => ({ lag: i === 5 ? 7.8 : 0.5, oldest: i === 5 ? 1.9 : 1 }));
+    assert.deepEqual(relayGap(run), { gapSeconds: 7.8, oldestThenSeconds: 1.9 });
+    assert.deepEqual(relayGap(series((i) => ({ lag: i === 0 ? 3 : 0.5, oldest: i === 0 ? 4 : 1 })).reverse()), { gapSeconds: 3, oldestThenSeconds: 4 });
+    assert.ok(Number.isNaN(relayGap([]).gapSeconds) && Number.isNaN(relayGap([]).oldestThenSeconds));
+    assert.deepEqual(verdict(series((i) => ({ lag: 100 }))).checks.map((c) => c.what).filter((what) => /relay/u.test(what)), ['no message waits long for the relay']);
+  });
+
   it('has the thresholds the header states', () => {
-    assert.deepEqual({ ...SOAK }, { rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30, lagSeconds: 5, stalledOldestSeconds: 2 });
+    assert.deepEqual({ ...SOAK }, { rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30 });
   });
 });
 

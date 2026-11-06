@@ -869,6 +869,8 @@ The relay claims only messages whose type has a consumer. `ItemPublished` and `S
 
 **What the gate now asserts (M8-56, DEC-M8-34).** The one-in-four was a gate asking two questions with one number. Whether the stack meets the NFR cannot be answered on this runner, so the exit code no longer depends on the NFR: it depends on a budget for each stream on this runner, set at least twice the worst p95 the track's runs produced, and the comparison with the table is a figure in the output. A stream is gated on its percentile only with at least 100 successful samples (the others are reported, with their counts, and said to be under), and any failed operation fails the run at any size. A budget met is not evidence about production, and a budget breached is evidence that something changed here. Observed before the change: sign-in p95 191 to 215 ms against 300, the answers' p95 38 to 89 ms (p99 201), and one run that breached for a reason not kept.
 
+**The soak's colour on a runner (M8 Track N, DEC-M8-36).** Its stall check turned on the ordering of two samples (a gap between drains above 5 s and an oldest message above 2 s landing on the same sample), so the soak's figures are a floor on a quiet runner and no more.
+
 **Trigger** The host: run the same script against it from another machine, with a published 75-item form, and read the figures as the host's.
 **Cited** `tools/load/load.mjs`
 

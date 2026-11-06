@@ -212,9 +212,9 @@ const DEFAULTS = {
   rateLimitPasswordChange: 'source=20/1m,200/1h;subject=5/1m,20/15m',
   // Onboarding is a handful of calls a minute for a person, and a class sitting down together is a hundred people behind one address doing that at once.
   rateLimitProfile: 'source=300/1m,3000/1h;subject=30/1m,300/1h',
-  rateLimitLearning: 'source=1800/1m,20000/1h;subject=60/1m,600/1h',
+  rateLimitLearning: 'source=1800/1m,60000/1h;subject=60/1m,600/1h',
   rateLimitEvents: 'source=1000/1m,30000/1h;subject=60/1m,1200/1h',
-  rateLimitAttempts: 'source=1800/1m,30000/1h;subject=60/1m,600/1h',
+  rateLimitAttempts: 'source=1800/1m,60000/1h;subject=60/1m,600/1h',
   passwordHashConcurrency: '2',
   passwordHashQueue: '256',
   passwordHashWaitMs: '15000',

@@ -145,10 +145,11 @@ export const median = (values) => percentile(values, 50);
  *   pool: the most clients the pool ever held may not exceed MAX_POOL (the pool's own cap, 10 in `pool.ts`), and the last quarter's median may not be above the second quarter's.
  *   depth and oldest: during the run the oldest unrelayed message may not be older than 10 s (the relay ticks every second), and when the load has stopped and the relay has had 30 s the backlog
  *        must be 0. A queue that forms under load and drains is the finding; one that does not drain is the failure.
- *   lag: the relay may not go more than 5 s without finishing a drain *while a message is waiting* (older than 2 s) at the same sample. A drain that is busy delivering is long and is not a stall: the
- *        first soak on the CI runner saw 14.9 s between drains with the oldest message never older than 1.8 s, because a drain keeps claiming rounds for as long as there is something to claim.
+ *   lag (reported, not judged; DEC-M8-36): seconds since the relay last finished a drain. A gap between drains is a proxy for "the relay is making no progress", and a noisy one on a two-vCPU
+ *        runner, because a drain that is busy delivering is long by design (14.9 s with the oldest message never older than 1.8 s, 7.8 s in the green run). The facts are the two rules above: a
+ *        relay with work waiting and no progress fails the 10-second rule, and one that never recovers fails the drain rule. The longest gap is printed with the age of the oldest message then.
  */
-export const SOAK = Object.freeze({ rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30, lagSeconds: 5, stalledOldestSeconds: 2 });
+export const SOAK = Object.freeze({ rssGrowth: 1.3, maxPool: 10, oldestSeconds: 10, drainedBySeconds: 30 });
 
 export function soakVerdict(samples, tail, limits = SOAK) {
   const checks = [];
@@ -169,10 +170,18 @@ export function soakVerdict(samples, tail, limits = SOAK) {
   need('the pool stays inside its cap', Math.max(...samples.map((s) => s.pool)) <= limits.maxPool, `most clients held ${Math.max(...samples.map((s) => s.pool))}, cap ${limits.maxPool}`);
   need('the pool does not creep', pool4 <= pool2, `median ${pool4} in the last quarter against ${pool2} in the second`);
   need('no message waits long for the relay', Math.max(...samples.map((s) => s.oldest)) <= limits.oldestSeconds, `oldest unrelayed message was ${Math.round(Math.max(...samples.map((s) => s.oldest)) * 10) / 10} s old at its worst, limit ${limits.oldestSeconds} s`);
-  const stalled = samples.filter((s) => s.lag > limits.lagSeconds && s.oldest > limits.stalledOldestSeconds);
-  need('the relay does not stall with work waiting', stalled.length === 0, `the longest wait between drains was ${Math.round(Math.max(...samples.map((s) => s.lag)) * 10) / 10} s (limit ${limits.lagSeconds} s when a message older than ${limits.stalledOldestSeconds} s is waiting); ${stalled.length} samples were both`);
   need('the backlog drains once the load stops', tail.depth === 0, `${tail.depth} messages waiting ${limits.drainedBySeconds} s after the load stopped`);
   return { checks, failed: checks.some((check) => !check.ok) };
+}
+
+/**
+ * The relay's longest gap between drains over a run, and the age of the oldest unrelayed message at that sample. **Reported and not judged** (DEC-M8-36): no verdict attaches to it, because which of
+ * two noisy values lands on a sample is not a fact about the relay. NaN for a run with no samples.
+ */
+export function relayGap(samples) {
+  let worst;
+  for (const sample of samples) if (worst === undefined || sample.lag > worst.lag) worst = sample;
+  return worst === undefined ? { gapSeconds: Number.NaN, oldestThenSeconds: Number.NaN } : { gapSeconds: worst.lag, oldestThenSeconds: worst.oldest };
 }
 const mib = (bytes) => Math.round(bytes / 1_048_576);
 

@@ -25,7 +25,7 @@
 // printed with its result: the number of requests it made, and so the size of a per-request leak it could have seen.
 import { webcrypto } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { BETA, BLOCKED, MIN_SAMPLES, SOAK, derive, judge, operationsIn, seeableLeakBytes, soakVerdict, stampedeVerdict, summarise } from './model.mjs';
+import { BETA, BLOCKED, MIN_SAMPLES, SOAK, derive, judge, operationsIn, relayGap, seeableLeakBytes, soakVerdict, stampedeVerdict, summarise } from './model.mjs';
 
 const BASE = (process.env.STACK_URL ?? 'http://localhost:8080').replace(/\/$/u, '');
 const METRICS = process.env.METRICS_URL ?? 'http://127.0.0.1:3000/metrics';
@@ -282,6 +282,8 @@ async function main() {
     const tail = await scrape();
     const soak = soakVerdict(series, { depth: tail.depth });
     for (const check of soak.checks) log(`  ${check.ok ? 'ok  ' : 'FAIL'} ${check.what}: ${check.detail}`);
+    const gap = relayGap(series);
+    log(`  reported, not judged: the longest wait between relay drains was ${Math.round(gap.gapSeconds * 10) / 10} s, with the oldest unrelayed message ${Math.round(gap.oldestThenSeconds * 10) / 10} s old at that sample`);
     log(`  refusals counted by the API over the run: ${tail.refusals.length === 0 ? 'none' : tail.refusals.join(', ')}`);
     process.exit(soak.failed || verdict.failed ? 1 : 0);
   }
